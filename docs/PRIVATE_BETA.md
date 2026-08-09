@@ -2,6 +2,8 @@
 
 This beta synchronizes playback commands and timing only. It never captures, uploads, proxies, or retransmits video or audio. Every participant must use their own authorized streaming-service account and open the same title or episode on their own device.
 
+The current extension package connects to the deployed Cloudflare room service at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`.
+
 ## Install on both computers
 
 1. Send `sync-your-joy-beta.zip` to the other tester through your preferred private file-sharing channel.

@@ -45,6 +45,7 @@ Commercial streaming sites change their page structure and playback behavior reg
 ## Current beta limitations
 
 - The Node room service is still available for local development; the remote beta build targets the Durable Objects backend.
+- The deployed beta endpoint is `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`.
 - Rooms are intentionally ephemeral and expire after all participants have left.
 - The extension is an unpacked development build and is not ready for Chrome Web Store submission.
 - There is no account system, chat, voice, video calling, or room history.
@@ -77,9 +78,8 @@ npm run check
 
 ## Next production milestone
 
-1. Deploy the Durable Objects coordinator and package an extension build with its WSS endpoint.
-2. Run the private two-city pilot and record connection, autoplay, buffering, and drift observations.
-3. Add browser automation across two persistent Chrome profiles with network shaping.
-4. Create versioned compatibility fixtures for Crunchyroll, Netflix, and Disney+.
-5. Add privacy disclosures, telemetry consent, retention policy, and adapter kill switches.
-6. Validate performance objectives before making synchronization claims.
+1. Run the private two-city pilot and record connection, autoplay, buffering, and drift observations.
+2. Add browser automation across two persistent Chrome profiles with network shaping.
+3. Create versioned compatibility fixtures for Crunchyroll, Netflix, and Disney+.
+4. Add privacy disclosures, telemetry consent, retention policy, and adapter kill switches.
+5. Validate performance objectives before making synchronization claims.

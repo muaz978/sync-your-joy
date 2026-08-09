@@ -4,7 +4,9 @@ SyncYourJoy is a Chrome extension for synchronized watch parties. Every particip
 
 ## Project status
 
-An end-to-end, deployable private-beta build is implemented. It includes the Manifest V3 extension, a Cloudflare Durable Objects WebSocket coordinator, a local development server, the shared synchronization engine, a generic HTML5 adapter, a local test player, and automated tests.
+An end-to-end private beta is deployed. It includes the Manifest V3 extension, a Cloudflare Durable Objects WebSocket coordinator, a local development server, the shared synchronization engine, a generic HTML5 adapter, a local test player, and automated tests.
+
+The beta room service is available at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its HTTP health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
 ## Product principles
 
