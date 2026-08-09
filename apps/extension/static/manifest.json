@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "SyncYourJoy",
+  "version": "0.1.0",
+  "description": "Synchronize playback while everyone watches through their own streaming account.",
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_title": "Open SyncYourJoy"
+  },
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "tabs"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.netflix.com/*",
+        "https://www.disneyplus.com/*",
+        "https://www.crunchyroll.com/*",
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://127.0.0.1:8787 ws://localhost:8787"
+  }
+}

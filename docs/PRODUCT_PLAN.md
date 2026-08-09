@@ -1,5 +1,9 @@
 # Product plan
 
+## Execution status
+
+M0 through the local M2 vertical slice are implemented. The repository now contains the protocol, room state machine, synchronization engine, localhost WebSocket service, Manifest V3 extension, side panel, in-page pill, generic player adapter, local test player, and automated checks. M3 reliability hardening and production deployment remain in progress.
+
 ## 1. Product promise
 
 SyncYourJoy lets two or more people watch the same title together while each person streams from their own account and device. One authoritative controller drives playback for the room, and the system continuously detects and corrects drift.

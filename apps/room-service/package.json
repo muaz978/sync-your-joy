@@ -1,0 +1,11 @@
+{
+  "name": "@syncyourjoy/room-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@syncyourjoy/protocol": "*",
+    "@syncyourjoy/sync-engine": "*",
+    "ws": "^8.21.3"
+  }
+}

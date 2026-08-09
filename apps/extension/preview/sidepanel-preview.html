@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SyncYourJoy panel preview</title>
+    <link rel="stylesheet" href="../dist/styles.css">
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      const withRoom = new URLSearchParams(location.search).has('room')
+      const forceLight = new URLSearchParams(location.search).has('light')
+      const media = {
+        service: 'crunchyroll',
+        canonicalId: 'crunchyroll:GR75Q020Y',
+        title: 'Frieren: Beyond Journey’s End, Episode 8',
+        durationSeconds: 1420,
+      }
+      const previewState = {
+        connection: withRoom ? 'connected' : 'disconnected',
+        participantId: 'participant_preview',
+        inviteToken: withRoom ? 'preview_token' : null,
+        snapshot: withRoom ? {
+          roomId: 'room_preview',
+          code: 'JOY7K2MX',
+          revision: 8,
+          controller: { participantId: 'participant_preview', leaseEpoch: 1 },
+          media,
+          playback: { status: 'paused', positionSeconds: 438, effectiveAtServerMs: Date.now(), playbackRate: 1 },
+          participants: [
+            { id: 'participant_preview', name: 'Muaz', role: 'controller', ready: true, connected: true, mediaMatches: true, latencyMs: 42 },
+            { id: 'participant_friend', name: 'Rana', role: 'member', ready: true, connected: true, mediaMatches: true, latencyMs: 76 },
+          ],
+          policy: { buffering: 'pause-all' },
+        } : null,
+        serverOffsetMs: 4,
+        clockUncertaintyMs: 38,
+        lastError: null,
+        displayName: 'Muaz',
+        currentMedia: media,
+        lastPlayerSample: null,
+      }
+      const listeners = []
+      const chromeMock = globalThis.chrome || {}
+      chromeMock.runtime = {
+        onMessage: { addListener(listener) { listeners.push(listener) } },
+        async sendMessage(request) {
+          return { ok: true, state: previewState }
+        },
+      }
+      chromeMock.storage = {
+        local: {
+          async get() { return forceLight ? { syncYourJoyTheme: 'light' } : {} },
+          async set() {},
+        },
+      }
+      globalThis.chrome = chromeMock
+    </script>
+    <script src="../dist/sidepanel.js"></script>
+  </body>
+</html>

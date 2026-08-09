@@ -1,0 +1,273 @@
+export const PROTOCOL_VERSION = 1 as const
+
+export type PlaybackStatus = 'paused' | 'playing'
+export type ParticipantRole = 'controller' | 'member'
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected'
+
+export interface MediaFingerprint {
+  service: string
+  canonicalId: string
+  title: string
+  durationSeconds: number | null
+}
+
+export interface PlaybackState {
+  status: PlaybackStatus
+  positionSeconds: number
+  effectiveAtServerMs: number
+  playbackRate: number
+}
+
+export interface ParticipantState {
+  id: string
+  name: string
+  role: ParticipantRole
+  ready: boolean
+  connected: boolean
+  mediaMatches: boolean
+  latencyMs: number | null
+}
+
+export interface RoomPolicy {
+  buffering: 'pause-all' | 'catch-up'
+}
+
+export interface RoomSnapshot {
+  roomId: string
+  code: string
+  revision: number
+  controller: {
+    participantId: string
+    leaseEpoch: number
+  }
+  media: MediaFingerprint | null
+  playback: PlaybackState
+  participants: ParticipantState[]
+  policy: RoomPolicy
+}
+
+export interface PlayerSample {
+  positionSeconds: number
+  durationSeconds: number | null
+  paused: boolean
+  buffering: boolean
+  sampledAtLocalMs: number
+}
+
+export type ControlKind = 'play' | 'pause' | 'seek'
+
+export type ClientMessage =
+  | {
+      type: 'create_room'
+      protocolVersion: typeof PROTOCOL_VERSION
+      participantId: string
+      name: string
+      media: MediaFingerprint | null
+    }
+  | {
+      type: 'join_room'
+      protocolVersion: typeof PROTOCOL_VERSION
+      participantId: string
+      name: string
+      code: string
+      media: MediaFingerprint | null
+    }
+  | {
+      type: 'set_ready'
+      ready: boolean
+      media: MediaFingerprint | null
+    }
+  | {
+      type: 'control'
+      actionId: string
+      basedOnRevision: number
+      leaseEpoch: number
+      kind: ControlKind
+      positionSeconds: number
+    }
+  | {
+      type: 'transfer_control'
+      participantId: string
+      leaseEpoch: number
+    }
+  | {
+      type: 'player_status'
+      sample: PlayerSample
+    }
+  | {
+      type: 'ping'
+      id: string
+      sentAtLocalMs: number
+    }
+  | {
+      type: 'client_metrics'
+      roundTripMs: number
+    }
+
+export type ServerMessage =
+  | {
+      type: 'room_joined'
+      participantId: string
+      inviteToken: string
+      snapshot: RoomSnapshot
+    }
+  | {
+      type: 'room_snapshot'
+      reason: string
+      snapshot: RoomSnapshot
+    }
+  | {
+      type: 'command_rejected'
+      actionId: string | null
+      code: string
+      message: string
+      snapshot: RoomSnapshot | null
+    }
+  | {
+      type: 'pong'
+      id: string
+      sentAtLocalMs: number
+      serverTimeMs: number
+    }
+  | {
+      type: 'error'
+      code: string
+      message: string
+    }
+
+export interface ClientRoomState {
+  connection: ConnectionStatus
+  participantId: string
+  inviteToken: string | null
+  snapshot: RoomSnapshot | null
+  serverOffsetMs: number
+  clockUncertaintyMs: number
+  lastError: string | null
+}
+
+export function mediaMatches(expected: MediaFingerprint | null, actual: MediaFingerprint | null): boolean {
+  if (!expected || !actual)
+    return expected === actual
+
+  if (expected.service !== actual.service || expected.canonicalId !== actual.canonicalId)
+    return false
+
+  if (expected.durationSeconds === null || actual.durationSeconds === null)
+    return true
+
+  return Math.abs(expected.durationSeconds - actual.durationSeconds) <= 3
+}
+
+export function parseClientMessage(value: unknown): ClientMessage | null {
+  if (!isRecord(value) || typeof value.type !== 'string')
+    return null
+
+  switch (value.type) {
+    case 'create_room':
+      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validMedia(value.media))
+        return null
+      return value as unknown as ClientMessage
+
+    case 'join_room':
+      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media))
+        return null
+      return { ...value, code: value.code.toUpperCase() } as unknown as ClientMessage
+
+    case 'set_ready':
+      if (typeof value.ready !== 'boolean' || !validMedia(value.media))
+        return null
+      return value as unknown as ClientMessage
+
+    case 'control':
+      if (!validId(value.actionId) || !isNonNegativeInteger(value.basedOnRevision) || !isNonNegativeInteger(value.leaseEpoch) || !isControlKind(value.kind) || !isFiniteNonNegative(value.positionSeconds))
+        return null
+      return value as unknown as ClientMessage
+
+    case 'transfer_control':
+      if (!validId(value.participantId) || !isNonNegativeInteger(value.leaseEpoch))
+        return null
+      return value as unknown as ClientMessage
+
+    case 'player_status':
+      if (!validPlayerSample(value.sample))
+        return null
+      return value as unknown as ClientMessage
+
+    case 'ping':
+      if (!validId(value.id) || !isFiniteNonNegative(value.sentAtLocalMs))
+        return null
+      return value as unknown as ClientMessage
+
+    case 'client_metrics':
+      if (!isFiniteNonNegative(value.roundTripMs) || value.roundTripMs > 10_000)
+        return null
+      return value as unknown as ClientMessage
+
+    default:
+      return null
+  }
+}
+
+export function safeJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown
+  }
+  catch {
+    return null
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function validMedia(value: unknown): value is MediaFingerprint | null {
+  if (value === null)
+    return true
+  if (!isRecord(value))
+    return false
+
+  return validShortText(value.service, 40)
+    && validShortText(value.canonicalId, 500)
+    && validShortText(value.title, 300)
+    && (value.durationSeconds === null || isFiniteNonNegative(value.durationSeconds))
+}
+
+function validPlayerSample(value: unknown): value is PlayerSample {
+  if (!isRecord(value))
+    return false
+
+  return isFiniteNonNegative(value.positionSeconds)
+    && (value.durationSeconds === null || isFiniteNonNegative(value.durationSeconds))
+    && typeof value.paused === 'boolean'
+    && typeof value.buffering === 'boolean'
+    && isFiniteNonNegative(value.sampledAtLocalMs)
+}
+
+function isControlKind(value: unknown): value is ControlKind {
+  return value === 'play' || value === 'pause' || value === 'seek'
+}
+
+function validId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-zA-Z0-9_-]{6,80}$/.test(value)
+}
+
+function validName(value: unknown): value is string {
+  return validShortText(value, 40)
+}
+
+function validCode(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Z0-9]{8}$/i.test(value)
+}
+
+function validShortText(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= maxLength
+}
+
+function isFiniteNonNegative(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && isFiniteNonNegative(value)
+}

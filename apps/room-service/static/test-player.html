@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SyncYourJoy test player</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif;
+        background: #e9eef5;
+        color: #1e293b;
+      }
+      * { box-sizing: border-box; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 32px; }
+      main { width: min(900px, 100%); }
+      h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 42px); letter-spacing: -0.035em; }
+      p { margin: 0 0 24px; color: #64748b; }
+      .player { padding: 18px; border-radius: 24px; box-shadow: 10px 10px 28px #c8ced6, -10px -10px 28px #f8fafc; }
+      video { display: block; width: 100%; min-height: 280px; border-radius: 15px; background: #111827; }
+      label { display: inline-flex; min-height: 44px; align-items: center; margin-top: 16px; padding: 0 16px; border-radius: 14px; background: #267d74; color: #f8fafc; font-weight: 700; cursor: pointer; }
+      input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+      @media (prefers-color-scheme: dark) {
+        :root { background: #151a22; color: #e2e8f0; }
+        p { color: #94a3b8; }
+        .player { box-shadow: 10px 10px 28px #0d1117, -10px -10px 28px #202936; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Local synchronization test</h1>
+      <p>Select the same local video in two Chrome profiles. The file stays on each device.</p>
+      <section class="player">
+        <video controls preload="metadata"></video>
+        <label>
+          Choose a local video
+          <input type="file" accept="video/*">
+        </label>
+      </section>
+    </main>
+    <script>
+      const input = document.querySelector('input')
+      const video = document.querySelector('video')
+      let activeUrl = null
+      input.addEventListener('change', () => {
+        const file = input.files && input.files[0]
+        if (!file)
+          return
+        if (activeUrl)
+          URL.revokeObjectURL(activeUrl)
+        activeUrl = URL.createObjectURL(file)
+        video.src = activeUrl
+        document.title = file.name
+      })
+    </script>
+  </body>
+</html>
