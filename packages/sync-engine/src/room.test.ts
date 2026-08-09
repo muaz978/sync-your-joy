@@ -120,4 +120,29 @@ describe('RoomCoordinator', () => {
     expect(result?.snapshot.playback.status).toBe('paused')
     expect(result?.snapshot.playback.positionSeconds).toBeGreaterThan(21)
   })
+
+  it('restores the authoritative state after hibernation', () => {
+    const room = createRoom()
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_before_sleep',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 90,
+    })
+
+    const restored = RoomCoordinator.fromState(room.exportState())
+    expect(restored.snapshot()).toEqual(room.snapshot())
+
+    const paused = restored.control('participant_host', {
+      actionId: 'action_after_sleep',
+      basedOnRevision: restored.snapshot().revision,
+      leaseEpoch: restored.snapshot().controller.leaseEpoch,
+      kind: 'pause',
+      positionSeconds: 91,
+    })
+    expect(paused).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+  })
 })

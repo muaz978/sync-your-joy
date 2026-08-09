@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "sync-your-joy-rooms",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-08",
+  "observability": {
+    "enabled": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROOMS",
+        "class_name": "RoomDurableObject"
+      }
+    ]
+  },
+  "exports": {
+    "RoomDurableObject": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

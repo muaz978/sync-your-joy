@@ -1,0 +1,10 @@
+{
+  "name": "@syncyourjoy/edge-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@syncyourjoy/protocol": "*",
+    "@syncyourjoy/sync-engine": "*"
+  }
+}

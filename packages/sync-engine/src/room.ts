@@ -9,7 +9,7 @@ import type {
 import { mediaMatches } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
 
-interface InternalParticipant extends ParticipantState {
+export interface InternalParticipant extends ParticipantState {
   joinedAtMs: number
   media: MediaFingerprint | null
   lastSample: PlayerSample | null
@@ -19,6 +19,17 @@ export interface RoomIdentity {
   roomId: string
   code: string
   inviteToken: string
+}
+
+export interface RoomCoordinatorState {
+  identity: RoomIdentity
+  revision: number
+  leaseEpoch: number
+  controllerId: string
+  media: MediaFingerprint | null
+  playback: PlaybackState
+  participants: Array<InternalParticipant>
+  actionIds: string[]
 }
 
 export interface ControlIntent {
@@ -35,6 +46,8 @@ export type RoomResult =
 
 export class RoomCoordinator {
   readonly inviteToken: string
+  private readonly identity: RoomIdentity
+  private readonly now: () => number
   private revision = 0
   private leaseEpoch = 1
   private controllerId: string
@@ -44,11 +57,28 @@ export class RoomCoordinator {
   private readonly actionIds = new Set<string>()
 
   constructor(
-    private readonly identity: RoomIdentity,
+    identity: RoomIdentity,
     controller: { id: string; name: string; media: MediaFingerprint | null },
-    private readonly now: () => number = Date.now,
+    now: () => number = Date.now,
+    restoredState?: RoomCoordinatorState,
   ) {
+    this.identity = identity
+    this.now = now
     this.inviteToken = identity.inviteToken
+
+    if (restoredState) {
+      this.revision = restoredState.revision
+      this.leaseEpoch = restoredState.leaseEpoch
+      this.controllerId = restoredState.controllerId
+      this.media = restoredState.media
+      this.playback = restoredState.playback
+      for (const participant of restoredState.participants)
+        this.participants.set(participant.id, structuredClone(participant))
+      for (const actionId of restoredState.actionIds)
+        this.actionIds.add(actionId)
+      return
+    }
+
     this.controllerId = controller.id
     this.media = controller.media
     this.playback = {
@@ -69,6 +99,31 @@ export class RoomCoordinator {
       media: controller.media,
       lastSample: null,
     })
+  }
+
+  static fromState(state: RoomCoordinatorState, now: () => number = Date.now): RoomCoordinator {
+    const controller = state.participants.find(participant => participant.id === state.controllerId)
+    if (!controller)
+      throw new Error('Stored room controller is missing.')
+    return new RoomCoordinator(
+      state.identity,
+      { id: controller.id, name: controller.name, media: controller.media },
+      now,
+      state,
+    )
+  }
+
+  exportState(): RoomCoordinatorState {
+    return {
+      identity: { ...this.identity },
+      revision: this.revision,
+      leaseEpoch: this.leaseEpoch,
+      controllerId: this.controllerId,
+      media: this.media ? { ...this.media } : null,
+      playback: { ...this.playback },
+      participants: [...this.participants.values()].map(participant => structuredClone(participant)),
+      actionIds: [...this.actionIds],
+    }
   }
 
   join(participant: { id: string; name: string; media: MediaFingerprint | null }): RoomResult {

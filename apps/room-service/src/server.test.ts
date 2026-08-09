@@ -21,6 +21,7 @@ describe('room service', () => {
       protocolVersion: 1,
       participantId: 'participant_host',
       name: 'Muaz',
+      code: 'JOY7K2MX',
       media: {
         service: 'youtube',
         canonicalId: 'youtube:abc123',

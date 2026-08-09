@@ -4,9 +4,7 @@ SyncYourJoy is a Chrome extension for synchronized watch parties. Every particip
 
 ## Project status
 
-An end-to-end local MVP is implemented. It includes the Manifest V3 extension, authoritative WebSocket room service, shared synchronization engine, generic HTML5 adapter, local test player, and automated tests.
-
-The current backend listens on localhost, so it is a development vertical slice rather than an internet-deployed release. Remote parties require the room service to be deployed and the extension's WebSocket endpoint and content security policy to be updated.
+An end-to-end, deployable private-beta build is implemented. It includes the Manifest V3 extension, a Cloudflare Durable Objects WebSocket coordinator, a local development server, the shared synchronization engine, a generic HTML5 adapter, a local test player, and automated tests.
 
 ## Product principles
 
@@ -47,10 +45,26 @@ Then:
 
 The test player never uploads the selected file. Each browser creates a local object URL for its own copy.
 
+## Deploy an edge beta
+
+Authenticate Wrangler, deploy the room coordinator, and build the extension with the resulting WSS endpoint:
+
+```bash
+npx wrangler login
+npm run deploy:edge
+SYNCYOURJOY_ROOM_SERVER_URL=wss://YOUR-WORKER.workers.dev/rooms npm run build:extension
+npm run smoke:edge -- wss://YOUR-WORKER.workers.dev/rooms
+```
+
+The build script inserts that endpoint into the extension bundle and adds its origin to the Manifest V3 content security policy. See [private beta testing](docs/PRIVATE_BETA.md) for installation and two-city test instructions.
+
 ## Commands
 
 ```bash
 npm run dev:server      # local WebSocket room service
+npm run dev:edge        # local Cloudflare Durable Objects runtime
+npm run deploy:edge     # deploy the edge room service
+npm run smoke:edge -- URL # exercise two clients against a room service
 npm run build           # server and unpacked extension
 npm run typecheck       # strict TypeScript check
 npm test                # protocol, server, sync, and permission tests
@@ -63,6 +77,7 @@ npm run check           # full verification pipeline
 - [Technical architecture](docs/ARCHITECTURE.md)
 - [Research and constraints](docs/RESEARCH.md)
 - [Current implementation](docs/IMPLEMENTATION.md)
+- [Private beta testing](docs/PRIVATE_BETA.md)
 
 ## Working name
 

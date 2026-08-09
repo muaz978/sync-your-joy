@@ -62,6 +62,7 @@ export type ClientMessage =
       protocolVersion: typeof PROTOCOL_VERSION
       participantId: string
       name: string
+      code: string
       media: MediaFingerprint | null
     }
   | {
@@ -164,9 +165,9 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
 
   switch (value.type) {
     case 'create_room':
-      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validMedia(value.media))
+      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media))
         return null
-      return value as unknown as ClientMessage
+      return { ...value, code: value.code.toUpperCase() } as unknown as ClientMessage
 
     case 'join_room':
       if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media))

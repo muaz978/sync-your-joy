@@ -3,7 +3,9 @@ import type { ExtensionState, RuntimeEvent, RuntimeRequest, RuntimeResponse } fr
 import { mediaMatches, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
 
-const ROOM_SERVER_URL = 'ws://127.0.0.1:8787/rooms'
+declare const __ROOM_SERVER_URL__: string
+
+const ROOM_SERVER_URL = __ROOM_SERVER_URL__
 const SESSION_STATE_KEY = 'syncYourJoySessionState'
 const DISPLAY_NAME_KEY = 'syncYourJoyDisplayName'
 
@@ -105,12 +107,14 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     case 'CREATE_ROOM':
       if (!state.currentMedia)
         return failure('Open a supported video before creating a room.')
-      await startFreshConnection()
+      const newRoomCode = createRoomCode()
+      await startFreshConnection(newRoomCode)
       sendToServer({
         type: 'create_room',
         protocolVersion: 1,
         participantId: state.participantId,
         name: state.displayName,
+        code: newRoomCode,
         media: state.currentMedia,
       })
       return success()
@@ -119,7 +123,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       const code = request.code.trim().toUpperCase()
       if (!/^[A-Z0-9]{8}$/.test(code))
         return failure('Enter the eight-character room code.')
-      await startFreshConnection()
+      await startFreshConnection(code)
       sendToServer({
         type: 'join_room',
         protocolVersion: 1,
@@ -194,7 +198,7 @@ async function sendControl(kind: ControlKind, explicitPosition?: number): Promis
   return success()
 }
 
-async function startFreshConnection(): Promise<void> {
+async function startFreshConnection(roomCode: string): Promise<void> {
   intentionallyClosed = true
   if (reconnectTimer)
     clearTimeout(reconnectTimer)
@@ -206,10 +210,10 @@ async function startFreshConnection(): Promise<void> {
   state.inviteToken = null
   state.lastError = null
   intentionallyClosed = false
-  await connect()
+  await connect(roomCode)
 }
 
-async function connect(): Promise<void> {
+async function connect(roomCode: string): Promise<void> {
   if (socket?.readyState === WebSocket.OPEN)
     return
   if (connectionPromise)
@@ -217,7 +221,9 @@ async function connect(): Promise<void> {
 
   connectionPromise = new Promise<void>((resolve, reject) => {
     clock = new ClockSynchronizer()
-    const nextSocket = new WebSocket(ROOM_SERVER_URL)
+    const socketUrl = new URL(ROOM_SERVER_URL)
+    socketUrl.searchParams.set('code', roomCode)
+    const nextSocket = new WebSocket(socketUrl)
     socket = nextSocket
 
     nextSocket.addEventListener('open', () => {
@@ -232,7 +238,7 @@ async function connect(): Promise<void> {
     nextSocket.addEventListener('error', () => {
       if (connectionPromise) {
         connectionPromise = null
-        reject(new Error('Cannot reach the local room service on port 8787.'))
+        reject(new Error('Cannot reach the SyncYourJoy room service. Check your connection and try again.'))
       }
     }, { once: true })
 
@@ -258,7 +264,7 @@ async function reconnectIfNeeded(): Promise<void> {
     return
 
   try {
-    await connect()
+    await connect(state.snapshot.code)
     sendToServer({
       type: 'join_room',
       protocolVersion: 1,
@@ -410,4 +416,10 @@ function failure(error: string): RuntimeResponse {
 
 function createId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`
+}
+
+function createRoomCode(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes = crypto.getRandomValues(new Uint8Array(8))
+  return [...bytes].map(byte => alphabet[byte % alphabet.length]).join('')
 }

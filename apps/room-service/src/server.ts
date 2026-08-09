@@ -146,7 +146,7 @@ export async function createRoomService(options: { port?: number; host?: string 
         return
       }
 
-      const code = createUniqueCode(rooms)
+      const code = rooms.has(message.code) ? createUniqueCode(rooms) : message.code
       const coordinator = new RoomCoordinator(
         { roomId: randomUUID(), code, inviteToken: randomBytes(16).toString('base64url') },
         { id: message.participantId, name: message.name, media: message.media },

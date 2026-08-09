@@ -12,15 +12,19 @@
     "build:extension": "node scripts/build-extension.mjs",
     "build:server": "esbuild apps/room-service/src/server.ts --bundle --platform=node --format=esm --outfile=apps/room-service/dist/server.mjs --external:ws",
     "dev:server": "tsx apps/room-service/src/server.ts",
+    "dev:edge": "wrangler dev --config apps/edge-service/wrangler.jsonc",
+    "deploy:edge": "wrangler deploy --config apps/edge-service/wrangler.jsonc",
+    "smoke:edge": "node scripts/smoke-room-service.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p apps/edge-service/tsconfig.json",
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260809.1",
     "@types/chrome": "^0.2.5",
     "@types/node": "^26.2.0",
     "@types/ws": "^8.18.1",
@@ -29,6 +33,7 @@
     "tsx": "^4.23.11",
     "typescript": "^7.0.2",
     "unocss": "^66.7.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.120.0"
   }
 }

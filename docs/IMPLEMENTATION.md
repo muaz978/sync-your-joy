@@ -19,6 +19,10 @@
 - Controller disconnect pause, ten-second recovery grace period, and deterministic handoff.
 - Light and dark themes with a restrained neumorphic control treatment.
 - Local test player that accepts a device-local video through an object URL.
+- Cloudflare Worker routing each room code to one stateful Durable Object.
+- Hibernating edge WebSockets with persisted room snapshots and alarm-driven controller recovery and room expiry.
+- Environment-specific extension builds for localhost or a deployed WSS coordinator.
+- A two-client deployment smoke test covering create, join, ready, ping, and scheduled play.
 
 ## Explicit privacy boundary
 
@@ -38,15 +42,15 @@ The subscription platforms use the generic standards-based video adapter in this
 
 Commercial streaming sites change their page structure and playback behavior regularly. Each platform still needs a dedicated compatibility and regression test pass before it can be described as production-supported. The generic adapter fails visibly when it cannot find a controllable video instead of attempting to bypass the player.
 
-## Current development limitations
+## Current beta limitations
 
-- The room service is in-memory and localhost-only.
-- Rooms disappear when the service restarts.
+- The Node room service is still available for local development; the remote beta build targets the Durable Objects backend.
+- Rooms are intentionally ephemeral and expire after all participants have left.
 - The extension is an unpacked development build and is not ready for Chrome Web Store submission.
 - There is no account system, chat, voice, video calling, or room history.
 - Episode transitions require participants to confirm the new media state; automated next-episode coordination is not implemented.
 - There is no production abuse prevention beyond message validation, room size limits, per-connection rate limiting, expiring empty rooms, and unguessable internal room tokens.
-- The backend is not yet deployed to Cloudflare Durable Objects.
+- Automated two-browser compatibility tests on live Netflix, Disney+, and Crunchyroll players are still required.
 
 ## Verification
 
@@ -61,7 +65,9 @@ The repository currently checks:
 - WebSocket create/join flow and malformed message handling;
 - absence of capture, cookie, interception, and debugger permissions;
 - strict TypeScript compilation;
-- server and extension production builds.
+- server and extension production builds;
+- room coordinator serialization and restoration;
+- a two-client smoke flow runnable against both local and deployed Cloudflare Workers.
 
 Run everything with:
 
@@ -71,9 +77,9 @@ npm run check
 
 ## Next production milestone
 
-1. Port the room coordinator to Cloudflare Durable Objects with WSS.
-2. Replace the hard-coded local endpoint with environment-specific build configuration.
+1. Deploy the Durable Objects coordinator and package an extension build with its WSS endpoint.
+2. Run the private two-city pilot and record connection, autoplay, buffering, and drift observations.
 3. Add browser automation across two persistent Chrome profiles with network shaping.
 4. Create versioned compatibility fixtures for Crunchyroll, Netflix, and Disney+.
 5. Add privacy disclosures, telemetry consent, retention policy, and adapter kill switches.
-6. Run a small private pilot before making synchronization performance claims.
+6. Validate performance objectives before making synchronization claims.

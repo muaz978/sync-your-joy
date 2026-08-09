@@ -14,5 +14,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["apps/**/*.ts", "packages/**/*.ts", "scripts/**/*.mjs", "tests/**/*.ts", "vitest.config.ts"]
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "scripts/**/*.mjs", "tests/**/*.ts", "vitest.config.ts"],
+  "exclude": ["apps/edge-service"]
 }
