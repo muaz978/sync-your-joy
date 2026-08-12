@@ -253,10 +253,15 @@ function readinessControls(me: ParticipantState | undefined, isController: boole
           ? '<span class="status-badge border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">Video matches</span>'
           : '<span class="status-badge border-rose-600/20 bg-rose-500/10 text-rose-700 dark:text-rose-300">Wrong video</span>'}
       </div>
-      <button id="ready-button" class="${ready ? 'btn-action' : 'btn-primary'} mt-4 w-full tap-scale" type="button" ${matches ? '' : 'disabled'}>
-        ${ready ? checkIcon('h-4 w-4') : readyIcon('h-4 w-4')}
-        ${ready ? 'Ready — click to undo' : "I'm ready"}
-      </button>
+      ${matches
+        ? `<button id="ready-button" class="${ready ? 'btn-action' : 'btn-primary'} mt-4 w-full tap-scale" type="button">
+            ${ready ? checkIcon('h-4 w-4') : readyIcon('h-4 w-4')}
+            ${ready ? 'Ready — click to undo' : "I'm ready"}
+          </button>`
+        : `<button id="recheck-video" class="btn-primary mt-4 w-full tap-scale" type="button">
+            ${screenIcon('h-4 w-4')}
+            Recheck this tab
+          </button>`}
     </div>
   `
 }
@@ -339,6 +344,10 @@ function bindRoomActions(): void {
   document.querySelector('#ready-button')?.addEventListener('click', () => {
     const me = state?.snapshot?.participants.find(participant => participant.id === state?.participantId)
     void perform({ type: 'SET_READY', ready: !(me?.ready ?? false) })
+  })
+
+  document.querySelector('#recheck-video')?.addEventListener('click', () => {
+    void perform({ type: 'RECHECK_MEDIA' })
   })
 
   document.querySelectorAll<HTMLElement>('[data-transfer]').forEach((button) => {

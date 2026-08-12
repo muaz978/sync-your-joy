@@ -1,7 +1,8 @@
 import type { ClientMessage, ControlKind, ServerMessage } from '@syncyourjoy/protocol'
-import type { ExtensionState, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
+import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { mediaMatches, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
+import { shouldAcceptPlayerTab } from './player-tab.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -18,6 +19,7 @@ let state: ExtensionState = {
   clockUncertaintyMs: 99_999,
   lastError: null,
   displayName: 'Movie friend',
+  playerTabId: null,
   currentMedia: null,
   lastPlayerSample: null,
 }
@@ -38,6 +40,17 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
   void initialized.then(() => reconnectIfNeeded())
+})
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (state.playerTabId !== tabId)
+    return
+  state.playerTabId = null
+  state.currentMedia = null
+  state.lastPlayerSample = null
+  if (state.snapshot)
+    sendToServer({ type: 'set_ready', ready: false, media: null })
+  void publishState()
 })
 
 chrome.runtime.onMessage.addListener((request: RuntimeRequest | RuntimeEvent, sender, sendResponse) => {
@@ -79,6 +92,8 @@ async function initialize(): Promise<void> {
 async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runtime.MessageSender): Promise<RuntimeResponse> {
   switch (request.type) {
     case 'GET_STATE':
+      if (!state.snapshot)
+        await selectActivePlayerTab()
       return success()
 
     case 'SET_NAME': {
@@ -92,6 +107,9 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     }
 
     case 'MEDIA_DETECTED':
+      if (!acceptPlayerSender(sender))
+        return success()
+      state.playerTabId = sender.tab?.id ?? state.playerTabId
       state.currentMedia = request.media
       if (state.snapshot && !mediaMatches(state.snapshot.media, request.media))
         sendToServer({ type: 'set_ready', ready: false, media: request.media })
@@ -99,12 +117,16 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return success()
 
     case 'PLAYER_STATUS':
+      if (!acceptPlayerSender(sender))
+        return success()
+      state.playerTabId = sender.tab?.id ?? state.playerTabId
       state.lastPlayerSample = request.sample
       sendToServer({ type: 'player_status', sample: request.sample })
       await persistState()
       return success()
 
     case 'CREATE_ROOM':
+      await selectActivePlayerTab()
       if (!state.currentMedia)
         return failure('Open a supported video before creating a room.')
       const newRoomCode = createRoomCode()
@@ -123,6 +145,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       const code = request.code.trim().toUpperCase()
       if (!/^[A-Z0-9]{8}$/.test(code))
         return failure('Enter the eight-character room code.')
+      await selectActivePlayerTab()
       await startFreshConnection(code)
       sendToServer({
         type: 'join_room',
@@ -150,10 +173,23 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return success()
     }
 
+    case 'RECHECK_MEDIA': {
+      const found = await selectActivePlayerTab()
+      if (!state.snapshot)
+        return failure('Join a room before rechecking the video.')
+      if (!found || !state.currentMedia)
+        return failure('No supported video was found in the active tab.')
+      sendToServer({ type: 'set_ready', ready: false, media: state.currentMedia })
+      await publishState()
+      return success()
+    }
+
     case 'CONTROL':
       return sendControl(request.kind, request.positionSeconds)
 
     case 'PLAYER_INTENT': {
+      if (!acceptPlayerSender(sender))
+        return success()
       if (!isController()) {
         await sendToActiveTabs({ type: 'APPLY_ROOM_STATE', state })
         await sendToActiveTabs({ type: 'SHOW_NOTICE', message: 'The room controller owns playback.' })
@@ -380,11 +416,46 @@ function leaveRoom(): void {
   state.connection = 'disconnected'
   state.snapshot = null
   state.inviteToken = null
+  state.playerTabId = null
   state.lastError = null
   reconnectAttempts = 0
   setTimeout(() => {
     intentionallyClosed = false
   }, 0)
+}
+
+function acceptPlayerSender(sender: chrome.runtime.MessageSender): boolean {
+  const senderTabId = sender.tab?.id
+  if (senderTabId === undefined)
+    return false
+  return shouldAcceptPlayerTab({
+    hasRoom: state.snapshot !== null,
+    boundTabId: state.playerTabId,
+    senderTabId,
+    senderIsActive: sender.tab?.active === true,
+  })
+}
+
+async function selectActivePlayerTab(): Promise<boolean> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  if (tab?.id === undefined)
+    return false
+
+  try {
+    const context = await chrome.tabs.sendMessage(
+      tab.id,
+      { type: 'GET_PLAYER_CONTEXT' } satisfies ContentRequest,
+    ) as PlayerContext
+    if (!context?.media)
+      return false
+    state.playerTabId = tab.id
+    state.currentMedia = context.media
+    state.lastPlayerSample = context.sample
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function isController(): boolean {

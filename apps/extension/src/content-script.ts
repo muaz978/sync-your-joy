@@ -1,5 +1,5 @@
 import type { MediaFingerprint, PlayerSample } from '@syncyourjoy/protocol'
-import type { ExtensionState, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
+import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { chooseDriftCorrection, expectedPosition } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, serviceName } from './media-fingerprint.ts'
 
@@ -135,7 +135,12 @@ playbackButton?.addEventListener('click', () => {
   void sendRuntime({ type: 'PLAYER_INTENT', kind, positionSeconds: video.currentTime })
 })
 
-chrome.runtime.onMessage.addListener((message: RuntimeEvent) => {
+chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _sender, sendResponse) => {
+  if (message.type === 'GET_PLAYER_CONTEXT') {
+    sendResponse(currentPlayerContext())
+    return false
+  }
+
   if (message.type === 'APPLY_ROOM_STATE' || message.type === 'ROOM_STATE_UPDATED') {
     activeState = message.state
     renderPill()
@@ -150,6 +155,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent) => {
   else if (message.type === 'SHOW_NOTICE') {
     showNotice(message.message)
   }
+  return false
 })
 
 void sendRuntime({ type: 'GET_STATE' }).then((response) => {
@@ -275,6 +281,21 @@ async function reportPlayerStatus(buffering: boolean): Promise<void> {
     sampledAtLocalMs: Date.now(),
   }
   await sendRuntime({ type: 'PLAYER_STATUS', sample })
+}
+
+function currentPlayerContext(): PlayerContext {
+  if (!video)
+    return { media: null, sample: null }
+  return {
+    media: createMediaFingerprint(video),
+    sample: {
+      positionSeconds: finiteOrZero(video.currentTime),
+      durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
+      paused: video.paused,
+      buffering: false,
+      sampledAtLocalMs: Date.now(),
+    },
+  }
 }
 
 function applyAuthoritativeState(): void {

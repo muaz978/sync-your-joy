@@ -27,6 +27,8 @@ After replacing or reloading the extension, refresh the open streaming tab so Ch
 6. Test a short buffer or network interruption, then verify that the room recovers.
 7. Finally, close the host's tab for more than ten seconds and verify that control passes to the connected participant.
 
+If SyncYourJoy reports **Wrong video**, focus the tab containing the intended episode and select **Recheck this tab**. Background YouTube or streaming tabs are ignored after a room binds to its player tab.
+
 ## What to record
 
 - streaming service, browser version, and operating system;
