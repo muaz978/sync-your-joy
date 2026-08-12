@@ -15,6 +15,8 @@
 - A controller-only **Open link for everyone** action that validates and normalizes an HTTP/HTTPS video-page URL, schedules a new tab on all connected clients, pauses the room, and clears readiness.
 - Video-free create/join onboarding, allowing the room to assemble before the controller chooses and launches a page.
 - A guarded Animerco click-to-load adapter that starts the site's default player only for a room-shared page and filters known advertising frames.
+- Shared-page identity propagation through arbitrarily nested players, preventing per-client signed iframe URLs from causing false mismatches.
+- Related-frame injection for `about:`, `data:`, and `blob:` player documents through Manifest V3 `match_origin_as_fallback`.
 - Same-normalized-link matching as a strong media identity signal, including generic platforms and localized page metadata.
 - A **Recheck this tab** recovery action when the active player does not match the room.
 - Automatic controller intent capture from the native player's play, pause, and completed seek events.
@@ -22,6 +24,7 @@
 - Operation-specific feedback-loop suppression so a real controller action is not mistaken for a programmatic correction.
 - In-page **Sync**, side-panel **Sync me now**, and controller **Sync everyone** recovery actions that avoid page refreshes.
 - Automatic blocked-play and stalled-progress detection that reports buffering and pauses the authoritative room timeline.
+- Metadata-aware seeking with duration and `seekable`-range clamping, retry-on-media-ready, and `seeked` completion gating before synchronized playback resumes.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.

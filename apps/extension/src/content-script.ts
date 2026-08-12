@@ -2,6 +2,7 @@ import type { MediaFingerprint, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { chooseDriftCorrection, expectedPosition } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
+import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
 import { shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
 
@@ -20,6 +21,7 @@ let localIntentHoldUntil = 0
 let expectedPlayUntil = 0
 let expectedPauseUntil = 0
 let expectedSeek: { positionSeconds: number; until: number } | null = null
+let pendingSeek: { positionSeconds: number; since: number; lastAttemptAt: number } | null = null
 let seekIntentTimer: ReturnType<typeof setTimeout> | null = null
 let lastProgressPosition = 0
 let lastProgressAt = performance.now()
@@ -290,6 +292,9 @@ function attachPlayer(target: HTMLVideoElement): void {
   target.addEventListener('stalled', handleBuffering)
   target.addEventListener('playing', handleCanPlay)
   target.addEventListener('canplay', handleCanPlay)
+  target.addEventListener('loadedmetadata', handleMediaReady)
+  target.addEventListener('durationchange', handleMediaReady)
+  target.addEventListener('progress', handleMediaReady)
   renderPill()
 }
 
@@ -305,10 +310,14 @@ function detachPlayer(target: HTMLVideoElement | null): void {
   target.removeEventListener('stalled', handleBuffering)
   target.removeEventListener('playing', handleCanPlay)
   target.removeEventListener('canplay', handleCanPlay)
+  target.removeEventListener('loadedmetadata', handleMediaReady)
+  target.removeEventListener('durationchange', handleMediaReady)
+  target.removeEventListener('progress', handleMediaReady)
   if (seekIntentTimer)
     clearTimeout(seekIntentTimer)
   seekIntentTimer = null
   localSeeking = false
+  pendingSeek = null
 }
 
 function handlePlay(): void {
@@ -350,6 +359,8 @@ function handleSeeked(): void {
   const programmatic = consumeExpectedSeek()
   const shouldSend = !programmatic && video && isLocalController()
   localSeeking = false
+  if (video && pendingSeek && Math.abs(video.currentTime - pendingSeek.positionSeconds) <= 0.75)
+    pendingSeek = null
   if (shouldSend && video) {
     holdLocalControllerIntent()
     seekIntentTimer = setTimeout(() => {
@@ -358,6 +369,7 @@ function handleSeeked(): void {
         void sendRuntime({ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: video.currentTime })
     }, 120)
   }
+  applyAuthoritativeState()
   void reportPlayerStatus(false)
 }
 
@@ -383,13 +395,19 @@ function handleCanPlay(): void {
   if (bufferingTimer)
     clearTimeout(bufferingTimer)
   bufferingTimer = null
+  applyAuthoritativeState()
   void reportPlayerStatus(false)
+}
+
+function handleMediaReady(): void {
+  applyAuthoritativeState()
 }
 
 async function reportPlayerStatus(buffering: boolean): Promise<void> {
   if (!video)
     return
-  const inferredBuffering = detectPlaybackStall(video, buffering)
+  const seekPendingTooLong = pendingSeek !== null && performance.now() - pendingSeek.since >= 1_500
+  const inferredBuffering = detectPlaybackStall(video, buffering || seekPendingTooLong)
   const sample: PlayerSample = {
     positionSeconds: finiteOrZero(video.currentTime),
     durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
@@ -420,6 +438,9 @@ function applyAuthoritativeState(): void {
   if (!video || !activeState || !snapshot)
     return
 
+  if (pendingSeek && !video.seeking && Math.abs(video.currentTime - pendingSeek.positionSeconds) <= 0.75)
+    pendingSeek = null
+
   if (shouldDeferAuthoritativeSync({
     isController: isLocalController(),
     isSeeking: localSeeking,
@@ -437,9 +458,8 @@ function applyAuthoritativeState(): void {
       expectPauseEvent()
       video.pause()
     }
-    if (Math.abs(video.currentTime - expectedSeconds) > 0.25) {
-      setProgrammaticPosition(expectedSeconds)
-    }
+    if (Math.abs(video.currentTime - expectedSeconds) > 0.25)
+      trySetProgrammaticPosition(expectedSeconds)
     restorePlaybackRate()
     return
   }
@@ -450,16 +470,20 @@ function applyAuthoritativeState(): void {
       expectPauseEvent()
       video.pause()
     }
-    if (Math.abs(video.currentTime - snapshot.playback.positionSeconds) > 0.12) {
-      setProgrammaticPosition(snapshot.playback.positionSeconds)
-    }
+    if (Math.abs(video.currentTime - snapshot.playback.positionSeconds) > 0.12)
+      trySetProgrammaticPosition(snapshot.playback.positionSeconds)
     schedulePlay(timeUntilPlayMs)
     return
   }
 
   const correction = chooseDriftCorrection(video.currentTime, expectedSeconds, true)
   if (correction.kind === 'seek') {
-    setProgrammaticPosition(correction.positionSeconds)
+    if (!video.paused) {
+      expectPauseEvent()
+      video.pause()
+    }
+    if (!trySetProgrammaticPosition(correction.positionSeconds))
+      return
   }
   else if (correction.kind === 'rate') {
     video.playbackRate = correction.playbackRate
@@ -471,7 +495,7 @@ function applyAuthoritativeState(): void {
     restorePlaybackRate()
   }
 
-  if (video.paused)
+  if (video.paused && !video.seeking && pendingSeek === null)
     playVideo()
 }
 
@@ -490,7 +514,7 @@ function clearScheduledPlay(): void {
 }
 
 function playVideo(): void {
-  if (!video)
+  if (!video || video.readyState === HTMLMediaElement.HAVE_NOTHING || video.seeking || pendingSeek !== null)
     return
   expectPlayEvent()
   void video.play().then(() => {
@@ -532,7 +556,11 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
   localSeeking = false
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
   const expectedSeconds = expectedPosition(activeState.snapshot.playback, estimatedServerNowMs)
-  setProgrammaticPosition(expectedSeconds)
+  const seekApplied = trySetProgrammaticPosition(expectedSeconds)
+  if (!seekApplied && !fromUserGesture) {
+    showNotice('Waiting for this player to make the room position seekable…')
+    return
+  }
 
   if (activeState.snapshot.playback.status === 'paused') {
     if (!video.paused) {
@@ -704,11 +732,37 @@ function consumeExpectedPause(): boolean {
   return expected
 }
 
-function setProgrammaticPosition(positionSeconds: number): void {
-  if (!video)
-    return
-  expectedSeek = { positionSeconds, until: performance.now() + 3_000 }
-  video.currentTime = positionSeconds
+function trySetProgrammaticPosition(positionSeconds: number): boolean {
+  if (!video || video.readyState === HTMLMediaElement.HAVE_NOTHING)
+    return false
+
+  const durationSeconds = Number.isFinite(video.duration) ? video.duration : null
+  const ranges = Array.from({ length: video.seekable.length }, (_, index) => ({
+    start: video?.seekable.start(index) ?? 0,
+    end: video?.seekable.end(index) ?? 0,
+  }))
+  const target = resolveSeekTarget(positionSeconds, durationSeconds, ranges)
+  if (target === null)
+    return false
+  if (!video.seeking && Math.abs(video.currentTime - target) <= 0.2) {
+    pendingSeek = null
+    return true
+  }
+
+  const now = performance.now()
+  if (pendingSeek && Math.abs(pendingSeek.positionSeconds - target) <= 0.75 && now - pendingSeek.lastAttemptAt < 1_000)
+    return false
+  pendingSeek = pendingSeek && Math.abs(pendingSeek.positionSeconds - target) <= 0.75
+    ? { ...pendingSeek, lastAttemptAt: now }
+    : { positionSeconds: target, since: now, lastAttemptAt: now }
+  expectedSeek = { positionSeconds: target, until: now + 4_000 }
+  try {
+    video.currentTime = target
+  }
+  catch {
+    return false
+  }
+  return !video.seeking && Math.abs(video.currentTime - target) <= 0.2
 }
 
 function hasExpectedSeek(): boolean {

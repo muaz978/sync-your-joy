@@ -4,6 +4,7 @@ import { mediaMatches, normalizePageUrl, safeJsonParse } from '@syncyourjoy/prot
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
 import { shouldAcceptPlayerContext } from './player-tab.ts'
 import { isLikelyAdvertisingUrl } from './site-adapter.ts'
+import { bindMediaToSharedPage } from './media-fingerprint.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -145,12 +146,12 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         return success()
       if (sender.tab?.id !== undefined && sender.frameId !== undefined)
         await bindPlayerContext(sender.tab.id, sender.frameId, request.areaPixels)
-      state.currentMedia = request.media
+      state.currentMedia = bindMediaToSharedPage(request.media, state.snapshot?.navigation?.url)
       if (state.snapshot) {
         const me = state.snapshot.participants.find(participant => participant.id === state.participantId)
-        const matches = mediaMatches(state.snapshot.media, request.media)
+        const matches = mediaMatches(state.snapshot.media, state.currentMedia)
         if (!me?.ready || me.mediaMatches !== matches)
-          sendToServer({ type: 'set_ready', ready: false, media: request.media })
+          sendToServer({ type: 'set_ready', ready: false, media: state.currentMedia })
       }
       await publishState()
       return success()

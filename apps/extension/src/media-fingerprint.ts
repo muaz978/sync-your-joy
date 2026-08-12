@@ -1,3 +1,4 @@
+import type { MediaFingerprint } from '@syncyourjoy/protocol'
 import { normalizePageUrl as normalizeProtocolPageUrl } from '@syncyourjoy/protocol'
 
 export function serviceName(hostname: string): string {
@@ -50,4 +51,11 @@ export function cleanMediaTitle(title: string): string {
   return title
     .replace(/\s*[|-]\s*(Netflix|Disney\+|Crunchyroll|YouTube)\s*$/i, '')
     .trim()
+}
+
+export function bindMediaToSharedPage(media: MediaFingerprint, navigationUrl: string | undefined): MediaFingerprint {
+  if (!navigationUrl)
+    return media
+  const pageUrl = normalizeProtocolPageUrl(navigationUrl)
+  return pageUrl ? { ...media, pageUrl } : media
 }

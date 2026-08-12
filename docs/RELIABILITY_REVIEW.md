@@ -19,6 +19,8 @@ Review date: 2026-08-12.
 - Guests can join before a player or link exists; only the controller supplies the shared page after the room assembles.
 - Rejected play promises, unexpected pauses, and non-advancing playback are surfaced as stalls and pause the room instead of allowing the authoritative timeline to advance invisibly.
 - Click-to-load Animerco pages receive a narrow automatic bootstrap, while known advertising frames are excluded from player candidacy.
+- Deeply nested player frames inherit the authoritative shared-page identity, rather than comparing per-client signed wrapper URLs.
+- Seek commands are queued until metadata exists, clamped to the media element's `seekable` ranges, retried on metadata/progress/can-play events, and treated as complete only after the player reaches the target.
 - The in-page **Room** button calls `chrome.sidePanel.open()` directly from its user gesture, matching [Chrome's Side Panel requirement](https://developer.chrome.com/docs/extensions/reference/api/sidePanel).
 
 ## Recommended next work
