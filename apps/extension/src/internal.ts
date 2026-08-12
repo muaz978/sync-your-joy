@@ -3,8 +3,11 @@ import type { ClientRoomState, ControlKind, MediaFingerprint, PlayerSample } fro
 export interface ExtensionState extends ClientRoomState {
   displayName: string
   playerTabId: number | null
+  playerFrameId: number | null
+  playerAreaPixels: number
   currentMedia: MediaFingerprint | null
   lastPlayerSample: PlayerSample | null
+  lastOpenedNavigationRevision: number
 }
 
 export type RuntimeRequest =
@@ -15,14 +18,18 @@ export type RuntimeRequest =
   | { type: 'LEAVE_ROOM' }
   | { type: 'SET_READY'; ready: boolean }
   | { type: 'RECHECK_MEDIA' }
+  | { type: 'OPEN_LINK'; url: string }
   | { type: 'CONTROL'; kind: ControlKind; positionSeconds?: number }
   | { type: 'TRANSFER_CONTROL'; participantId: string }
-  | { type: 'MEDIA_DETECTED'; media: MediaFingerprint }
+  | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number }
+  | { type: 'MEDIA_LOST' }
   | { type: 'PLAYER_STATUS'; sample: PlayerSample }
   | { type: 'PLAYER_INTENT'; kind: ControlKind; positionSeconds: number }
   | { type: 'OPEN_PANEL' }
 
-export type ContentRequest = { type: 'GET_PLAYER_CONTEXT' }
+export type ContentRequest =
+  | { type: 'GET_PLAYER_CONTEXT' }
+  | { type: 'REPORT_PLAYER_CONTEXT' }
 
 export interface PlayerContext {
   media: MediaFingerprint | null

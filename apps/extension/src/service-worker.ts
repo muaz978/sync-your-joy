@@ -1,8 +1,8 @@
 import type { ClientMessage, ControlKind, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { mediaMatches, safeJsonParse } from '@syncyourjoy/protocol'
+import { mediaMatches, normalizePageUrl, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
-import { shouldAcceptPlayerTab } from './player-tab.ts'
+import { shouldAcceptPlayerContext } from './player-tab.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -20,8 +20,11 @@ let state: ExtensionState = {
   lastError: null,
   displayName: 'Movie friend',
   playerTabId: null,
+  playerFrameId: null,
+  playerAreaPixels: 0,
   currentMedia: null,
   lastPlayerSample: null,
+  lastOpenedNavigationRevision: 0,
 }
 
 let socket: WebSocket | null = null
@@ -45,7 +48,17 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (state.playerTabId !== tabId)
     return
-  state.playerTabId = null
+  clearPlayerTab()
+  if (state.snapshot)
+    sendToServer({ type: 'set_ready', ready: false, media: null })
+  void publishState()
+})
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (state.playerTabId !== tabId || changeInfo.status !== 'loading')
+    return
+  state.playerFrameId = null
+  state.playerAreaPixels = 0
   state.currentMedia = null
   state.lastPlayerSample = null
   if (state.snapshot)
@@ -56,6 +69,16 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.runtime.onMessage.addListener((request: RuntimeRequest | RuntimeEvent, sender, sendResponse) => {
   if (!request || typeof request.type !== 'string' || request.type === 'ROOM_STATE_UPDATED' || request.type === 'APPLY_ROOM_STATE' || request.type === 'PAUSE_LOCAL' || request.type === 'SHOW_NOTICE')
     return false
+
+  if (request.type === 'OPEN_PANEL' && sender.tab?.id !== undefined) {
+    void chrome.sidePanel.open({ tabId: sender.tab.id })
+      .then(() => sendResponse(success()))
+      .catch(() => {
+        void sendToPlayerTab({ type: 'SHOW_NOTICE', message: 'Open SyncYourJoy from Chrome’s extensions button.' })
+        sendResponse(success())
+      })
+    return true
+  }
 
   void initialized
     .then(() => handleRuntimeRequest(request, sender))
@@ -85,15 +108,19 @@ async function initialize(): Promise<void> {
     lastError: null,
   }
 
-  if (state.snapshot)
+  if (state.snapshot) {
+    await refreshBoundPlayerTab()
     await reconnectIfNeeded()
+  }
 }
 
 async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runtime.MessageSender): Promise<RuntimeResponse> {
   switch (request.type) {
     case 'GET_STATE':
-      if (!state.snapshot)
+      if (!state.snapshot && sender.tab?.id === undefined)
         await selectActivePlayerTab()
+      if (sender.tab?.id !== undefined && !isBoundPlayerSender(sender))
+        return success(detachedState())
       return success()
 
     case 'SET_NAME': {
@@ -107,27 +134,40 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     }
 
     case 'MEDIA_DETECTED':
-      if (!acceptPlayerSender(sender))
+      if (!acceptMediaSender(sender, request.areaPixels))
         return success()
-      state.playerTabId = sender.tab?.id ?? state.playerTabId
+      if (sender.tab?.id !== undefined && sender.frameId !== undefined)
+        await bindPlayerContext(sender.tab.id, sender.frameId, request.areaPixels)
       state.currentMedia = request.media
-      if (state.snapshot && !mediaMatches(state.snapshot.media, request.media))
-        sendToServer({ type: 'set_ready', ready: false, media: request.media })
+      if (state.snapshot) {
+        const me = state.snapshot.participants.find(participant => participant.id === state.participantId)
+        const matches = mediaMatches(state.snapshot.media, request.media)
+        if (!me?.ready || me.mediaMatches !== matches)
+          sendToServer({ type: 'set_ready', ready: false, media: request.media })
+      }
+      await publishState()
+      return success()
+
+    case 'MEDIA_LOST':
+      if (!isBoundPlayerSender(sender))
+        return success()
+      state.currentMedia = null
+      state.lastPlayerSample = null
+      if (state.snapshot)
+        sendToServer({ type: 'set_ready', ready: false, media: null })
       await publishState()
       return success()
 
     case 'PLAYER_STATUS':
-      if (!acceptPlayerSender(sender))
+      if (!isBoundPlayerSender(sender))
         return success()
-      state.playerTabId = sender.tab?.id ?? state.playerTabId
       state.lastPlayerSample = request.sample
       sendToServer({ type: 'player_status', sample: request.sample })
       await persistState()
       return success()
 
     case 'CREATE_ROOM':
-      await selectActivePlayerTab()
-      if (!state.currentMedia)
+      if (!await selectActivePlayerTab() || !state.currentMedia)
         return failure('Open a supported video before creating a room.')
       const newRoomCode = createRoomCode()
       await startFreshConnection(newRoomCode)
@@ -145,7 +185,8 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       const code = request.code.trim().toUpperCase()
       if (!/^[A-Z0-9]{8}$/.test(code))
         return failure('Enter the eight-character room code.')
-      await selectActivePlayerTab()
+      if (!await selectActivePlayerTab())
+        return failure('Open the video you want to sync in the active tab before joining.')
       await startFreshConnection(code)
       sendToServer({
         type: 'join_room',
@@ -169,7 +210,8 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         return failure('Reconnect to the room before changing readiness.')
       if (!state.currentMedia || !mediaMatches(state.snapshot.media, state.currentMedia))
         return failure('Open the matching video before getting ready.')
-      sendToServer({ type: 'set_ready', ready: request.ready, media: state.currentMedia })
+      if (!sendToServer({ type: 'set_ready', ready: request.ready, media: state.currentMedia }))
+        return failure('The room connection was interrupted. Reconnecting now.')
       return success()
     }
 
@@ -179,8 +221,29 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         return failure('Join a room before rechecking the video.')
       if (!found || !state.currentMedia)
         return failure('No supported video was found in the active tab.')
-      sendToServer({ type: 'set_ready', ready: false, media: state.currentMedia })
+      if (!sendToServer({ type: 'set_ready', ready: false, media: state.currentMedia }))
+        return failure('The room connection was interrupted. Reconnecting now.')
       await publishState()
+      return success()
+    }
+
+    case 'OPEN_LINK': {
+      const snapshot = state.snapshot
+      if (!snapshot)
+        return failure('Join a room before opening a link.')
+      if (!isController())
+        return failure('Only the controller can open a link for everyone.')
+      const normalizedUrl = normalizePageUrl(request.url)
+      if (!normalizedUrl)
+        return failure('Enter a valid video page link.')
+      if (!sendToServer({
+        type: 'open_link',
+        actionId: createId('action'),
+        basedOnRevision: snapshot.revision,
+        leaseEpoch: snapshot.controller.leaseEpoch,
+        url: normalizedUrl,
+      }))
+        return failure('The room connection was interrupted. Reconnecting now.')
       return success()
     }
 
@@ -188,11 +251,11 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return sendControl(request.kind, request.positionSeconds)
 
     case 'PLAYER_INTENT': {
-      if (!acceptPlayerSender(sender))
+      if (!isBoundPlayerSender(sender))
         return success()
       if (!isController()) {
-        await sendToActiveTabs({ type: 'APPLY_ROOM_STATE', state })
-        await sendToActiveTabs({ type: 'SHOW_NOTICE', message: 'The room controller owns playback.' })
+        await sendToPlayerTab({ type: 'APPLY_ROOM_STATE', state })
+        await sendToPlayerTab({ type: 'SHOW_NOTICE', message: 'The room controller owns playback.' })
         return failure('The room controller owns playback.')
       }
       return sendControl(request.kind, request.positionSeconds)
@@ -202,23 +265,16 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       const snapshot = state.snapshot
       if (!snapshot)
         return failure('Join a room first.')
-      sendToServer({
+      if (!sendToServer({
         type: 'transfer_control',
         participantId: request.participantId,
         leaseEpoch: snapshot.controller.leaseEpoch,
-      })
+      }))
+        return failure('The room connection was interrupted. Reconnecting now.')
       return success()
     }
 
     case 'OPEN_PANEL':
-      if (sender.tab?.id !== undefined) {
-        try {
-          await chrome.sidePanel.open({ tabId: sender.tab.id })
-        }
-        catch {
-          await sendToActiveTabs({ type: 'SHOW_NOTICE', message: 'Open SyncYourJoy from Chrome’s extensions button.' })
-        }
-      }
       return success()
   }
 }
@@ -230,12 +286,20 @@ async function sendControl(kind: ControlKind, explicitPosition?: number): Promis
   if (!isController())
     return failure('The room controller owns playback.')
 
+  if (kind === 'play') {
+    const connected = snapshot.participants.filter(participant => participant.connected)
+    if (!connected.every(participant => participant.ready && participant.mediaMatches)) {
+      void sendToPlayerTab({ type: 'PAUSE_LOCAL' })
+      return failure('Everyone must be ready before playback starts.')
+    }
+  }
+
   const estimatedNow = Date.now() + state.serverOffsetMs
   const fallbackPosition = expectedPosition(snapshot.playback, estimatedNow)
   const positionSeconds = explicitPosition ?? state.lastPlayerSample?.positionSeconds ?? fallbackPosition
   if (kind === 'pause')
-    void sendToActiveTabs({ type: 'PAUSE_LOCAL' })
-  sendToServer({
+    void sendToPlayerTab({ type: 'PAUSE_LOCAL' })
+  const sent = sendToServer({
     type: 'control',
     actionId: createId('action'),
     basedOnRevision: snapshot.revision,
@@ -243,6 +307,8 @@ async function sendControl(kind: ControlKind, explicitPosition?: number): Promis
     kind,
     positionSeconds: Math.max(0, positionSeconds),
   })
+  if (!sent)
+    return failure('The room connection was interrupted. Reconnecting now.')
   return success()
 }
 
@@ -256,6 +322,7 @@ async function startFreshConnection(roomCode: string): Promise<void> {
   connectionPromise = null
   state.snapshot = null
   state.inviteToken = null
+  state.lastOpenedNavigationRevision = 0
   state.lastError = null
   intentionallyClosed = false
   await connect(roomCode)
@@ -349,6 +416,7 @@ function handleServerMessage(raw: string): void {
     state.inviteToken = message.inviteToken
     state.snapshot = message.snapshot
     state.lastError = null
+    void applySharedNavigation(message.snapshot)
     void publishState()
     return
   }
@@ -358,6 +426,7 @@ function handleServerMessage(raw: string): void {
       state.snapshot = message.snapshot
     state.connection = 'connected'
     state.lastError = null
+    void applySharedNavigation(message.snapshot)
     void publishState()
     return
   }
@@ -367,7 +436,7 @@ function handleServerMessage(raw: string): void {
       state.snapshot = message.snapshot
     state.lastError = message.message
     void publishState()
-    void sendToActiveTabs({ type: 'SHOW_NOTICE', message: message.message })
+    void sendToPlayerTab({ type: 'SHOW_NOTICE', message: message.message })
     return
   }
 
@@ -400,12 +469,17 @@ function stopPingLoop(): void {
   pingTimer = null
 }
 
-function sendToServer(message: ClientMessage): void {
-  if (socket?.readyState === WebSocket.OPEN)
+function sendToServer(message: ClientMessage): boolean {
+  if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(message))
+    return true
+  }
+  return false
 }
 
 function leaveRoom(): void {
+  const previousPlayerTabId = state.playerTabId
+  const previousPlayerFrameId = state.playerFrameId
   intentionallyClosed = true
   if (reconnectTimer)
     clearTimeout(reconnectTimer)
@@ -416,46 +490,142 @@ function leaveRoom(): void {
   state.connection = 'disconnected'
   state.snapshot = null
   state.inviteToken = null
-  state.playerTabId = null
+  clearPlayerTab()
   state.lastError = null
+  state.lastOpenedNavigationRevision = 0
   reconnectAttempts = 0
   setTimeout(() => {
     intentionallyClosed = false
   }, 0)
+  if (previousPlayerTabId !== null && previousPlayerFrameId !== null)
+    void sendToTab(previousPlayerTabId, { type: 'APPLY_ROOM_STATE', state }, previousPlayerFrameId)
 }
 
-function acceptPlayerSender(sender: chrome.runtime.MessageSender): boolean {
+function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: number): boolean {
   const senderTabId = sender.tab?.id
-  if (senderTabId === undefined)
+  const senderFrameId = sender.frameId
+  if (senderTabId === undefined || senderFrameId === undefined)
     return false
-  return shouldAcceptPlayerTab({
+  const me = state.snapshot?.participants.find(participant => participant.id === state.participantId)
+  return shouldAcceptPlayerContext({
     hasRoom: state.snapshot !== null,
     boundTabId: state.playerTabId,
+    boundFrameId: state.playerFrameId,
+    boundAreaPixels: state.playerAreaPixels,
+    participantReady: me?.ready ?? false,
     senderTabId,
+    senderFrameId,
     senderIsActive: sender.tab?.active === true,
+    senderAreaPixels: Math.max(0, areaPixels),
   })
+}
+
+function isBoundPlayerSender(sender: chrome.runtime.MessageSender): boolean {
+  return sender.tab?.id !== undefined
+    && sender.frameId !== undefined
+    && sender.tab.id === state.playerTabId
+    && sender.frameId === state.playerFrameId
 }
 
 async function selectActivePlayerTab(): Promise<boolean> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-  if (tab?.id === undefined)
+  if (tab?.id === undefined) {
+    clearPlayerTab()
     return false
+  }
 
+  if (state.playerTabId === tab.id && state.currentMedia)
+    return true
+
+  if (state.snapshot)
+    sendToServer({ type: 'set_ready', ready: false, media: null })
+  await unbindPlayerContext()
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: 'REPORT_PLAYER_CONTEXT' } satisfies ContentRequest)
+  }
+  catch {
+    return false
+  }
+  await new Promise(resolve => setTimeout(resolve, 120))
+  return state.playerTabId === tab.id && state.currentMedia !== null
+}
+
+async function refreshBoundPlayerTab(): Promise<boolean> {
+  if (state.playerTabId === null || state.playerFrameId === null) {
+    clearPlayerTab()
+    return false
+  }
   try {
     const context = await chrome.tabs.sendMessage(
-      tab.id,
+      state.playerTabId,
       { type: 'GET_PLAYER_CONTEXT' } satisfies ContentRequest,
+      { frameId: state.playerFrameId },
     ) as PlayerContext
-    if (!context?.media)
+    if (!context?.media) {
+      clearPlayerTab()
       return false
-    state.playerTabId = tab.id
+    }
     state.currentMedia = context.media
     state.lastPlayerSample = context.sample
     return true
   }
   catch {
+    clearPlayerTab()
     return false
   }
+}
+
+async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snapshot']>): Promise<void> {
+  const navigation = snapshot.navigation
+  if (!navigation || navigation.revision <= state.lastOpenedNavigationRevision)
+    return
+
+  state.lastOpenedNavigationRevision = navigation.revision
+  await persistState()
+  const estimatedServerNowMs = Date.now() + state.serverOffsetMs
+  const delayMs = Math.max(0, navigation.effectiveAtServerMs - estimatedServerNowMs)
+  setTimeout(() => {
+    if (state.snapshot?.navigation?.revision !== navigation.revision)
+      return
+    void chrome.tabs.create({ url: navigation.url, active: true }).then((tab) => {
+      if (tab.id === undefined)
+        throw new Error('Chrome did not return the opened tab.')
+      void bindPlayerContext(tab.id, null, 0)
+      state.currentMedia = null
+      state.lastPlayerSample = null
+      state.lastError = null
+      void publishState()
+    }).catch(() => {
+      state.lastError = 'Chrome could not open the shared video link.'
+      void publishState()
+    })
+  }, Math.min(delayMs, 2_000))
+}
+
+function clearPlayerTab(): void {
+  state.playerTabId = null
+  state.playerFrameId = null
+  state.playerAreaPixels = 0
+  state.currentMedia = null
+  state.lastPlayerSample = null
+}
+
+async function bindPlayerContext(tabId: number, frameId: number | null, areaPixels: number): Promise<void> {
+  const previousTabId = state.playerTabId
+  const previousFrameId = state.playerFrameId
+  state.playerTabId = tabId
+  state.playerFrameId = frameId
+  state.playerAreaPixels = Math.max(0, areaPixels)
+  if (previousTabId !== null && previousFrameId !== null && (previousTabId !== tabId || previousFrameId !== frameId))
+    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId)
+}
+
+async function unbindPlayerContext(): Promise<void> {
+  const previousTabId = state.playerTabId
+  const previousFrameId = state.playerFrameId
+  clearPlayerTab()
+  if (previousTabId !== null && previousFrameId !== null)
+    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId)
 }
 
 function isController(): boolean {
@@ -466,29 +636,43 @@ async function publishState(): Promise<void> {
   await persistState()
   const event: RuntimeEvent = { type: 'ROOM_STATE_UPDATED', state }
   void chrome.runtime.sendMessage(event).catch(() => undefined)
-  await sendToActiveTabs({ type: 'APPLY_ROOM_STATE', state })
+  await sendToPlayerTab({ type: 'APPLY_ROOM_STATE', state })
 }
 
-async function sendToActiveTabs(message: RuntimeEvent): Promise<void> {
-  const tabs = await chrome.tabs.query({})
-  await Promise.all(tabs.map(async (tab) => {
-    if (tab.id === undefined)
-      return
-    try {
-      await chrome.tabs.sendMessage(tab.id, message)
-    }
-    catch {
-      // The tab does not host a supported player.
-    }
-  }))
+async function sendToPlayerTab(message: RuntimeEvent): Promise<void> {
+  if (state.playerTabId !== null && state.playerFrameId !== null)
+    await sendToTab(state.playerTabId, message, state.playerFrameId)
+}
+
+async function sendToTab(tabId: number, message: RuntimeEvent, frameId?: number): Promise<void> {
+  try {
+    await chrome.tabs.sendMessage(tabId, message, frameId === undefined ? undefined : { frameId })
+  }
+  catch {
+    // The bound tab is navigating or no longer hosts a supported player.
+  }
 }
 
 async function persistState(): Promise<void> {
   await chrome.storage.session.set({ [SESSION_STATE_KEY]: state })
 }
 
-function success(): RuntimeResponse {
-  return { ok: true, state }
+function success(responseState: ExtensionState = state): RuntimeResponse {
+  return { ok: true, state: responseState }
+}
+
+function detachedState(): ExtensionState {
+  return {
+    ...state,
+    connection: 'disconnected',
+    snapshot: null,
+    playerTabId: null,
+    playerFrameId: null,
+    playerAreaPixels: 0,
+    currentMedia: null,
+    lastPlayerSample: null,
+    lastError: null,
+  }
 }
 
 function failure(error: string): RuntimeResponse {

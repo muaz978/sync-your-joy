@@ -9,6 +9,13 @@ export interface MediaFingerprint {
   canonicalId: string
   title: string
   durationSeconds: number | null
+  pageUrl?: string
+}
+
+export interface SharedNavigation {
+  revision: number
+  url: string
+  effectiveAtServerMs: number
 }
 
 export interface PlaybackState {
@@ -42,6 +49,7 @@ export interface RoomSnapshot {
   }
   media: MediaFingerprint | null
   playback: PlaybackState
+  navigation: SharedNavigation | null
   participants: ParticipantState[]
   policy: RoomPolicy
 }
@@ -90,6 +98,13 @@ export type ClientMessage =
       type: 'transfer_control'
       participantId: string
       leaseEpoch: number
+    }
+  | {
+      type: 'open_link'
+      actionId: string
+      basedOnRevision: number
+      leaseEpoch: number
+      url: string
     }
   | {
       type: 'player_status'
@@ -150,6 +165,9 @@ export function mediaMatches(expected: MediaFingerprint | null, actual: MediaFin
   if (!expected || !actual)
     return expected === actual
 
+  if (expected.pageUrl && actual.pageUrl && normalizePageUrl(expected.pageUrl) === normalizePageUrl(actual.pageUrl))
+    return true
+
   if (expected.service !== actual.service)
     return false
 
@@ -165,6 +183,33 @@ export function mediaMatches(expected: MediaFingerprint | null, actual: MediaFin
     return true
 
   return Math.abs(expected.durationSeconds - actual.durationSeconds) <= 3
+}
+
+export function normalizePageUrl(value: string): string | null {
+  if (value.length > 2_048)
+    return null
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:')
+      return null
+    if (url.username || url.password)
+      return null
+    url.hash = ''
+    url.hostname = url.hostname.toLowerCase()
+    if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80'))
+      url.port = ''
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(utm_|fbclid$|gclid$|ref$|source$)/i.test(key))
+        url.searchParams.delete(key)
+    }
+    url.searchParams.sort()
+    if (url.pathname.length > 1)
+      url.pathname = url.pathname.replace(/\/+$/, '')
+    return url.toString()
+  }
+  catch {
+    return null
+  }
 }
 
 export function normalizeCanonicalId(service: string, canonicalId: string): string {
@@ -222,6 +267,11 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
         return null
       return value as unknown as ClientMessage
 
+    case 'open_link':
+      if (!validId(value.actionId) || !isNonNegativeInteger(value.basedOnRevision) || !isNonNegativeInteger(value.leaseEpoch) || !validPageUrl(value.url))
+        return null
+      return { ...value, url: normalizePageUrl(value.url) } as unknown as ClientMessage
+
     case 'player_status':
       if (!validPlayerSample(value.sample))
         return null
@@ -265,6 +315,11 @@ function validMedia(value: unknown): value is MediaFingerprint | null {
     && validShortText(value.canonicalId, 500)
     && validShortText(value.title, 300)
     && (value.durationSeconds === null || isFiniteNonNegative(value.durationSeconds))
+    && (value.pageUrl === undefined || validPageUrl(value.pageUrl))
+}
+
+function validPageUrl(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 2_048 && normalizePageUrl(value) !== null
 }
 
 function validPlayerSample(value: unknown): value is PlayerSample {

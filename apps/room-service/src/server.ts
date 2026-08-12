@@ -239,10 +239,12 @@ export async function createRoomService(options: { port?: number; host?: string 
       ? room.coordinator.setReady(client.participantId, message.ready, message.media)
       : message.type === 'transfer_control'
         ? room.coordinator.transferControl(client.participantId, message.participantId, message.leaseEpoch)
-        : room.coordinator.control(client.participantId, message)
+        : message.type === 'open_link'
+          ? room.coordinator.openLink(client.participantId, message)
+          : room.coordinator.control(client.participantId, message)
 
     if (!result.ok) {
-      sendResult(socket, message.type === 'control' ? message.actionId : null, result)
+      sendResult(socket, message.type === 'control' || message.type === 'open_link' ? message.actionId : null, result)
       return
     }
 

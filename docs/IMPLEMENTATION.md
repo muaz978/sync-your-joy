@@ -4,28 +4,34 @@
 
 - Chrome Manifest V3 extension with a persistent side panel.
 - Floating Shadow DOM status pill that does not modify proprietary player controls.
-- Generic `HTMLVideoElement` detection on YouTube, Netflix, Disney+, Crunchyroll, localhost, and the local test player.
+- Generic `HTMLVideoElement` detection on HTTP/HTTPS pages, including embedded video frames.
 - Room creation and joining with an eight-character code.
 - Two to ten participants with persistent participant identity for reconnects.
 - One authoritative controller with a server-issued lease epoch.
 - Pass-the-remote control transfer.
 - Explicit ready controls for every participant, including the controller, with canonical media fingerprint matching.
 - Stable Crunchyroll episode fingerprints based on the `/watch/{episode-id}` value, independent of domain, locale path, page slug, or translated title.
-- Per-room active-tab binding so background streaming tabs cannot overwrite media identity or playback state.
+- Per-room tab-and-frame binding with largest-player selection, so background videos and embedded ads cannot overwrite media identity or playback state.
+- A controller-only **Open link for everyone** action that validates and normalizes an HTTP/HTTPS video-page URL, schedules a new tab on all connected clients, pauses the room, and clears readiness.
+- Same-normalized-link matching as a strong media identity signal, including generic platforms and localized page metadata.
 - A **Recheck this tab** recovery action when the active player does not match the room.
+- Automatic controller intent capture from the native player's play, pause, and completed seek events.
+- Scrub protection that lets the controller drag freely, then broadcasts the final progress position after release.
+- Operation-specific feedback-loop suppression so a real controller action is not mistaken for a programmatic correction.
+- A one-click **Enable** recovery when Chrome blocks script-initiated playback.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.
 - Automatic drift handling: ignore small drift, temporarily adjust playback rate for moderate drift, and seek for large drift.
 - Debounced buffering detection with pause-for-everyone behavior.
-- Monotonic room revisions, stale-command rejection, duplicate action suppression, and snapshot recovery.
+- Monotonic room revisions, ordered rapid controls under the current controller lease, duplicate action suppression, and snapshot recovery.
 - Controller disconnect pause, ten-second recovery grace period, and deterministic handoff.
 - Light and dark themes with a restrained neumorphic control treatment.
 - Local test player that accepts a device-local video through an object URL.
 - Cloudflare Worker routing each room code to one stateful Durable Object.
 - Hibernating edge WebSockets with persisted room snapshots and alarm-driven controller recovery and room expiry.
 - Environment-specific extension builds for localhost or a deployed WSS coordinator.
-- A two-client deployment smoke test covering create, join, ready, ping, and scheduled play.
+- A two-client deployment smoke test covering create, join, ready, ping, scheduled play, progress seek, and rapid pause/play.
 
 ## Explicit privacy boundary
 
@@ -37,11 +43,13 @@ The manifest does not request:
 - `webRequest`;
 - `debugger`.
 
-The content script reads only the active video element's playback state and a minimal media fingerprint. It does not read streaming credentials, cookies, DRM data, decoded frames, video bytes, audio bytes, page network responses, or unrelated browsing history.
+Universal player discovery requires content-script host access on HTTP and HTTPS pages, so Chrome will show an all-sites access warning for this beta. The script does nothing on pages without a video, and room playback state is delivered only to the selected tab and frame.
+
+The content script reads only the bound video element's playback state and a minimal media fingerprint containing service, canonical media ID, title, duration, and normalized containing-page URL. It does not read streaming credentials, cookies, DRM data, decoded frames, video bytes, audio bytes, page network responses, or unrelated browsing history.
 
 ## Current platform approach
 
-The subscription platforms use the generic standards-based video adapter in this first build. The adapter calls ordinary `HTMLMediaElement` operations such as `play()`, `pause()`, `currentTime`, and `playbackRate`. It does not access or alter DRM.
+All HTTP/HTTPS platforms use the generic standards-based video adapter in this build. The adapter calls ordinary `HTMLMediaElement` operations such as `play()`, `pause()`, `currentTime`, and `playbackRate`. It does not access or alter DRM.
 
 Commercial streaming sites change their page structure and playback behavior regularly. Each platform still needs a dedicated compatibility and regression test pass before it can be described as production-supported. The generic adapter fails visibly when it cannot find a controllable video instead of attempting to bypass the player.
 
@@ -52,7 +60,7 @@ Commercial streaming sites change their page structure and playback behavior reg
 - Rooms are intentionally ephemeral and expire after all participants have left.
 - The extension is an unpacked development build and is not ready for Chrome Web Store submission.
 - There is no account system, chat, voice, video calling, or room history.
-- Episode transitions require participants to confirm the new media state; automated next-episode coordination is not implemented.
+- Episode transitions still require participants to confirm the new media state; the host can coordinate them with **Open link for everyone**, but automatic next-episode detection is not implemented.
 - There is no production abuse prevention beyond message validation, room size limits, per-connection rate limiting, expiring empty rooms, and unguessable internal room tokens.
 - Automated two-browser compatibility tests on live Netflix, Disney+, and Crunchyroll players are still required.
 
@@ -71,7 +79,7 @@ The repository currently checks:
 - strict TypeScript compilation;
 - server and extension production builds;
 - room coordinator serialization and restoration;
-- a two-client smoke flow runnable against both local and deployed Cloudflare Workers.
+- a two-client smoke flow covering shared-link navigation, create/join, readiness, scheduled play, seek, and rapid controls against local or deployed Cloudflare Workers.
 
 Run everything with:
 

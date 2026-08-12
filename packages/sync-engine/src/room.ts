@@ -5,8 +5,9 @@ import type {
   PlaybackState,
   PlayerSample,
   RoomSnapshot,
+  SharedNavigation,
 } from '@syncyourjoy/protocol'
-import { mediaMatches } from '@syncyourjoy/protocol'
+import { mediaMatches, normalizePageUrl } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
 
 export interface InternalParticipant extends ParticipantState {
@@ -30,6 +31,8 @@ export interface RoomCoordinatorState {
   playback: PlaybackState
   participants: Array<InternalParticipant>
   actionIds: string[]
+  navigation?: SharedNavigation | null
+  controlRevisionFloor?: number
 }
 
 export interface ControlIntent {
@@ -38,6 +41,13 @@ export interface ControlIntent {
   leaseEpoch: number
   kind: ControlKind
   positionSeconds: number
+}
+
+export interface OpenLinkIntent {
+  actionId: string
+  basedOnRevision: number
+  leaseEpoch: number
+  url: string
 }
 
 export type RoomResult =
@@ -55,6 +65,8 @@ export class RoomCoordinator {
   private playback: PlaybackState
   private readonly participants = new Map<string, InternalParticipant>()
   private readonly actionIds = new Set<string>()
+  private navigation: SharedNavigation | null = null
+  private controlRevisionFloor = 0
 
   constructor(
     identity: RoomIdentity,
@@ -76,6 +88,8 @@ export class RoomCoordinator {
         this.participants.set(participant.id, structuredClone(participant))
       for (const actionId of restoredState.actionIds)
         this.actionIds.add(actionId)
+      this.navigation = restoredState.navigation ?? null
+      this.controlRevisionFloor = restoredState.controlRevisionFloor ?? restoredState.revision
       return
     }
 
@@ -123,6 +137,8 @@ export class RoomCoordinator {
       playback: { ...this.playback },
       participants: [...this.participants.values()].map(participant => structuredClone(participant)),
       actionIds: [...this.actionIds],
+      navigation: this.navigation ? { ...this.navigation } : null,
+      controlRevisionFloor: this.controlRevisionFloor,
     }
   }
 
@@ -134,7 +150,9 @@ export class RoomCoordinator {
       existing.media = participant.media
       existing.mediaMatches = mediaMatches(this.media, participant.media)
       existing.ready = false
+      this.pauseForMembershipChange()
       this.revision += 1
+      this.markStateBarrier()
       return this.success('participant_reconnected')
     }
 
@@ -154,7 +172,9 @@ export class RoomCoordinator {
       media: participant.media,
       lastSample: null,
     })
+    this.pauseForMembershipChange()
     this.revision += 1
+    this.markStateBarrier()
     return this.success('participant_joined')
   }
 
@@ -166,7 +186,10 @@ export class RoomCoordinator {
     participant.media = media
     participant.mediaMatches = mediaMatches(this.media, media)
     participant.ready = ready && participant.mediaMatches
+    if (!participant.ready)
+      this.pauseForMembershipChange()
     this.revision += 1
+    this.markStateBarrier()
     return this.success(participant.ready ? 'participant_ready' : 'participant_not_ready')
   }
 
@@ -180,18 +203,15 @@ export class RoomCoordinator {
     if (intent.leaseEpoch !== this.leaseEpoch)
       return this.failure('stale_lease', 'Control changed hands. Refreshing room state.')
 
-    if (intent.basedOnRevision !== this.revision)
-      return this.failure('stale_revision', 'The room changed before this control was applied. Try again.')
+    if (intent.basedOnRevision > this.revision)
+      return this.failure('future_revision', 'The control referenced room state that has not arrived yet.')
+    if (intent.basedOnRevision < this.controlRevisionFloor)
+      return this.failure('stale_context', 'The room changed before this control was applied.')
 
     if (intent.kind === 'play' && !this.everyoneReady())
       return this.failure('participants_not_ready', 'Everyone must be ready before playback starts.')
 
-    this.actionIds.add(intent.actionId)
-    if (this.actionIds.size > 500) {
-      const oldest = this.actionIds.values().next().value
-      if (typeof oldest === 'string')
-        this.actionIds.delete(oldest)
-    }
+    this.rememberAction(intent.actionId)
 
     const nowMs = this.now()
     const positionSeconds = Math.max(0, intent.positionSeconds)
@@ -242,7 +262,47 @@ export class RoomCoordinator {
     nextController.role = 'controller'
     this.leaseEpoch += 1
     this.revision += 1
+    this.markStateBarrier()
     return this.success('control_transferred')
+  }
+
+  openLink(participantId: string, intent: OpenLinkIntent): RoomResult {
+    if (this.actionIds.has(intent.actionId))
+      return this.success('duplicate_action')
+    if (participantId !== this.controllerId)
+      return this.failure('controller_only', 'Only the controller can open a link for the room.')
+    if (intent.leaseEpoch !== this.leaseEpoch)
+      return this.failure('stale_lease', 'Control changed hands. Refreshing room state.')
+    if (intent.basedOnRevision > this.revision)
+      return this.failure('future_revision', 'The link referenced room state that has not arrived yet.')
+    if (intent.basedOnRevision < this.controlRevisionFloor)
+      return this.failure('stale_context', 'The room changed before this link was applied.')
+
+    const url = normalizePageUrl(intent.url)
+    if (!url)
+      return this.failure('invalid_url', 'Enter a valid HTTP or HTTPS video page link.')
+
+    this.rememberAction(intent.actionId)
+    this.pauseForMembershipChange()
+    for (const participant of this.participants.values()) {
+      participant.ready = false
+      participant.mediaMatches = false
+    }
+    this.media = {
+      service: 'shared-link',
+      canonicalId: `page:${url}`,
+      title: new URL(url).hostname,
+      durationSeconds: null,
+      pageUrl: url,
+    }
+    this.revision += 1
+    this.markStateBarrier()
+    this.navigation = {
+      revision: this.revision,
+      url,
+      effectiveAtServerMs: this.now() + Math.max(500, this.commandLeadMs()),
+    }
+    return this.success('link_opened')
   }
 
   updatePlayerStatus(participantId: string, sample: PlayerSample): RoomResult | null {
@@ -251,7 +311,7 @@ export class RoomCoordinator {
       return null
 
     participant.lastSample = sample
-    if (sample.buffering && this.playback.status === 'playing') {
+    if (participant.connected && participant.ready && participant.mediaMatches && sample.buffering && this.playback.status === 'playing') {
       const nowMs = this.now()
       this.playback = {
         status: 'paused',
@@ -260,6 +320,7 @@ export class RoomCoordinator {
         playbackRate: 1,
       }
       this.revision += 1
+      this.markStateBarrier()
       return this.success('participant_buffering')
     }
 
@@ -280,17 +341,10 @@ export class RoomCoordinator {
     participant.connected = false
     participant.ready = false
 
-    if (participantId === this.controllerId && this.playback.status === 'playing') {
-      const nowMs = this.now()
-      this.playback = {
-        status: 'paused',
-        positionSeconds: expectedPosition(this.playback, nowMs),
-        effectiveAtServerMs: nowMs,
-        playbackRate: 1,
-      }
-    }
+    this.pauseForMembershipChange()
 
     this.revision += 1
+    this.markStateBarrier()
     return this.success('participant_disconnected')
   }
 
@@ -312,6 +366,7 @@ export class RoomCoordinator {
     this.controllerId = next.id
     this.leaseEpoch += 1
     this.revision += 1
+    this.markStateBarrier()
     return this.success('controller_recovered')
   }
 
@@ -330,6 +385,7 @@ export class RoomCoordinator {
       },
       media: this.media ? { ...this.media } : null,
       playback: { ...this.playback },
+      navigation: this.navigation ? { ...this.navigation } : null,
       participants: [...this.participants.values()]
         .sort((a, b) => a.joinedAtMs - b.joinedAtMs)
         .map(({ joinedAtMs: _joinedAtMs, media: _media, lastSample: _lastSample, ...participant }) => ({ ...participant })),
@@ -349,6 +405,31 @@ export class RoomCoordinator {
 
     const slowestRoundTripMs = latencies.length > 0 ? Math.max(...latencies) : 120
     return Math.round(Math.max(140, Math.min(500, slowestRoundTripMs / 2 + 80)))
+  }
+
+  private pauseForMembershipChange(): void {
+    if (this.playback.status !== 'playing')
+      return
+    const nowMs = this.now()
+    this.playback = {
+      status: 'paused',
+      positionSeconds: expectedPosition(this.playback, nowMs),
+      effectiveAtServerMs: nowMs,
+      playbackRate: 1,
+    }
+  }
+
+  private markStateBarrier(): void {
+    this.controlRevisionFloor = this.revision
+  }
+
+  private rememberAction(actionId: string): void {
+    this.actionIds.add(actionId)
+    if (this.actionIds.size <= 500)
+      return
+    const oldest = this.actionIds.values().next().value
+    if (typeof oldest === 'string')
+      this.actionIds.delete(oldest)
   }
 
   private success(reason: string): RoomResult {

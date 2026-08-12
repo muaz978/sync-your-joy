@@ -22,7 +22,8 @@ The current build combines:
 
 - a compact in-page sync pill for status and essential actions;
 - a Chrome side panel for create/join, participants, readiness, control ownership, and diagnostics;
-- a generic HTML5 video adapter enabled on YouTube, Netflix, Disney+, Crunchyroll, and the local test player;
+- a generic HTML5 video adapter enabled on HTTP/HTTPS pages, including videos inside embedded frames;
+- controller-driven shared-link navigation that opens the same normalized video page for every participant and resets readiness safely;
 - an ordered room protocol with clock-offset estimation, scheduled playback, acknowledgements, and drift correction.
 
 It does not request screen capture, desktop capture, cookies, web request interception, or debugger permissions. It never captures or retransmits video or audio.
@@ -42,7 +43,7 @@ Then:
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Choose **Load unpacked** and select `apps/extension/dist`.
-4. Open `http://127.0.0.1:8787/test-player`, or open a supported streaming page.
+4. Open `http://127.0.0.1:8787/test-player`, or any HTTP/HTTPS page with a controllable HTML5 video.
 5. Select the same local test video in two Chrome profiles, open SyncYourJoy, create a room in one profile, and join with the code in the other.
 
 The test player never uploads the selected file. Each browser creates a local object URL for its own copy.
@@ -80,6 +81,7 @@ npm run check           # full verification pipeline
 - [Research and constraints](docs/RESEARCH.md)
 - [Current implementation](docs/IMPLEMENTATION.md)
 - [Private beta testing](docs/PRIVATE_BETA.md)
+- [Reliability review and roadmap](docs/RELIABILITY_REVIEW.md)
 
 ## Working name
 

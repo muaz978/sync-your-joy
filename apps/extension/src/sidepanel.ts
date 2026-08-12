@@ -10,6 +10,9 @@ const app: HTMLElement = appElement
 let state: ExtensionState | null = null
 let draftName = 'Movie friend'
 let draftCode = ''
+let draftSharedUrl = ''
+let draftRoomCode: string | null = null
+let draftNavigationRevision = 0
 let toastMessage = ''
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -20,6 +23,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent) => {
   if (message.type === 'ROOM_STATE_UPDATED') {
     state = message.state
     draftName = message.state.displayName
+    syncSharedLinkDraft(message.state)
     render()
   }
 })
@@ -28,6 +32,7 @@ async function refreshState(): Promise<void> {
   const response = await sendRuntime({ type: 'GET_STATE' })
   state = response.state
   draftName = response.state.displayName
+  syncSharedLinkDraft(response.state)
   render()
 }
 
@@ -58,7 +63,7 @@ function render(): void {
       </main>
 
       <footer class="shrink-0 border-t border-base px-4 py-2.5 text-center text-[0.625rem] leading-[0.875rem] color-fade">
-        Playback state only. No video, audio, cookies, or passwords.
+        Playback state and normalized page link only. No video, audio, cookies, or passwords.
       </footer>
 
       <div class="z-toast pointer-events-none fixed inset-x-4 bottom-12 transition-[opacity,transform] duration-150 ${toastMessage ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'}" role="status" aria-live="polite">
@@ -91,7 +96,7 @@ function welcomeView(current: ExtensionState): string {
               ${escapeHtml(media?.title ?? 'Open a supported video')}
             </h2>
             <p class="mt-1 mb-0 text-xs color-fade">
-              ${media ? `${escapeHtml(serviceLabel(media.service))} is ready to sync.` : 'YouTube, Netflix, Disney+, and Crunchyroll are enabled in this build.'}
+              ${media ? `${escapeHtml(serviceLabel(media.service))} is ready to sync.` : 'Open any HTTP or HTTPS page with an HTML5 video.'}
             </p>
           </div>
         </div>
@@ -144,7 +149,6 @@ function roomView(current: ExtensionState): string {
   const allReady = connected.every(participant => participant.ready && participant.mediaMatches)
   const serverNowMs = Date.now() + current.serverOffsetMs
   const currentPosition = expectedPosition(snapshot.playback, serverNowMs)
-
   return `
     <section class="flex flex-col gap-4">
       <div class="flex items-center justify-between gap-3">
@@ -188,6 +192,7 @@ function roomView(current: ExtensionState): string {
 
       ${readinessControls(me, isController, controller)}
       ${isController ? controllerControls(snapshot.playback.status, currentPosition, allReady) : ''}
+      ${isController ? sharedLinkControls() : ''}
 
       <div>
         <div class="mb-2 flex items-center justify-between px-1">
@@ -206,6 +211,20 @@ function roomView(current: ExtensionState): string {
         Leave room
       </button>
     </section>
+  `
+}
+
+function sharedLinkControls(): string {
+  return `
+    <form id="shared-link-form" class="soft-panel p-4">
+      <label class="section-label mb-1.5 block" for="shared-video-url">Video page link</label>
+      <p class="mt-0 mb-3 text-xs color-fade">Open the same page for everyone. Readiness resets after navigation.</p>
+      <input id="shared-video-url" class="field-base" name="url" type="url" inputmode="url" autocomplete="url" value="${escapeAttribute(draftSharedUrl)}" placeholder="https://example.com/watch/video">
+      <button class="btn-action mt-3 w-full tap-scale" type="submit">
+        ${enterIcon('h-4 w-4')}
+        Open link for everyone
+      </button>
+    </form>
   `
 }
 
@@ -319,6 +338,15 @@ function bindWelcomeActions(): void {
 }
 
 function bindRoomActions(): void {
+  const sharedUrlInput = document.querySelector<HTMLInputElement>('#shared-video-url')
+  sharedUrlInput?.addEventListener('input', () => {
+    draftSharedUrl = sharedUrlInput.value
+  })
+  document.querySelector('#shared-link-form')?.addEventListener('submit', event => {
+    event.preventDefault()
+    void perform({ type: 'OPEN_LINK', url: draftSharedUrl })
+  })
+
   document.querySelector('#copy-code')?.addEventListener('click', () => {
     const code = state?.snapshot?.code
     if (!code)
@@ -375,9 +403,20 @@ async function saveNameThen(action: RuntimeRequest): Promise<void> {
 async function perform(request: RuntimeRequest): Promise<void> {
   const response = await sendRuntime(request)
   state = response.state
+  syncSharedLinkDraft(response.state)
   if (!response.ok)
     showToast(response.error ?? 'That action could not be completed.')
   render()
+}
+
+function syncSharedLinkDraft(nextState: ExtensionState): void {
+  const roomCode = nextState.snapshot?.code ?? null
+  const navigationRevision = nextState.snapshot?.navigation?.revision ?? 0
+  if (roomCode === draftRoomCode && navigationRevision === draftNavigationRevision)
+    return
+  draftRoomCode = roomCode
+  draftNavigationRevision = navigationRevision
+  draftSharedUrl = nextState.snapshot?.navigation?.url ?? nextState.snapshot?.media?.pageUrl ?? ''
 }
 
 function errorPanel(message: string): string {
@@ -459,6 +498,7 @@ function serviceLabel(service: string): string {
     crunchyroll: 'Crunchyroll',
     youtube: 'YouTube',
     html5: 'HTML5 video',
+    'shared-link': 'Shared video page',
   }
   return labels[service] ?? service
 }

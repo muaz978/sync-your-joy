@@ -77,6 +77,150 @@ describe('RoomCoordinator', () => {
     expect(duplicate.snapshot.revision).toBe(revision)
   })
 
+  it('accepts rapid ordered controls based on an older revision from the current lease', () => {
+    const room = createRoom()
+    room.setReady('participant_host', true, media)
+    const basedOnRevision = room.snapshot().revision
+    const leaseEpoch = room.snapshot().controller.leaseEpoch
+
+    const play = room.control('participant_host', {
+      actionId: 'action_rapid_play', basedOnRevision, leaseEpoch, kind: 'play', positionSeconds: 10,
+    })
+    const seek = room.control('participant_host', {
+      actionId: 'action_rapid_seek', basedOnRevision, leaseEpoch, kind: 'seek', positionSeconds: 120,
+    })
+    const pause = room.control('participant_host', {
+      actionId: 'action_rapid_pause', basedOnRevision, leaseEpoch, kind: 'pause', positionSeconds: 120,
+    })
+
+    expect(play.ok).toBe(true)
+    expect(seek).toMatchObject({ ok: true, snapshot: { playback: { positionSeconds: 120 } } })
+    expect(pause).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 120 } } })
+  })
+
+  it('rejects a delayed control after a readiness or membership barrier', () => {
+    const room = createRoom()
+    const obsoleteRevision = room.snapshot().revision
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+
+    const delayed = room.control('participant_host', {
+      actionId: 'action_delayed_seek',
+      basedOnRevision: obsoleteRevision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 400,
+    })
+    expect(delayed).toMatchObject({ ok: false, code: 'stale_context' })
+  })
+
+  it('pauses when readiness or membership changes during playback', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_membership',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+
+    nowMs = 12_000
+    const joined = room.join({ id: 'participant_friend', name: 'Rana', media })
+    expect(joined).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_replay_membership',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 22,
+    })
+    const unready = room.setReady('participant_friend', false, media)
+    expect(unready).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+  })
+
+  it('pauses when any participant disconnects during playback', () => {
+    const room = createRoom()
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_disconnect',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 30,
+    })
+
+    const disconnected = room.disconnect('participant_friend')
+    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+  })
+
+  it('ignores buffering reports from participants who are not ready', () => {
+    const room = createRoom()
+    room.setReady('participant_host', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_buffer_guard',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_buffer_guard_again',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    room.setReady('participant_friend', false, media)
+
+    const result = room.updatePlayerStatus('participant_friend', {
+      positionSeconds: 20,
+      durationSeconds: 600,
+      paused: false,
+      buffering: true,
+      sampledAtLocalMs: 10_000,
+    })
+    expect(result).toBeNull()
+  })
+
+  it('lets only the controller schedule a safe shared link and resets readiness', () => {
+    const room = createRoom()
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+
+    const rejected = room.openLink('participant_friend', {
+      actionId: 'action_member_link',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      url: 'https://video.example/watch/42',
+    })
+    expect(rejected).toMatchObject({ ok: false, code: 'controller_only' })
+
+    const opened = room.openLink('participant_host', {
+      actionId: 'action_host_link',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      url: 'https://video.example/watch/42#player',
+    })
+    expect(opened).toMatchObject({
+      ok: true,
+      snapshot: {
+        playback: { status: 'paused' },
+        navigation: { url: 'https://video.example/watch/42' },
+      },
+    })
+    expect(opened.snapshot.participants.every(participant => !participant.ready && !participant.mediaMatches)).toBe(true)
+  })
+
   it('rejects member controls and stale controller leases', () => {
     const room = createRoom()
     room.join({ id: 'participant_friend', name: 'Rana', media })

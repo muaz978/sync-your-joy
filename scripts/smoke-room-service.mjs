@@ -12,12 +12,14 @@ const hostMedia = {
   canonicalId: 'www.crunchyroll.com/ar/watch/GE00345558JAJP/from-now-on',
   title: 'Localized host title',
   durationSeconds: 1_470,
+  pageUrl: 'https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on',
 }
 const friendMedia = {
   service: 'crunchyroll',
   canonicalId: 'crunchyroll:GE00345558JAJP',
   title: 'Different regional page title',
   durationSeconds: 1_465,
+  pageUrl: 'https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on',
 }
 
 const host = await connect(baseUrl, code)
@@ -44,6 +46,18 @@ try {
   }))
   await friend.waitFor(message => message.type === 'room_joined')
   await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.length === 2)
+
+  host.socket.send(JSON.stringify({
+    type: 'open_link',
+    actionId: 'action_smoke_open_link',
+    basedOnRevision: 1,
+    leaseEpoch: 1,
+    url: 'https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on#player',
+  }))
+  const navigated = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.navigation?.url === 'https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on')
+  const friendNavigated = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.navigation?.revision === navigated.snapshot.navigation?.revision)
+  if (navigated.snapshot.navigation?.effectiveAtServerMs !== friendNavigated.snapshot.navigation?.effectiveAtServerMs)
+    throw new Error('Clients received different shared-link navigation times.')
 
   host.socket.send(JSON.stringify({ type: 'set_ready', ready: true, media: hostMedia }))
   await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.find(participant => participant.id === 'participant_smoke_host')?.ready)
@@ -72,12 +86,47 @@ try {
   if (playing.snapshot.playback.effectiveAtServerMs !== friendPlaying.snapshot.playback.effectiveAtServerMs)
     throw new Error('Clients received different effective playback times.')
 
+  host.socket.send(JSON.stringify({
+    type: 'control',
+    actionId: 'action_smoke_seek',
+    basedOnRevision: playing.snapshot.revision,
+    leaseEpoch: playing.snapshot.controller.leaseEpoch,
+    kind: 'seek',
+    positionSeconds: 137,
+  }))
+  const sought = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.playback.positionSeconds === 137)
+  const friendSought = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.playback.positionSeconds === 137)
+  if (sought.snapshot.revision !== friendSought.snapshot.revision)
+    throw new Error('Clients received different seek revisions.')
+
+  host.socket.send(JSON.stringify({
+    type: 'control',
+    actionId: 'action_smoke_rapid_pause',
+    basedOnRevision: sought.snapshot.revision,
+    leaseEpoch: sought.snapshot.controller.leaseEpoch,
+    kind: 'pause',
+    positionSeconds: 137,
+  }))
+  host.socket.send(JSON.stringify({
+    type: 'control',
+    actionId: 'action_smoke_rapid_play',
+    basedOnRevision: sought.snapshot.revision,
+    leaseEpoch: sought.snapshot.controller.leaseEpoch,
+    kind: 'play',
+    positionSeconds: 137,
+  }))
+  const rapidPlaying = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision >= sought.snapshot.revision + 2 && message.snapshot.playback.status === 'playing')
+  const friendRapidPlaying = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === rapidPlaying.snapshot.revision)
+  if (rapidPlaying.snapshot.playback.effectiveAtServerMs !== friendRapidPlaying.snapshot.playback.effectiveAtServerMs)
+    throw new Error('Clients received different rapid-control effective times.')
+
   console.log(JSON.stringify({
     ok: true,
     code,
     roundTripMs,
-    revision: playing.snapshot.revision,
-    scheduledLeadMs: playing.snapshot.playback.effectiveAtServerMs - Date.now(),
+    revision: rapidPlaying.snapshot.revision,
+    seekPositionSeconds: sought.snapshot.playback.positionSeconds,
+    scheduledLeadMs: rapidPlaying.snapshot.playback.effectiveAtServerMs - Date.now(),
   }))
 }
 finally {

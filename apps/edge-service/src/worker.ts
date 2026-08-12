@@ -302,10 +302,12 @@ export class RoomDurableObject extends DurableObject<Env> {
       ? this.coordinator.setReady(attachment.participantId, message.ready, message.media)
       : message.type === 'transfer_control'
         ? this.coordinator.transferControl(attachment.participantId, message.participantId, message.leaseEpoch)
-        : this.coordinator.control(attachment.participantId, message)
+        : message.type === 'open_link'
+          ? this.coordinator.openLink(attachment.participantId, message)
+          : this.coordinator.control(attachment.participantId, message)
 
     if (!result.ok) {
-      this.sendResult(socket, message.type === 'control' ? message.actionId : null, result)
+      this.sendResult(socket, message.type === 'control' || message.type === 'open_link' ? message.actionId : null, result)
       return
     }
 

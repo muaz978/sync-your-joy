@@ -1,7 +1,8 @@
 import type { MediaFingerprint, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { chooseDriftCorrection, expectedPosition } from '@syncyourjoy/sync-engine'
-import { canonicalMediaId, cleanMediaTitle, serviceName } from './media-fingerprint.ts'
+import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
+import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
 
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
@@ -9,11 +10,17 @@ const PLAYER_PILL_LAYER = '2147483600'
 
 let video: HTMLVideoElement | null = null
 let activeState: ExtensionState | null = null
-let suppressEventsUntil = 0
 let scheduledPlayTimer: ReturnType<typeof setTimeout> | null = null
 let bufferingTimer: ReturnType<typeof setTimeout> | null = null
 let rateResetTimer: ReturnType<typeof setTimeout> | null = null
 let lastFingerprintKey = ''
+let localSeeking = false
+let localIntentHoldUntil = 0
+let playbackActivationConfirmed = false
+let expectedPlayUntil = 0
+let expectedPauseUntil = 0
+let expectedSeek: { positionSeconds: number; until: number } | null = null
+let seekIntentTimer: ReturnType<typeof setTimeout> | null = null
 
 const pillHost = document.createElement('div')
 pillHost.id = 'sync-your-joy-root'
@@ -109,6 +116,7 @@ shadow.innerHTML = `
       <span class="meta" id="syj-meta">Waiting for room state</span>
     </span>
     <span class="actions">
+      <button id="syj-enable" type="button" hidden>Enable</button>
       <button id="syj-playback" type="button">Pause</button>
       <button id="syj-room" type="button">Room</button>
     </span>
@@ -122,6 +130,7 @@ const statusElement = shadow.querySelector<HTMLElement>('#syj-status')
 const metaElement = shadow.querySelector<HTMLElement>('#syj-meta')
 const noticeElement = shadow.querySelector<HTMLElement>('#syj-notice')
 const playbackButton = shadow.querySelector<HTMLButtonElement>('#syj-playback')
+const enableButton = shadow.querySelector<HTMLButtonElement>('#syj-enable')
 const roomButton = shadow.querySelector<HTMLButtonElement>('#syj-room')
 
 roomButton?.addEventListener('click', () => {
@@ -131,8 +140,21 @@ roomButton?.addEventListener('click', () => {
 playbackButton?.addEventListener('click', () => {
   if (!video || !activeState?.snapshot)
     return
-  const kind = activeState.snapshot.playback.status === 'playing' ? 'pause' : 'play'
-  void sendRuntime({ type: 'PLAYER_INTENT', kind, positionSeconds: video.currentTime })
+  if (video.paused) {
+    playbackActivationConfirmed = true
+    void video.play().catch(() => {
+      playbackActivationConfirmed = false
+      renderPill()
+      showNotice('Select Enable once so Chrome can allow synchronized play.')
+    })
+  }
+  else {
+    video.pause()
+  }
+})
+
+enableButton?.addEventListener('click', () => {
+  activateSynchronizedPlayback()
 })
 
 chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _sender, sendResponse) => {
@@ -141,14 +163,28 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     return false
   }
 
-  if (message.type === 'APPLY_ROOM_STATE' || message.type === 'ROOM_STATE_UPDATED') {
+  if (message.type === 'REPORT_PLAYER_CONTEXT') {
+    if (video) {
+      void reportMedia(video)
+      void reportPlayerStatus(false)
+    }
+    sendResponse(currentPlayerContext())
+    return false
+  }
+
+  if (message.type === 'APPLY_ROOM_STATE') {
+    const previousRevision = activeState?.snapshot?.revision ?? -1
     activeState = message.state
+    if ((message.state.snapshot?.revision ?? -1) > previousRevision)
+      localIntentHoldUntil = 0
+    if (message.state.lastError)
+      localIntentHoldUntil = 0
     renderPill()
     applyAuthoritativeState()
   }
   else if (message.type === 'PAUSE_LOCAL') {
     if (video && !video.paused) {
-      suppressPlayerEvents()
+      expectPauseEvent()
       video.pause()
     }
   }
@@ -183,8 +219,16 @@ document.addEventListener('fullscreenchange', () => {
 
 function scanForPlayer(): void {
   const candidate = findPrimaryVideo()
-  if (!candidate)
+  if (!candidate) {
+    if (video) {
+      detachPlayer(video)
+      video = null
+      lastFingerprintKey = ''
+      renderPill()
+      void sendRuntime({ type: 'MEDIA_LOST' })
+    }
     return
+  }
 
   if (candidate === video) {
     reportMediaIfChanged(candidate)
@@ -204,7 +248,15 @@ function reportMediaIfChanged(target: HTMLVideoElement): void {
   if (key === lastFingerprintKey)
     return
   lastFingerprintKey = key
-  void sendRuntime({ type: 'MEDIA_DETECTED', media })
+  void reportMedia(target, media)
+}
+
+async function reportMedia(target: HTMLVideoElement, media = createMediaFingerprint(target)): Promise<void> {
+  await sendRuntime({
+    type: 'MEDIA_DETECTED',
+    media,
+    areaPixels: Math.max(0, target.clientWidth * target.clientHeight),
+  })
 }
 
 function findPrimaryVideo(): HTMLVideoElement | null {
@@ -216,7 +268,9 @@ function findPrimaryVideo(): HTMLVideoElement | null {
 function attachPlayer(target: HTMLVideoElement): void {
   target.addEventListener('play', handlePlay)
   target.addEventListener('pause', handlePause)
+  target.addEventListener('seeking', handleSeeking)
   target.addEventListener('seeked', handleSeeked)
+  target.addEventListener('ended', handleEnded)
   target.addEventListener('waiting', handleBuffering)
   target.addEventListener('stalled', handleBuffering)
   target.addEventListener('playing', handleCanPlay)
@@ -229,29 +283,76 @@ function detachPlayer(target: HTMLVideoElement | null): void {
     return
   target.removeEventListener('play', handlePlay)
   target.removeEventListener('pause', handlePause)
+  target.removeEventListener('seeking', handleSeeking)
   target.removeEventListener('seeked', handleSeeked)
+  target.removeEventListener('ended', handleEnded)
   target.removeEventListener('waiting', handleBuffering)
   target.removeEventListener('stalled', handleBuffering)
   target.removeEventListener('playing', handleCanPlay)
   target.removeEventListener('canplay', handleCanPlay)
+  if (seekIntentTimer)
+    clearTimeout(seekIntentTimer)
+  seekIntentTimer = null
+  localSeeking = false
 }
 
 function handlePlay(): void {
-  if (!eventsSuppressed() && video)
+  if (consumeExpectedPlay()) {
+    playbackActivationConfirmed = true
+    renderPill()
+  }
+  else if (video) {
+    playbackActivationConfirmed = true
+    holdLocalControllerIntent()
     void sendRuntime({ type: 'PLAYER_INTENT', kind: 'play', positionSeconds: video.currentTime })
+  }
+  renderPill()
   void reportPlayerStatus(false)
 }
 
 function handlePause(): void {
-  if (!eventsSuppressed() && video && !video.ended)
+  if (consumeExpectedPause()) {
+    // Programmatic pause already reflects the authoritative room state.
+  }
+  else if (video && !video.ended) {
+    holdLocalControllerIntent()
     void sendRuntime({ type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: video.currentTime })
+  }
+  renderPill()
   void reportPlayerStatus(false)
 }
 
+function handleSeeking(): void {
+  if (bufferingTimer)
+    clearTimeout(bufferingTimer)
+  bufferingTimer = null
+  if (seekIntentTimer)
+    clearTimeout(seekIntentTimer)
+  seekIntentTimer = null
+  if (!hasExpectedSeek() && isLocalController())
+    localSeeking = true
+}
+
 function handleSeeked(): void {
-  if (!eventsSuppressed() && video)
-    void sendRuntime({ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: video.currentTime })
+  const programmatic = consumeExpectedSeek()
+  const shouldSend = !programmatic && video && isLocalController()
+  localSeeking = false
+  if (shouldSend && video) {
+    holdLocalControllerIntent()
+    seekIntentTimer = setTimeout(() => {
+      seekIntentTimer = null
+      if (video)
+        void sendRuntime({ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: video.currentTime })
+    }, 120)
+  }
   void reportPlayerStatus(false)
+}
+
+function handleEnded(): void {
+  if (!video || !isLocalController())
+    return
+  holdLocalControllerIntent()
+  void sendRuntime({ type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: video.currentTime })
 }
 
 function handleBuffering(): void {
@@ -259,6 +360,8 @@ function handleBuffering(): void {
     clearTimeout(bufferingTimer)
   bufferingTimer = setTimeout(() => {
     bufferingTimer = null
+    if (video?.seeking || localSeeking || activeState?.snapshot?.playback.status !== 'playing')
+      return
     void reportPlayerStatus(true)
   }, 700)
 }
@@ -303,18 +406,25 @@ function applyAuthoritativeState(): void {
   if (!video || !activeState || !snapshot)
     return
 
+  if (shouldDeferAuthoritativeSync({
+    isController: isLocalController(),
+    isSeeking: localSeeking,
+    holdUntil: localIntentHoldUntil,
+    now: performance.now(),
+  }))
+    return
+
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
   const expectedSeconds = expectedPosition(snapshot.playback, estimatedServerNowMs)
 
   if (snapshot.playback.status === 'paused') {
     clearScheduledPlay()
     if (!video.paused) {
-      suppressPlayerEvents()
+      expectPauseEvent()
       video.pause()
     }
     if (Math.abs(video.currentTime - expectedSeconds) > 0.25) {
-      suppressPlayerEvents()
-      video.currentTime = expectedSeconds
+      setProgrammaticPosition(expectedSeconds)
     }
     restorePlaybackRate()
     return
@@ -323,12 +433,11 @@ function applyAuthoritativeState(): void {
   const timeUntilPlayMs = snapshot.playback.effectiveAtServerMs - estimatedServerNowMs
   if (timeUntilPlayMs > 12) {
     if (!video.paused) {
-      suppressPlayerEvents()
+      expectPauseEvent()
       video.pause()
     }
     if (Math.abs(video.currentTime - snapshot.playback.positionSeconds) > 0.12) {
-      suppressPlayerEvents()
-      video.currentTime = snapshot.playback.positionSeconds
+      setProgrammaticPosition(snapshot.playback.positionSeconds)
     }
     schedulePlay(timeUntilPlayMs)
     return
@@ -336,11 +445,9 @@ function applyAuthoritativeState(): void {
 
   const correction = chooseDriftCorrection(video.currentTime, expectedSeconds, true)
   if (correction.kind === 'seek') {
-    suppressPlayerEvents()
-    video.currentTime = correction.positionSeconds
+    setProgrammaticPosition(correction.positionSeconds)
   }
   else if (correction.kind === 'rate') {
-    suppressPlayerEvents()
     video.playbackRate = correction.playbackRate
     if (rateResetTimer)
       clearTimeout(rateResetTimer)
@@ -371,10 +478,32 @@ function clearScheduledPlay(): void {
 function playVideo(): void {
   if (!video)
     return
-  suppressPlayerEvents()
-  void video.play().catch(() => {
-    showNotice('Click the video once so Chrome can allow synchronized play.')
+  expectPlayEvent()
+  void video.play().then(() => {
+    playbackActivationConfirmed = true
+    renderPill()
+  }).catch(() => {
+    expectedPlayUntil = 0
+    playbackActivationConfirmed = false
+    renderPill()
+    showNotice('Select Enable once so Chrome can allow synchronized play.')
   })
+}
+
+function activateSynchronizedPlayback(): void {
+  if (!video)
+    return
+  expectPlayEvent()
+  const shouldRemainPaused = activeState?.snapshot?.playback.status !== 'playing'
+  void video.play().then(() => {
+    playbackActivationConfirmed = true
+    if (shouldRemainPaused && video) {
+      expectPauseEvent()
+      video.pause()
+    }
+    renderPill()
+    applyAuthoritativeState()
+  }).catch(() => showNotice('Click the video player once, then select Enable again.'))
 }
 
 function restorePlaybackRate(): void {
@@ -382,17 +511,8 @@ function restorePlaybackRate(): void {
     clearTimeout(rateResetTimer)
   rateResetTimer = null
   if (video && video.playbackRate !== 1) {
-    suppressPlayerEvents()
     video.playbackRate = 1
   }
-}
-
-function suppressPlayerEvents(): void {
-  suppressEventsUntil = performance.now() + 1_200
-}
-
-function eventsSuppressed(): boolean {
-  return performance.now() < suppressEventsUntil
 }
 
 function renderPill(): void {
@@ -412,10 +532,62 @@ function renderPill(): void {
     metaElement.textContent = `${isController ? 'Controller' : 'Member'}, ${connected.length} connected${participant?.mediaMatches === false ? ', wrong video' : ''}`
   if (playbackButton) {
     playbackButton.hidden = !isController
-    playbackButton.textContent = snapshot.playback.status === 'playing' ? 'Pause' : 'Play'
+    playbackButton.textContent = video?.paused ? 'Play' : 'Pause'
   }
+  if (enableButton)
+    enableButton.hidden = playbackActivationConfirmed
   if (noticeElement && activeState.lastError)
     noticeElement.textContent = activeState.lastError
+}
+
+function isLocalController(): boolean {
+  return activeState?.snapshot?.controller.participantId === activeState?.participantId
+}
+
+function holdLocalControllerIntent(): void {
+  if (isLocalController())
+    localIntentHoldUntil = performance.now() + LOCAL_INTENT_HOLD_MS
+}
+
+function expectPlayEvent(): void {
+  expectedPlayUntil = performance.now() + 2_000
+}
+
+function expectPauseEvent(): void {
+  expectedPauseUntil = performance.now() + 2_000
+}
+
+function consumeExpectedPlay(): boolean {
+  const expected = performance.now() < expectedPlayUntil
+  expectedPlayUntil = 0
+  return expected
+}
+
+function consumeExpectedPause(): boolean {
+  const expected = performance.now() < expectedPauseUntil
+  expectedPauseUntil = 0
+  return expected
+}
+
+function setProgrammaticPosition(positionSeconds: number): void {
+  if (!video)
+    return
+  expectedSeek = { positionSeconds, until: performance.now() + 3_000 }
+  video.currentTime = positionSeconds
+}
+
+function hasExpectedSeek(): boolean {
+  return expectedSeek !== null && performance.now() < expectedSeek.until
+}
+
+function consumeExpectedSeek(): boolean {
+  if (!video || !expectedSeek)
+    return false
+  const expected = performance.now() < expectedSeek.until
+    && Math.abs(video.currentTime - expectedSeek.positionSeconds) <= 1
+  if (expected || performance.now() >= expectedSeek.until)
+    expectedSeek = null
+  return expected
 }
 
 function showNotice(message: string): void {
@@ -429,13 +601,26 @@ function showNotice(message: string): void {
 }
 
 function createMediaFingerprint(target: HTMLVideoElement): MediaFingerprint {
-  const service = serviceName(location.hostname)
-  const url = new URL(location.href)
+  const playerUrl = new URL(location.href)
+  const service = serviceName(playerUrl.hostname)
+  const pageUrl = normalizePageUrl(containerPageUrl(playerUrl))
   return {
     service,
-    canonicalId: canonicalMediaId(service, url).slice(0, 500),
+    canonicalId: canonicalMediaId(service, playerUrl).slice(0, 500),
     title: cleanMediaTitle(document.title).slice(0, 300) || 'Untitled video',
     durationSeconds: Number.isFinite(target.duration) ? Math.round(target.duration * 10) / 10 : null,
+    ...(pageUrl ? { pageUrl } : {}),
+  }
+}
+
+function containerPageUrl(playerUrl: URL): URL {
+  if (window.top === window || !document.referrer)
+    return playerUrl
+  try {
+    return new URL(document.referrer)
+  }
+  catch {
+    return playerUrl
   }
 }
 

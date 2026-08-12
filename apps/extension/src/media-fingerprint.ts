@@ -1,3 +1,5 @@
+import { normalizePageUrl as normalizeProtocolPageUrl } from '@syncyourjoy/protocol'
+
 export function serviceName(hostname: string): string {
   const normalized = hostname.toLowerCase()
   if (normalized.includes('netflix'))
@@ -36,9 +38,12 @@ export function canonicalMediaId(service: string, url: URL): string {
       return `disney-plus:${videoId.toLowerCase()}`
   }
 
-  const hostname = url.hostname.toLowerCase().replace(/^www\./, '')
-  const pathname = url.pathname.replace(/\/+$/, '') || '/'
-  return `${hostname}${pathname}`
+  const normalized = normalizePageUrl(url)
+  return normalized ? `page:${normalized}` : `${url.hostname.toLowerCase()}${url.pathname}`
+}
+
+export function normalizePageUrl(url: URL): string | null {
+  return normalizeProtocolPageUrl(url.toString())
 }
 
 export function cleanMediaTitle(title: string): string {
