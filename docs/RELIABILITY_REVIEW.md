@@ -15,7 +15,10 @@ Review date: 2026-08-12.
 - State barriers reject delayed controls and link commands after membership, readiness, navigation, buffering, disconnect, or controller changes while still allowing rapid ordered controls from one current controller context.
 - Joining, reconnecting, losing readiness, navigating, or disconnecting pauses an active room so nobody silently continues out of sync.
 - Buffering reports are ignored while seeking and from participants who are not ready on the matching video.
-- A visible **Enable** action recovers from Chrome autoplay blocking. Script-initiated `HTMLMediaElement.play()` can be rejected until the page receives a user gesture, so literal zero-click playback cannot be guaranteed by an extension. See [MDN's `play()` behavior](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/play).
+- A visible in-page **Sync** action recovers from Chrome autoplay blocking and hard-aligns the local player without a refresh. Script-initiated `HTMLMediaElement.play()` can be rejected until the page receives a user gesture, so literal zero-click playback cannot be guaranteed by an extension. See [MDN's `play()` behavior](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/play).
+- Guests can join before a player or link exists; only the controller supplies the shared page after the room assembles.
+- Rejected play promises, unexpected pauses, and non-advancing playback are surfaced as stalls and pause the room instead of allowing the authoritative timeline to advance invisibly.
+- Click-to-load Animerco pages receive a narrow automatic bootstrap, while known advertising frames are excluded from player candidacy.
 - The in-page **Room** button calls `chrome.sidePanel.open()` directly from its user gesture, matching [Chrome's Side Panel requirement](https://developer.chrome.com/docs/extensions/reference/api/sidePanel).
 
 ## Recommended next work

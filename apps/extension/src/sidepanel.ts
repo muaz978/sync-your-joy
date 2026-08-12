@@ -107,7 +107,7 @@ function welcomeView(current: ExtensionState): string {
           <label class="section-label mb-1.5 block" for="display-name">Your name</label>
           <input id="display-name" class="field-base" name="name" maxlength="40" autocomplete="nickname" value="${escapeAttribute(draftName)}" placeholder="How friends see you">
         </div>
-        <button class="btn-primary w-full tap-scale" type="submit" ${media ? '' : 'disabled'}>
+        <button class="btn-primary w-full tap-scale" type="submit">
           ${plusIcon('h-4 w-4')}
           Start a synced room
         </button>
@@ -131,7 +131,7 @@ function welcomeView(current: ExtensionState): string {
       ${current.lastError ? errorPanel(current.lastError) : ''}
 
       <div class="px-2 text-xs leading-5 color-fade">
-        Everyone opens the same title through their own subscription. SyncYourJoy coordinates play, pause, seek, readiness, and drift correction.
+        Join immediately—even without a video open. The host can then open the same page for everyone before readiness begins.
       </div>
     </section>
   `
@@ -169,11 +169,13 @@ function roomView(current: ExtensionState): string {
           </span>
           <div class="min-w-0 flex-1">
             <p class="section-label m-0">Now syncing</p>
-            <h2 class="mt-1 mb-0 truncate text-sm font-700" title="${escapeAttribute(snapshot.media?.title ?? 'Video not identified')}">
-              ${escapeHtml(snapshot.media?.title ?? 'Video not identified')}
+            <h2 class="mt-1 mb-0 truncate text-sm font-700" title="${escapeAttribute(snapshot.media?.title ?? 'Waiting for the host')}">
+              ${escapeHtml(snapshot.media?.title ?? 'Waiting for the host')}
             </h2>
             <p class="mt-1 mb-0 text-xs color-fade">
-              ${snapshot.media ? escapeHtml(serviceLabel(snapshot.media.service)) : 'Waiting for a supported player'}
+              ${snapshot.media
+                ? current.currentMedia ? escapeHtml(serviceLabel(snapshot.media.service)) : 'Shared page opened · loading its player'
+                : isController ? 'Paste a video link below when everyone has joined' : 'You are in—no video link is needed from you'}
             </p>
           </div>
         </div>
@@ -190,9 +192,10 @@ function roomView(current: ExtensionState): string {
         </div>
       </div>
 
-      ${readinessControls(me, isController, controller)}
-      ${isController ? controllerControls(snapshot.playback.status, currentPosition, allReady) : ''}
+      ${readinessControls(me, isController, controller, snapshot.media !== null, current.currentMedia !== null)}
       ${isController ? sharedLinkControls() : ''}
+      ${localSyncControls(current.currentMedia !== null, snapshot.media !== null)}
+      ${isController && snapshot.media ? controllerControls(snapshot.playback.status, currentPosition, allReady) : ''}
 
       <div>
         <div class="mb-2 flex items-center justify-between px-1">
@@ -254,13 +257,40 @@ function controllerControls(status: 'paused' | 'playing', position: number, allR
           ${forwardIcon('h-4 w-4')}
         </button>
       </div>
+      <button id="sync-everyone" class="btn-action mt-3 w-full tap-scale" type="button" ${allReady ? '' : 'disabled'}>
+        ${syncIcon('h-4 w-4')}
+        Sync everyone to ${formatTime(position)}
+      </button>
     </div>
   `
 }
 
-function readinessControls(me: ParticipantState | undefined, isController: boolean, controller: ParticipantState | undefined): string {
+function readinessControls(me: ParticipantState | undefined, isController: boolean, controller: ParticipantState | undefined, roomHasMedia: boolean, hasLocalPlayer: boolean): string {
   const ready = me?.ready ?? false
   const matches = me?.mediaMatches ?? false
+  if (!roomHasMedia) {
+    return `
+      <div class="soft-panel p-4">
+        <p class="section-label m-0">${isController ? 'Room is ready' : `Waiting for ${escapeHtml(controller?.name ?? 'the host')}`}</p>
+        <p class="mt-1 mb-0 text-xs leading-5 color-fade">${isController
+          ? 'Friends can join now. Paste the video page below only after they are connected.'
+          : 'You joined successfully. Stay here—the host will open the video page for everyone.'}</p>
+      </div>
+    `
+  }
+  if (!hasLocalPlayer) {
+    return `
+      <div class="soft-panel p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="section-label m-0">Preparing your player</p>
+            <p class="mt-1 mb-0 text-xs leading-5 color-fade">The shared page opened. SyncYourJoy is loading and detecting its video.</p>
+          </div>
+          <span class="status-badge border-amber-600/20 bg-amber-500/10 text-amber-700 dark:text-amber-300">Loading</span>
+        </div>
+      </div>
+    `
+  }
   return `
     <div class="soft-panel p-4">
       <div class="flex items-start justify-between gap-3">
@@ -281,6 +311,21 @@ function readinessControls(me: ParticipantState | undefined, isController: boole
             ${screenIcon('h-4 w-4')}
             Recheck this tab
           </button>`}
+    </div>
+  `
+}
+
+function localSyncControls(hasLocalPlayer: boolean, roomHasMedia: boolean): string {
+  if (!roomHasMedia)
+    return ''
+  return `
+    <div class="soft-panel p-4">
+      <p class="section-label m-0">Playback repair</p>
+      <p class="mt-1 mb-0 text-xs leading-5 color-fade">Jump to the room timeline and retry playback without refreshing the page.</p>
+      <button id="sync-now" class="btn-action mt-3 w-full tap-scale" type="button" ${hasLocalPlayer && roomHasMedia ? '' : 'disabled'}>
+        ${syncIcon('h-4 w-4')}
+        Sync me now
+      </button>
     </div>
   `
 }
@@ -361,6 +406,17 @@ function bindRoomActions(): void {
     void perform({ type: 'CONTROL', kind })
   })
 
+  document.querySelector('#sync-now')?.addEventListener('click', () => {
+    void perform({ type: 'SYNC_NOW' })
+  })
+
+  document.querySelector('#sync-everyone')?.addEventListener('click', () => {
+    if (!state?.snapshot)
+      return
+    const serverNowMs = Date.now() + state.serverOffsetMs
+    void perform({ type: 'CONTROL', kind: 'seek', positionSeconds: expectedPosition(state.snapshot.playback, serverNowMs) })
+  })
+
   document.querySelectorAll<HTMLElement>('[data-seek]').forEach((button) => {
     button.addEventListener('click', () => {
       const positionSeconds = Number(button.dataset.seek)
@@ -406,6 +462,8 @@ async function perform(request: RuntimeRequest): Promise<void> {
   syncSharedLinkDraft(response.state)
   if (!response.ok)
     showToast(response.error ?? 'That action could not be completed.')
+  else if (request.type === 'SYNC_NOW')
+    showToast('Sync requested. If playback is blocked, press Sync once in the in-page pill.')
   render()
 }
 
@@ -540,4 +598,5 @@ function readyIcon(classes: string): string { return svg('<path d="M20 6 9 17l-5
 function leaveIcon(classes: string): string { return svg('<path d="M10 17l5-5-5-5M15 12H3M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>', classes) }
 function warningIcon(classes: string): string { return svg('<path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3ZM12 9v4M12 17h.01"/>', classes) }
 function waitingIcon(classes: string): string { return svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', classes) }
+function syncIcon(classes: string): string { return svg('<path d="M20 7h-5V2"/><path d="M20 2 9 13"/><path d="M4 17h5v5"/><path d="m4 22 11-11"/>', classes) }
 function offlineIcon(classes: string): string { return svg('<path d="M2 2l20 20M8.5 8.5A5 5 0 0 0 7 12c0 3 2 5 5 5a5 5 0 0 0 3.5-1.5M17 12a5 5 0 0 0-6.5-4.8"/>', classes) }

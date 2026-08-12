@@ -18,6 +18,27 @@ function createRoom(now: () => number = () => 10_000): RoomCoordinator {
 }
 
 describe('RoomCoordinator', () => {
+  it('lets participants gather before the host chooses a video page', () => {
+    const room = new RoomCoordinator(
+      { roomId: 'room_empty12', code: 'EMPTY123', inviteToken: 'token_empty12' },
+      { id: 'participant_host', name: 'Muaz', media: null },
+      () => 10_000,
+    )
+    const joined = room.join({ id: 'participant_friend', name: 'Rana', media: null })
+
+    expect(joined.ok).toBe(true)
+    expect(joined.snapshot.media).toBeNull()
+    expect(joined.snapshot.participants.every(participant => !participant.ready && !participant.mediaMatches)).toBe(true)
+
+    const opened = room.openLink('participant_host', {
+      actionId: 'action_empty_room_link',
+      basedOnRevision: joined.snapshot.revision,
+      leaseEpoch: joined.snapshot.controller.leaseEpoch,
+      url: 'https://video.example/watch/42',
+    })
+    expect(opened).toMatchObject({ ok: true, snapshot: { navigation: { url: 'https://video.example/watch/42' } } })
+  })
+
   it('requires every connected participant to be ready before play', () => {
     const room = createRoom()
     const joined = room.join({ id: 'participant_friend', name: 'Rana', media })

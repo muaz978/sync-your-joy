@@ -24,6 +24,7 @@ The current build combines:
 - a Chrome side panel for create/join, participants, readiness, control ownership, and diagnostics;
 - a generic HTML5 video adapter enabled on HTTP/HTTPS pages, including videos inside embedded frames;
 - controller-driven shared-link navigation that opens the same normalized video page for every participant and resets readiness safely;
+- link-first rooms where guests join before opening any video, plus one-click local and room-wide resynchronization;
 - an ordered room protocol with clock-offset estimation, scheduled playback, acknowledgements, and drift correction.
 
 It does not request screen capture, desktop capture, cookies, web request interception, or debugger permissions. It never captures or retransmits video or audio.

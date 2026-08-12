@@ -22,7 +22,7 @@ After replacing or reloading the extension, refresh the open streaming tab so Ch
 ## Run a two-city test
 
 1. Both testers sign in to the chosen service with their own accounts. The host opens the intended title, pauses near the beginning, opens SyncYourJoy, and selects **Start synced room**.
-2. The friend joins with the eight-character code from any page where SyncYourJoy can detect a video.
+2. The friend joins with the eight-character code immediately. They do not need a video or link open first.
 3. The host can paste the exact video-page URL under **Video page link** and select **Open link for everyone**. Chrome opens that normalized HTTP/HTTPS link in a new tab for every connected participant at the same scheduled time.
 4. Navigation clears readiness. Wait for both sides to show **Video matches**, then each participant selects **I'm ready**.
 5. After both people show **Ready**, the host tests the streaming player's native play, pause, and progress-bar drag controls. The side-panel remote remains available as a fallback.
@@ -31,7 +31,11 @@ After replacing or reloading the extension, refresh the open streaming tab so Ch
 
 If SyncYourJoy reports **Wrong video**, focus the tab containing the intended episode and select **Recheck this tab**. Equal normalized page links are treated as a strong match. After a room binds to a player tab and frame, unrelated videos, ads, and background tabs cannot control or overwrite that room.
 
-Play, pause, and dragging the progress bar are automatic when performed by the controller in the streaming player's native controls. If Chrome blocks the first remote play, select **Enable** once in the in-page SyncYourJoy pill; Chrome requires this user activation and the remaining room controls are automatic afterward.
+Play, pause, and dragging the progress bar are automatic when performed by the controller in the streaming player's native controls. If Chrome blocks or stalls playback, press **Sync** once in the in-page SyncYourJoy pill. This aligns the timeline and supplies the user activation Chrome may require; the room pauses instead of letting its displayed timeline run ahead of a stopped guest.
+
+Use **Sync me now** in the side panel for an immediate local correction, or **Sync everyone** from the controller panel to schedule the entire room at one authoritative position. Neither action requires refreshing the streaming page.
+
+Animerco episode pages initially contain only a poster and create their player iframe after the page's own play action. When such a page is opened through the room link, SyncYourJoy loads the default player server automatically and ignores the page's advertising iframe during player selection.
 
 ## What to record
 

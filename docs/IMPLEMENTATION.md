@@ -13,12 +13,15 @@
 - Stable Crunchyroll episode fingerprints based on the `/watch/{episode-id}` value, independent of domain, locale path, page slug, or translated title.
 - Per-room tab-and-frame binding with largest-player selection, so background videos and embedded ads cannot overwrite media identity or playback state.
 - A controller-only **Open link for everyone** action that validates and normalizes an HTTP/HTTPS video-page URL, schedules a new tab on all connected clients, pauses the room, and clears readiness.
+- Video-free create/join onboarding, allowing the room to assemble before the controller chooses and launches a page.
+- A guarded Animerco click-to-load adapter that starts the site's default player only for a room-shared page and filters known advertising frames.
 - Same-normalized-link matching as a strong media identity signal, including generic platforms and localized page metadata.
 - A **Recheck this tab** recovery action when the active player does not match the room.
 - Automatic controller intent capture from the native player's play, pause, and completed seek events.
 - Scrub protection that lets the controller drag freely, then broadcasts the final progress position after release.
 - Operation-specific feedback-loop suppression so a real controller action is not mistaken for a programmatic correction.
-- A one-click **Enable** recovery when Chrome blocks script-initiated playback.
+- In-page **Sync**, side-panel **Sync me now**, and controller **Sync everyone** recovery actions that avoid page refreshes.
+- Automatic blocked-play and stalled-progress detection that reports buffering and pauses the authoritative room timeline.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.

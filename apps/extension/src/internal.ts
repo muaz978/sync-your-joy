@@ -19,6 +19,7 @@ export type RuntimeRequest =
   | { type: 'SET_READY'; ready: boolean }
   | { type: 'RECHECK_MEDIA' }
   | { type: 'OPEN_LINK'; url: string }
+  | { type: 'SYNC_NOW' }
   | { type: 'CONTROL'; kind: ControlKind; positionSeconds?: number }
   | { type: 'TRANSFER_CONTROL'; participantId: string }
   | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number }
@@ -40,6 +41,7 @@ export type RuntimeEvent =
   | { type: 'ROOM_STATE_UPDATED'; state: ExtensionState }
   | { type: 'APPLY_ROOM_STATE'; state: ExtensionState }
   | { type: 'PAUSE_LOCAL' }
+  | { type: 'FORCE_SYNC' }
   | { type: 'SHOW_NOTICE'; message: string }
 
 export interface RuntimeResponse {

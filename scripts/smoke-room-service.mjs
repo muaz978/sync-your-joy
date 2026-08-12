@@ -32,7 +32,7 @@ try {
     participantId: 'participant_smoke_host',
     name: 'Deployment host',
     code,
-    media: hostMedia,
+    media: null,
   }))
   await host.waitFor(message => message.type === 'room_joined')
 
@@ -42,7 +42,7 @@ try {
     participantId: 'participant_smoke_friend',
     name: 'Deployment friend',
     code,
-    media: friendMedia,
+    media: null,
   }))
   await friend.waitFor(message => message.type === 'room_joined')
   await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.length === 2)

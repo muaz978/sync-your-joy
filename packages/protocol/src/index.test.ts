@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { mediaMatches, normalizeCanonicalId, normalizePageUrl, parseClientMessage } from './index.ts'
 
 describe('media identity matching', () => {
+  it('does not treat two missing players as a video match', () => {
+    expect(mediaMatches(null, null)).toBe(false)
+  })
+
   it('matches legacy and stable Crunchyroll IDs for the same episode', () => {
     const host: MediaFingerprint = {
       service: 'crunchyroll',

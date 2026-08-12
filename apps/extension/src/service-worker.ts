@@ -3,6 +3,7 @@ import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, Runti
 import { mediaMatches, normalizePageUrl, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
 import { shouldAcceptPlayerContext } from './player-tab.ts'
+import { isLikelyAdvertisingUrl } from './site-adapter.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -55,7 +56,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 })
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (state.playerTabId !== tabId || changeInfo.status !== 'loading')
+  if (state.playerTabId !== tabId)
+    return
+  if (changeInfo.status === 'complete' && state.snapshot?.navigation && state.playerFrameId === null) {
+    void sendToTab(tabId, { type: 'APPLY_ROOM_STATE', state }, 0)
+    return
+  }
+  if (changeInfo.status !== 'loading')
     return
   state.playerFrameId = null
   state.playerAreaPixels = 0
@@ -67,7 +74,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 })
 
 chrome.runtime.onMessage.addListener((request: RuntimeRequest | RuntimeEvent, sender, sendResponse) => {
-  if (!request || typeof request.type !== 'string' || request.type === 'ROOM_STATE_UPDATED' || request.type === 'APPLY_ROOM_STATE' || request.type === 'PAUSE_LOCAL' || request.type === 'SHOW_NOTICE')
+  if (!request || typeof request.type !== 'string' || request.type === 'ROOM_STATE_UPDATED' || request.type === 'APPLY_ROOM_STATE' || request.type === 'PAUSE_LOCAL' || request.type === 'FORCE_SYNC' || request.type === 'SHOW_NOTICE')
     return false
 
   if (request.type === 'OPEN_PANEL' && sender.tab?.id !== undefined) {
@@ -119,7 +126,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     case 'GET_STATE':
       if (!state.snapshot && sender.tab?.id === undefined)
         await selectActivePlayerTab()
-      if (sender.tab?.id !== undefined && !isBoundPlayerSender(sender))
+      if (sender.tab?.id !== undefined && !isBoundPlayerSender(sender) && !isNavigationShellSender(sender))
         return success(detachedState())
       return success()
 
@@ -134,7 +141,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     }
 
     case 'MEDIA_DETECTED':
-      if (!acceptMediaSender(sender, request.areaPixels))
+      if (isLikelyAdvertisingUrl(sender.url) || !acceptMediaSender(sender, request.areaPixels))
         return success()
       if (sender.tab?.id !== undefined && sender.frameId !== undefined)
         await bindPlayerContext(sender.tab.id, sender.frameId, request.areaPixels)
@@ -167,8 +174,6 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return success()
 
     case 'CREATE_ROOM':
-      if (!await selectActivePlayerTab() || !state.currentMedia)
-        return failure('Open a supported video before creating a room.')
       const newRoomCode = createRoomCode()
       await startFreshConnection(newRoomCode)
       sendToServer({
@@ -185,8 +190,6 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       const code = request.code.trim().toUpperCase()
       if (!/^[A-Z0-9]{8}$/.test(code))
         return failure('Enter the eight-character room code.')
-      if (!await selectActivePlayerTab())
-        return failure('Open the video you want to sync in the active tab before joining.')
       await startFreshConnection(code)
       sendToServer({
         type: 'join_room',
@@ -226,6 +229,12 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       await publishState()
       return success()
     }
+
+    case 'SYNC_NOW':
+      if (!state.snapshot || state.playerTabId === null || state.playerFrameId === null || !state.currentMedia)
+        return failure('The shared player is not ready yet.')
+      await sendToPlayerTab({ type: 'FORCE_SYNC' })
+      return success()
 
     case 'OPEN_LINK': {
       const snapshot = state.snapshot
@@ -527,6 +536,14 @@ function isBoundPlayerSender(sender: chrome.runtime.MessageSender): boolean {
     && sender.frameId === state.playerFrameId
 }
 
+function isNavigationShellSender(sender: chrome.runtime.MessageSender): boolean {
+  return state.snapshot?.navigation != null
+    && sender.tab?.id !== undefined
+    && sender.frameId === 0
+    && sender.tab.id === state.playerTabId
+    && state.playerFrameId === null
+}
+
 async function selectActivePlayerTab(): Promise<boolean> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
   if (tab?.id === undefined) {
@@ -618,6 +635,8 @@ async function bindPlayerContext(tabId: number, frameId: number | null, areaPixe
   state.playerAreaPixels = Math.max(0, areaPixels)
   if (previousTabId !== null && previousFrameId !== null && (previousTabId !== tabId || previousFrameId !== frameId))
     await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId)
+  else if (previousTabId === tabId && previousFrameId === null && frameId !== null && frameId !== 0)
+    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, 0)
 }
 
 async function unbindPlayerContext(): Promise<void> {

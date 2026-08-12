@@ -3,6 +3,7 @@ import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, Runti
 import { chooseDriftCorrection, expectedPosition } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
+import { shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
 
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
@@ -16,11 +17,16 @@ let rateResetTimer: ReturnType<typeof setTimeout> | null = null
 let lastFingerprintKey = ''
 let localSeeking = false
 let localIntentHoldUntil = 0
-let playbackActivationConfirmed = false
 let expectedPlayUntil = 0
 let expectedPauseUntil = 0
 let expectedSeek: { positionSeconds: number; until: number } | null = null
 let seekIntentTimer: ReturnType<typeof setTimeout> | null = null
+let lastProgressPosition = 0
+let lastProgressAt = performance.now()
+let unexpectedPauseSince = 0
+let stallNoticeShown = false
+let siteBootstrapAttempts = 0
+let lastSiteBootstrapAt = 0
 
 const pillHost = document.createElement('div')
 pillHost.id = 'sync-your-joy-root'
@@ -43,7 +49,7 @@ shadow.innerHTML = `
       grid-template-columns: auto minmax(0, 1fr) auto;
       align-items: center;
       gap: 10px;
-      width: min(310px, calc(100vw - 32px));
+      width: min(390px, calc(100vw - 32px));
       padding: 9px 10px;
       border: 1px solid rgb(100 116 139 / 18%);
       border-radius: 16px;
@@ -82,6 +88,7 @@ shadow.innerHTML = `
       cursor: pointer;
     }
     button:hover { color: var(--accent); }
+    button:disabled { cursor: not-allowed; opacity: 0.5; transform: none; }
     button:focus-visible { outline: 2px solid #42a99d; outline-offset: 2px; }
     button:active { transform: translateY(1px); box-shadow: inset 2px 2px 5px rgb(15 23 42 / 16%); }
     button[hidden] { display: none; }
@@ -116,7 +123,7 @@ shadow.innerHTML = `
       <span class="meta" id="syj-meta">Waiting for room state</span>
     </span>
     <span class="actions">
-      <button id="syj-enable" type="button" hidden>Enable</button>
+      <button id="syj-sync" type="button">Sync</button>
       <button id="syj-playback" type="button">Pause</button>
       <button id="syj-room" type="button">Room</button>
     </span>
@@ -130,7 +137,7 @@ const statusElement = shadow.querySelector<HTMLElement>('#syj-status')
 const metaElement = shadow.querySelector<HTMLElement>('#syj-meta')
 const noticeElement = shadow.querySelector<HTMLElement>('#syj-notice')
 const playbackButton = shadow.querySelector<HTMLButtonElement>('#syj-playback')
-const enableButton = shadow.querySelector<HTMLButtonElement>('#syj-enable')
+const syncButton = shadow.querySelector<HTMLButtonElement>('#syj-sync')
 const roomButton = shadow.querySelector<HTMLButtonElement>('#syj-room')
 
 roomButton?.addEventListener('click', () => {
@@ -141,11 +148,9 @@ playbackButton?.addEventListener('click', () => {
   if (!video || !activeState?.snapshot)
     return
   if (video.paused) {
-    playbackActivationConfirmed = true
     void video.play().catch(() => {
-      playbackActivationConfirmed = false
       renderPill()
-      showNotice('Select Enable once so Chrome can allow synchronized play.')
+      showNotice('Press Sync once so Chrome can allow synchronized play.')
     })
   }
   else {
@@ -153,8 +158,8 @@ playbackButton?.addEventListener('click', () => {
   }
 })
 
-enableButton?.addEventListener('click', () => {
-  activateSynchronizedPlayback()
+syncButton?.addEventListener('click', () => {
+  forceSyncToRoom(true)
 })
 
 chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _sender, sendResponse) => {
@@ -181,12 +186,17 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
       localIntentHoldUntil = 0
     renderPill()
     applyAuthoritativeState()
+    if (!video)
+      scanForPlayer()
   }
   else if (message.type === 'PAUSE_LOCAL') {
     if (video && !video.paused) {
       expectPauseEvent()
       video.pause()
     }
+  }
+  else if (message.type === 'FORCE_SYNC') {
+    forceSyncToRoom(false)
   }
   else if (message.type === 'SHOW_NOTICE') {
     showNotice(message.message)
@@ -198,6 +208,8 @@ void sendRuntime({ type: 'GET_STATE' }).then((response) => {
   activeState = response.state
   renderPill()
   applyAuthoritativeState()
+  if (!video)
+    scanForPlayer()
 })
 
 scanForPlayer()
@@ -220,6 +232,7 @@ document.addEventListener('fullscreenchange', () => {
 function scanForPlayer(): void {
   const candidate = findPrimaryVideo()
   if (!candidate) {
+    maybeBootstrapSitePlayer()
     if (video) {
       detachPlayer(video)
       video = null
@@ -266,6 +279,8 @@ function findPrimaryVideo(): HTMLVideoElement | null {
 }
 
 function attachPlayer(target: HTMLVideoElement): void {
+  lastProgressPosition = finiteOrZero(target.currentTime)
+  lastProgressAt = performance.now()
   target.addEventListener('play', handlePlay)
   target.addEventListener('pause', handlePause)
   target.addEventListener('seeking', handleSeeking)
@@ -298,11 +313,9 @@ function detachPlayer(target: HTMLVideoElement | null): void {
 
 function handlePlay(): void {
   if (consumeExpectedPlay()) {
-    playbackActivationConfirmed = true
     renderPill()
   }
   else if (video) {
-    playbackActivationConfirmed = true
     holdLocalControllerIntent()
     void sendRuntime({ type: 'PLAYER_INTENT', kind: 'play', positionSeconds: video.currentTime })
   }
@@ -376,11 +389,12 @@ function handleCanPlay(): void {
 async function reportPlayerStatus(buffering: boolean): Promise<void> {
   if (!video)
     return
+  const inferredBuffering = detectPlaybackStall(video, buffering)
   const sample: PlayerSample = {
     positionSeconds: finiteOrZero(video.currentTime),
     durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
     paused: video.paused,
-    buffering,
+    buffering: inferredBuffering,
     sampledAtLocalMs: Date.now(),
   }
   await sendRuntime({ type: 'PLAYER_STATUS', sample })
@@ -480,13 +494,12 @@ function playVideo(): void {
     return
   expectPlayEvent()
   void video.play().then(() => {
-    playbackActivationConfirmed = true
     renderPill()
   }).catch(() => {
     expectedPlayUntil = 0
-    playbackActivationConfirmed = false
     renderPill()
-    showNotice('Select Enable once so Chrome can allow synchronized play.')
+    showNotice('Playback was blocked. The room is pausing—press Sync once, then ask the host to play again.')
+    void reportPlayerStatus(true)
   })
 }
 
@@ -496,14 +509,57 @@ function activateSynchronizedPlayback(): void {
   expectPlayEvent()
   const shouldRemainPaused = activeState?.snapshot?.playback.status !== 'playing'
   void video.play().then(() => {
-    playbackActivationConfirmed = true
     if (shouldRemainPaused && video) {
       expectPauseEvent()
       video.pause()
     }
     renderPill()
     applyAuthoritativeState()
-  }).catch(() => showNotice('Click the video player once, then select Enable again.'))
+  }).catch(() => {
+    showNotice('Click the video player once, then press Sync again.')
+    void reportPlayerStatus(true)
+  })
+}
+
+function forceSyncToRoom(fromUserGesture: boolean): void {
+  if (!video || !activeState?.snapshot) {
+    showNotice('The shared player is still loading.')
+    return
+  }
+
+  clearScheduledPlay()
+  localIntentHoldUntil = 0
+  localSeeking = false
+  const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
+  const expectedSeconds = expectedPosition(activeState.snapshot.playback, estimatedServerNowMs)
+  setProgrammaticPosition(expectedSeconds)
+
+  if (activeState.snapshot.playback.status === 'paused') {
+    if (!video.paused) {
+      expectPauseEvent()
+      video.pause()
+    }
+    if (fromUserGesture)
+      activateSynchronizedPlayback()
+    showNotice('Aligned with the room. Waiting for the host to play.')
+    return
+  }
+
+  expectPlayEvent()
+  void video.play().then(() => {
+    lastProgressPosition = finiteOrZero(video?.currentTime ?? 0)
+    lastProgressAt = performance.now()
+    renderPill()
+    showNotice('Playback aligned with the room.')
+    void reportPlayerStatus(false)
+  }).catch(() => {
+    expectedPlayUntil = 0
+    renderPill()
+    showNotice(fromUserGesture
+      ? 'The player still blocked playback. Click its video area once, then press Sync.'
+      : 'Press Sync in the in-page pill to allow playback and align the video.')
+    void reportPlayerStatus(true)
+  })
 }
 
 function restorePlaybackRate(): void {
@@ -517,7 +573,7 @@ function restorePlaybackRate(): void {
 
 function renderPill(): void {
   const snapshot = activeState?.snapshot
-  pillHost.style.display = video && snapshot ? 'block' : 'none'
+  pillHost.style.display = snapshot && (video || isNavigationTargetPage()) ? 'block' : 'none'
   if (!snapshot || !activeState)
     return
 
@@ -525,17 +581,32 @@ function renderPill(): void {
   const connected = snapshot.participants.filter(item => item.connected)
   const allReady = connected.every(item => item.ready && item.mediaMatches)
   const isController = snapshot.controller.participantId === activeState.participantId
+  const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
+  const playbackBlocked = Boolean(video?.paused)
+    && snapshot.playback.status === 'playing'
+    && estimatedServerNowMs > snapshot.playback.effectiveAtServerMs + 300
 
   if (statusElement)
-    statusElement.textContent = activeState.connection === 'reconnecting' ? 'Reconnecting' : allReady ? 'In sync' : 'Waiting for everyone'
+    statusElement.textContent = activeState.connection === 'reconnecting'
+      ? 'Reconnecting'
+      : !video
+        ? 'Loading shared player'
+        : playbackBlocked
+          ? 'Playback blocked'
+          : allReady ? 'In sync' : 'Waiting for everyone'
   if (metaElement)
-    metaElement.textContent = `${isController ? 'Controller' : 'Member'}, ${connected.length} connected${participant?.mediaMatches === false ? ', wrong video' : ''}`
+    metaElement.textContent = !video
+      ? 'The page opened; preparing its video player'
+      : playbackBlocked
+        ? 'Press Sync once to repair playback'
+        : `${isController ? 'Controller' : 'Member'}, ${connected.length} connected${participant?.mediaMatches === false ? ', wrong video' : ''}`
   if (playbackButton) {
-    playbackButton.hidden = !isController
-    playbackButton.textContent = video?.paused ? 'Play' : 'Pause'
+    playbackButton.hidden = !isController || !video
+    playbackButton.disabled = snapshot.playback.status === 'paused' && !allReady
+    playbackButton.textContent = snapshot.playback.status === 'playing' ? 'Pause' : 'Play'
   }
-  if (enableButton)
-    enableButton.hidden = playbackActivationConfirmed
+  if (syncButton)
+    syncButton.disabled = !video
   if (noticeElement && activeState.lastError)
     noticeElement.textContent = activeState.lastError
 }
@@ -547,6 +618,70 @@ function isLocalController(): boolean {
 function holdLocalControllerIntent(): void {
   if (isLocalController())
     localIntentHoldUntil = performance.now() + LOCAL_INTENT_HOLD_MS
+}
+
+function detectPlaybackStall(target: HTMLVideoElement, explicitlyBuffering: boolean): boolean {
+  const now = performance.now()
+  const position = finiteOrZero(target.currentTime)
+  const roomIsPlaying = activeState?.snapshot?.playback.status === 'playing'
+  const estimatedServerNowMs = Date.now() + (activeState?.serverOffsetMs ?? 0)
+  const playShouldHaveStarted = roomIsPlaying
+    && estimatedServerNowMs > (activeState?.snapshot?.playback.effectiveAtServerMs ?? Number.POSITIVE_INFINITY) + 750
+
+  if (playShouldHaveStarted && target.paused && !(isLocalController() && now < localIntentHoldUntil)) {
+    if (unexpectedPauseSince === 0)
+      unexpectedPauseSince = now
+    const stalled = explicitlyBuffering || now - unexpectedPauseSince >= 1_500
+    if (stalled && !stallNoticeShown) {
+      stallNoticeShown = true
+      showNotice('This player stopped. The room is pausing—press Sync to recover without refreshing.')
+    }
+    return stalled
+  }
+
+  unexpectedPauseSince = 0
+  if (!roomIsPlaying || target.paused || target.seeking || localSeeking) {
+    if (!roomIsPlaying)
+      stallNoticeShown = false
+    lastProgressPosition = position
+    lastProgressAt = now
+    return explicitlyBuffering
+  }
+  if (Math.abs(position - lastProgressPosition) >= 0.12) {
+    lastProgressPosition = position
+    lastProgressAt = now
+    stallNoticeShown = false
+  }
+  const stalled = explicitlyBuffering || now - lastProgressAt >= 2_500
+  if (stalled && !stallNoticeShown) {
+    stallNoticeShown = true
+    showNotice('Playback stopped advancing. The room is pausing—press Sync to recover.')
+  }
+  return stalled
+}
+
+function maybeBootstrapSitePlayer(): void {
+  if (!shouldBootstrapClickToLoadPlayer(location.hostname, window.top === window, isNavigationTargetPage()))
+    return
+  if (document.querySelector('#player iframe, #player .load'))
+    return
+  const now = performance.now()
+  if (siteBootstrapAttempts >= 4 || now - lastSiteBootstrapAt < 1_500)
+    return
+  const launch = document.querySelector<HTMLElement>('#click-player')
+  if (!launch)
+    return
+  siteBootstrapAttempts += 1
+  lastSiteBootstrapAt = now
+  launch.click()
+  showNotice('Opening the default video server…')
+}
+
+function isNavigationTargetPage(): boolean {
+  const navigationUrl = activeState?.snapshot?.navigation?.url
+  if (!navigationUrl)
+    return false
+  return normalizePageUrl(new URL(location.href)) === normalizePageUrl(new URL(navigationUrl))
 }
 
 function expectPlayEvent(): void {

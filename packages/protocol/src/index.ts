@@ -163,7 +163,7 @@ export interface ClientRoomState {
 
 export function mediaMatches(expected: MediaFingerprint | null, actual: MediaFingerprint | null): boolean {
   if (!expected || !actual)
-    return expected === actual
+    return false
 
   if (expected.pageUrl && actual.pageUrl && normalizePageUrl(expected.pageUrl) === normalizePageUrl(actual.pageUrl))
     return true
