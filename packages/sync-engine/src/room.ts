@@ -91,7 +91,7 @@ export class RoomCoordinator {
       id: controller.id,
       name: controller.name,
       role: 'controller',
-      ready: controller.media !== null,
+      ready: false,
       connected: true,
       mediaMatches: controller.media !== null,
       latencyMs: null,
@@ -133,7 +133,7 @@ export class RoomCoordinator {
       existing.name = participant.name
       existing.media = participant.media
       existing.mediaMatches = mediaMatches(this.media, participant.media)
-      existing.ready = existing.id === this.controllerId ? existing.mediaMatches : false
+      existing.ready = false
       this.revision += 1
       return this.success('participant_reconnected')
     }

@@ -186,7 +186,8 @@ function roomView(current: ExtensionState): string {
         </div>
       </div>
 
-      ${isController ? controllerControls(snapshot.playback.status, currentPosition, allReady) : memberControls(me, controller)}
+      ${readinessControls(me, isController, controller)}
+      ${isController ? controllerControls(snapshot.playback.status, currentPosition, allReady) : ''}
 
       <div>
         <div class="mb-2 flex items-center justify-between px-1">
@@ -238,15 +239,15 @@ function controllerControls(status: 'paused' | 'playing', position: number, allR
   `
 }
 
-function memberControls(me: ParticipantState | undefined, controller: ParticipantState | undefined): string {
+function readinessControls(me: ParticipantState | undefined, isController: boolean, controller: ParticipantState | undefined): string {
   const ready = me?.ready ?? false
   const matches = me?.mediaMatches ?? false
   return `
     <div class="soft-panel p-4">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <p class="section-label m-0">Controlled by ${escapeHtml(controller?.name ?? 'the host')}</p>
-          <p class="mt-1 mb-0 text-xs color-fade">Confirm the right video, then get ready.</p>
+          <p class="section-label m-0">${isController ? 'Your readiness' : `Controlled by ${escapeHtml(controller?.name ?? 'the host')}`}</p>
+          <p class="mt-1 mb-0 text-xs color-fade">${ready ? 'You are ready. Click again to step out.' : 'Confirm the right video, then get ready.'}</p>
         </div>
         ${matches
           ? '<span class="status-badge border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">Video matches</span>'
@@ -254,7 +255,7 @@ function memberControls(me: ParticipantState | undefined, controller: Participan
       </div>
       <button id="ready-button" class="${ready ? 'btn-action' : 'btn-primary'} mt-4 w-full tap-scale" type="button" ${matches ? '' : 'disabled'}>
         ${ready ? checkIcon('h-4 w-4') : readyIcon('h-4 w-4')}
-        ${ready ? 'Ready to watch' : "I'm ready"}
+        ${ready ? 'Ready — click to undo' : "I'm ready"}
       </button>
     </div>
   `
@@ -273,7 +274,11 @@ function participantRow(participant: ParticipantState, current: ExtensionState, 
           ${escapeHtml(participant.name)}${isMe ? ' (you)' : ''}
         </p>
         <p class="m-0 mt-0.5 text-[0.6875rem] leading-4 color-fade">
-          ${isController ? 'Controller' : participant.ready ? 'Ready' : participant.connected ? 'Not ready' : 'Disconnected'}${participant.latencyMs !== null ? `, ${participant.latencyMs} ms` : ''}
+          ${!participant.connected
+            ? 'Disconnected'
+            : isController
+              ? `Controller · ${participant.ready ? 'Ready' : 'Not ready'}`
+              : participant.ready ? 'Ready' : 'Not ready'}${participant.latencyMs !== null ? `, ${participant.latencyMs} ms` : ''}
         </p>
       </div>
       ${canTransfer && !isMe && participant.connected

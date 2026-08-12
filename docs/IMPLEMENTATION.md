@@ -9,7 +9,7 @@
 - Two to ten participants with persistent participant identity for reconnects.
 - One authoritative controller with a server-issued lease epoch.
 - Pass-the-remote control transfer.
-- Ready state and canonical media fingerprint matching.
+- Explicit ready controls for every participant, including the controller, with canonical media fingerprint matching.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.

@@ -140,9 +140,15 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       await publishState()
       return success()
 
-    case 'SET_READY':
+    case 'SET_READY': {
+      const me = state.snapshot?.participants.find(participant => participant.id === state.participantId)
+      if (!state.snapshot || state.connection !== 'connected' || !me?.connected)
+        return failure('Reconnect to the room before changing readiness.')
+      if (!state.currentMedia || !mediaMatches(state.snapshot.media, state.currentMedia))
+        return failure('Open the matching video before getting ready.')
       sendToServer({ type: 'set_ready', ready: request.ready, media: state.currentMedia })
       return success()
+    }
 
     case 'CONTROL':
       return sendControl(request.kind, request.positionSeconds)
@@ -169,8 +175,14 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     }
 
     case 'OPEN_PANEL':
-      if (sender.tab?.id !== undefined)
-        await chrome.sidePanel.open({ tabId: sender.tab.id })
+      if (sender.tab?.id !== undefined) {
+        try {
+          await chrome.sidePanel.open({ tabId: sender.tab.id })
+        }
+        catch {
+          await sendToActiveTabs({ type: 'SHOW_NOTICE', message: 'Open SyncYourJoy from Chrome’s extensions button.' })
+        }
+      }
       return success()
   }
 }

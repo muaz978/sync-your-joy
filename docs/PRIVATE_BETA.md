@@ -20,8 +20,8 @@ Because this is an unpacked beta, Chrome does not auto-update it. Both testers s
 1. Both testers sign in to the same supported service with their own accounts and open the exact same title and episode.
 2. Pause both players near the beginning and open SyncYourJoy.
 3. The host selects **Start synced room** and sends the eight-character code to the friend.
-4. The friend enters the code, joins, and selects **I'm ready**.
-5. The host tests play, pause, and seeking. Test one action at a time and allow the UI to report whether both participants are in sync.
+4. The friend enters the code and joins. Both the host and friend confirm the video match and select **I'm ready** on their own side panel.
+5. After both people show **Ready**, the host tests play, pause, and seeking. Test one action at a time and allow the UI to report whether both participants are in sync.
 6. Test a short buffer or network interruption, then verify that the room recovers.
 7. Finally, close the host's tab for more than ten seconds and verify that control passes to the connected participant.
 

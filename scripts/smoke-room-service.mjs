@@ -39,6 +39,9 @@ try {
   await friend.waitFor(message => message.type === 'room_joined')
   await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.length === 2)
 
+  host.socket.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+  await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.find(participant => participant.id === 'participant_smoke_host')?.ready)
+
   friend.socket.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
   const ready = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.every(participant => participant.ready))
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SyncYourJoy",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Synchronize playback while everyone watches through their own streaming account.",
   "minimum_chrome_version": "116",
   "action": {

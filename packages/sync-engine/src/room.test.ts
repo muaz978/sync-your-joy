@@ -22,6 +22,10 @@ describe('RoomCoordinator', () => {
     const room = createRoom()
     const joined = room.join({ id: 'participant_friend', name: 'Rana', media })
     expect(joined.ok).toBe(true)
+    expect(room.snapshot().participants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'participant_host', ready: false }),
+      expect.objectContaining({ id: 'participant_friend', ready: false }),
+    ]))
 
     const rejected = room.control('participant_host', {
       actionId: 'action_123456',
@@ -33,6 +37,16 @@ describe('RoomCoordinator', () => {
     expect(rejected).toMatchObject({ ok: false, code: 'participants_not_ready' })
 
     room.setReady('participant_friend', true, media)
+    const stillRejected = room.control('participant_host', {
+      actionId: 'action_host_not_ready',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 12,
+    })
+    expect(stillRejected).toMatchObject({ ok: false, code: 'participants_not_ready' })
+
+    room.setReady('participant_host', true, media)
     const accepted = room.control('participant_host', {
       actionId: 'action_234567',
       basedOnRevision: room.snapshot().revision,
@@ -100,6 +114,7 @@ describe('RoomCoordinator', () => {
   it('pauses the room when a connected participant buffers', () => {
     let nowMs = 10_000
     const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
     room.control('participant_host', {
       actionId: 'action_play123',
       basedOnRevision: room.snapshot().revision,
@@ -124,6 +139,7 @@ describe('RoomCoordinator', () => {
   it('restores the authoritative state after hibernation', () => {
     const room = createRoom()
     room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
     room.control('participant_host', {
       actionId: 'action_before_sleep',
