@@ -150,13 +150,46 @@ export function mediaMatches(expected: MediaFingerprint | null, actual: MediaFin
   if (!expected || !actual)
     return expected === actual
 
-  if (expected.service !== actual.service || expected.canonicalId !== actual.canonicalId)
+  if (expected.service !== actual.service)
     return false
+
+  const expectedId = normalizeCanonicalId(expected.service, expected.canonicalId)
+  const actualId = normalizeCanonicalId(actual.service, actual.canonicalId)
+  if (expectedId !== actualId)
+    return false
+
+  if (hasStrongCanonicalId(expected.service, expectedId))
+    return true
 
   if (expected.durationSeconds === null || actual.durationSeconds === null)
     return true
 
   return Math.abs(expected.durationSeconds - actual.durationSeconds) <= 3
+}
+
+export function normalizeCanonicalId(service: string, canonicalId: string): string {
+  if (service === 'crunchyroll') {
+    const episodeId = canonicalId.match(/^crunchyroll:([a-z0-9]+)$/i)?.[1]
+      ?? canonicalId.match(/\/watch\/([a-z0-9]+)/i)?.[1]
+    if (episodeId)
+      return `crunchyroll:${episodeId.toUpperCase()}`
+  }
+
+  if (service === 'netflix') {
+    const videoId = canonicalId.match(/^netflix:(\d+)$/)?.[1]
+      ?? canonicalId.match(/\/watch\/(\d+)/)?.[1]
+    if (videoId)
+      return `netflix:${videoId}`
+  }
+
+  return canonicalId
+}
+
+function hasStrongCanonicalId(service: string, canonicalId: string): boolean {
+  return (service === 'crunchyroll' && /^crunchyroll:[A-Z0-9]+$/.test(canonicalId))
+    || (service === 'netflix' && /^netflix:\d+$/.test(canonicalId))
+    || (service === 'youtube' && canonicalId.startsWith('youtube:'))
+    || (service === 'disney-plus' && canonicalId.startsWith('disney-plus:'))
 }
 
 export function parseClientMessage(value: unknown): ClientMessage | null {

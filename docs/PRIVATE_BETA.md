@@ -15,6 +15,8 @@ The current extension package connects to the deployed Cloudflare room service a
 
 Because this is an unpacked beta, Chrome does not auto-update it. Both testers should replace their folder when a new beta ZIP is provided.
 
+After replacing or reloading the extension, refresh the open streaming tab so Chrome injects the updated player adapter.
+
 ## Run a two-city test
 
 1. Both testers sign in to the same supported service with their own accounts and open the exact same title and episode.

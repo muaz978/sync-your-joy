@@ -1,6 +1,7 @@
 import type { MediaFingerprint, PlayerSample } from '@syncyourjoy/protocol'
 import type { ExtensionState, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { chooseDriftCorrection, expectedPosition } from '@syncyourjoy/sync-engine'
+import { canonicalMediaId, cleanMediaTitle, serviceName } from './media-fingerprint.ts'
 
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
@@ -409,32 +410,12 @@ function showNotice(message: string): void {
 function createMediaFingerprint(target: HTMLVideoElement): MediaFingerprint {
   const service = serviceName(location.hostname)
   const url = new URL(location.href)
-  const youtubeId = service === 'youtube' ? url.searchParams.get('v') : null
-  const canonicalId = youtubeId ? `youtube:${youtubeId}` : `${location.hostname}${location.pathname}`
   return {
     service,
-    canonicalId: canonicalId.slice(0, 500),
-    title: cleanTitle(document.title).slice(0, 300) || 'Untitled video',
+    canonicalId: canonicalMediaId(service, url).slice(0, 500),
+    title: cleanMediaTitle(document.title).slice(0, 300) || 'Untitled video',
     durationSeconds: Number.isFinite(target.duration) ? Math.round(target.duration * 10) / 10 : null,
   }
-}
-
-function serviceName(hostname: string): string {
-  if (hostname.includes('netflix'))
-    return 'netflix'
-  if (hostname.includes('disneyplus'))
-    return 'disney-plus'
-  if (hostname.includes('crunchyroll'))
-    return 'crunchyroll'
-  if (hostname.includes('youtube'))
-    return 'youtube'
-  return 'html5'
-}
-
-function cleanTitle(title: string): string {
-  return title
-    .replace(/\s*[|-]\s*(Netflix|Disney\+|Crunchyroll|YouTube)\s*$/i, '')
-    .trim()
 }
 
 function finiteOrZero(value: number): number {

@@ -10,6 +10,7 @@
 - One authoritative controller with a server-issued lease epoch.
 - Pass-the-remote control transfer.
 - Explicit ready controls for every participant, including the controller, with canonical media fingerprint matching.
+- Stable Crunchyroll episode fingerprints based on the `/watch/{episode-id}` value, independent of domain, locale path, page slug, or translated title.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.

@@ -7,11 +7,17 @@ if (!baseUrl)
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const randomBytes = crypto.getRandomValues(new Uint8Array(8))
 const code = [...randomBytes].map(byte => alphabet[byte % alphabet.length]).join('')
-const media = {
-  service: 'youtube',
-  canonicalId: 'youtube:syncyourjoy-smoke-test',
-  title: 'SyncYourJoy deployment smoke test',
-  durationSeconds: 600,
+const hostMedia = {
+  service: 'crunchyroll',
+  canonicalId: 'www.crunchyroll.com/ar/watch/GE00345558JAJP/from-now-on',
+  title: 'Localized host title',
+  durationSeconds: 1_470,
+}
+const friendMedia = {
+  service: 'crunchyroll',
+  canonicalId: 'crunchyroll:GE00345558JAJP',
+  title: 'Different regional page title',
+  durationSeconds: 1_465,
 }
 
 const host = await connect(baseUrl, code)
@@ -24,7 +30,7 @@ try {
     participantId: 'participant_smoke_host',
     name: 'Deployment host',
     code,
-    media,
+    media: hostMedia,
   }))
   await host.waitFor(message => message.type === 'room_joined')
 
@@ -34,15 +40,15 @@ try {
     participantId: 'participant_smoke_friend',
     name: 'Deployment friend',
     code,
-    media,
+    media: friendMedia,
   }))
   await friend.waitFor(message => message.type === 'room_joined')
   await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.length === 2)
 
-  host.socket.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+  host.socket.send(JSON.stringify({ type: 'set_ready', ready: true, media: hostMedia }))
   await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.find(participant => participant.id === 'participant_smoke_host')?.ready)
 
-  friend.socket.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+  friend.socket.send(JSON.stringify({ type: 'set_ready', ready: true, media: friendMedia }))
   const ready = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.every(participant => participant.ready))
 
   const pingSentAt = Date.now()
