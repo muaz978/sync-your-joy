@@ -9,6 +9,7 @@ import type {
 } from '@syncyourjoy/protocol'
 import { mediaMatches, normalizePageUrl } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
+import { isPlaybackPastStartupGrace } from './playback-health.ts'
 
 export interface InternalParticipant extends ParticipantState {
   joinedAtMs: number
@@ -305,14 +306,19 @@ export class RoomCoordinator {
     return this.success('link_opened')
   }
 
-  updatePlayerStatus(participantId: string, sample: PlayerSample): RoomResult | null {
+  updatePlayerStatus(participantId: string, basedOnRevision: number, sample: PlayerSample): RoomResult | null {
     const participant = this.participants.get(participantId)
     if (!participant)
       return null
 
     participant.lastSample = sample
-    if (participant.connected && participant.ready && participant.mediaMatches && sample.buffering && this.playback.status === 'playing') {
-      const nowMs = this.now()
+    const nowMs = this.now()
+    if (basedOnRevision === this.revision
+      && participant.connected
+      && participant.ready
+      && participant.mediaMatches
+      && sample.buffering
+      && isPlaybackPastStartupGrace(this.playback, nowMs)) {
       this.playback = {
         status: 'paused',
         positionSeconds: expectedPosition(this.playback, nowMs),

@@ -229,7 +229,7 @@ export async function createRoomService(options: { port?: number; host?: string 
     }
 
     if (message.type === 'player_status') {
-      const result = room.coordinator.updatePlayerStatus(client.participantId, message.sample)
+      const result = room.coordinator.updatePlayerStatus(client.participantId, message.basedOnRevision, message.sample)
       if (result?.ok)
         broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
       return

@@ -62,4 +62,19 @@ describe('media identity matching', () => {
       url: 'javascript:alert(1)',
     })).toBeNull()
   })
+
+  it('requires player-health reports to identify the room revision they observed', () => {
+    const sample = {
+      positionSeconds: 7,
+      durationSeconds: 600,
+      paused: false,
+      buffering: false,
+      sampledAtLocalMs: 10_000,
+    }
+    expect(parseClientMessage({ type: 'player_status', sample })).toBeNull()
+    expect(parseClientMessage({ type: 'player_status', basedOnRevision: 4, sample })).toMatchObject({
+      type: 'player_status',
+      basedOnRevision: 4,
+    })
+  })
 })

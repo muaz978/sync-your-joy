@@ -21,6 +21,8 @@ Review date: 2026-08-12.
 - Click-to-load Animerco pages receive a narrow automatic bootstrap, while known advertising frames are excluded from player candidacy.
 - Deeply nested player frames inherit the authoritative shared-page identity, rather than comparing per-client signed wrapper URLs.
 - Seek commands are queued until metadata exists, clamped to the media element's `seekable` ranges, retried on metadata/progress/can-play events, and treated as complete only after the player reaches the target.
+- Player-health reports carry the exact room revision observed by the player; the coordinator discards reordered reports and suppresses expected buffering through the scheduled-play startup window.
+- Every new play/seek command resets local progress baselines, preventing time spent paused before **Play all** from being misclassified as a fresh playback stall.
 - The in-page **Room** button calls `chrome.sidePanel.open()` directly from its user gesture, matching [Chrome's Side Panel requirement](https://developer.chrome.com/docs/extensions/reference/api/sidePanel).
 
 ## Recommended next work

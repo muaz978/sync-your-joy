@@ -108,6 +108,7 @@ export type ClientMessage =
     }
   | {
       type: 'player_status'
+      basedOnRevision: number
       sample: PlayerSample
     }
   | {
@@ -273,7 +274,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return { ...value, url: normalizePageUrl(value.url) } as unknown as ClientMessage
 
     case 'player_status':
-      if (!validPlayerSample(value.sample))
+      if (!isNonNegativeInteger(value.basedOnRevision) || !validPlayerSample(value.sample))
         return null
       return value as unknown as ClientMessage
 

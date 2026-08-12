@@ -1,6 +1,6 @@
-import type { MediaFingerprint, PlayerSample } from '@syncyourjoy/protocol'
+import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { chooseDriftCorrection, expectedPosition } from '@syncyourjoy/sync-engine'
+import { chooseDriftCorrection, expectedPosition, isPlaybackPastStartupGrace } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
@@ -180,8 +180,11 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
   }
 
   if (message.type === 'APPLY_ROOM_STATE') {
-    const previousRevision = activeState?.snapshot?.revision ?? -1
+    const previousSnapshot = activeState?.snapshot
+    const previousRevision = previousSnapshot?.revision ?? -1
     activeState = message.state
+    if (playbackCommandChanged(previousSnapshot?.playback, message.state.snapshot?.playback))
+      resetPlaybackHealthBaseline()
     if ((message.state.snapshot?.revision ?? -1) > previousRevision)
       localIntentHoldUntil = 0
     if (message.state.lastError)
@@ -321,6 +324,7 @@ function detachPlayer(target: HTMLVideoElement | null): void {
 }
 
 function handlePlay(): void {
+  resetPlaybackHealthBaseline()
   if (consumeExpectedPlay()) {
     renderPill()
   }
@@ -404,7 +408,8 @@ function handleMediaReady(): void {
 }
 
 async function reportPlayerStatus(buffering: boolean): Promise<void> {
-  if (!video)
+  const snapshot = activeState?.snapshot
+  if (!video || !snapshot)
     return
   const seekPendingTooLong = pendingSeek !== null && performance.now() - pendingSeek.since >= 1_500
   const inferredBuffering = detectPlaybackStall(video, buffering || seekPendingTooLong)
@@ -415,7 +420,7 @@ async function reportPlayerStatus(buffering: boolean): Promise<void> {
     buffering: inferredBuffering,
     sampledAtLocalMs: Date.now(),
   }
-  await sendRuntime({ type: 'PLAYER_STATUS', sample })
+  await sendRuntime({ type: 'PLAYER_STATUS', basedOnRevision: snapshot.revision, sample })
 }
 
 function currentPlayerContext(): PlayerContext {
@@ -466,11 +471,12 @@ function applyAuthoritativeState(): void {
 
   const timeUntilPlayMs = snapshot.playback.effectiveAtServerMs - estimatedServerNowMs
   if (timeUntilPlayMs > 12) {
-    if (!video.paused) {
+    const controllerAlreadyPlaying = isLocalController() && !video.paused
+    if (!video.paused && !controllerAlreadyPlaying) {
       expectPauseEvent()
       video.pause()
     }
-    if (Math.abs(video.currentTime - snapshot.playback.positionSeconds) > 0.12)
+    if (!controllerAlreadyPlaying && Math.abs(video.currentTime - snapshot.playback.positionSeconds) > 0.12)
       trySetProgrammaticPosition(snapshot.playback.positionSeconds)
     schedulePlay(timeUntilPlayMs)
     return
@@ -651,10 +657,18 @@ function holdLocalControllerIntent(): void {
 function detectPlaybackStall(target: HTMLVideoElement, explicitlyBuffering: boolean): boolean {
   const now = performance.now()
   const position = finiteOrZero(target.currentTime)
-  const roomIsPlaying = activeState?.snapshot?.playback.status === 'playing'
+  const playback = activeState?.snapshot?.playback
+  const roomIsPlaying = playback?.status === 'playing'
   const estimatedServerNowMs = Date.now() + (activeState?.serverOffsetMs ?? 0)
-  const playShouldHaveStarted = roomIsPlaying
-    && estimatedServerNowMs > (activeState?.snapshot?.playback.effectiveAtServerMs ?? Number.POSITIVE_INFINITY) + 750
+  const playShouldHaveStarted = playback !== undefined
+    && isPlaybackPastStartupGrace(playback, estimatedServerNowMs)
+
+  if (roomIsPlaying && !playShouldHaveStarted) {
+    unexpectedPauseSince = 0
+    lastProgressPosition = position
+    lastProgressAt = now
+    return false
+  }
 
   if (playShouldHaveStarted && target.paused && !(isLocalController() && now < localIntentHoldUntil)) {
     if (unexpectedPauseSince === 0)
@@ -686,6 +700,28 @@ function detectPlaybackStall(target: HTMLVideoElement, explicitlyBuffering: bool
     showNotice('Playback stopped advancing. The room is pausing—press Sync to recover.')
   }
   return stalled
+}
+
+function playbackCommandChanged(
+  previous: PlaybackState | undefined,
+  next: PlaybackState | undefined,
+): boolean {
+  if (!previous || !next)
+    return previous !== next
+  return previous.status !== next.status
+    || previous.positionSeconds !== next.positionSeconds
+    || previous.effectiveAtServerMs !== next.effectiveAtServerMs
+    || previous.playbackRate !== next.playbackRate
+}
+
+function resetPlaybackHealthBaseline(): void {
+  if (bufferingTimer)
+    clearTimeout(bufferingTimer)
+  bufferingTimer = null
+  unexpectedPauseSince = 0
+  stallNoticeShown = false
+  lastProgressPosition = finiteOrZero(video?.currentTime ?? 0)
+  lastProgressAt = performance.now()
 }
 
 function maybeBootstrapSitePlayer(): void {

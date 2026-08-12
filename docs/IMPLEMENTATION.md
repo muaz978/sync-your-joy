@@ -25,6 +25,9 @@
 - In-page **Sync**, side-panel **Sync me now**, and controller **Sync everyone** recovery actions that avoid page refreshes.
 - Automatic blocked-play and stalled-progress detection that reports buffering and pauses the authoritative room timeline.
 - Metadata-aware seeking with duration and `seekable`-range clamping, retry-on-media-ready, and `seeked` completion gating before synchronized playback resumes.
+- Revision-bound player-health reports so a delayed pre-play buffering sample cannot cancel a newer play command.
+- A shared 2.5-second scheduled-play settling window that ignores expected decoder/network startup while retaining automatic pause-all for genuine later stalls.
+- Authoritative **Play all** positioning after **Sync everyone**, independent of an older local player sample.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.

@@ -5,6 +5,7 @@ import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
 import { shouldAcceptPlayerContext } from './player-tab.ts'
 import { isLikelyAdvertisingUrl } from './site-adapter.ts'
 import { bindMediaToSharedPage } from './media-fingerprint.ts'
+import { resolveControlPosition } from './control-position.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -170,7 +171,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       if (!isBoundPlayerSender(sender))
         return success()
       state.lastPlayerSample = request.sample
-      sendToServer({ type: 'player_status', sample: request.sample })
+      sendToServer({ type: 'player_status', basedOnRevision: request.basedOnRevision, sample: request.sample })
       await persistState()
       return success()
 
@@ -306,7 +307,7 @@ async function sendControl(kind: ControlKind, explicitPosition?: number): Promis
 
   const estimatedNow = Date.now() + state.serverOffsetMs
   const fallbackPosition = expectedPosition(snapshot.playback, estimatedNow)
-  const positionSeconds = explicitPosition ?? state.lastPlayerSample?.positionSeconds ?? fallbackPosition
+  const positionSeconds = resolveControlPosition(kind, explicitPosition, state.lastPlayerSample, fallbackPosition)
   if (kind === 'pause')
     void sendToPlayerTab({ type: 'PAUSE_LOCAL' })
   const sent = sendToServer({

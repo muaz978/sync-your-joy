@@ -202,7 +202,7 @@ describe('RoomCoordinator', () => {
     })
     room.setReady('participant_friend', false, media)
 
-    const result = room.updatePlayerStatus('participant_friend', {
+    const result = room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
       positionSeconds: 20,
       durationSeconds: 600,
       paused: false,
@@ -287,7 +287,7 @@ describe('RoomCoordinator', () => {
       kind: 'play',
       positionSeconds: 20,
     })
-    nowMs = 12_000
+    nowMs = 13_000
     const sample: PlayerSample = {
       positionSeconds: 21.8,
       durationSeconds: 600,
@@ -295,10 +295,62 @@ describe('RoomCoordinator', () => {
       buffering: true,
       sampledAtLocalMs: nowMs,
     }
-    const result = room.updatePlayerStatus('participant_host', sample)
+    const result = room.updatePlayerStatus('participant_host', room.snapshot().revision, sample)
 
     expect(result?.snapshot.playback.status).toBe('paused')
     expect(result?.snapshot.playback.positionSeconds).toBeGreaterThan(21)
+  })
+
+  it('ignores a stale buffering report that arrives after a newer play command', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
+    const staleRevision = room.snapshot().revision
+    room.control('participant_host', {
+      actionId: 'action_play_after_stale_status',
+      basedOnRevision: staleRevision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    nowMs = 20_000
+
+    const result = room.updatePlayerStatus('participant_host', staleRevision, {
+      positionSeconds: 20,
+      durationSeconds: 600,
+      paused: true,
+      buffering: true,
+      sampledAtLocalMs: 9_999,
+    })
+
+    expect(result).toBeNull()
+    expect(room.snapshot().playback.status).toBe('playing')
+  })
+
+  it('ignores transient buffering during the synchronized playback startup window', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_with_startup_buffer',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    const playRevision = room.snapshot().revision
+    nowMs = room.snapshot().playback.effectiveAtServerMs + 1_000
+
+    const result = room.updatePlayerStatus('participant_host', playRevision, {
+      positionSeconds: 20,
+      durationSeconds: 600,
+      paused: false,
+      buffering: true,
+      sampledAtLocalMs: nowMs,
+    })
+
+    expect(result).toBeNull()
+    expect(room.snapshot().playback.status).toBe('playing')
   })
 
   it('restores the authoritative state after hibernation', () => {

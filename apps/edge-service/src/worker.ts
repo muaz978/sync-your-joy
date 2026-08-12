@@ -290,7 +290,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     if (message.type === 'player_status') {
-      const result = this.coordinator.updatePlayerStatus(attachment.participantId, message.sample)
+      const result = this.coordinator.updatePlayerStatus(attachment.participantId, message.basedOnRevision, message.sample)
       if (result?.ok) {
         this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
         await this.persistAndSchedule()

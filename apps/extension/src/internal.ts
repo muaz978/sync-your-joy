@@ -24,7 +24,7 @@ export type RuntimeRequest =
   | { type: 'TRANSFER_CONTROL'; participantId: string }
   | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number }
   | { type: 'MEDIA_LOST' }
-  | { type: 'PLAYER_STATUS'; sample: PlayerSample }
+  | { type: 'PLAYER_STATUS'; basedOnRevision: number; sample: PlayerSample }
   | { type: 'PLAYER_INTENT'; kind: ControlKind; positionSeconds: number }
   | { type: 'OPEN_PANEL' }
 

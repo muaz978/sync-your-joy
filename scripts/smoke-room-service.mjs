@@ -119,6 +119,32 @@ try {
   const friendRapidPlaying = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === rapidPlaying.snapshot.revision)
   if (rapidPlaying.snapshot.playback.effectiveAtServerMs !== friendRapidPlaying.snapshot.playback.effectiveAtServerMs)
     throw new Error('Clients received different rapid-control effective times.')
+  const scheduledLeadMs = rapidPlaying.snapshot.playback.effectiveAtServerMs - Date.now()
+
+  const bufferingSample = {
+    positionSeconds: 137,
+    durationSeconds: 1_470,
+    paused: false,
+    buffering: true,
+    sampledAtLocalMs: Date.now(),
+  }
+  host.socket.send(JSON.stringify({
+    type: 'player_status',
+    basedOnRevision: sought.snapshot.revision,
+    sample: bufferingSample,
+  }))
+  await host.expectNoMessage(message => message.type === 'room_snapshot'
+    && message.snapshot.revision > rapidPlaying.snapshot.revision
+    && message.snapshot.playback.status === 'paused')
+
+  host.socket.send(JSON.stringify({
+    type: 'player_status',
+    basedOnRevision: rapidPlaying.snapshot.revision,
+    sample: { ...bufferingSample, sampledAtLocalMs: Date.now() },
+  }))
+  await host.expectNoMessage(message => message.type === 'room_snapshot'
+    && message.snapshot.revision > rapidPlaying.snapshot.revision
+    && message.snapshot.playback.status === 'paused')
 
   console.log(JSON.stringify({
     ok: true,
@@ -126,7 +152,9 @@ try {
     roundTripMs,
     revision: rapidPlaying.snapshot.revision,
     seekPositionSeconds: sought.snapshot.playback.positionSeconds,
-    scheduledLeadMs: rapidPlaying.snapshot.playback.effectiveAtServerMs - Date.now(),
+    scheduledLeadMs,
+    staleBufferingProtected: true,
+    startupBufferingProtected: true,
   }))
 }
 finally {
@@ -167,8 +195,34 @@ async function connect(url, code) {
         return Promise.resolve(queue.splice(queuedIndex, 1)[0])
 
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Timed out waiting for a room-service message.')), 8_000)
-        waiters.push({ predicate, resolve, reject, timer })
+        const waiter = { predicate, resolve, reject, timer: null }
+        waiter.timer = setTimeout(() => {
+          const index = waiters.indexOf(waiter)
+          if (index >= 0)
+            waiters.splice(index, 1)
+          reject(new Error('Timed out waiting for a room-service message.'))
+        }, 8_000)
+        waiters.push(waiter)
+      })
+    },
+    expectNoMessage(predicate, durationMs = 500) {
+      if (queue.some(predicate))
+        return Promise.reject(new Error('Received an unexpected room-service message.'))
+
+      return new Promise((resolve, reject) => {
+        const waiter = {
+          predicate,
+          resolve: () => reject(new Error('Received an unexpected room-service message.')),
+          reject,
+          timer: null,
+        }
+        waiter.timer = setTimeout(() => {
+          const index = waiters.indexOf(waiter)
+          if (index >= 0)
+            waiters.splice(index, 1)
+          resolve()
+        }, durationMs)
+        waiters.push(waiter)
       })
     },
   }
