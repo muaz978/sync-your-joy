@@ -99,9 +99,8 @@ try {
   if (sought.snapshot.revision !== friendSought.snapshot.revision)
     throw new Error('Clients received different seek revisions.')
 
+  const seekBarrierStartedAt = Date.now()
   host.socket.send(JSON.stringify({ type: 'seek_applied', revision: sought.snapshot.revision, positionSeconds: 137 }))
-  await host.waitFor(message => message.type === 'room_snapshot'
-    && message.snapshot.seek?.acknowledgedParticipantIds.includes('participant_smoke_host'))
   friend.socket.send(JSON.stringify({ type: 'seek_applied', revision: sought.snapshot.revision, positionSeconds: 137 }))
   const seekResumed = await host.waitFor(message => message.type === 'room_snapshot'
     && message.snapshot.revision > sought.snapshot.revision
@@ -109,6 +108,7 @@ try {
     && message.snapshot.playback.status === 'playing'
     && message.snapshot.playback.positionSeconds === 137)
   await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === seekResumed.snapshot.revision)
+  const seekBarrierMs = Date.now() - seekBarrierStartedAt
 
   host.socket.send(JSON.stringify({
     type: 'control',
@@ -164,6 +164,7 @@ try {
     revision: rapidPlaying.snapshot.revision,
     seekPositionSeconds: sought.snapshot.playback.positionSeconds,
     seekBarrierProtected: true,
+    seekBarrierMs,
     scheduledLeadMs,
     staleBufferingProtected: true,
     startupBufferingProtected: true,

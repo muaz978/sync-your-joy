@@ -1,6 +1,6 @@
 import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { chooseDriftCorrection, expectedPosition, isPlaybackPastStartupGrace, isSeekAligned } from '@syncyourjoy/sync-engine'
+import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isPlaybackPastStartupGrace, isSeekAligned, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
@@ -21,10 +21,11 @@ let localIntentHoldUntil = 0
 let expectedPlayUntil = 0
 let expectedPauseUntil = 0
 let expectedSeek: { positionSeconds: number; until: number } | null = null
-let pendingSeek: { positionSeconds: number; since: number; lastAttemptAt: number; roomRevision: number | null; settledSince: number | null } | null = null
+let pendingSeek: { positionSeconds: number; since: number; lastAttemptAt: number; roomRevision: number | null } | null = null
 let completedRoomSeekRevision = 0
-let acknowledgedRoomSeekRevision = 0
 let seekAckInFlightRevision = 0
+let seekCompletionTimer: ReturnType<typeof setTimeout> | null = null
+let seekAckRetryTimer: ReturnType<typeof setTimeout> | null = null
 let seekIntentTimer: ReturnType<typeof setTimeout> | null = null
 let lastProgressPosition = 0
 let lastProgressAt = performance.now()
@@ -324,6 +325,8 @@ function detachPlayer(target: HTMLVideoElement | null): void {
   seekIntentTimer = null
   localSeeking = false
   pendingSeek = null
+  clearSeekCompletionTimer()
+  clearSeekAckRetryTimer()
 }
 
 function handlePlay(): void {
@@ -376,10 +379,7 @@ function handleSeeked(): void {
   const shouldSend = !programmatic && video && isLocalController()
   localSeeking = false
   if (completedPending) {
-    if (completedPending.roomRevision !== null)
-      completedRoomSeekRevision = completedPending.roomRevision
-    pendingSeek = null
-    expectedSeek = null
+    completePendingSeek(completedPending)
   }
   if (shouldSend && video) {
     holdLocalControllerIntent()
@@ -387,7 +387,7 @@ function handleSeeked(): void {
       seekIntentTimer = null
       if (video)
         void sendRuntime({ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: video.currentTime })
-    }, 120)
+    }, SEEK_INTENT_DEBOUNCE_MS)
   }
   applyAuthoritativeState()
   maybeAcknowledgeRoomSeek()
@@ -809,17 +809,9 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
     && pendingSeek.roomRevision === roomRevision
     ? pendingSeek
     : null
-  if (aligned && matchingPending && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-    if (matchingPending.settledSince === null) {
-      pendingSeek = { ...matchingPending, settledSince: now }
-      return false
-    }
-    if (now - matchingPending.settledSince >= 250) {
-      if (roomRevision !== null)
-        completedRoomSeekRevision = roomRevision
-      pendingSeek = null
-      return true
-    }
+  if (aligned && matchingPending) {
+    completePendingSeek(matchingPending)
+    return true
   }
   if (aligned && !pendingSeek)
     return true
@@ -827,8 +819,8 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
   if (matchingPending && now - matchingPending.lastAttemptAt < 1_000)
     return false
   pendingSeek = matchingPending
-    ? { ...matchingPending, lastAttemptAt: now, settledSince: null }
-    : { positionSeconds: target, since: now, lastAttemptAt: now, roomRevision, settledSince: null }
+    ? { ...matchingPending, lastAttemptAt: now }
+    : { positionSeconds: target, since: now, lastAttemptAt: now, roomRevision }
   expectedSeek = { positionSeconds: target, until: now + 4_000 }
   try {
     video.currentTime = target
@@ -836,16 +828,22 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
   catch {
     return false
   }
+  scheduleSeekCompletionProbe()
   return false
 }
 
 function maybeAcknowledgeRoomSeek(): void {
   const roomSeek = activeState?.snapshot?.seek
-  if (!video || !roomSeek || acknowledgedRoomSeekRevision === roomSeek.revision || seekAckInFlightRevision === roomSeek.revision)
+  const participantId = activeState?.participantId
+  if (!video || !roomSeek || !participantId)
     return
-  if (video.seeking || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA)
+  if (roomSeek.acknowledgedParticipantIds.includes(participantId)) {
+    clearSeekAckRetryTimer()
     return
-  if (!isSeekAligned(video.currentTime, roomSeek.positionSeconds))
+  }
+  if (seekAckInFlightRevision === roomSeek.revision)
+    return
+  if (!canConfirmSeek({ currentSeconds: video.currentTime, targetSeconds: roomSeek.positionSeconds, seeking: video.seeking }))
     return
   if (pendingSeek && pendingSeek.roomRevision === roomSeek.revision)
     return
@@ -857,13 +855,56 @@ function maybeAcknowledgeRoomSeek(): void {
     type: 'SEEK_APPLIED',
     revision: roomSeek.revision,
     positionSeconds: video.currentTime,
-  }).then((response) => {
-    if (response.ok)
-      acknowledgedRoomSeekRevision = roomSeek.revision
   }).finally(() => {
     if (seekAckInFlightRevision === roomSeek.revision)
       seekAckInFlightRevision = 0
+    scheduleSeekAckRetry(roomSeek.revision)
   })
+}
+
+function completePendingSeek(completed: NonNullable<typeof pendingSeek>): void {
+  if (completed.roomRevision !== null)
+    completedRoomSeekRevision = completed.roomRevision
+  pendingSeek = null
+  expectedSeek = null
+  clearSeekCompletionTimer()
+}
+
+function scheduleSeekCompletionProbe(): void {
+  clearSeekCompletionTimer()
+  seekCompletionTimer = setTimeout(() => {
+    seekCompletionTimer = null
+    const pending = pendingSeek
+    if (!video || !pending)
+      return
+    if (canConfirmSeek({ currentSeconds: video.currentTime, targetSeconds: pending.positionSeconds, seeking: video.seeking })) {
+      completePendingSeek(pending)
+      maybeAcknowledgeRoomSeek()
+      return
+    }
+    scheduleSeekCompletionProbe()
+  }, SEEK_COMPLETION_PROBE_MS)
+}
+
+function clearSeekCompletionTimer(): void {
+  if (seekCompletionTimer)
+    clearTimeout(seekCompletionTimer)
+  seekCompletionTimer = null
+}
+
+function scheduleSeekAckRetry(revision: number): void {
+  clearSeekAckRetryTimer()
+  seekAckRetryTimer = setTimeout(() => {
+    seekAckRetryTimer = null
+    if (activeState?.snapshot?.seek?.revision === revision)
+      maybeAcknowledgeRoomSeek()
+  }, SEEK_ACK_RETRY_MS)
+}
+
+function clearSeekAckRetryTimer(): void {
+  if (seekAckRetryTimer)
+    clearTimeout(seekAckRetryTimer)
+  seekAckRetryTimer = null
 }
 
 function hasExpectedSeek(): boolean {

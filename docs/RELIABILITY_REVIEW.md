@@ -25,6 +25,7 @@ Review date: 2026-08-12.
 - Every new play/seek command resets local progress baselines, preventing time spent paused before **Play all** from being misclassified as a fresh playback stall.
 - Seek synchronization is a revisioned barrier rather than a moving-timeline correction: exposed `currentTime` changes are not accepted as completion until seeking has ended and current-frame data is available.
 - Concurrent seeks are last-write-wins, stale completion acknowledgements cannot release the barrier, and VOD targets are not incorrectly reduced to a temporary buffered/seekable boundary.
+- Barrier completion is event-driven and room-confirmed: it no longer waits for `HAVE_CURRENT_DATA` or a one-second sample tick, and dropped acknowledgement messages retry until reflected in the authoritative snapshot.
 - The in-page **Room** button calls `chrome.sidePanel.open()` directly from its user gesture, matching [Chrome's Side Panel requirement](https://developer.chrome.com/docs/extensions/reference/api/sidePanel).
 
 ## Recommended next work

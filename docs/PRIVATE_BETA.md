@@ -39,6 +39,8 @@ After **Sync everyone**, **Play all** starts from the room position shown in the
 
 Dragging the controller's progress bar now creates a room-wide alignment barrier. The panel shows **Aligning x/y** while each provider finishes its real seek, then automatically resumes everyone together if the room had been playing. A newer drag replaces an older one. If a provider cannot load the target, the room stays safely paused and that participant can press **Sync**—no refresh is required.
 
+The fast path responds to the final drag within 60 ms and releases as soon as each player reports that seeking ended at the target. Providers that omit `seeked` are probed every 80 ms, while any unconfirmed network acknowledgement retries automatically.
+
 Animerco episode pages initially contain only a poster and create their player iframe after the page's own play action. When such a page is opened through the room link, SyncYourJoy loads the default player server automatically and ignores the page's advertising iframe during player selection.
 
 The default Animerco option may nest a signed wrapper and a Google Drive preview. SyncYourJoy identifies every nested player by the room's original episode URL, waits for media metadata, clamps seeks to the player's available ranges, and waits for seek completion before resuming. If a provider cannot expose the requested position yet, the room pauses and retries; do not refresh.

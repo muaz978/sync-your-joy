@@ -31,6 +31,7 @@
 - Transactional seeks: the room timeline pauses at a fixed target, every active player confirms a completed `seeked` operation with current-frame data, and playback resumes on one new effective server time.
 - Last-target-wins handling for overlapping drags; acknowledgements from superseded seek revisions are ignored.
 - Finite-duration VOD seeks target the requested time even when a provider temporarily exposes only a partial `seekable` range; live/unknown timelines remain range-clamped.
+- Fast seek completion: 60 ms final-drag debounce, native `seeked` acknowledgement without an extra decoded-frame gate, 80 ms fallback probes for providers that omit the event, and 250 ms retries until the room—not merely the local worker—confirms receipt.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.
