@@ -5,11 +5,13 @@ import type {
   PlaybackState,
   PlayerSample,
   RoomSnapshot,
+  SharedSeek,
   SharedNavigation,
 } from '@syncyourjoy/protocol'
 import { mediaMatches, normalizePageUrl } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
 import { isPlaybackPastStartupGrace } from './playback-health.ts'
+import { isSeekAligned } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
   joinedAtMs: number
@@ -34,6 +36,7 @@ export interface RoomCoordinatorState {
   actionIds: string[]
   navigation?: SharedNavigation | null
   controlRevisionFloor?: number
+  pendingSeek?: SharedSeek | null
 }
 
 export interface ControlIntent {
@@ -68,6 +71,7 @@ export class RoomCoordinator {
   private readonly actionIds = new Set<string>()
   private navigation: SharedNavigation | null = null
   private controlRevisionFloor = 0
+  private pendingSeek: SharedSeek | null = null
 
   constructor(
     identity: RoomIdentity,
@@ -91,6 +95,7 @@ export class RoomCoordinator {
         this.actionIds.add(actionId)
       this.navigation = restoredState.navigation ?? null
       this.controlRevisionFloor = restoredState.controlRevisionFloor ?? restoredState.revision
+      this.pendingSeek = restoredState.pendingSeek ? structuredClone(restoredState.pendingSeek) : null
       return
     }
 
@@ -140,6 +145,7 @@ export class RoomCoordinator {
       actionIds: [...this.actionIds],
       navigation: this.navigation ? { ...this.navigation } : null,
       controlRevisionFloor: this.controlRevisionFloor,
+      pendingSeek: this.pendingSeek ? structuredClone(this.pendingSeek) : null,
     }
   }
 
@@ -219,6 +225,7 @@ export class RoomCoordinator {
     const leadMs = this.commandLeadMs()
 
     if (intent.kind === 'pause') {
+      this.pendingSeek = null
       this.playback = {
         status: 'paused',
         positionSeconds,
@@ -227,6 +234,7 @@ export class RoomCoordinator {
       }
     }
     else if (intent.kind === 'play') {
+      this.pendingSeek = null
       this.playback = {
         status: 'playing',
         positionSeconds,
@@ -235,16 +243,56 @@ export class RoomCoordinator {
       }
     }
     else {
+      const resumeWhenReady = this.pendingSeek?.resumeWhenReady ?? this.playback.status === 'playing'
       this.playback = {
-        status: this.playback.status,
+        status: 'paused',
         positionSeconds,
-        effectiveAtServerMs: this.playback.status === 'playing' ? nowMs + leadMs : nowMs,
+        effectiveAtServerMs: nowMs,
         playbackRate: 1,
       }
+      this.revision += 1
+      this.pendingSeek = {
+        revision: this.revision,
+        positionSeconds,
+        resumeWhenReady,
+        acknowledgedParticipantIds: [],
+      }
+      return this.success('control_seek_pending')
     }
 
     this.revision += 1
     return this.success(`control_${intent.kind}`)
+  }
+
+  acknowledgeSeek(participantId: string, revision: number, positionSeconds: number): RoomResult | null {
+    const pending = this.pendingSeek
+    const participant = this.participants.get(participantId)
+    if (!pending || revision !== pending.revision || revision !== this.revision || !participant)
+      return null
+    if (!participant.connected || !participant.ready || !participant.mediaMatches)
+      return null
+    if (!isSeekAligned(positionSeconds, pending.positionSeconds))
+      return null
+    if (!pending.acknowledgedParticipantIds.includes(participantId))
+      pending.acknowledgedParticipantIds.push(participantId)
+
+    const required = [...this.participants.values()]
+      .filter(item => item.connected && item.ready && item.mediaMatches)
+      .map(item => item.id)
+    if (!required.every(id => pending.acknowledgedParticipantIds.includes(id)))
+      return this.success('seek_participant_aligned')
+
+    this.pendingSeek = null
+    if (pending.resumeWhenReady) {
+      this.playback = {
+        status: 'playing',
+        positionSeconds: pending.positionSeconds,
+        effectiveAtServerMs: this.now() + this.commandLeadMs(),
+        playbackRate: 1,
+      }
+    }
+    this.revision += 1
+    return this.success(pending.resumeWhenReady ? 'seek_aligned_play_scheduled' : 'seek_aligned_paused')
   }
 
   transferControl(fromParticipantId: string, toParticipantId: string, leaseEpoch: number): RoomResult {
@@ -391,6 +439,7 @@ export class RoomCoordinator {
       },
       media: this.media ? { ...this.media } : null,
       playback: { ...this.playback },
+      seek: this.pendingSeek ? structuredClone(this.pendingSeek) : null,
       navigation: this.navigation ? { ...this.navigation } : null,
       participants: [...this.participants.values()]
         .sort((a, b) => a.joinedAtMs - b.joinedAtMs)
@@ -414,6 +463,7 @@ export class RoomCoordinator {
   }
 
   private pauseForMembershipChange(): void {
+    this.pendingSeek = null
     if (this.playback.status !== 'playing')
       return
     const nowMs = this.now()

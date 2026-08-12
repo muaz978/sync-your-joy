@@ -25,6 +25,13 @@ export interface PlaybackState {
   playbackRate: number
 }
 
+export interface SharedSeek {
+  revision: number
+  positionSeconds: number
+  resumeWhenReady: boolean
+  acknowledgedParticipantIds: string[]
+}
+
 export interface ParticipantState {
   id: string
   name: string
@@ -49,6 +56,7 @@ export interface RoomSnapshot {
   }
   media: MediaFingerprint | null
   playback: PlaybackState
+  seek: SharedSeek | null
   navigation: SharedNavigation | null
   participants: ParticipantState[]
   policy: RoomPolicy
@@ -110,6 +118,11 @@ export type ClientMessage =
       type: 'player_status'
       basedOnRevision: number
       sample: PlayerSample
+    }
+  | {
+      type: 'seek_applied'
+      revision: number
+      positionSeconds: number
     }
   | {
       type: 'ping'
@@ -275,6 +288,11 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
 
     case 'player_status':
       if (!isNonNegativeInteger(value.basedOnRevision) || !validPlayerSample(value.sample))
+        return null
+      return value as unknown as ClientMessage
+
+    case 'seek_applied':
+      if (!isNonNegativeInteger(value.revision) || !isFiniteNonNegative(value.positionSeconds))
         return null
       return value as unknown as ClientMessage
 

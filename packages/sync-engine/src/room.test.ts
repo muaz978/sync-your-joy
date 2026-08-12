@@ -119,6 +119,96 @@ describe('RoomCoordinator', () => {
     expect(pause).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 120 } } })
   })
 
+  it('holds a playing seek until every ready participant confirms completion', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_before_barrier',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    const sought = room.control('participant_host', {
+      actionId: 'action_seek_with_barrier',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 120,
+    })
+
+    expect(sought).toMatchObject({
+      ok: true,
+      snapshot: {
+        playback: { status: 'paused', positionSeconds: 120 },
+        seek: { positionSeconds: 120, resumeWhenReady: true, acknowledgedParticipantIds: [] },
+      },
+    })
+    const seekRevision = sought.snapshot.revision
+    const hostAligned = room.acknowledgeSeek('participant_host', seekRevision, 120.1)
+    expect(hostAligned).toMatchObject({
+      ok: true,
+      snapshot: { playback: { status: 'paused' }, seek: { acknowledgedParticipantIds: ['participant_host'] } },
+    })
+
+    nowMs = 11_000
+    const allAligned = room.acknowledgeSeek('participant_friend', seekRevision, 119.9)
+    expect(allAligned).toMatchObject({
+      ok: true,
+      reason: 'seek_aligned_play_scheduled',
+      snapshot: { playback: { status: 'playing', positionSeconds: 120 }, seek: null },
+    })
+    expect(allAligned?.snapshot.playback.effectiveAtServerMs).toBeGreaterThan(nowMs)
+  })
+
+  it('uses the latest target when seeks overlap and ignores obsolete acknowledgements', () => {
+    const room = createRoom()
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_before_overlap', basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch, kind: 'play', positionSeconds: 10,
+    })
+    const first = room.control('participant_host', {
+      actionId: 'action_first_overlap', basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch, kind: 'seek', positionSeconds: 60,
+    })
+    room.acknowledgeSeek('participant_host', first.snapshot.revision, 60)
+    const second = room.control('participant_host', {
+      actionId: 'action_second_overlap', basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch, kind: 'seek', positionSeconds: 180,
+    })
+
+    expect(second.snapshot.seek).toMatchObject({ positionSeconds: 180, resumeWhenReady: true, acknowledgedParticipantIds: [] })
+    expect(room.acknowledgeSeek('participant_friend', first.snapshot.revision, 60)).toBeNull()
+    expect(room.snapshot().seek?.acknowledgedParticipantIds).toEqual([])
+    room.acknowledgeSeek('participant_host', second.snapshot.revision, 180)
+    const completed = room.acknowledgeSeek('participant_friend', second.snapshot.revision, 180)
+    expect(completed).toMatchObject({ snapshot: { playback: { status: 'playing', positionSeconds: 180 }, seek: null } })
+  })
+
+  it('keeps an originally paused room paused after everyone applies a seek', () => {
+    const room = createRoom()
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+    const sought = room.control('participant_host', {
+      actionId: 'action_paused_seek', basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch, kind: 'seek', positionSeconds: 42,
+    })
+    room.acknowledgeSeek('participant_host', sought.snapshot.revision, 42)
+    const completed = room.acknowledgeSeek('participant_friend', sought.snapshot.revision, 42)
+
+    expect(completed).toMatchObject({
+      reason: 'seek_aligned_paused',
+      snapshot: { playback: { status: 'paused', positionSeconds: 42 }, seek: null },
+    })
+  })
+
   it('rejects a delayed control after a readiness or membership barrier', () => {
     const room = createRoom()
     const obsoleteRevision = room.snapshot().revision

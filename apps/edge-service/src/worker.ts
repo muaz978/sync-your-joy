@@ -298,6 +298,15 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
+    if (message.type === 'seek_applied') {
+      const result = this.coordinator.acknowledgeSeek(attachment.participantId, message.revision, message.positionSeconds)
+      if (result?.ok) {
+        this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+        await this.persistAndSchedule()
+      }
+      return
+    }
+
     const result = message.type === 'set_ready'
       ? this.coordinator.setReady(attachment.participantId, message.ready, message.media)
       : message.type === 'transfer_control'

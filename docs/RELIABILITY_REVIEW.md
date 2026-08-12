@@ -23,6 +23,8 @@ Review date: 2026-08-12.
 - Seek commands are queued until metadata exists, clamped to the media element's `seekable` ranges, retried on metadata/progress/can-play events, and treated as complete only after the player reaches the target.
 - Player-health reports carry the exact room revision observed by the player; the coordinator discards reordered reports and suppresses expected buffering through the scheduled-play startup window.
 - Every new play/seek command resets local progress baselines, preventing time spent paused before **Play all** from being misclassified as a fresh playback stall.
+- Seek synchronization is a revisioned barrier rather than a moving-timeline correction: exposed `currentTime` changes are not accepted as completion until seeking has ended and current-frame data is available.
+- Concurrent seeks are last-write-wins, stale completion acknowledgements cannot release the barrier, and VOD targets are not incorrectly reduced to a temporary buffered/seekable boundary.
 - The in-page **Room** button calls `chrome.sidePanel.open()` directly from its user gesture, matching [Chrome's Side Panel requirement](https://developer.chrome.com/docs/extensions/reference/api/sidePanel).
 
 ## Recommended next work

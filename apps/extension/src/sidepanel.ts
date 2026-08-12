@@ -1,4 +1,4 @@
-import type { ParticipantState } from '@syncyourjoy/protocol'
+import type { ParticipantState, SharedSeek } from '@syncyourjoy/protocol'
 import type { ExtensionState, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { expectedPosition } from '@syncyourjoy/sync-engine'
 
@@ -195,7 +195,7 @@ function roomView(current: ExtensionState): string {
       ${readinessControls(me, isController, controller, snapshot.media !== null, current.currentMedia !== null)}
       ${isController ? sharedLinkControls() : ''}
       ${localSyncControls(current.currentMedia !== null, snapshot.media !== null)}
-      ${isController && snapshot.media ? controllerControls(snapshot.playback.status, currentPosition, allReady) : ''}
+      ${isController && snapshot.media ? controllerControls(snapshot.playback.status, currentPosition, allReady, snapshot.seek ?? null, connected.length) : ''}
 
       <div>
         <div class="mb-2 flex items-center justify-between px-1">
@@ -231,7 +231,9 @@ function sharedLinkControls(): string {
   `
 }
 
-function controllerControls(status: 'paused' | 'playing', position: number, allReady: boolean): string {
+function controllerControls(status: 'paused' | 'playing', position: number, allReady: boolean, seek: SharedSeek | null, connectedCount: number): string {
+  const aligning = seek !== null
+  const alignedCount = seek?.acknowledgedParticipantIds.length ?? 0
   return `
     <div class="soft-panel p-4">
       <div class="mb-3 flex items-center justify-between gap-3">
@@ -240,7 +242,7 @@ function controllerControls(status: 'paused' | 'playing', position: number, allR
           <p class="mt-1 mb-0 text-xs color-fade">Your controls apply to everyone.</p>
         </div>
         <span class="status-badge ${allReady ? 'border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-600/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'}">
-          ${allReady ? 'Ready' : 'Waiting'}
+          ${aligning ? `Aligning ${alignedCount}/${connectedCount}` : allReady ? 'Ready' : 'Waiting'}
         </span>
       </div>
       <div class="grid grid-cols-[1fr_1.45fr_1fr] gap-2">
@@ -248,9 +250,9 @@ function controllerControls(status: 'paused' | 'playing', position: number, allR
           ${backIcon('h-4 w-4')}
           <span class="font-mono text-xs tabular-nums">10s</span>
         </button>
-        <button id="primary-control" class="btn-primary px-3 tap-scale" type="button" ${status === 'paused' && !allReady ? 'disabled' : ''}>
+        <button id="primary-control" class="btn-primary px-3 tap-scale" type="button" ${aligning || (status === 'paused' && !allReady) ? 'disabled' : ''}>
           ${status === 'playing' ? pauseIcon('h-4 w-4') : playIcon('h-4 w-4')}
-          ${status === 'playing' ? 'Pause all' : 'Play all'}
+          ${aligning ? 'Aligning…' : status === 'playing' ? 'Pause all' : 'Play all'}
         </button>
         <button class="btn-action px-2" type="button" data-seek="${position + 10}" aria-label="Go forward 10 seconds">
           <span class="font-mono text-xs tabular-nums">10s</span>

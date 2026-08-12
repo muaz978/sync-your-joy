@@ -175,6 +175,13 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       await persistState()
       return success()
 
+    case 'SEEK_APPLIED':
+      if (!isBoundPlayerSender(sender))
+        return success()
+      if (!sendToServer({ type: 'seek_applied', revision: request.revision, positionSeconds: request.positionSeconds }))
+        return failure('The room connection was interrupted while confirming the seek.')
+      return success()
+
     case 'CREATE_ROOM':
       const newRoomCode = createRoomCode()
       await startFreshConnection(newRoomCode)

@@ -28,6 +28,9 @@
 - Revision-bound player-health reports so a delayed pre-play buffering sample cannot cancel a newer play command.
 - A shared 2.5-second scheduled-play settling window that ignores expected decoder/network startup while retaining automatic pause-all for genuine later stalls.
 - Authoritative **Play all** positioning after **Sync everyone**, independent of an older local player sample.
+- Transactional seeks: the room timeline pauses at a fixed target, every active player confirms a completed `seeked` operation with current-frame data, and playback resumes on one new effective server time.
+- Last-target-wins handling for overlapping drags; acknowledgements from superseded seek revisions are ignored.
+- Finite-duration VOD seeks target the requested time even when a provider temporarily exposes only a partial `seekable` range; live/unknown timelines remain range-clamped.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.

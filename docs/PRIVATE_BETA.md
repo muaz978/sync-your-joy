@@ -37,6 +37,8 @@ Use **Sync me now** in the side panel for an immediate local correction, or **Sy
 
 After **Sync everyone**, **Play all** starts from the room position shown in the remote. A short provider startup wait is treated as normal; a stale buffering report from before the play command cannot force-pause the room.
 
+Dragging the controller's progress bar now creates a room-wide alignment barrier. The panel shows **Aligning x/y** while each provider finishes its real seek, then automatically resumes everyone together if the room had been playing. A newer drag replaces an older one. If a provider cannot load the target, the room stays safely paused and that participant can press **Sync**—no refresh is required.
+
 Animerco episode pages initially contain only a poster and create their player iframe after the page's own play action. When such a page is opened through the room link, SyncYourJoy loads the default player server automatically and ignores the page's advertising iframe during player selection.
 
 The default Animerco option may nest a signed wrapper and a Google Drive preview. SyncYourJoy identifies every nested player by the room's original episode URL, waits for media metadata, clamps seeks to the player's available ranges, and waits for seek completion before resuming. If a provider cannot expose the requested position yet, the room pauses and retries; do not refresh.

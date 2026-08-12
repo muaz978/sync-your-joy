@@ -1,6 +1,6 @@
 import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { chooseDriftCorrection, expectedPosition, isPlaybackPastStartupGrace } from '@syncyourjoy/sync-engine'
+import { chooseDriftCorrection, expectedPosition, isPlaybackPastStartupGrace, isSeekAligned } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
@@ -21,7 +21,10 @@ let localIntentHoldUntil = 0
 let expectedPlayUntil = 0
 let expectedPauseUntil = 0
 let expectedSeek: { positionSeconds: number; until: number } | null = null
-let pendingSeek: { positionSeconds: number; since: number; lastAttemptAt: number } | null = null
+let pendingSeek: { positionSeconds: number; since: number; lastAttemptAt: number; roomRevision: number | null; settledSince: number | null } | null = null
+let completedRoomSeekRevision = 0
+let acknowledgedRoomSeekRevision = 0
+let seekAckInFlightRevision = 0
 let seekIntentTimer: ReturnType<typeof setTimeout> | null = null
 let lastProgressPosition = 0
 let lastProgressAt = performance.now()
@@ -325,7 +328,13 @@ function detachPlayer(target: HTMLVideoElement | null): void {
 
 function handlePlay(): void {
   resetPlaybackHealthBaseline()
-  if (consumeExpectedPlay()) {
+  const expected = consumeExpectedPlay()
+  if (!expected && video && isLocalController() && activeState?.snapshot?.seek) {
+    expectPauseEvent()
+    video.pause()
+    showNotice('Finishing the room seek before playback resumes…')
+  }
+  else if (expected) {
     renderPill()
   }
   else if (video) {
@@ -360,11 +369,18 @@ function handleSeeking(): void {
 }
 
 function handleSeeked(): void {
-  const programmatic = consumeExpectedSeek()
+  const completedPending = video && pendingSeek && isSeekAligned(video.currentTime, pendingSeek.positionSeconds)
+    ? pendingSeek
+    : null
+  const programmatic = completedPending !== null || consumeExpectedSeek()
   const shouldSend = !programmatic && video && isLocalController()
   localSeeking = false
-  if (video && pendingSeek && Math.abs(video.currentTime - pendingSeek.positionSeconds) <= 0.75)
+  if (completedPending) {
+    if (completedPending.roomRevision !== null)
+      completedRoomSeekRevision = completedPending.roomRevision
     pendingSeek = null
+    expectedSeek = null
+  }
   if (shouldSend && video) {
     holdLocalControllerIntent()
     seekIntentTimer = setTimeout(() => {
@@ -374,6 +390,7 @@ function handleSeeked(): void {
     }, 120)
   }
   applyAuthoritativeState()
+  maybeAcknowledgeRoomSeek()
   void reportPlayerStatus(false)
 }
 
@@ -400,11 +417,13 @@ function handleCanPlay(): void {
     clearTimeout(bufferingTimer)
   bufferingTimer = null
   applyAuthoritativeState()
+  maybeAcknowledgeRoomSeek()
   void reportPlayerStatus(false)
 }
 
 function handleMediaReady(): void {
   applyAuthoritativeState()
+  maybeAcknowledgeRoomSeek()
 }
 
 async function reportPlayerStatus(buffering: boolean): Promise<void> {
@@ -443,9 +462,6 @@ function applyAuthoritativeState(): void {
   if (!video || !activeState || !snapshot)
     return
 
-  if (pendingSeek && !video.seeking && Math.abs(video.currentTime - pendingSeek.positionSeconds) <= 0.75)
-    pendingSeek = null
-
   if (shouldDeferAuthoritativeSync({
     isController: isLocalController(),
     isSeeking: localSeeking,
@@ -463,9 +479,11 @@ function applyAuthoritativeState(): void {
       expectPauseEvent()
       video.pause()
     }
-    if (Math.abs(video.currentTime - expectedSeconds) > 0.25)
-      trySetProgrammaticPosition(expectedSeconds)
+    const targetSeconds = snapshot.seek?.positionSeconds ?? expectedSeconds
+    if (snapshot.seek || Math.abs(video.currentTime - targetSeconds) > 0.25)
+      trySetProgrammaticPosition(targetSeconds, snapshot.seek?.revision ?? null)
     restorePlaybackRate()
+    maybeAcknowledgeRoomSeek()
     return
   }
 
@@ -562,7 +580,7 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
   localSeeking = false
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
   const expectedSeconds = expectedPosition(activeState.snapshot.playback, estimatedServerNowMs)
-  const seekApplied = trySetProgrammaticPosition(expectedSeconds)
+  const seekApplied = trySetProgrammaticPosition(expectedSeconds, activeState.snapshot.seek?.revision ?? null)
   if (!seekApplied && !fromUserGesture) {
     showNotice('Waiting for this player to make the room position seekable…')
     return
@@ -625,19 +643,23 @@ function renderPill(): void {
       ? 'Reconnecting'
       : !video
         ? 'Loading shared player'
+        : snapshot.seek
+          ? `Aligning seek ${snapshot.seek.acknowledgedParticipantIds.length}/${connected.length}`
         : playbackBlocked
           ? 'Playback blocked'
           : allReady ? 'In sync' : 'Waiting for everyone'
   if (metaElement)
     metaElement.textContent = !video
       ? 'The page opened; preparing its video player'
+      : snapshot.seek
+        ? `Moving everyone to ${formatPillTime(snapshot.seek.positionSeconds)}`
       : playbackBlocked
         ? 'Press Sync once to repair playback'
         : `${isController ? 'Controller' : 'Member'}, ${connected.length} connected${participant?.mediaMatches === false ? ', wrong video' : ''}`
   if (playbackButton) {
     playbackButton.hidden = !isController || !video
-    playbackButton.disabled = snapshot.playback.status === 'paused' && !allReady
-    playbackButton.textContent = snapshot.playback.status === 'playing' ? 'Pause' : 'Play'
+    playbackButton.disabled = snapshot.seek !== null || (snapshot.playback.status === 'paused' && !allReady)
+    playbackButton.textContent = snapshot.seek ? 'Aligning' : snapshot.playback.status === 'playing' ? 'Pause' : 'Play'
   }
   if (syncButton)
     syncButton.disabled = !video
@@ -768,7 +790,7 @@ function consumeExpectedPause(): boolean {
   return expected
 }
 
-function trySetProgrammaticPosition(positionSeconds: number): boolean {
+function trySetProgrammaticPosition(positionSeconds: number, roomRevision: number | null = null): boolean {
   if (!video || video.readyState === HTMLMediaElement.HAVE_NOTHING)
     return false
 
@@ -780,17 +802,33 @@ function trySetProgrammaticPosition(positionSeconds: number): boolean {
   const target = resolveSeekTarget(positionSeconds, durationSeconds, ranges)
   if (target === null)
     return false
-  if (!video.seeking && Math.abs(video.currentTime - target) <= 0.2) {
-    pendingSeek = null
-    return true
-  }
-
   const now = performance.now()
-  if (pendingSeek && Math.abs(pendingSeek.positionSeconds - target) <= 0.75 && now - pendingSeek.lastAttemptAt < 1_000)
+  const aligned = !video.seeking && Math.abs(video.currentTime - target) <= 0.2
+  const matchingPending = pendingSeek
+    && isSeekAligned(pendingSeek.positionSeconds, target)
+    && pendingSeek.roomRevision === roomRevision
+    ? pendingSeek
+    : null
+  if (aligned && matchingPending && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    if (matchingPending.settledSince === null) {
+      pendingSeek = { ...matchingPending, settledSince: now }
+      return false
+    }
+    if (now - matchingPending.settledSince >= 250) {
+      if (roomRevision !== null)
+        completedRoomSeekRevision = roomRevision
+      pendingSeek = null
+      return true
+    }
+  }
+  if (aligned && !pendingSeek)
+    return true
+
+  if (matchingPending && now - matchingPending.lastAttemptAt < 1_000)
     return false
-  pendingSeek = pendingSeek && Math.abs(pendingSeek.positionSeconds - target) <= 0.75
-    ? { ...pendingSeek, lastAttemptAt: now }
-    : { positionSeconds: target, since: now, lastAttemptAt: now }
+  pendingSeek = matchingPending
+    ? { ...matchingPending, lastAttemptAt: now, settledSince: null }
+    : { positionSeconds: target, since: now, lastAttemptAt: now, roomRevision, settledSince: null }
   expectedSeek = { positionSeconds: target, until: now + 4_000 }
   try {
     video.currentTime = target
@@ -798,7 +836,34 @@ function trySetProgrammaticPosition(positionSeconds: number): boolean {
   catch {
     return false
   }
-  return !video.seeking && Math.abs(video.currentTime - target) <= 0.2
+  return false
+}
+
+function maybeAcknowledgeRoomSeek(): void {
+  const roomSeek = activeState?.snapshot?.seek
+  if (!video || !roomSeek || acknowledgedRoomSeekRevision === roomSeek.revision || seekAckInFlightRevision === roomSeek.revision)
+    return
+  if (video.seeking || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA)
+    return
+  if (!isSeekAligned(video.currentTime, roomSeek.positionSeconds))
+    return
+  if (pendingSeek && pendingSeek.roomRevision === roomSeek.revision)
+    return
+  if (completedRoomSeekRevision !== roomSeek.revision && pendingSeek !== null)
+    return
+
+  seekAckInFlightRevision = roomSeek.revision
+  void sendRuntime({
+    type: 'SEEK_APPLIED',
+    revision: roomSeek.revision,
+    positionSeconds: video.currentTime,
+  }).then((response) => {
+    if (response.ok)
+      acknowledgedRoomSeekRevision = roomSeek.revision
+  }).finally(() => {
+    if (seekAckInFlightRevision === roomSeek.revision)
+      seekAckInFlightRevision = 0
+  })
 }
 
 function hasExpectedSeek(): boolean {
@@ -851,6 +916,12 @@ function containerPageUrl(playerUrl: URL): URL {
 
 function finiteOrZero(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0
+}
+
+function formatPillTime(value: number): string {
+  const seconds = Math.max(0, Math.floor(value))
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
 }
 
 async function sendRuntime(request: RuntimeRequest): Promise<RuntimeResponse> {

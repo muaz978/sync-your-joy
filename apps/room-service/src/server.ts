@@ -235,6 +235,13 @@ export async function createRoomService(options: { port?: number; host?: string 
       return
     }
 
+    if (message.type === 'seek_applied') {
+      const result = room.coordinator.acknowledgeSeek(client.participantId, message.revision, message.positionSeconds)
+      if (result?.ok)
+        broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+      return
+    }
+
     const result = message.type === 'set_ready'
       ? room.coordinator.setReady(client.participantId, message.ready, message.media)
       : message.type === 'transfer_control'

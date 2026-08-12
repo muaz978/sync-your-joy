@@ -11,6 +11,8 @@ export function resolveSeekTarget(targetSeconds: number, durationSeconds: number
     ? Math.max(0, durationSeconds - 0.05)
     : Number.POSITIVE_INFINITY
   const target = Math.max(0, Math.min(targetSeconds, maximum))
+  if (durationSeconds !== null && Number.isFinite(durationSeconds))
+    return target
   const validRanges = ranges
     .filter(range => Number.isFinite(range.start) && Number.isFinite(range.end) && range.end >= range.start)
     .sort((left, right) => left.start - right.start)

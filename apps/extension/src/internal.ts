@@ -25,6 +25,7 @@ export type RuntimeRequest =
   | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number }
   | { type: 'MEDIA_LOST' }
   | { type: 'PLAYER_STATUS'; basedOnRevision: number; sample: PlayerSample }
+  | { type: 'SEEK_APPLIED'; revision: number; positionSeconds: number }
   | { type: 'PLAYER_INTENT'; kind: ControlKind; positionSeconds: number }
   | { type: 'OPEN_PANEL' }
 

@@ -94,28 +94,39 @@ try {
     kind: 'seek',
     positionSeconds: 137,
   }))
-  const sought = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.playback.positionSeconds === 137)
-  const friendSought = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.playback.positionSeconds === 137)
+  const sought = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.seek?.positionSeconds === 137)
+  const friendSought = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.seek?.positionSeconds === 137)
   if (sought.snapshot.revision !== friendSought.snapshot.revision)
     throw new Error('Clients received different seek revisions.')
+
+  host.socket.send(JSON.stringify({ type: 'seek_applied', revision: sought.snapshot.revision, positionSeconds: 137 }))
+  await host.waitFor(message => message.type === 'room_snapshot'
+    && message.snapshot.seek?.acknowledgedParticipantIds.includes('participant_smoke_host'))
+  friend.socket.send(JSON.stringify({ type: 'seek_applied', revision: sought.snapshot.revision, positionSeconds: 137 }))
+  const seekResumed = await host.waitFor(message => message.type === 'room_snapshot'
+    && message.snapshot.revision > sought.snapshot.revision
+    && message.snapshot.seek === null
+    && message.snapshot.playback.status === 'playing'
+    && message.snapshot.playback.positionSeconds === 137)
+  await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === seekResumed.snapshot.revision)
 
   host.socket.send(JSON.stringify({
     type: 'control',
     actionId: 'action_smoke_rapid_pause',
-    basedOnRevision: sought.snapshot.revision,
-    leaseEpoch: sought.snapshot.controller.leaseEpoch,
+    basedOnRevision: seekResumed.snapshot.revision,
+    leaseEpoch: seekResumed.snapshot.controller.leaseEpoch,
     kind: 'pause',
     positionSeconds: 137,
   }))
   host.socket.send(JSON.stringify({
     type: 'control',
     actionId: 'action_smoke_rapid_play',
-    basedOnRevision: sought.snapshot.revision,
-    leaseEpoch: sought.snapshot.controller.leaseEpoch,
+    basedOnRevision: seekResumed.snapshot.revision,
+    leaseEpoch: seekResumed.snapshot.controller.leaseEpoch,
     kind: 'play',
     positionSeconds: 137,
   }))
-  const rapidPlaying = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision >= sought.snapshot.revision + 2 && message.snapshot.playback.status === 'playing')
+  const rapidPlaying = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision >= seekResumed.snapshot.revision + 2 && message.snapshot.playback.status === 'playing')
   const friendRapidPlaying = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === rapidPlaying.snapshot.revision)
   if (rapidPlaying.snapshot.playback.effectiveAtServerMs !== friendRapidPlaying.snapshot.playback.effectiveAtServerMs)
     throw new Error('Clients received different rapid-control effective times.')
@@ -152,6 +163,7 @@ try {
     roundTripMs,
     revision: rapidPlaying.snapshot.revision,
     seekPositionSeconds: sought.snapshot.playback.positionSeconds,
+    seekBarrierProtected: true,
     scheduledLeadMs,
     staleBufferingProtected: true,
     startupBufferingProtected: true,

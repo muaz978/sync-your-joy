@@ -77,4 +77,12 @@ describe('media identity matching', () => {
       basedOnRevision: 4,
     })
   })
+
+  it('accepts only finite seek-completion acknowledgements', () => {
+    expect(parseClientMessage({ type: 'seek_applied', revision: 7, positionSeconds: 120 })).toMatchObject({
+      type: 'seek_applied',
+      revision: 7,
+    })
+    expect(parseClientMessage({ type: 'seek_applied', revision: 7, positionSeconds: Number.NaN })).toBeNull()
+  })
 })
