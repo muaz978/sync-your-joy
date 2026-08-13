@@ -1,6 +1,6 @@
 import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isPlaybackPastStartupGrace, isSeekAligned, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS } from '@syncyourjoy/sync-engine'
+import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isSeekAligned, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
@@ -26,6 +26,8 @@ let completedRoomSeekRevision = 0
 let seekAckInFlightRevision = 0
 let seekCompletionTimer: ReturnType<typeof setTimeout> | null = null
 let seekAckRetryTimer: ReturnType<typeof setTimeout> | null = null
+let lastControllerSeekPosition: number | null = null
+let lastControllerSeekSentAt = 0
 let seekIntentTimer: ReturnType<typeof setTimeout> | null = null
 let lastProgressPosition = 0
 let lastProgressAt = performance.now()
@@ -294,6 +296,7 @@ function attachPlayer(target: HTMLVideoElement): void {
   target.addEventListener('pause', handlePause)
   target.addEventListener('seeking', handleSeeking)
   target.addEventListener('seeked', handleSeeked)
+  target.addEventListener('timeupdate', handleTimeUpdate)
   target.addEventListener('ended', handleEnded)
   target.addEventListener('waiting', handleBuffering)
   target.addEventListener('stalled', handleBuffering)
@@ -312,6 +315,7 @@ function detachPlayer(target: HTMLVideoElement | null): void {
   target.removeEventListener('pause', handlePause)
   target.removeEventListener('seeking', handleSeeking)
   target.removeEventListener('seeked', handleSeeked)
+  target.removeEventListener('timeupdate', handleTimeUpdate)
   target.removeEventListener('ended', handleEnded)
   target.removeEventListener('waiting', handleBuffering)
   target.removeEventListener('stalled', handleBuffering)
@@ -364,11 +368,10 @@ function handleSeeking(): void {
   if (bufferingTimer)
     clearTimeout(bufferingTimer)
   bufferingTimer = null
-  if (seekIntentTimer)
-    clearTimeout(seekIntentTimer)
-  seekIntentTimer = null
-  if (!hasExpectedSeek() && isLocalController())
+  if (!hasExpectedSeek() && isLocalController()) {
     localSeeking = true
+    scheduleControllerSeekIntent()
+  }
 }
 
 function handleSeeked(): void {
@@ -382,16 +385,42 @@ function handleSeeked(): void {
     completePendingSeek(completedPending)
   }
   if (shouldSend && video) {
-    holdLocalControllerIntent()
-    seekIntentTimer = setTimeout(() => {
-      seekIntentTimer = null
-      if (video)
-        void sendRuntime({ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: video.currentTime })
-    }, SEEK_INTENT_DEBOUNCE_MS)
+    scheduleControllerSeekIntent()
   }
   applyAuthoritativeState()
   maybeAcknowledgeRoomSeek()
   void reportPlayerStatus(false)
+}
+
+function handleTimeUpdate(): void {
+  if (localSeeking && isLocalController())
+    scheduleControllerSeekIntent()
+}
+
+function scheduleControllerSeekIntent(): void {
+  if (!video || !isLocalController())
+    return
+  if (seekIntentTimer)
+    clearTimeout(seekIntentTimer)
+  seekIntentTimer = setTimeout(() => {
+    seekIntentTimer = null
+    if (!video || !isLocalController())
+      return
+    const positionSeconds = finiteOrZero(video.currentTime)
+    const now = performance.now()
+    localSeeking = false
+    if (isDuplicateSeekIntent({
+      positionSeconds,
+      lastPositionSeconds: lastControllerSeekPosition,
+      nowMs: now,
+      lastSentAtMs: lastControllerSeekSentAt,
+    }))
+      return
+    lastControllerSeekPosition = positionSeconds
+    lastControllerSeekSentAt = now
+    holdLocalControllerIntent()
+    void sendRuntime({ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds })
+  }, SEEK_INTENT_DEBOUNCE_MS)
 }
 
 function handleEnded(): void {

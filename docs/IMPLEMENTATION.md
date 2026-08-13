@@ -32,6 +32,8 @@
 - Last-target-wins handling for overlapping drags; acknowledgements from superseded seek revisions are ignored.
 - Finite-duration VOD seeks target the requested time even when a provider temporarily exposes only a partial `seekable` range; live/unknown timelines remain range-clamped.
 - Fast seek completion: 60 ms final-drag debounce, native `seeked` acknowledgement without an extra decoded-frame gate, 80 ms fallback probes for providers that omit the event, and 250 ms retries until the room—not merely the local worker—confirms receipt.
+- Scrub-first capture: controller targets are broadcast from the stabilized `currentTime` during `seeking`/`timeupdate`, without waiting for a provider's optional or delayed `seeked` event; a later duplicate completion is suppressed.
+- A 750 ms authoritative barrier ceiling releases already aligned participants while any unusually slow provider continues catching up locally, eliminating indefinite `Aligning` deadlocks.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.

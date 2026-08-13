@@ -41,6 +41,8 @@ Dragging the controller's progress bar now creates a room-wide alignment barrier
 
 The fast path responds to the final drag within 60 ms and releases as soon as each player reports that seeking ended at the target. Providers that omit `seeked` are probed every 80 ms, while any unconfirmed network acknowledgement retries automatically.
 
+The controller no longer waits for its streaming site to emit `seeked` before notifying the room. The stabilized scrub target is sent directly, and **Aligning** has a 750 ms maximum: aligned viewers resume together while an unusually slow provider finishes catching up on its own device.
+
 Animerco episode pages initially contain only a poster and create their player iframe after the page's own play action. When such a page is opened through the room link, SyncYourJoy loads the default player server automatically and ignores the page's advertising iframe during player selection.
 
 The default Animerco option may nest a signed wrapper and a Google Drive preview. SyncYourJoy identifies every nested player by the room's original episode URL, waits for media metadata, clamps seeks to the player's available ranges, and waits for seek completion before resuming. If a provider cannot expose the requested position yet, the room pauses and retries; do not refresh.

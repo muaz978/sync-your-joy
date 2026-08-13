@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canConfirmSeek, isSeekAligned, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS } from './seek-barrier.ts'
+import { canConfirmSeek, isDuplicateSeekIntent, isSeekAligned, SEEK_ACK_RETRY_MS, SEEK_BARRIER_MAX_WAIT_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS } from './seek-barrier.ts'
 
 describe('seek barrier alignment', () => {
   it('accepts positions close enough for rate correction after resume', () => {
@@ -21,5 +21,11 @@ describe('seek barrier alignment', () => {
     expect(SEEK_INTENT_DEBOUNCE_MS).toBeLessThan(100)
     expect(SEEK_COMPLETION_PROBE_MS).toBeLessThan(100)
     expect(SEEK_ACK_RETRY_MS).toBeLessThanOrEqual(250)
+    expect(SEEK_BARRIER_MAX_WAIT_MS).toBeLessThan(1_000)
+  })
+
+  it('deduplicates the seeked event after an early scrub broadcast', () => {
+    expect(isDuplicateSeekIntent({ positionSeconds: 120.2, lastPositionSeconds: 120, nowMs: 1_500, lastSentAtMs: 1_000 })).toBe(true)
+    expect(isDuplicateSeekIntent({ positionSeconds: 180, lastPositionSeconds: 120, nowMs: 1_500, lastSentAtMs: 1_000 })).toBe(false)
   })
 })

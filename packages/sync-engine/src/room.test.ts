@@ -209,6 +209,33 @@ describe('RoomCoordinator', () => {
     })
   })
 
+  it('releases a seek barrier quickly when a provider never acknowledges', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_before_timeout', basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch, kind: 'play', positionSeconds: 10,
+    })
+    const sought = room.control('participant_host', {
+      actionId: 'action_seek_timeout', basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch, kind: 'seek', positionSeconds: 90,
+    })
+    room.acknowledgeSeek('participant_host', sought.snapshot.revision, 90)
+
+    expect(room.releaseExpiredSeek(sought.snapshot.seek!.deadlineAtServerMs - 1)).toBeNull()
+    nowMs = sought.snapshot.seek!.deadlineAtServerMs
+    const released = room.releaseExpiredSeek()
+
+    expect(released).toMatchObject({
+      ok: true,
+      reason: 'seek_timeout_play_scheduled',
+      snapshot: { seek: null, playback: { status: 'playing', positionSeconds: 90 } },
+    })
+  })
+
   it('rejects a delayed control after a readiness or membership barrier', () => {
     const room = createRoom()
     const obsoleteRevision = room.snapshot().revision

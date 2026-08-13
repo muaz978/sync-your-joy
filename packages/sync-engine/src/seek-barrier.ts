@@ -2,6 +2,8 @@ export const SEEK_ALIGNMENT_TOLERANCE_SECONDS = 0.5
 export const SEEK_INTENT_DEBOUNCE_MS = 60
 export const SEEK_COMPLETION_PROBE_MS = 80
 export const SEEK_ACK_RETRY_MS = 250
+export const SEEK_INTENT_DEDUP_MS = 1_000
+export const SEEK_BARRIER_MAX_WAIT_MS = 750
 
 export function isSeekAligned(currentSeconds: number, targetSeconds: number): boolean {
   return Number.isFinite(currentSeconds)
@@ -15,4 +17,15 @@ export function canConfirmSeek(options: {
   seeking: boolean
 }): boolean {
   return !options.seeking && isSeekAligned(options.currentSeconds, options.targetSeconds)
+}
+
+export function isDuplicateSeekIntent(options: {
+  positionSeconds: number
+  lastPositionSeconds: number | null
+  nowMs: number
+  lastSentAtMs: number
+}): boolean {
+  return options.lastPositionSeconds !== null
+    && isSeekAligned(options.positionSeconds, options.lastPositionSeconds)
+    && options.nowMs - options.lastSentAtMs < SEEK_INTENT_DEDUP_MS
 }

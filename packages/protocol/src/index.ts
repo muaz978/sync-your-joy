@@ -29,6 +29,7 @@ export interface SharedSeek {
   revision: number
   positionSeconds: number
   resumeWhenReady: boolean
+  deadlineAtServerMs: number
   acknowledgedParticipantIds: string[]
 }
 

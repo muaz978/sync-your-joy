@@ -261,10 +261,13 @@ export async function createRoomService(options: { port?: number; host?: string 
   const cleanupTimer = setInterval(() => {
     const nowMs = Date.now()
     for (const [code, room] of rooms) {
+      const expiredSeek = room.coordinator.releaseExpiredSeek(nowMs)
+      if (expiredSeek?.ok)
+        broadcast(room, { type: 'room_snapshot', reason: expiredSeek.reason, snapshot: expiredSeek.snapshot })
       if (room.emptySinceMs !== null && nowMs - room.emptySinceMs >= EMPTY_ROOM_TTL_MS)
         rooms.delete(code)
     }
-  }, 60_000)
+  }, 100)
   cleanupTimer.unref()
 
   await new Promise<void>((resolve, reject) => {

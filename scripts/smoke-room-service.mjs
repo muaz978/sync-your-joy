@@ -112,21 +112,40 @@ try {
 
   host.socket.send(JSON.stringify({
     type: 'control',
-    actionId: 'action_smoke_rapid_pause',
+    actionId: 'action_smoke_timeout_seek',
     basedOnRevision: seekResumed.snapshot.revision,
     leaseEpoch: seekResumed.snapshot.controller.leaseEpoch,
+    kind: 'seek',
+    positionSeconds: 155,
+  }))
+  const timeoutSeek = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.seek?.positionSeconds === 155)
+  await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === timeoutSeek.snapshot.revision)
+  const timeoutStartedAt = Date.now()
+  host.socket.send(JSON.stringify({ type: 'seek_applied', revision: timeoutSeek.snapshot.revision, positionSeconds: 155 }))
+  const timeoutReleased = await host.waitFor(message => message.type === 'room_snapshot'
+    && message.reason === 'seek_timeout_play_scheduled'
+    && message.snapshot.seek === null
+    && message.snapshot.playback.positionSeconds === 155)
+  await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === timeoutReleased.snapshot.revision)
+  const seekTimeoutReleaseMs = Date.now() - timeoutStartedAt
+
+  host.socket.send(JSON.stringify({
+    type: 'control',
+    actionId: 'action_smoke_rapid_pause',
+    basedOnRevision: timeoutReleased.snapshot.revision,
+    leaseEpoch: timeoutReleased.snapshot.controller.leaseEpoch,
     kind: 'pause',
     positionSeconds: 137,
   }))
   host.socket.send(JSON.stringify({
     type: 'control',
     actionId: 'action_smoke_rapid_play',
-    basedOnRevision: seekResumed.snapshot.revision,
-    leaseEpoch: seekResumed.snapshot.controller.leaseEpoch,
+    basedOnRevision: timeoutReleased.snapshot.revision,
+    leaseEpoch: timeoutReleased.snapshot.controller.leaseEpoch,
     kind: 'play',
     positionSeconds: 137,
   }))
-  const rapidPlaying = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision >= seekResumed.snapshot.revision + 2 && message.snapshot.playback.status === 'playing')
+  const rapidPlaying = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision >= timeoutReleased.snapshot.revision + 2 && message.snapshot.playback.status === 'playing')
   const friendRapidPlaying = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === rapidPlaying.snapshot.revision)
   if (rapidPlaying.snapshot.playback.effectiveAtServerMs !== friendRapidPlaying.snapshot.playback.effectiveAtServerMs)
     throw new Error('Clients received different rapid-control effective times.')
@@ -165,6 +184,7 @@ try {
     seekPositionSeconds: sought.snapshot.playback.positionSeconds,
     seekBarrierProtected: true,
     seekBarrierMs,
+    seekTimeoutReleaseMs,
     scheduledLeadMs,
     staleBufferingProtected: true,
     startupBufferingProtected: true,

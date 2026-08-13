@@ -11,7 +11,7 @@ import type {
 import { mediaMatches, normalizePageUrl } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
 import { isPlaybackPastStartupGrace } from './playback-health.ts'
-import { isSeekAligned } from './seek-barrier.ts'
+import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
   joinedAtMs: number
@@ -255,6 +255,7 @@ export class RoomCoordinator {
         revision: this.revision,
         positionSeconds,
         resumeWhenReady,
+        deadlineAtServerMs: nowMs + SEEK_BARRIER_MAX_WAIT_MS,
         acknowledgedParticipantIds: [],
       }
       return this.success('control_seek_pending')
@@ -293,6 +294,27 @@ export class RoomCoordinator {
     }
     this.revision += 1
     return this.success(pending.resumeWhenReady ? 'seek_aligned_play_scheduled' : 'seek_aligned_paused')
+  }
+
+  releaseExpiredSeek(nowMs: number = this.now()): RoomResult | null {
+    const pending = this.pendingSeek
+    if (!pending || nowMs < pending.deadlineAtServerMs)
+      return null
+    this.pendingSeek = null
+    if (pending.resumeWhenReady) {
+      this.playback = {
+        status: 'playing',
+        positionSeconds: pending.positionSeconds,
+        effectiveAtServerMs: nowMs + this.commandLeadMs(),
+        playbackRate: 1,
+      }
+    }
+    this.revision += 1
+    return this.success(pending.resumeWhenReady ? 'seek_timeout_play_scheduled' : 'seek_timeout_paused')
+  }
+
+  pendingSeekDeadlineMs(): number | null {
+    return this.pendingSeek?.deadlineAtServerMs ?? null
   }
 
   transferControl(fromParticipantId: string, toParticipantId: string, leaseEpoch: number): RoomResult {

@@ -177,6 +177,9 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
 
     const nowMs = Date.now()
+    const expiredSeek = this.coordinator.releaseExpiredSeek(nowMs)
+    if (expiredSeek?.ok)
+      this.broadcast({ type: 'room_snapshot', reason: expiredSeek.reason, snapshot: expiredSeek.snapshot })
     if (this.pendingController && nowMs >= this.pendingController.recoverAtMs) {
       const controller = this.coordinator.snapshot().participants.find(
         participant => participant.id === this.pendingController?.participantId,
@@ -339,6 +342,9 @@ export class RoomDurableObject extends DurableObject<Env> {
       alarmCandidates.push(this.pendingController.recoverAtMs)
     if (this.emptySinceMs !== null)
       alarmCandidates.push(this.emptySinceMs + EMPTY_ROOM_TTL_MS)
+    const seekDeadlineMs = this.coordinator.pendingSeekDeadlineMs()
+    if (seekDeadlineMs !== null)
+      alarmCandidates.push(seekDeadlineMs)
 
     if (alarmCandidates.length > 0)
       await this.ctx.storage.setAlarm(Math.min(...alarmCandidates))
