@@ -23,6 +23,7 @@ Review date: 2026-08-12.
 - A mutation-driven player scan switches to replacement video elements immediately and pauses detached players, preventing invisible stale elements from receiving room commands.
 - Player-frame bindings now carry liveness timestamps and recover automatically when a streaming site replaces an embedded frame after readiness.
 - The beta diagnostics collector downloads sanitized per-participant playback evidence for later investigation without transporting media or credentials.
+- Side-panel state refreshes preserve the active room's scroll position, preventing frequent player samples from pulling the controller back to the top while using lower controls.
 - Click-to-load Animerco pages receive a narrow automatic bootstrap, while known advertising frames are excluded from player candidacy.
 - Deeply nested player frames inherit the authoritative shared-page identity, rather than comparing per-client signed wrapper URLs.
 - Seek commands are queued until metadata exists, clamped to the media element's `seekable` ranges, retried on metadata/progress/can-play events, and treated as complete only after the player reaches the target.

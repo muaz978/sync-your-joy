@@ -35,6 +35,8 @@ Play, pause, and dragging the progress bar are automatic when performed by the c
 
 The panel now labels the local reading **Your video**. It comes from the real bound player instead of a mathematical room clock, and it shows **stopped** if the room expected playback but the local video did not start.
 
+Live player and participant updates preserve the room panel's current scroll position. You can keep the lower controls in view while playback samples, readiness, latency, and room state continue updating.
+
 Use **Sync me now** in the side panel for an immediate local correction, or **Sync everyone** from the controller panel to schedule the entire room at one authoritative position. Neither action requires refreshing the streaming page.
 
 After **Sync everyone**, **Play all** starts from the room position shown in the remote. A short provider startup wait is treated as normal; a stale buffering report from before the play command cannot force-pause the room.

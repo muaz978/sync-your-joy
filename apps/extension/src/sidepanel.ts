@@ -1,6 +1,7 @@
 import type { ParticipantState, SharedSeek } from '@syncyourjoy/protocol'
 import type { ExtensionState, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { expectedPosition } from '@syncyourjoy/sync-engine'
+import { retainedPanelScrollTop } from './panel-scroll.ts'
 
 const appElement = document.querySelector<HTMLElement>('#app')
 if (!appElement)
@@ -15,6 +16,7 @@ let draftRoomCode: string | null = null
 let draftNavigationRevision = 0
 let toastMessage = ''
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+let renderedViewKey: string | null = null
 
 void initializeTheme()
 void refreshState()
@@ -40,6 +42,10 @@ function render(): void {
   if (!state)
     return
 
+  const nextViewKey = state.snapshot ? `room:${state.snapshot.code}` : 'welcome'
+  const previousScroller = app.querySelector<HTMLElement>('#panel-scroll')
+  const restoredScrollTop = retainedPanelScrollTop(renderedViewKey, nextViewKey, previousScroller?.scrollTop ?? 0)
+
   app.innerHTML = `
     <div class="app-shell">
       <header class="z-top-nav shrink-0 flex items-center justify-between border-b border-base px-4 py-3">
@@ -58,7 +64,7 @@ function render(): void {
         </button>
       </header>
 
-      <main class="z-panel-content min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <main id="panel-scroll" class="z-panel-content min-h-0 flex-1 overflow-y-auto px-4 py-4">
         ${state.snapshot ? roomView(state) : welcomeView(state)}
       </main>
 
@@ -79,6 +85,11 @@ function render(): void {
     bindRoomActions()
   else
     bindWelcomeActions()
+
+  const nextScroller = app.querySelector<HTMLElement>('#panel-scroll')
+  if (nextScroller)
+    nextScroller.scrollTop = restoredScrollTop
+  renderedViewKey = nextViewKey
 }
 
 function welcomeView(current: ExtensionState): string {

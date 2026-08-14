@@ -423,3 +423,117 @@
 - The earlier item saying the 0.1.11 ZIP was pending is superseded. It is rebuilt and verified.
 - The temporary browser harness remains outside the repository under `/private/tmp/syj-e2e.Pz7Ywi`; promoting it is optional future maintenance work and is not required for this release.
 - Source commit and push remain the final actions after this checkpoint update.
+
+---
+
+# Context Checkpoint 3
+
+## Session Metadata
+- Task or project: SyncYourJoy side-panel scroll stability
+- Checkpoint number: 3
+- Date and time: 2026-08-15, Europe/Istanbul
+- Coverage period: User report that live room updates force the side panel back to the top through the verified 0.1.12 fix
+- Current context status: Fix implemented, tested in unit and real-browser checks, production extension rebuilt, and release ZIP packaged. Commit and push are pending.
+
+## User Objective and Requirements
+- While connected to a room, the user must be able to scroll down and operate the lower room controls.
+- Frequent live updates must not force the room panel back to the top.
+
+## Current State
+- Extension version is now 0.1.12.
+- The updated release ZIP is `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/release/sync-your-joy-beta.zip`.
+- ZIP SHA-256 is `2bb7b621d57411184de9ba87283c2d44d50d7f0c71b130780e2bdb201da53fba`.
+- No backend change or Worker redeployment is required because the defect is entirely inside side-panel rendering.
+
+## Complete Chronological Activity Log
+
+### User report and diagnosis
+- The user reported that scrolling down inside an active room immediately returned the panel to the top.
+- `apps/extension/src/sidepanel.ts` was inspected.
+- The service worker publishes `ROOM_STATE_UPDATED` for live player-status changes.
+- Every such message called `render()`.
+- `render()` replaced the complete `app.innerHTML`, including the `<main>` element that owns `overflow-y-auto` and its `scrollTop` state.
+- Chrome therefore created a new scroll container at position 0 every time a player sample, room snapshot, readiness state, or latency update triggered a render.
+- This confirmed that the behavior was deterministic UI state loss, not a wheel, touchpad, CSS overflow, or streaming-page problem.
+
+### Implementation
+- A stable `id="panel-scroll"` was added to the room panel's scrolling `<main>` element.
+- Before replacing the panel DOM, `render()` now captures the current scroll container's `scrollTop`.
+- The captured position is restored synchronously on the new scroll container after HTML replacement and action rebinding.
+- Restoration is scoped by a view key.
+- Re-renders inside the same room preserve the scroll position.
+- Leaving a room, returning to the welcome view, or entering a different room resets the panel to the top instead of incorrectly carrying an old room's position.
+- A pure helper was added in `apps/extension/src/panel-scroll.ts` so the behavior can be regression tested without browser DOM dependencies.
+- Three tests were added in `apps/extension/src/panel-scroll.test.ts` for same-room retention, room/view changes, and invalid/negative input normalization.
+- Private beta and reliability documentation were updated.
+- The extension and manifest versions were raised from 0.1.11 to 0.1.12.
+
+### Automated verification
+- `npm run check` passed.
+- TypeScript passed for the workspace and edge service.
+- All 71 tests across 14 test files passed.
+- The room-service build passed.
+- The production-configured extension build passed.
+- `git diff --check` passed.
+
+### Real-browser regression verification
+- A Range-capable local video fixture and two isolated Chrome for Testing profiles were started with the newly built side-panel code.
+- A host and guest created and joined a live production room.
+- The controller side panel had a scroll height of 1360 pixels and a visible client height of 553 pixels.
+- The panel was programmatically scrolled to its maximum `scrollTop` of 807 pixels.
+- Multiple real player heartbeats and room-state updates were allowed to arrive for three seconds.
+- After those live updates, the panel remained at exactly `scrollTop: 807`; it did not return to zero or move upward.
+- Both temporary Chrome profiles and the local Range server were stopped after the test.
+
+### Release packaging
+- The final production-configured extension was rebuilt as version 0.1.12.
+- The unpacked release directory was refreshed.
+- `release/sync-your-joy-beta.zip` was rebuilt.
+- The archive manifest was read back and confirmed as version 0.1.12.
+- ZIP integrity testing reported no errors.
+- SHA-256 was recorded as `2bb7b621d57411184de9ba87283c2d44d50d7f0c71b130780e2bdb201da53fba`.
+
+## Confirmed Successful Results
+- Same-room side-panel renders preserve the user's scroll position.
+- Different rooms and the welcome screen intentionally start at the top.
+- The real browser remained at 807 pixels after three seconds of live player and room updates.
+- Version 0.1.12 passed 71 automated tests and the full build.
+- The 0.1.12 ZIP exists and passed integrity validation.
+
+## Failed, Incomplete, or Unresolved Work
+- The first attempt to reuse the complete playback E2E harness timed out waiting for both participants to become ready because a host readiness update raced with a media heartbeat. This did not block the scroll test; the active room was inspected directly, host readiness was reasserted, and scroll retention was verified independently against live updates.
+- Source changes are not yet committed or pushed at the time of this checkpoint.
+
+## Decisions and Rationale
+- Preserve exact scroll position rather than moving controls or disabling live updates.
+- Scope retained scroll state to the current room so navigation does not produce a surprising old position.
+- Keep the full render model for now because it updates all live labels and controller targets correctly. The narrow state-preservation fix removes the user-facing defect with minimal risk.
+- Add a pure testable helper rather than introducing a browser-DOM test dependency for one numeric state rule.
+
+## Files and Artifacts
+- `apps/extension/src/sidepanel.ts`: capture and restore the current room scroll position.
+- `apps/extension/src/panel-scroll.ts`: view-keyed retained scroll calculation.
+- `apps/extension/src/panel-scroll.test.ts`: scroll-state regression tests.
+- `apps/extension/package.json`: version 0.1.12.
+- `apps/extension/static/manifest.json`: manifest version 0.1.12.
+- `package-lock.json`: extension workspace version 0.1.12.
+- `docs/PRIVATE_BETA.md`: tester-facing scroll behavior.
+- `docs/RELIABILITY_REVIEW.md`: recorded reliability correction.
+- `release/sync-your-joy-beta.zip`: verified installable 0.1.12 artifact.
+
+## Assumptions and Uncertainties
+- Full DOM replacement can also affect transient input focus. Existing draft-value preservation prevents losing typed text, but a future incremental-render refactor could preserve caret/focus and reduce DOM work further.
+- The reported scroll-to-top problem itself is confirmed fixed in a real browser.
+
+## Open Questions, Blockers, and Dependencies
+- No product or deployment blocker remains.
+- Commit and push the verified 0.1.12 source changes.
+
+## Next Steps
+1. Stage the verified source, tests, documentation, version, and checkpoint changes.
+2. Commit and push to private `main`.
+3. Give the user the updated ZIP, checksum, update steps, and real-browser verification evidence.
+
+## Historical Checkpoint Notes
+- Checkpoints 1 and 2 remain preserved above.
+- Checkpoint 3 contains no credentials, cookies, access tokens, private keys, or captured media.
