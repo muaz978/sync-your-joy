@@ -223,6 +223,31 @@ export async function createRoomService(options: { port?: number; host?: string 
       return
     }
 
+    if (message.type === 'request_diagnostics') {
+      if (client.participantId !== room.coordinator.snapshot().controller.participantId) {
+        send(socket, { type: 'error', code: 'controller_only', message: 'Only the room controller can request detailed reports.' })
+        return
+      }
+      broadcast(room, { type: 'diagnostics_requested', reportId: message.reportId })
+      return
+    }
+
+    if (message.type === 'diagnostics_response') {
+      const snapshot = room.coordinator.snapshot()
+      const participant = snapshot.participants.find(item => item.id === client.participantId)
+      const controllerClient = [...clients.values()].find(item => item.roomCode === client.roomCode && item.participantId === snapshot.controller.participantId)
+      if (participant && controllerClient) {
+        send(controllerClient.socket, {
+          type: 'diagnostics_response',
+          reportId: message.reportId,
+          participantId: client.participantId,
+          participantName: participant.name,
+          report: message.report,
+        })
+      }
+      return
+    }
+
     if (message.type === 'client_metrics') {
       room.coordinator.recordLatency(client.participantId, message.roundTripMs)
       return

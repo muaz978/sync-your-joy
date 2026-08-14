@@ -85,4 +85,32 @@ describe('media identity matching', () => {
     })
     expect(parseClientMessage({ type: 'seek_applied', revision: 7, positionSeconds: Number.NaN })).toBeNull()
   })
+
+  it('accepts bounded sanitized diagnostic reports and rejects oversized event lists', () => {
+    const report = {
+      extensionVersion: '0.1.11',
+      generatedAtLocalMs: 10_000,
+      userAgent: 'Chrome test',
+      connection: 'connected',
+      roomRevision: 7,
+      playbackStatus: 'playing',
+      playerFrameId: 0,
+      playerAreaPixels: 500_000,
+      playerLastSeenAtMs: 9_900,
+      mediaService: 'html5',
+      mediaCanonicalId: 'page:https://video.example/watch/42',
+      mediaPageUrl: 'https://video.example/watch/42',
+      sample: null,
+      events: [{ atLocalMs: 9_900, category: 'playback', message: 'player_status', details: { paused: false } }],
+    }
+    expect(parseClientMessage({ type: 'diagnostics_response', reportId: 'report_123456', report })).toMatchObject({
+      type: 'diagnostics_response',
+      reportId: 'report_123456',
+    })
+    expect(parseClientMessage({
+      type: 'diagnostics_response',
+      reportId: 'report_123456',
+      report: { ...report, events: Array.from({ length: 121 }, () => report.events[0]) },
+    })).toBeNull()
+  })
 })

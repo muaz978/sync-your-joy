@@ -71,6 +71,32 @@ export interface PlayerSample {
   sampledAtLocalMs: number
 }
 
+export type DiagnosticValue = string | number | boolean | null
+
+export interface DiagnosticEvent {
+  atLocalMs: number
+  category: string
+  message: string
+  details: Record<string, DiagnosticValue>
+}
+
+export interface DiagnosticsReport {
+  extensionVersion: string
+  generatedAtLocalMs: number
+  userAgent: string
+  connection: ConnectionStatus
+  roomRevision: number | null
+  playbackStatus: PlaybackStatus | null
+  playerFrameId: number | null
+  playerAreaPixels: number
+  playerLastSeenAtMs: number
+  mediaService: string | null
+  mediaCanonicalId: string | null
+  mediaPageUrl: string | null
+  sample: PlayerSample | null
+  events: DiagnosticEvent[]
+}
+
 export type ControlKind = 'play' | 'pause' | 'seek'
 
 export type ClientMessage =
@@ -126,6 +152,15 @@ export type ClientMessage =
       positionSeconds: number
     }
   | {
+      type: 'request_diagnostics'
+      reportId: string
+    }
+  | {
+      type: 'diagnostics_response'
+      reportId: string
+      report: DiagnosticsReport
+    }
+  | {
       type: 'ping'
       id: string
       sentAtLocalMs: number
@@ -159,6 +194,17 @@ export type ServerMessage =
       id: string
       sentAtLocalMs: number
       serverTimeMs: number
+    }
+  | {
+      type: 'diagnostics_requested'
+      reportId: string
+    }
+  | {
+      type: 'diagnostics_response'
+      reportId: string
+      participantId: string
+      participantName: string
+      report: DiagnosticsReport
     }
   | {
       type: 'error'
@@ -297,6 +343,16 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
         return null
       return value as unknown as ClientMessage
 
+    case 'request_diagnostics':
+      if (!validId(value.reportId))
+        return null
+      return value as unknown as ClientMessage
+
+    case 'diagnostics_response':
+      if (!validId(value.reportId) || !validDiagnosticsReport(value.report))
+        return null
+      return value as unknown as ClientMessage
+
     case 'ping':
       if (!validId(value.id) || !isFiniteNonNegative(value.sentAtLocalMs))
         return null
@@ -351,6 +407,41 @@ function validPlayerSample(value: unknown): value is PlayerSample {
     && typeof value.paused === 'boolean'
     && typeof value.buffering === 'boolean'
     && isFiniteNonNegative(value.sampledAtLocalMs)
+}
+
+function validDiagnosticsReport(value: unknown): value is DiagnosticsReport {
+  if (!isRecord(value) || !Array.isArray(value.events) || value.events.length > 120)
+    return false
+  return validShortText(value.extensionVersion, 30)
+    && isFiniteNonNegative(value.generatedAtLocalMs)
+    && typeof value.userAgent === 'string' && value.userAgent.length <= 300
+    && (value.connection === 'connected' || value.connection === 'reconnecting' || value.connection === 'disconnected')
+    && (value.roomRevision === null || isNonNegativeInteger(value.roomRevision))
+    && (value.playbackStatus === null || value.playbackStatus === 'paused' || value.playbackStatus === 'playing')
+    && (value.playerFrameId === null || Number.isInteger(value.playerFrameId))
+    && isFiniteNonNegative(value.playerAreaPixels)
+    && isFiniteNonNegative(value.playerLastSeenAtMs)
+    && (value.mediaService === null || typeof value.mediaService === 'string' && value.mediaService.length <= 40)
+    && (value.mediaCanonicalId === null || typeof value.mediaCanonicalId === 'string' && value.mediaCanonicalId.length <= 500)
+    && (value.mediaPageUrl === null || validPageUrl(value.mediaPageUrl))
+    && (value.sample === null || validPlayerSample(value.sample))
+    && value.events.every(validDiagnosticEvent)
+}
+
+function validDiagnosticEvent(value: unknown): value is DiagnosticEvent {
+  if (!isRecord(value) || !isRecord(value.details) || Object.keys(value.details).length > 20)
+    return false
+  return isFiniteNonNegative(value.atLocalMs)
+    && validShortText(value.category, 40)
+    && validShortText(value.message, 100)
+    && Object.entries(value.details).every(([key, detail]) => key.length <= 40 && validDiagnosticValue(detail))
+}
+
+function validDiagnosticValue(value: unknown): value is DiagnosticValue {
+  return value === null
+    || typeof value === 'boolean'
+    || typeof value === 'number' && Number.isFinite(value)
+    || typeof value === 'string' && value.length <= 300
 }
 
 function isControlKind(value: unknown): value is ControlKind {

@@ -25,7 +25,9 @@ The current build combines:
 - a generic HTML5 video adapter enabled on HTTP/HTTPS pages, including videos inside embedded frames;
 - controller-driven shared-link navigation that opens the same normalized video page for every participant and resets readiness safely;
 - link-first rooms where guests join before opening any video, plus one-click local and room-wide resynchronization;
-- an ordered room protocol with clock-offset estimation, scheduled playback, acknowledgements, and drift correction.
+- an ordered room protocol with clock-offset estimation, scheduled playback, acknowledgements, and drift correction;
+- real-player health checks that stop the room when a participant remains paused or stops progressing;
+- a testing-only, controller-triggered JSON report containing sanitized logs from all connected participants.
 
 It does not request screen capture, desktop capture, cookies, web request interception, or debugger permissions. It never captures or retransmits video or audio.
 

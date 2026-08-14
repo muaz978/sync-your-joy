@@ -47,6 +47,18 @@ try {
   await friend.waitFor(message => message.type === 'room_joined')
   await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.length === 2)
 
+  const diagnosticsReportId = 'report_smoke_diagnostics'
+  host.socket.send(JSON.stringify({ type: 'request_diagnostics', reportId: diagnosticsReportId }))
+  await host.waitFor(message => message.type === 'diagnostics_requested' && message.reportId === diagnosticsReportId)
+  await friend.waitFor(message => message.type === 'diagnostics_requested' && message.reportId === diagnosticsReportId)
+  host.socket.send(JSON.stringify({ type: 'diagnostics_response', reportId: diagnosticsReportId, report: diagnosticReport('host') }))
+  friend.socket.send(JSON.stringify({ type: 'diagnostics_response', reportId: diagnosticsReportId, report: diagnosticReport('friend') }))
+  const diagnosticResponses = await Promise.all([
+    host.waitFor(message => message.type === 'diagnostics_response' && message.reportId === diagnosticsReportId && message.participantId === 'participant_smoke_host'),
+    host.waitFor(message => message.type === 'diagnostics_response' && message.reportId === diagnosticsReportId && message.participantId === 'participant_smoke_friend'),
+  ])
+  await friend.expectNoMessage(message => message.type === 'diagnostics_response' && message.reportId === diagnosticsReportId, 250)
+
   host.socket.send(JSON.stringify({
     type: 'open_link',
     actionId: 'action_smoke_open_link',
@@ -186,6 +198,7 @@ try {
     seekBarrierMs,
     seekTimeoutReleaseMs,
     scheduledLeadMs,
+    diagnosticsParticipants: diagnosticResponses.map(message => message.participantId).sort(),
     staleBufferingProtected: true,
     startupBufferingProtected: true,
   }))
@@ -193,6 +206,25 @@ try {
 finally {
   host.socket.close()
   friend.socket.close()
+}
+
+function diagnosticReport(label) {
+  return {
+    extensionVersion: 'smoke',
+    generatedAtLocalMs: Date.now(),
+    userAgent: `SyncYourJoy smoke ${label}`,
+    connection: 'connected',
+    roomRevision: 1,
+    playbackStatus: null,
+    playerFrameId: null,
+    playerAreaPixels: 0,
+    playerLastSeenAtMs: 0,
+    mediaService: null,
+    mediaCanonicalId: null,
+    mediaPageUrl: null,
+    sample: null,
+    events: [],
+  }
 }
 
 async function connect(url, code) {

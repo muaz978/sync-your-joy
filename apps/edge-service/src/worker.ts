@@ -286,6 +286,30 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
+    if (message.type === 'request_diagnostics') {
+      if (attachment.participantId !== this.coordinator.snapshot().controller.participantId) {
+        this.send(socket, { type: 'error', code: 'controller_only', message: 'Only the room controller can request detailed reports.' })
+        return
+      }
+      this.broadcast({ type: 'diagnostics_requested', reportId: message.reportId })
+      return
+    }
+
+    if (message.type === 'diagnostics_response') {
+      const snapshot = this.coordinator.snapshot()
+      const participant = snapshot.participants.find(item => item.id === attachment.participantId)
+      if (!participant)
+        return
+      this.sendToParticipant(snapshot.controller.participantId, {
+        type: 'diagnostics_response',
+        reportId: message.reportId,
+        participantId: attachment.participantId,
+        participantName: participant.name,
+        report: message.report,
+      })
+      return
+    }
+
     if (message.type === 'client_metrics') {
       this.coordinator.recordLatency(attachment.participantId, message.roundTripMs)
       await this.persistAndSchedule()
@@ -363,6 +387,16 @@ export class RoomDurableObject extends DurableObject<Env> {
     for (const socket of this.ctx.getWebSockets()) {
       if (socket !== except)
         this.send(socket, message)
+    }
+  }
+
+  private sendToParticipant(participantId: string, message: ServerMessage): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null
+      if (attachment?.participantId === participantId) {
+        this.send(socket, message)
+        return
+      }
     }
   }
 

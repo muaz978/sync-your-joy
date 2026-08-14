@@ -1,8 +1,8 @@
-import type { ClientMessage, ControlKind, ServerMessage } from '@syncyourjoy/protocol'
+import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticValue, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { mediaMatches, normalizePageUrl, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
-import { shouldAcceptPlayerContext } from './player-tab.ts'
+import { PLAYER_CONTEXT_STALE_MS, shouldAcceptPlayerContext } from './player-tab.ts'
 import { isLikelyAdvertisingUrl } from './site-adapter.ts'
 import { bindMediaToSharedPage } from './media-fingerprint.ts'
 import { resolveControlPosition } from './control-position.ts'
@@ -12,6 +12,15 @@ declare const __ROOM_SERVER_URL__: string
 const ROOM_SERVER_URL = __ROOM_SERVER_URL__
 const SESSION_STATE_KEY = 'syncYourJoySessionState'
 const DISPLAY_NAME_KEY = 'syncYourJoyDisplayName'
+const DIAGNOSTIC_EVENT_LIMIT = 100
+const DIAGNOSTIC_COLLECTION_TIMEOUT_MS = 2_500
+
+interface DiagnosticCollection {
+  reportId: string
+  expectedParticipantIds: Set<string>
+  responses: Map<string, { participantId: string; participantName: string; report: DiagnosticsReport }>
+  timer: ReturnType<typeof setTimeout>
+}
 
 let state: ExtensionState = {
   connection: 'disconnected',
@@ -25,6 +34,7 @@ let state: ExtensionState = {
   playerTabId: null,
   playerFrameId: null,
   playerAreaPixels: 0,
+  playerLastSeenAtMs: 0,
   currentMedia: null,
   lastPlayerSample: null,
   lastOpenedNavigationRevision: 0,
@@ -37,6 +47,8 @@ let pingTimer: ReturnType<typeof setInterval> | null = null
 let reconnectAttempts = 0
 let intentionallyClosed = false
 let clock = new ClockSynchronizer()
+const diagnosticEvents: DiagnosticEvent[] = []
+let diagnosticCollection: DiagnosticCollection | null = null
 
 const initialized = initialize()
 
@@ -68,6 +80,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     return
   state.playerFrameId = null
   state.playerAreaPixels = 0
+  state.playerLastSeenAtMs = 0
   state.currentMedia = null
   state.lastPlayerSample = null
   if (state.snapshot)
@@ -147,6 +160,12 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         return success()
       if (sender.tab?.id !== undefined && sender.frameId !== undefined)
         await bindPlayerContext(sender.tab.id, sender.frameId, request.areaPixels)
+      state.playerLastSeenAtMs = Date.now()
+      recordDiagnostic('player', 'media_detected', {
+        frameId: sender.frameId ?? null,
+        areaPixels: request.areaPixels,
+        service: request.media.service,
+      })
       state.currentMedia = bindMediaToSharedPage(request.media, state.snapshot?.navigation?.url)
       if (state.snapshot) {
         const me = state.snapshot.participants.find(participant => participant.id === state.participantId)
@@ -162,6 +181,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         return success()
       state.currentMedia = null
       state.lastPlayerSample = null
+      recordDiagnostic('player', 'media_lost', { frameId: sender.frameId ?? null })
       if (state.snapshot)
         sendToServer({ type: 'set_ready', ready: false, media: null })
       await publishState()
@@ -171,8 +191,16 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       if (!isBoundPlayerSender(sender))
         return success()
       state.lastPlayerSample = request.sample
+      state.playerLastSeenAtMs = Date.now()
+      recordDiagnostic('playback', 'player_status', {
+        revision: request.basedOnRevision,
+        positionSeconds: request.sample.positionSeconds,
+        paused: request.sample.paused,
+        buffering: request.sample.buffering,
+      })
       sendToServer({ type: 'player_status', basedOnRevision: request.basedOnRevision, sample: request.sample })
       await persistState()
+      notifyExtensionViews()
       return success()
 
     case 'SEEK_APPLIED':
@@ -180,6 +208,10 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         return success()
       if (!sendToServer({ type: 'seek_applied', revision: request.revision, positionSeconds: request.positionSeconds }))
         return failure('The room connection was interrupted while confirming the seek.')
+      recordDiagnostic('playback', 'seek_applied', {
+        revision: request.revision,
+        positionSeconds: request.positionSeconds,
+      })
       return success()
 
     case 'CREATE_ROOM':
@@ -243,7 +275,33 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       if (!state.snapshot || state.playerTabId === null || state.playerFrameId === null || !state.currentMedia)
         return failure('The shared player is not ready yet.')
       await sendToPlayerTab({ type: 'FORCE_SYNC' })
+      recordDiagnostic('control', 'manual_sync', { revision: state.snapshot.revision })
       return success()
+
+    case 'DOWNLOAD_DIAGNOSTICS': {
+      const snapshot = state.snapshot
+      if (!snapshot || state.connection !== 'connected')
+        return failure('Join a connected room before collecting a detailed report.')
+      if (!isController())
+        return failure('Only the room controller can download reports from all participants.')
+      if (diagnosticCollection)
+        return failure('A detailed report is already being collected.')
+      const reportId = createId('report')
+      const collection: DiagnosticCollection = {
+        reportId,
+        expectedParticipantIds: new Set(snapshot.participants.filter(participant => participant.connected).map(participant => participant.id)),
+        responses: new Map(),
+        timer: setTimeout(() => finishDiagnosticCollection(reportId), DIAGNOSTIC_COLLECTION_TIMEOUT_MS),
+      }
+      diagnosticCollection = collection
+      recordDiagnostic('diagnostics', 'collection_requested', { reportId, expectedParticipants: collection.expectedParticipantIds.size })
+      if (!sendToServer({ type: 'request_diagnostics', reportId })) {
+        clearTimeout(collection.timer)
+        diagnosticCollection = null
+        return failure('The room connection was interrupted before logs could be requested.')
+      }
+      return success()
+    }
 
     case 'OPEN_LINK': {
       const snapshot = state.snapshot
@@ -276,6 +334,10 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         await sendToPlayerTab({ type: 'SHOW_NOTICE', message: 'The room controller owns playback.' })
         return failure('The room controller owns playback.')
       }
+      recordDiagnostic('control', 'native_player_intent', {
+        kind: request.kind,
+        positionSeconds: request.positionSeconds,
+      })
       return sendControl(request.kind, request.positionSeconds)
     }
 
@@ -315,6 +377,7 @@ async function sendControl(kind: ControlKind, explicitPosition?: number): Promis
   const estimatedNow = Date.now() + state.serverOffsetMs
   const fallbackPosition = expectedPosition(snapshot.playback, estimatedNow)
   const positionSeconds = resolveControlPosition(kind, explicitPosition, state.lastPlayerSample, fallbackPosition)
+  recordDiagnostic('control', 'room_control', { kind, positionSeconds, basedOnRevision: snapshot.revision })
   if (kind === 'pause')
     void sendToPlayerTab({ type: 'PAUSE_LOCAL' })
   const sent = sendToServer({
@@ -363,6 +426,7 @@ async function connect(roomCode: string): Promise<void> {
       connectionPromise = null
       reconnectAttempts = 0
       startPingLoop()
+      recordDiagnostic('connection', 'socket_opened', { roomCode })
       resolve()
     }, { once: true })
 
@@ -386,6 +450,7 @@ async function connect(roomCode: string): Promise<void> {
         void publishState()
         scheduleReconnect()
       }
+      recordDiagnostic('connection', 'socket_closed', { intentional: intentionallyClosed })
     })
   })
 
@@ -434,6 +499,7 @@ function handleServerMessage(raw: string): void {
     state.inviteToken = message.inviteToken
     state.snapshot = message.snapshot
     state.lastError = null
+    recordDiagnostic('room', 'room_joined', { revision: message.snapshot.revision })
     void applySharedNavigation(message.snapshot)
     void publishState()
     return
@@ -444,6 +510,12 @@ function handleServerMessage(raw: string): void {
       state.snapshot = message.snapshot
     state.connection = 'connected'
     state.lastError = null
+    recordDiagnostic('room', message.reason, {
+      revision: message.snapshot.revision,
+      status: message.snapshot.playback.status,
+      positionSeconds: message.snapshot.playback.positionSeconds,
+      aligning: message.snapshot.seek !== null,
+    })
     void applySharedNavigation(message.snapshot)
     void publishState()
     return
@@ -453,6 +525,7 @@ function handleServerMessage(raw: string): void {
     if (message.snapshot)
       state.snapshot = message.snapshot
     state.lastError = message.message
+    recordDiagnostic('error', 'command_rejected', { code: message.code, message: message.message })
     void publishState()
     void sendToPlayerTab({ type: 'SHOW_NOTICE', message: message.message })
     return
@@ -460,7 +533,28 @@ function handleServerMessage(raw: string): void {
 
   if (message.type === 'error') {
     state.lastError = message.message
+    recordDiagnostic('error', 'server_error', { code: message.code, message: message.message })
     void publishState()
+    return
+  }
+
+  if (message.type === 'diagnostics_requested') {
+    recordDiagnostic('diagnostics', 'local_report_requested', { reportId: message.reportId })
+    sendToServer({ type: 'diagnostics_response', reportId: message.reportId, report: buildDiagnosticsReport() })
+    return
+  }
+
+  if (message.type === 'diagnostics_response') {
+    const collection = diagnosticCollection
+    if (!collection || collection.reportId !== message.reportId)
+      return
+    collection.responses.set(message.participantId, {
+      participantId: message.participantId,
+      participantName: message.participantName,
+      report: message.report,
+    })
+    if ([...collection.expectedParticipantIds].every(participantId => collection.responses.has(participantId)))
+      finishDiagnosticCollection(message.reportId)
     return
   }
 
@@ -530,11 +624,13 @@ function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: num
     boundTabId: state.playerTabId,
     boundFrameId: state.playerFrameId,
     boundAreaPixels: state.playerAreaPixels,
+    boundLastSeenAtMs: state.playerLastSeenAtMs,
     participantReady: me?.ready ?? false,
     senderTabId,
     senderFrameId,
     senderIsActive: sender.tab?.active === true,
     senderAreaPixels: Math.max(0, areaPixels),
+    nowMs: Date.now(),
   })
 }
 
@@ -560,7 +656,10 @@ async function selectActivePlayerTab(): Promise<boolean> {
     return false
   }
 
-  if (state.playerTabId === tab.id && state.currentMedia)
+  if (state.playerTabId === tab.id
+    && state.playerFrameId !== null
+    && state.currentMedia
+    && Date.now() - state.playerLastSeenAtMs < PLAYER_CONTEXT_STALE_MS)
     return true
 
   if (state.snapshot)
@@ -593,6 +692,7 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
     }
     state.currentMedia = context.media
     state.lastPlayerSample = context.sample
+    state.playerLastSeenAtMs = Date.now()
     return true
   }
   catch {
@@ -632,6 +732,7 @@ function clearPlayerTab(): void {
   state.playerTabId = null
   state.playerFrameId = null
   state.playerAreaPixels = 0
+  state.playerLastSeenAtMs = 0
   state.currentMedia = null
   state.lastPlayerSample = null
 }
@@ -642,6 +743,7 @@ async function bindPlayerContext(tabId: number, frameId: number | null, areaPixe
   state.playerTabId = tabId
   state.playerFrameId = frameId
   state.playerAreaPixels = Math.max(0, areaPixels)
+  state.playerLastSeenAtMs = Date.now()
   if (previousTabId !== null && previousFrameId !== null && (previousTabId !== tabId || previousFrameId !== frameId))
     await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId)
   else if (previousTabId === tabId && previousFrameId === null && frameId !== null && frameId !== 0)
@@ -662,22 +764,38 @@ function isController(): boolean {
 
 async function publishState(): Promise<void> {
   await persistState()
-  const event: RuntimeEvent = { type: 'ROOM_STATE_UPDATED', state }
-  void chrome.runtime.sendMessage(event).catch(() => undefined)
+  notifyExtensionViews()
   await sendToPlayerTab({ type: 'APPLY_ROOM_STATE', state })
 }
 
-async function sendToPlayerTab(message: RuntimeEvent): Promise<void> {
-  if (state.playerTabId !== null && state.playerFrameId !== null)
-    await sendToTab(state.playerTabId, message, state.playerFrameId)
+function notifyExtensionViews(): void {
+  const event: RuntimeEvent = { type: 'ROOM_STATE_UPDATED', state }
+  void chrome.runtime.sendMessage(event).catch(() => undefined)
 }
 
-async function sendToTab(tabId: number, message: RuntimeEvent, frameId?: number): Promise<void> {
+async function sendToPlayerTab(message: RuntimeEvent): Promise<void> {
+  if (state.playerTabId === null || state.playerFrameId === null)
+    return
+  const tabId = state.playerTabId
+  const frameId = state.playerFrameId
+  const delivered = await sendToTab(tabId, message, frameId)
+  if (delivered || state.playerTabId !== tabId || state.playerFrameId !== frameId)
+    return
+  state.playerFrameId = null
+  state.playerAreaPixels = 0
+  state.playerLastSeenAtMs = 0
+  state.lastPlayerSample = null
+  await persistState()
+}
+
+async function sendToTab(tabId: number, message: RuntimeEvent, frameId?: number): Promise<boolean> {
   try {
     await chrome.tabs.sendMessage(tabId, message, frameId === undefined ? undefined : { frameId })
+    return true
   }
   catch {
     // The bound tab is navigating or no longer hosts a supported player.
+    return false
   }
 }
 
@@ -697,6 +815,7 @@ function detachedState(): ExtensionState {
     playerTabId: null,
     playerFrameId: null,
     playerAreaPixels: 0,
+    playerLastSeenAtMs: 0,
     currentMedia: null,
     lastPlayerSample: null,
     lastError: null,
@@ -711,6 +830,88 @@ function failure(error: string): RuntimeResponse {
 
 function createId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`
+}
+
+function recordDiagnostic(category: string, message: string, details: Record<string, DiagnosticValue> = {}): void {
+  diagnosticEvents.push({
+    atLocalMs: Date.now(),
+    category: category.slice(0, 40),
+    message: message.slice(0, 100),
+    details: Object.fromEntries(Object.entries(details).slice(0, 20).map(([key, value]) => [key.slice(0, 40), sanitizeDiagnosticValue(value)])),
+  })
+  if (diagnosticEvents.length > DIAGNOSTIC_EVENT_LIMIT)
+    diagnosticEvents.splice(0, diagnosticEvents.length - DIAGNOSTIC_EVENT_LIMIT)
+}
+
+function sanitizeDiagnosticValue(value: DiagnosticValue): DiagnosticValue {
+  return typeof value === 'string' ? value.slice(0, 300) : value
+}
+
+function buildDiagnosticsReport(): DiagnosticsReport {
+  return {
+    extensionVersion: chrome.runtime.getManifest().version,
+    generatedAtLocalMs: Date.now(),
+    userAgent: navigator.userAgent.slice(0, 300),
+    connection: state.connection,
+    roomRevision: state.snapshot?.revision ?? null,
+    playbackStatus: state.snapshot?.playback.status ?? null,
+    playerFrameId: state.playerFrameId,
+    playerAreaPixels: state.playerAreaPixels,
+    playerLastSeenAtMs: state.playerLastSeenAtMs,
+    mediaService: state.currentMedia?.service ?? null,
+    mediaCanonicalId: sanitizeDiagnosticCanonicalId(state.currentMedia?.canonicalId),
+    mediaPageUrl: sanitizeDiagnosticPageUrl(state.currentMedia?.pageUrl),
+    sample: state.lastPlayerSample ? { ...state.lastPlayerSample } : null,
+    events: diagnosticEvents.map(event => ({ ...event, details: { ...event.details } })),
+  }
+}
+
+function sanitizeDiagnosticCanonicalId(value: string | undefined): string | null {
+  if (!value)
+    return null
+  if (!value.startsWith('page:'))
+    return value.slice(0, 500)
+  const sanitizedUrl = sanitizeDiagnosticPageUrl(value.slice(5))
+  return sanitizedUrl ? `page:${sanitizedUrl}` : 'page:redacted'
+}
+
+function sanitizeDiagnosticPageUrl(value: string | undefined): string | null {
+  if (!value)
+    return null
+  try {
+    const url = new URL(value)
+    url.search = ''
+    url.hash = ''
+    return url.toString().slice(0, 2_048)
+  }
+  catch {
+    return null
+  }
+}
+
+function finishDiagnosticCollection(reportId: string): void {
+  const collection = diagnosticCollection
+  if (!collection || collection.reportId !== reportId)
+    return
+  clearTimeout(collection.timer)
+  diagnosticCollection = null
+  const missingParticipantIds = [...collection.expectedParticipantIds].filter(participantId => !collection.responses.has(participantId))
+  const payload = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    roomCode: state.snapshot?.code ?? null,
+    reportId,
+    privacy: 'Playback diagnostics only. No cookies, passwords, media content, or URL query parameters.',
+    missingParticipantIds,
+    participants: [...collection.responses.values()],
+  }
+  const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
+  const filename = `syncyourjoy-report-${state.snapshot?.code ?? 'room'}-${timestamp}.json`
+  const url = `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`
+  void chrome.downloads.download({ url, filename, saveAs: false }).catch(() => {
+    state.lastError = 'Chrome could not download the detailed report.'
+    void publishState()
+  })
 }
 
 function createRoomCode(): string {

@@ -18,6 +18,11 @@ Review date: 2026-08-12.
 - A visible in-page **Sync** action recovers from Chrome autoplay blocking and hard-aligns the local player without a refresh. Script-initiated `HTMLMediaElement.play()` can be rejected until the page receives a user gesture, so literal zero-click playback cannot be guaranteed by an extension. See [MDN's `play()` behavior](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/play).
 - Guests can join before a player or link exists; only the controller supplies the shared page after the room assembles.
 - Rejected play promises, unexpected pauses, and non-advancing playback are surfaced as stalls and pause the room instead of allowing the authoritative timeline to advance invisibly.
+- A player that remains paused 500 ms after a scheduled start now stops the authoritative room clock. Repeated status samples with no real media progress also stop the clock.
+- Local seeks have a bounded lifetime. A provider can no longer leave `pendingSeek` set forever and permanently block every later play command.
+- A mutation-driven player scan switches to replacement video elements immediately and pauses detached players, preventing invisible stale elements from receiving room commands.
+- Player-frame bindings now carry liveness timestamps and recover automatically when a streaming site replaces an embedded frame after readiness.
+- The beta diagnostics collector downloads sanitized per-participant playback evidence for later investigation without transporting media or credentials.
 - Click-to-load Animerco pages receive a narrow automatic bootstrap, while known advertising frames are excluded from player candidacy.
 - Deeply nested player frames inherit the authoritative shared-page identity, rather than comparing per-client signed wrapper URLs.
 - Seek commands are queued until metadata exists, clamped to the media element's `seekable` ranges, retried on metadata/progress/can-play events, and treated as complete only after the player reaches the target.

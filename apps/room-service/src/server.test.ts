@@ -60,7 +60,51 @@ describe('room service', () => {
     expect(socket.readyState).toBe(WebSocket.OPEN)
     socket.close()
   })
+
+  it('collects sanitized diagnostic reports from every participant for the controller', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const friend = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'LOGS1234', media: null,
+    }))
+    await nextMessage(host)
+    const hostJoinNotice = nextMessage(host)
+    friend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: 'LOGS1234', media: null,
+    }))
+    await Promise.all([nextMessage(friend), hostJoinNotice])
+
+    const hostRequest = nextMessage(host)
+    const friendRequest = nextMessage(friend)
+    host.send(JSON.stringify({ type: 'request_diagnostics', reportId: 'report_123456' }))
+    await expect(hostRequest).resolves.toMatchObject({ type: 'diagnostics_requested', reportId: 'report_123456' })
+    await expect(friendRequest).resolves.toMatchObject({ type: 'diagnostics_requested', reportId: 'report_123456' })
+
+    const report = diagnosticReport()
+    const ownResponse = nextMessage(host)
+    host.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_123456', report }))
+    await expect(ownResponse).resolves.toMatchObject({ type: 'diagnostics_response', participantId: 'participant_host', participantName: 'Muaz' })
+    const friendResponse = nextMessage(host)
+    friend.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_123456', report }))
+    await expect(friendResponse).resolves.toMatchObject({ type: 'diagnostics_response', participantId: 'participant_friend', participantName: 'Rana' })
+
+    const rejectedMemberRequest = nextMessage(friend)
+    friend.send(JSON.stringify({ type: 'request_diagnostics', reportId: 'report_654321' }))
+    await expect(rejectedMemberRequest).resolves.toMatchObject({ type: 'error', code: 'controller_only' })
+    host.close()
+    friend.close()
+  })
 })
+
+function diagnosticReport() {
+  return {
+    extensionVersion: '0.1.11', generatedAtLocalMs: 10_000, userAgent: 'Chrome test', connection: 'connected',
+    roomRevision: 1, playbackStatus: 'paused', playerFrameId: 0, playerAreaPixels: 500_000, playerLastSeenAtMs: 9_900,
+    mediaService: null, mediaCanonicalId: null, mediaPageUrl: null, sample: null,
+    events: [{ atLocalMs: 9_900, category: 'room', message: 'room_joined', details: { revision: 1 } }],
+  }
+}
 
 async function connect(url: string): Promise<WebSocket> {
   const socket = new WebSocket(url)

@@ -15,8 +15,8 @@ describe('room control position', () => {
     expect(resolveControlPosition('play', undefined, staleSample, 7)).toBe(7)
   })
 
-  it('keeps explicit native-player intent and fresh pause samples precise', () => {
+  it('keeps explicit native-player intent precise and avoids stale remote pause samples', () => {
     expect(resolveControlPosition('play', 11, staleSample, 7)).toBe(11)
-    expect(resolveControlPosition('pause', undefined, staleSample, 7)).toBe(2)
+    expect(resolveControlPosition('pause', undefined, staleSample, 7)).toBe(7)
   })
 })

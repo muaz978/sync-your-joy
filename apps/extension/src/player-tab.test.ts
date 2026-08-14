@@ -6,11 +6,13 @@ const base = {
   boundTabId: null,
   boundFrameId: null,
   boundAreaPixels: 0,
+  boundLastSeenAtMs: 1_000,
   participantReady: false,
   senderTabId: 12,
   senderFrameId: 0,
   senderIsActive: false,
   senderAreaPixels: 100,
+  nowMs: 2_000,
 }
 
 describe('room player tab binding', () => {
@@ -32,5 +34,21 @@ describe('room player tab binding', () => {
     const candidate = { ...base, hasRoom: true, boundTabId: 13, boundFrameId: 2, boundAreaPixels: 20_000, senderTabId: 13, senderFrameId: 7, senderAreaPixels: 500_000 }
     expect(shouldAcceptPlayerContext(candidate)).toBe(true)
     expect(shouldAcceptPlayerContext({ ...candidate, participantReady: true })).toBe(false)
+  })
+
+  it('replaces a stale player frame even while the participant remains ready', () => {
+    expect(shouldAcceptPlayerContext({
+      ...base,
+      hasRoom: true,
+      boundTabId: 13,
+      boundFrameId: 2,
+      boundAreaPixels: 500_000,
+      boundLastSeenAtMs: 1_000,
+      participantReady: true,
+      senderTabId: 13,
+      senderFrameId: 7,
+      senderAreaPixels: 500_000,
+      nowMs: 4_000,
+    })).toBe(true)
   })
 })

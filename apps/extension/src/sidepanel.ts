@@ -148,7 +148,11 @@ function roomView(current: ExtensionState): string {
   const isController = snapshot.controller.participantId === current.participantId
   const allReady = connected.every(participant => participant.ready && participant.mediaMatches)
   const serverNowMs = Date.now() + current.serverOffsetMs
-  const currentPosition = expectedPosition(snapshot.playback, serverNowMs)
+  const roomPosition = expectedPosition(snapshot.playback, serverNowMs)
+  const localPosition = current.lastPlayerSample?.positionSeconds ?? roomPosition
+  const localPlaybackBlocked = snapshot.playback.status === 'playing'
+    && current.lastPlayerSample?.paused === true
+    && serverNowMs >= snapshot.playback.effectiveAtServerMs + 500
   return `
     <section class="flex flex-col gap-4">
       <div class="flex items-center justify-between gap-3">
@@ -182,8 +186,8 @@ function roomView(current: ExtensionState): string {
 
         <div class="soft-inset mt-4 flex items-center justify-between px-3 py-2.5">
           <div>
-            <p class="m-0 text-[0.6875rem] leading-4 color-fade">Timeline</p>
-            <p class="m-0 mt-0.5 font-mono text-sm font-700 tabular-nums">${formatTime(currentPosition)}</p>
+            <p class="m-0 text-[0.6875rem] leading-4 color-fade">Your video</p>
+            <p class="m-0 mt-0.5 font-mono text-sm font-700 tabular-nums">${formatTime(localPosition)}${localPlaybackBlocked ? ' · stopped' : ''}</p>
           </div>
           <div class="text-right">
             <p class="m-0 text-[0.6875rem] leading-4 color-fade">Clock quality</p>
@@ -195,7 +199,7 @@ function roomView(current: ExtensionState): string {
       ${readinessControls(me, isController, controller, snapshot.media !== null, current.currentMedia !== null)}
       ${isController ? sharedLinkControls() : ''}
       ${localSyncControls(current.currentMedia !== null, snapshot.media !== null)}
-      ${isController && snapshot.media ? controllerControls(snapshot.playback.status, currentPosition, allReady, snapshot.seek ?? null, connected.length) : ''}
+      ${isController && snapshot.media ? controllerControls(snapshot.playback.status, roomPosition, allReady, snapshot.seek ?? null, connected.length) : ''}
 
       <div>
         <div class="mb-2 flex items-center justify-between px-1">
@@ -207,6 +211,8 @@ function roomView(current: ExtensionState): string {
         </div>
       </div>
 
+      ${isController ? diagnosticControls() : ''}
+
       ${current.lastError ? errorPanel(current.lastError) : ''}
 
       <button id="leave-room" class="btn-action w-full text-rose-700 dark:text-rose-300" type="button">
@@ -214,6 +220,25 @@ function roomView(current: ExtensionState): string {
         Leave room
       </button>
     </section>
+  `
+}
+
+function diagnosticControls(): string {
+  return `
+    <div class="soft-panel p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="section-label m-0">Beta diagnostics</p>
+          <p class="mt-1 mb-0 text-xs leading-5 color-fade">Collect sanitized playback and connection logs from everyone currently in the room.</p>
+        </div>
+        <span class="status-badge border-amber-600/20 bg-amber-500/10 text-amber-700 dark:text-amber-300">Testing only</span>
+      </div>
+      <button id="download-diagnostics" class="btn-action mt-3 w-full tap-scale" type="button">
+        ${downloadIcon('h-4 w-4')}
+        Download detailed report
+      </button>
+      <p class="mt-2 mb-0 text-[0.6875rem] leading-4 color-fade">No video, audio, cookies, passwords, or signed URL parameters are included.</p>
+    </div>
   `
 }
 
@@ -419,6 +444,10 @@ function bindRoomActions(): void {
     void perform({ type: 'CONTROL', kind: 'seek', positionSeconds: expectedPosition(state.snapshot.playback, serverNowMs) })
   })
 
+  document.querySelector('#download-diagnostics')?.addEventListener('click', () => {
+    void perform({ type: 'DOWNLOAD_DIAGNOSTICS' })
+  })
+
   document.querySelectorAll<HTMLElement>('[data-seek]').forEach((button) => {
     button.addEventListener('click', () => {
       const positionSeconds = Number(button.dataset.seek)
@@ -466,6 +495,8 @@ async function perform(request: RuntimeRequest): Promise<void> {
     showToast(response.error ?? 'That action could not be completed.')
   else if (request.type === 'SYNC_NOW')
     showToast('Sync requested. If playback is blocked, press Sync once in the in-page pill.')
+  else if (request.type === 'DOWNLOAD_DIAGNOSTICS')
+    showToast('Collecting logs from everyone. The JSON report will download shortly.')
   render()
 }
 
@@ -601,4 +632,5 @@ function leaveIcon(classes: string): string { return svg('<path d="M10 17l5-5-5-
 function warningIcon(classes: string): string { return svg('<path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3ZM12 9v4M12 17h.01"/>', classes) }
 function waitingIcon(classes: string): string { return svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', classes) }
 function syncIcon(classes: string): string { return svg('<path d="M20 7h-5V2"/><path d="M20 2 9 13"/><path d="M4 17h5v5"/><path d="m4 22 11-11"/>', classes) }
+function downloadIcon(classes: string): string { return svg('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>', classes) }
 function offlineIcon(classes: string): string { return svg('<path d="M2 2l20 20M8.5 8.5A5 5 0 0 0 7 12c0 3 2 5 5 5a5 5 0 0 0 3.5-1.5M17 12a5 5 0 0 0-6.5-4.8"/>', classes) }

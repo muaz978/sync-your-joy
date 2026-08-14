@@ -1,6 +1,6 @@
 import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isSeekAligned, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS } from '@syncyourjoy/sync-engine'
+import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
@@ -8,6 +8,7 @@ import { shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
 
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
+const MEDIA_HEARTBEAT_INTERVAL_MS = 1_000
 const PLAYER_PILL_LAYER = '2147483600'
 
 let video: HTMLVideoElement | null = null
@@ -16,6 +17,7 @@ let scheduledPlayTimer: ReturnType<typeof setTimeout> | null = null
 let bufferingTimer: ReturnType<typeof setTimeout> | null = null
 let rateResetTimer: ReturnType<typeof setTimeout> | null = null
 let lastFingerprintKey = ''
+let lastMediaReportAt = 0
 let localSeeking = false
 let localIntentHoldUntil = 0
 let expectedPlayUntil = 0
@@ -29,12 +31,14 @@ let seekAckRetryTimer: ReturnType<typeof setTimeout> | null = null
 let lastControllerSeekPosition: number | null = null
 let lastControllerSeekSentAt = 0
 let seekIntentTimer: ReturnType<typeof setTimeout> | null = null
+let pendingControllerSeekTarget: number | null = null
 let lastProgressPosition = 0
 let lastProgressAt = performance.now()
 let unexpectedPauseSince = 0
 let stallNoticeShown = false
 let siteBootstrapAttempts = 0
 let lastSiteBootstrapAt = 0
+let playerScanTimer: ReturnType<typeof setTimeout> | null = null
 
 const pillHost = document.createElement('div')
 pillHost.id = 'sync-your-joy-root'
@@ -225,6 +229,13 @@ void sendRuntime({ type: 'GET_STATE' }).then((response) => {
 
 scanForPlayer()
 setInterval(scanForPlayer, PLAYER_SCAN_INTERVAL_MS)
+const playerObserver = new MutationObserver(schedulePlayerScan)
+playerObserver.observe(document.documentElement, {
+  subtree: true,
+  childList: true,
+  attributes: true,
+  attributeFilter: ['class', 'style', 'src'],
+})
 setInterval(() => {
   if (!video)
     return
@@ -259,19 +270,35 @@ function scanForPlayer(): void {
     return
   }
 
-  detachPlayer(video)
+  const previousVideo = video
+  detachPlayer(previousVideo)
+  if (previousVideo && !previousVideo.paused)
+    previousVideo.pause()
   video = candidate
+  lastFingerprintKey = ''
+  lastMediaReportAt = 0
   attachPlayer(candidate)
   reportMediaIfChanged(candidate)
   void reportPlayerStatus(false)
 }
 
+function schedulePlayerScan(): void {
+  if (playerScanTimer)
+    clearTimeout(playerScanTimer)
+  playerScanTimer = setTimeout(() => {
+    playerScanTimer = null
+    scanForPlayer()
+  }, 25)
+}
+
 function reportMediaIfChanged(target: HTMLVideoElement): void {
   const media = createMediaFingerprint(target)
   const key = JSON.stringify(media)
-  if (key === lastFingerprintKey)
+  const now = performance.now()
+  if (key === lastFingerprintKey && now - lastMediaReportAt < MEDIA_HEARTBEAT_INTERVAL_MS)
     return
   lastFingerprintKey = key
+  lastMediaReportAt = now
   void reportMedia(target, media)
 }
 
@@ -285,8 +312,29 @@ async function reportMedia(target: HTMLVideoElement, media = createMediaFingerpr
 
 function findPrimaryVideo(): HTMLVideoElement | null {
   const videos = [...document.querySelectorAll('video')]
-    .filter(item => item instanceof HTMLVideoElement)
-  return videos.sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0] ?? null
+    .filter(item => item instanceof HTMLVideoElement && isVisibleVideo(item))
+  return videos.sort((a, b) => videoCandidateScore(b) - videoCandidateScore(a))[0] ?? null
+}
+
+function isVisibleVideo(target: HTMLVideoElement): boolean {
+  if (!target.isConnected)
+    return false
+  const style = getComputedStyle(target)
+  if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0)
+    return false
+  const rectangle = target.getBoundingClientRect()
+  return rectangle.width > 1 && rectangle.height > 1
+}
+
+function videoCandidateScore(target: HTMLVideoElement): number {
+  const rectangle = target.getBoundingClientRect()
+  const viewportWidth = Math.max(0, Math.min(rectangle.right, innerWidth) - Math.max(rectangle.left, 0))
+  const viewportHeight = Math.max(0, Math.min(rectangle.bottom, innerHeight) - Math.max(rectangle.top, 0))
+  const visibleArea = viewportWidth * viewportHeight
+  const sourceBonus = target.currentSrc ? 100_000 : 0
+  const readyBonus = target.readyState >= HTMLMediaElement.HAVE_METADATA ? 50_000 : 0
+  const activeBonus = !target.paused && !target.ended ? 200_000 : 0
+  return visibleArea + sourceBonus + readyBonus + activeBonus
 }
 
 function attachPlayer(target: HTMLVideoElement): void {
@@ -327,6 +375,7 @@ function detachPlayer(target: HTMLVideoElement | null): void {
   if (seekIntentTimer)
     clearTimeout(seekIntentTimer)
   seekIntentTimer = null
+  pendingControllerSeekTarget = null
   localSeeking = false
   pendingSeek = null
   clearSeekCompletionTimer()
@@ -380,14 +429,18 @@ function handleSeeked(): void {
     : null
   const programmatic = completedPending !== null || consumeExpectedSeek()
   const shouldSend = !programmatic && video && isLocalController()
+  const completedNativePosition = shouldSend && video ? finiteOrZero(video.currentTime) : null
   localSeeking = false
   if (completedPending) {
     completePendingSeek(completedPending)
   }
-  if (shouldSend && video) {
-    scheduleControllerSeekIntent()
+  if (completedNativePosition !== null) {
+    holdLocalControllerIntent()
+    scheduleControllerSeekIntent(completedNativePosition)
   }
-  applyAuthoritativeState()
+  else {
+    applyAuthoritativeState()
+  }
   maybeAcknowledgeRoomSeek()
   void reportPlayerStatus(false)
 }
@@ -397,16 +450,18 @@ function handleTimeUpdate(): void {
     scheduleControllerSeekIntent()
 }
 
-function scheduleControllerSeekIntent(): void {
+function scheduleControllerSeekIntent(explicitPosition?: number): void {
   if (!video || !isLocalController())
     return
+  pendingControllerSeekTarget = finiteOrZero(explicitPosition ?? video.currentTime)
   if (seekIntentTimer)
     clearTimeout(seekIntentTimer)
   seekIntentTimer = setTimeout(() => {
     seekIntentTimer = null
     if (!video || !isLocalController())
       return
-    const positionSeconds = finiteOrZero(video.currentTime)
+    const positionSeconds = pendingControllerSeekTarget ?? finiteOrZero(video.currentTime)
+    pendingControllerSeekTarget = null
     const now = performance.now()
     localSeeking = false
     if (isDuplicateSeekIntent({
@@ -855,6 +910,11 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
     video.currentTime = target
   }
   catch {
+    pendingSeek = null
+    expectedSeek = null
+    clearSeekCompletionTimer()
+    showNotice('This player refused the synchronized seek. Press Sync to retry without refreshing.')
+    void reportPlayerStatus(true)
     return false
   }
   scheduleSeekCompletionProbe()
@@ -909,6 +969,15 @@ function scheduleSeekCompletionProbe(): void {
     if (canConfirmSeek({ currentSeconds: video.currentTime, targetSeconds: pending.positionSeconds, seeking: video.seeking })) {
       completePendingSeek(pending)
       maybeAcknowledgeRoomSeek()
+      applyAuthoritativeState()
+      return
+    }
+    if (performance.now() - pending.since >= LOCAL_SEEK_MAX_WAIT_MS) {
+      pendingSeek = null
+      expectedSeek = null
+      clearSeekCompletionTimer()
+      showNotice('This player could not finish aligning. The room is pausing so Sync can retry without a refresh.')
+      void reportPlayerStatus(true)
       return
     }
     scheduleSeekCompletionProbe()

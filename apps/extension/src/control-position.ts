@@ -8,7 +8,7 @@ export function resolveControlPosition(
 ): number {
   if (explicitPosition !== undefined)
     return explicitPosition
-  if (kind === 'play')
-    return authoritativePosition
-  return lastSample?.positionSeconds ?? authoritativePosition
+  if (kind === 'seek')
+    return lastSample?.positionSeconds ?? authoritativePosition
+  return authoritativePosition
 }

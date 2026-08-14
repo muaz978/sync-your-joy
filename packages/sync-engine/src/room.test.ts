@@ -470,6 +470,73 @@ describe('RoomCoordinator', () => {
     expect(room.snapshot().playback.status).toBe('playing')
   })
 
+  it('stops the room clock when a ready participant remains paused after play', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_blocked',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    const playRevision = room.snapshot().revision
+    nowMs = room.snapshot().playback.effectiveAtServerMs + 500
+
+    const result = room.updatePlayerStatus('participant_host', playRevision, {
+      positionSeconds: 20,
+      durationSeconds: 600,
+      paused: true,
+      buffering: false,
+      sampledAtLocalMs: nowMs,
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reason: 'participant_playback_blocked',
+      snapshot: { playback: { status: 'paused', positionSeconds: 20 } },
+    })
+  })
+
+  it('stops the room clock when a ready participant reports no real progress', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_frozen',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    const playRevision = room.snapshot().revision
+    const startedAtMs = room.snapshot().playback.effectiveAtServerMs
+    nowMs = startedAtMs + 900
+    expect(room.updatePlayerStatus('participant_host', playRevision, {
+      positionSeconds: 20,
+      durationSeconds: 600,
+      paused: false,
+      buffering: false,
+      sampledAtLocalMs: nowMs,
+    })).toBeNull()
+
+    nowMs = startedAtMs + 1_800
+    const result = room.updatePlayerStatus('participant_host', playRevision, {
+      positionSeconds: 20,
+      durationSeconds: 600,
+      paused: false,
+      buffering: false,
+      sampledAtLocalMs: nowMs,
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reason: 'participant_playback_stalled',
+      snapshot: { playback: { status: 'paused', positionSeconds: 20 } },
+    })
+  })
+
   it('restores the authoritative state after hibernation', () => {
     const room = createRoom()
     room.join({ id: 'participant_friend', name: 'Rana', media })

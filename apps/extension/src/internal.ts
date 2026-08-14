@@ -5,6 +5,7 @@ export interface ExtensionState extends ClientRoomState {
   playerTabId: number | null
   playerFrameId: number | null
   playerAreaPixels: number
+  playerLastSeenAtMs: number
   currentMedia: MediaFingerprint | null
   lastPlayerSample: PlayerSample | null
   lastOpenedNavigationRevision: number
@@ -20,6 +21,7 @@ export type RuntimeRequest =
   | { type: 'RECHECK_MEDIA' }
   | { type: 'OPEN_LINK'; url: string }
   | { type: 'SYNC_NOW' }
+  | { type: 'DOWNLOAD_DIAGNOSTICS' }
   | { type: 'CONTROL'; kind: ControlKind; positionSeconds?: number }
   | { type: 'TRANSFER_CONTROL'; participantId: string }
   | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number }
