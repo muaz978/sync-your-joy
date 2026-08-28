@@ -24,6 +24,9 @@ Review date: 2026-08-12.
 - Player-frame bindings now carry liveness timestamps and recover automatically when a streaming site replaces an embedded frame after readiness.
 - The beta diagnostics collector downloads sanitized per-participant playback evidence for later investigation without transporting media or credentials.
 - Side-panel state refreshes preserve the active room's scroll position, preventing frequent player samples from pulling the controller back to the top while using lower controls.
+- Media heartbeats no longer send redundant not-ready commands. A three-second confirmation window absorbs temporary video hiding/replacement during backward seeks and quality changes before readiness can be cleared.
+- Unchanged readiness updates are idempotent at the coordinator, preventing duplicate client messages from advancing the room revision or invalidating an active control.
+- Diagnostic downloads include the controller locally, retry room collection twice, expose attempt/completion counts, and fall back to a minimal protocol-valid report if a detailed client report cannot be validated.
 - Click-to-load Animerco pages receive a narrow automatic bootstrap, while known advertising frames are excluded from player candidacy.
 - Deeply nested player frames inherit the authoritative shared-page identity, rather than comparing per-client signed wrapper URLs.
 - Seek commands are queued until metadata exists, clamped to the media element's `seekable` ranges, retried on metadata/progress/can-play events, and treated as complete only after the player reaches the target.
@@ -33,7 +36,7 @@ Review date: 2026-08-12.
 - Concurrent seeks are last-write-wins, stale completion acknowledgements cannot release the barrier, and VOD targets are not incorrectly reduced to a temporary buffered/seekable boundary.
 - Barrier completion is event-driven and room-confirmed: it no longer waits for `HAVE_CURRENT_DATA` or a one-second sample tick, and dropped acknowledgement messages retry until reflected in the authoritative snapshot.
 - Native controller scrubs are emitted before `seeked`, preventing `localSeeking` from blocking the authoritative barrier on providers that delay or omit that event; duplicate late events are ignored.
-- Durable Object alarms enforce a 750 ms maximum barrier duration, so one missing player event can never hold the room in **Aligning** for minutes.
+- Durable Object alarms enforce a 1.8-second maximum barrier duration. Normal seeks still complete immediately, while an unconfirmed seek now remains paused at its fixed target instead of resuming into a moving catch-up loop.
 - The in-page **Room** button calls `chrome.sidePanel.open()` directly from its user gesture, matching [Chrome's Side Panel requirement](https://developer.chrome.com/docs/extensions/reference/api/sidePanel).
 
 ## Recommended next work

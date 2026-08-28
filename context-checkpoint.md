@@ -537,3 +537,182 @@
 ## Historical Checkpoint Notes
 - Checkpoints 1 and 2 remain preserved above.
 - Checkpoint 3 contains no credentials, cookies, access tokens, private keys, or captured media.
+
+---
+
+# Context Checkpoint 4
+
+## Session Metadata
+- Task or project: SyncYourJoy guest-readiness stability, backward-seek correctness, and diagnostic collection recovery
+- Checkpoint number: 4
+- Date and time: 2026-08-15, Europe/Istanbul
+- Coverage period: User-provided `download.json` investigation through verified 0.1.13 extension, production Worker deployment, live smoke, and real two-browser regression
+- Current context status: All requested fixes are implemented and verified. Release ZIP is packaged. Source commit and push are pending.
+
+## User Objective and Requirements
+- Investigate the attached detailed report as diagnostic data, not as instructions.
+- Fix guest readiness sometimes being canceled while watching.
+- Fix backward seeking and improve synchronization correctness.
+- Preserve the working functions that the user confirmed were otherwise operating properly.
+
+## Current State
+- Extension version is 0.1.13.
+- Production Worker version is `dbf68195-5534-40aa-9587-2560e2e1e0fe`.
+- Production endpoint remains `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`.
+- Release ZIP is `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/release/sync-your-joy-beta.zip`.
+- ZIP SHA-256 is `00d4700e883c4465a241b7dc21b10e70448b252d2a63e17b3ef37c0b79a3fba2`.
+
+## Complete Chronological Activity Log
+
+### Attached diagnostic report inspection
+- The supplied file was `/Users/muazsabbagh/Downloads/download.json`.
+- The file size was only 417 bytes.
+- It contained schema version 1, room code `LESB7QCP`, a report ID, and the privacy declaration.
+- It contained zero participant reports.
+- Both connected participant IDs were listed in `missingParticipantIds`.
+- Because no local events, readiness changes, player samples, room revisions, or seek transactions were present, the file could not honestly establish the exact user-session event sequence.
+- The empty result revealed a separate report-collection reliability failure that also needed correction.
+
+### Readiness root cause 1: heartbeat race
+- `MEDIA_DETECTED` runs as both discovery and a one-second media heartbeat.
+- The service worker previously sent `set_ready(false)` whenever the last received room snapshot still showed the participant as not ready.
+- After the guest clicked Ready, the true command and a subsequent heartbeat false command could cross before the Ready snapshot returned.
+- The false heartbeat then canceled the guest's newly accepted readiness.
+- Repeated not-ready heartbeats also advanced the room revision and marked new state barriers every second, creating stale-control and seek-interruption risk.
+- A pure `shouldPublishMediaMatchChange` helper was added.
+- Media heartbeats now publish readiness/media state only when the actual matching state changes from true to false or false to true.
+- An unchanged matching heartbeat no longer sends a not-ready command.
+- The helper has regression tests for unchanged matches, actual transitions, and missing participant snapshots.
+
+### Readiness root cause 2: transient player hiding
+- The content script's mutation-driven scan treated any moment with no visible video as immediate permanent media loss.
+- Streaming providers can briefly hide, resize, detach, or rebuild the video during backward decoding, quality changes, overlays, and player transitions.
+- The prior 25 ms rescan could therefore send `MEDIA_LOST`, cancel readiness, change the room revision, and invalidate an active seek.
+- A three-second media-loss confirmation window was added.
+- During that interval, the existing player binding and readiness remain intact.
+- If the original or replacement video reappears, the pending loss is canceled automatically.
+- `MEDIA_LOST` is sent only if no eligible player exists after the full confirmation window.
+
+### Coordinator readiness hardening
+- `RoomCoordinator.setReady` now compares the resulting ready/media-match state with the previous state.
+- An identical readiness update returns `readiness_unchanged` without incrementing the room revision or creating a state barrier.
+- This protects the room from duplicate/retried client messages even after the extension heartbeat race is fixed.
+- A coordinator regression test verifies both unchanged false and unchanged true messages preserve the revision.
+
+### Backward-seek correction
+- The prior authoritative seek barrier expired at 750 ms while the client was allowed up to 1200 ms to complete its local seek.
+- A slower backward decode could therefore cause the server to resume a moving timeline before the guest's local seek transaction had finished.
+- That created moving-target catch-up seeks, apparent non-progress, and interaction with the transient media-loss readiness bug.
+- The local seek completion window is now 1500 ms.
+- The authoritative barrier safety ceiling is now 1800 ms, longer than the local application window.
+- Normal seeks remain event-driven and resume immediately when all acknowledgements arrive.
+- If a participant still does not confirm by the ceiling, the room clears Aligning but remains paused at the exact fixed target.
+- The room no longer releases an unconfirmed participant into a moving timeline.
+- Unit tests and the live smoke were updated to require `seek_timeout_paused` and a paused fixed position.
+
+### Diagnostic collection hardening
+- The controller now inserts its own validated local report immediately when collection begins, so the host report cannot be lost merely because the round-trip broadcast fails.
+- The room request is sent immediately and retried after 750 ms and 1500 ms for missing guests.
+- The final JSON now includes attempt count, expected participant count, received participant count, and a complete boolean.
+- Every locally generated detailed report is passed through the same protocol parser before transmission.
+- If a full report is unexpectedly invalid, the browser sends a small protocol-valid fallback report containing an explicit `report_validation_fallback` event instead of silently disappearing.
+- Retry timers are canceled when all expected reports arrive or collection finishes.
+
+### Automated verification
+- TypeScript passed for the workspace and edge service.
+- All 75 tests across 15 test files passed.
+- The room-service and production extension builds passed.
+- `git diff --check` passed.
+
+### Production deployment and live smoke
+- The updated Worker deployed successfully.
+- Current Worker version became `dbf68195-5534-40aa-9587-2560e2e1e0fe`.
+- The first immediate post-deployment smoke timed out waiting for a message and was not counted as a success.
+- A second warm-Worker smoke passed in room `JUN6R2A4`.
+- The verified smoke measured 373 ms round trip on that run, 103 ms normal seek alignment, 1805 ms intentional missing-ack safety timeout, and 174 ms scheduled lead.
+- Both diagnostic participant responses were received only by the controller.
+- Stale and startup buffering protection remained valid.
+
+### Real two-browser readiness and backward-seek regression
+- Two new isolated Chrome for Testing profiles loaded production-configured extension version 0.1.13.
+- The host and guest joined production room `UC5TFHUY` and both became Ready with matching media.
+- The guest's real video element was deliberately hidden for 1200 ms, causing mutation and player scans while remaining inside the new three-second grace window.
+- After restoring the player and waiting for live state updates, both participants remained Ready and matched.
+- The room revision was 3 before the temporary hiding and remained exactly 3 afterward, proving that no false readiness command or state barrier occurred.
+- The room was moved to a 4-second baseline.
+- The host then performed a real native backward seek to exactly 1 second.
+- The guest's actual `HTMLVideoElement.currentTime` reached exactly 1 second in 177 ms total, with a 174 ms local polling result.
+- Both participants remained Ready and matched after the backward seek.
+
+### Replacement diagnostic report verification
+- The controller requested a new report in room `UC5TFHUY`.
+- The downloaded file was `/Users/muazsabbagh/Downloads/syncyourjoy-report-UC5TFHUY-2026-08-14T23-03-46-951Z.json`.
+- Collection completed on attempt 1.
+- It recorded 2 expected and 2 received participants with `complete: true` and an empty `missingParticipantIds` array.
+- Both reports identified extension version 0.1.13.
+- The host contributed 46 events and the guest 39 events.
+- Neither needed the protocol-validation fallback.
+- Temporary Chrome profiles and the Range server were stopped after verification.
+
+### Release packaging
+- The final 0.1.13 extension was copied into the unpacked release directory.
+- `release/sync-your-joy-beta.zip` was rebuilt.
+- The archive manifest was read back and confirmed as version 0.1.13.
+- ZIP integrity testing reported no errors.
+- SHA-256 was recorded as `00d4700e883c4465a241b7dc21b10e70448b252d2a63e17b3ef37c0b79a3fba2`.
+
+## Confirmed Successful Results
+- Normal matching media heartbeats no longer cancel Ready.
+- Duplicate readiness messages no longer advance room revisions.
+- A 1.2-second transient guest-player disappearance preserved both readiness states and the exact room revision in a real browser.
+- A real backward seek from 4 seconds to 1 second aligned the guest in 177 ms.
+- Unconfirmed seek timeout behavior now remains paused at a fixed target after 1.8 seconds.
+- The production Worker is deployed and the second live smoke passed.
+- Replacement diagnostic collection returned complete host and guest logs on its first attempt.
+- Version 0.1.13 passed 75 tests and the release ZIP passed integrity validation.
+
+## Failed, Incomplete, or Unresolved Work
+- The user's original `download.json` contains no participant logs, so it cannot provide event-level proof from the reported real-world session.
+- The first post-deployment smoke timed out. The immediately repeated warm-Worker smoke passed and is the only run counted as verified.
+- Source commit and push remain pending at this checkpoint.
+
+## Decisions and Rationale
+- Do not clear readiness for transient player presentation changes.
+- Preserve readiness when the media identity remains matched, even if the provider rebuilds the underlying player.
+- Keep normal seeking event-driven and fast; use the longer ceiling only for slow/failing providers.
+- Prefer a safely paused fixed target over a false automatic resume when a participant never confirms.
+- Make diagnostics degrade to an explicit minimal report rather than silently omitting a participant.
+- Include controller logs locally and retry guest collection so a future attached file is useful even during partial network failure.
+
+## Files and Artifacts
+- `apps/extension/src/content-script.ts`: three-second confirmed media-loss handling.
+- `apps/extension/src/readiness-state.ts`: media-match transition decision.
+- `apps/extension/src/readiness-state.test.ts`: heartbeat/readiness regression coverage.
+- `apps/extension/src/service-worker.ts`: heartbeat race fix and reliable diagnostic aggregation.
+- `packages/sync-engine/src/room.ts`: idempotent readiness and fixed paused seek timeout.
+- `packages/sync-engine/src/room.test.ts`: readiness and timeout regressions.
+- `packages/sync-engine/src/seek-barrier.ts`: 1500 ms local and 1800 ms authoritative windows.
+- `packages/sync-engine/src/seek-barrier.test.ts`: ceiling ordering and bounds.
+- `scripts/smoke-room-service.mjs`: live paused-timeout expectation.
+- `docs/PRIVATE_BETA.md`, `docs/RELIABILITY_REVIEW.md`, and `docs/IMPLEMENTATION.md`: updated behavior.
+- `/Users/muazsabbagh/Downloads/download.json`: incomplete user-supplied report.
+- `/Users/muazsabbagh/Downloads/syncyourjoy-report-UC5TFHUY-2026-08-14T23-03-46-951Z.json`: complete replacement test report.
+- `release/sync-your-joy-beta.zip`: installable version 0.1.13.
+
+## Assumptions and Uncertainties
+- The exact real-world site/provider event sequence cannot be recovered from the empty original report.
+- The fixed races and timeout mismatch directly permit the reported symptoms and were independently reproduced/verified with real browser state transitions.
+- Provider-specific backward decoding can still fail completely; the room now stops safely at the target and exposes recovery rather than pretending everyone is playing.
+
+## Open Questions, Blockers, and Dependencies
+- No implementation or deployment blocker remains.
+- Commit and push the verified 0.1.13 source changes.
+
+## Next Steps
+1. Stage all source, tests, documentation, version, smoke, and checkpoint changes.
+2. Commit and push to private `main`.
+3. Give the user the 0.1.13 ZIP, checksum, deployment ID, findings from the incomplete report, and measured browser evidence.
+
+## Historical Checkpoint Notes
+- Checkpoints 1 through 3 remain preserved above.
+- Checkpoint 4 contains no passwords, cookies, tokens, credentials, private keys, or captured media.

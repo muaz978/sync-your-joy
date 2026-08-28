@@ -3,8 +3,8 @@ export const SEEK_INTENT_DEBOUNCE_MS = 60
 export const SEEK_COMPLETION_PROBE_MS = 80
 export const SEEK_ACK_RETRY_MS = 250
 export const SEEK_INTENT_DEDUP_MS = 1_000
-export const SEEK_BARRIER_MAX_WAIT_MS = 750
-export const LOCAL_SEEK_MAX_WAIT_MS = 1_200
+export const SEEK_BARRIER_MAX_WAIT_MS = 1_800
+export const LOCAL_SEEK_MAX_WAIT_MS = 1_500
 
 export function isSeekAligned(currentSeconds: number, targetSeconds: number): boolean {
   return Number.isFinite(currentSeconds)

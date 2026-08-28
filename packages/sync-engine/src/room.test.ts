@@ -80,6 +80,21 @@ describe('RoomCoordinator', () => {
     expect(accepted.snapshot.playback.effectiveAtServerMs).toBeGreaterThan(10_000)
   })
 
+  it('does not advance the room revision for an unchanged readiness heartbeat', () => {
+    const room = createRoom()
+    const initialRevision = room.snapshot().revision
+
+    const unchangedNotReady = room.setReady('participant_host', false, media)
+    expect(unchangedNotReady).toMatchObject({ ok: true, reason: 'readiness_unchanged' })
+    expect(unchangedNotReady.snapshot.revision).toBe(initialRevision)
+
+    const ready = room.setReady('participant_host', true, media)
+    const readyRevision = ready.snapshot.revision
+    const unchangedReady = room.setReady('participant_host', true, media)
+    expect(unchangedReady).toMatchObject({ ok: true, reason: 'readiness_unchanged' })
+    expect(unchangedReady.snapshot.revision).toBe(readyRevision)
+  })
+
   it('orders actions and applies duplicate action IDs at most once', () => {
     const room = createRoom()
     const intent = {
@@ -209,7 +224,7 @@ describe('RoomCoordinator', () => {
     })
   })
 
-  it('releases a seek barrier quickly when a provider never acknowledges', () => {
+  it('keeps a fixed paused target when a provider never acknowledges a seek', () => {
     let nowMs = 10_000
     const room = createRoom(() => nowMs)
     room.join({ id: 'participant_friend', name: 'Rana', media })
@@ -231,8 +246,8 @@ describe('RoomCoordinator', () => {
 
     expect(released).toMatchObject({
       ok: true,
-      reason: 'seek_timeout_play_scheduled',
-      snapshot: { seek: null, playback: { status: 'playing', positionSeconds: 90 } },
+      reason: 'seek_timeout_paused',
+      snapshot: { seek: null, playback: { status: 'paused', positionSeconds: 90 } },
     })
   })
 

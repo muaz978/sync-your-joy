@@ -135,8 +135,9 @@ try {
   const timeoutStartedAt = Date.now()
   host.socket.send(JSON.stringify({ type: 'seek_applied', revision: timeoutSeek.snapshot.revision, positionSeconds: 155 }))
   const timeoutReleased = await host.waitFor(message => message.type === 'room_snapshot'
-    && message.reason === 'seek_timeout_play_scheduled'
+    && message.reason === 'seek_timeout_paused'
     && message.snapshot.seek === null
+    && message.snapshot.playback.status === 'paused'
     && message.snapshot.playback.positionSeconds === 155)
   await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === timeoutReleased.snapshot.revision)
   const seekTimeoutReleaseMs = Date.now() - timeoutStartedAt

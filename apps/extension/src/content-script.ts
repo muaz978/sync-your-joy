@@ -9,6 +9,7 @@ import { shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
 const MEDIA_HEARTBEAT_INTERVAL_MS = 1_000
+const MEDIA_LOSS_GRACE_MS = 3_000
 const PLAYER_PILL_LAYER = '2147483600'
 
 let video: HTMLVideoElement | null = null
@@ -39,6 +40,7 @@ let stallNoticeShown = false
 let siteBootstrapAttempts = 0
 let lastSiteBootstrapAt = 0
 let playerScanTimer: ReturnType<typeof setTimeout> | null = null
+let mediaLossTimer: ReturnType<typeof setTimeout> | null = null
 
 const pillHost = document.createElement('div')
 pillHost.id = 'sync-your-joy-root'
@@ -255,16 +257,11 @@ function scanForPlayer(): void {
   const candidate = findPrimaryVideo()
   if (!candidate) {
     maybeBootstrapSitePlayer()
-    if (video) {
-      detachPlayer(video)
-      video = null
-      lastFingerprintKey = ''
-      renderPill()
-      void sendRuntime({ type: 'MEDIA_LOST' })
-    }
+    scheduleMediaLossConfirmation()
     return
   }
 
+  clearMediaLossConfirmation()
   if (candidate === video) {
     reportMediaIfChanged(candidate)
     return
@@ -280,6 +277,31 @@ function scanForPlayer(): void {
   attachPlayer(candidate)
   reportMediaIfChanged(candidate)
   void reportPlayerStatus(false)
+}
+
+function scheduleMediaLossConfirmation(): void {
+  if (!video || mediaLossTimer)
+    return
+  mediaLossTimer = setTimeout(() => {
+    mediaLossTimer = null
+    if (findPrimaryVideo()) {
+      scanForPlayer()
+      return
+    }
+    const lostVideo = video
+    detachPlayer(lostVideo)
+    video = null
+    lastFingerprintKey = ''
+    lastMediaReportAt = 0
+    renderPill()
+    void sendRuntime({ type: 'MEDIA_LOST' })
+  }, MEDIA_LOSS_GRACE_MS)
+}
+
+function clearMediaLossConfirmation(): void {
+  if (mediaLossTimer)
+    clearTimeout(mediaLossTimer)
+  mediaLossTimer = null
 }
 
 function schedulePlayerScan(): void {

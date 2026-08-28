@@ -1,11 +1,12 @@
 import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticValue, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { mediaMatches, normalizePageUrl, safeJsonParse } from '@syncyourjoy/protocol'
+import { mediaMatches, normalizePageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
 import { PLAYER_CONTEXT_STALE_MS, shouldAcceptPlayerContext } from './player-tab.ts'
 import { isLikelyAdvertisingUrl } from './site-adapter.ts'
 import { bindMediaToSharedPage } from './media-fingerprint.ts'
 import { resolveControlPosition } from './control-position.ts'
+import { shouldPublishMediaMatchChange } from './readiness-state.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -20,6 +21,8 @@ interface DiagnosticCollection {
   expectedParticipantIds: Set<string>
   responses: Map<string, { participantId: string; participantName: string; report: DiagnosticsReport }>
   timer: ReturnType<typeof setTimeout>
+  retryTimers: Array<ReturnType<typeof setTimeout>>
+  attempts: number
 }
 
 let state: ExtensionState = {
@@ -170,7 +173,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       if (state.snapshot) {
         const me = state.snapshot.participants.find(participant => participant.id === state.participantId)
         const matches = mediaMatches(state.snapshot.media, state.currentMedia)
-        if (!me?.ready || me.mediaMatches !== matches)
+        if (shouldPublishMediaMatchChange(me?.mediaMatches, matches))
           sendToServer({ type: 'set_ready', ready: false, media: state.currentMedia })
       }
       await publishState()
@@ -292,14 +295,30 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         expectedParticipantIds: new Set(snapshot.participants.filter(participant => participant.connected).map(participant => participant.id)),
         responses: new Map(),
         timer: setTimeout(() => finishDiagnosticCollection(reportId), DIAGNOSTIC_COLLECTION_TIMEOUT_MS),
+        retryTimers: [],
+        attempts: 0,
       }
       diagnosticCollection = collection
       recordDiagnostic('diagnostics', 'collection_requested', { reportId, expectedParticipants: collection.expectedParticipantIds.size })
-      if (!sendToServer({ type: 'request_diagnostics', reportId })) {
+      const me = snapshot.participants.find(participant => participant.id === state.participantId)
+      if (me) {
+        collection.responses.set(state.participantId, {
+          participantId: state.participantId,
+          participantName: me.name,
+          report: validatedDiagnosticsReport(),
+        })
+      }
+      if (!requestDiagnosticResponses(reportId)) {
         clearTimeout(collection.timer)
         diagnosticCollection = null
         return failure('The room connection was interrupted before logs could be requested.')
       }
+      if (!diagnosticCollection)
+        return success()
+      collection.retryTimers.push(
+        setTimeout(() => requestDiagnosticResponses(reportId), 750),
+        setTimeout(() => requestDiagnosticResponses(reportId), 1_500),
+      )
       return success()
     }
 
@@ -540,7 +559,7 @@ function handleServerMessage(raw: string): void {
 
   if (message.type === 'diagnostics_requested') {
     recordDiagnostic('diagnostics', 'local_report_requested', { reportId: message.reportId })
-    sendToServer({ type: 'diagnostics_response', reportId: message.reportId, report: buildDiagnosticsReport() })
+    sendToServer({ type: 'diagnostics_response', reportId: message.reportId, report: validatedDiagnosticsReport() })
     return
   }
 
@@ -866,6 +885,35 @@ function buildDiagnosticsReport(): DiagnosticsReport {
   }
 }
 
+function validatedDiagnosticsReport(): DiagnosticsReport {
+  const report = buildDiagnosticsReport()
+  const parsed = parseClientMessage({ type: 'diagnostics_response', reportId: 'report_validation_check', report })
+  if (parsed?.type === 'diagnostics_response')
+    return parsed.report
+  recordDiagnostic('diagnostics', 'report_validation_fallback')
+  return {
+    extensionVersion: chrome.runtime.getManifest().version.slice(0, 30) || 'unknown',
+    generatedAtLocalMs: Date.now(),
+    userAgent: navigator.userAgent.slice(0, 300),
+    connection: state.connection,
+    roomRevision: state.snapshot?.revision ?? null,
+    playbackStatus: state.snapshot?.playback.status ?? null,
+    playerFrameId: null,
+    playerAreaPixels: 0,
+    playerLastSeenAtMs: 0,
+    mediaService: null,
+    mediaCanonicalId: null,
+    mediaPageUrl: null,
+    sample: null,
+    events: [{
+      atLocalMs: Date.now(),
+      category: 'diagnostics',
+      message: 'report_validation_fallback',
+      details: {},
+    }],
+  }
+}
+
 function sanitizeDiagnosticCanonicalId(value: string | undefined): string | null {
   if (!value)
     return null
@@ -894,6 +942,8 @@ function finishDiagnosticCollection(reportId: string): void {
   if (!collection || collection.reportId !== reportId)
     return
   clearTimeout(collection.timer)
+  for (const retryTimer of collection.retryTimers)
+    clearTimeout(retryTimer)
   diagnosticCollection = null
   const missingParticipantIds = [...collection.expectedParticipantIds].filter(participantId => !collection.responses.has(participantId))
   const payload = {
@@ -902,6 +952,12 @@ function finishDiagnosticCollection(reportId: string): void {
     roomCode: state.snapshot?.code ?? null,
     reportId,
     privacy: 'Playback diagnostics only. No cookies, passwords, media content, or URL query parameters.',
+    collection: {
+      attempts: collection.attempts,
+      expectedParticipants: collection.expectedParticipantIds.size,
+      receivedParticipants: collection.responses.size,
+      complete: missingParticipantIds.length === 0,
+    },
     missingParticipantIds,
     participants: [...collection.responses.values()],
   }
@@ -912,6 +968,23 @@ function finishDiagnosticCollection(reportId: string): void {
     state.lastError = 'Chrome could not download the detailed report.'
     void publishState()
   })
+}
+
+function requestDiagnosticResponses(reportId: string): boolean {
+  const collection = diagnosticCollection
+  if (!collection || collection.reportId !== reportId)
+    return false
+  if ([...collection.expectedParticipantIds].every(participantId => collection.responses.has(participantId))) {
+    finishDiagnosticCollection(reportId)
+    return true
+  }
+  collection.attempts += 1
+  recordDiagnostic('diagnostics', 'collection_attempt', {
+    reportId,
+    attempt: collection.attempts,
+    receivedParticipants: collection.responses.size,
+  })
+  return sendToServer({ type: 'request_diagnostics', reportId })
 }
 
 function createRoomCode(): string {

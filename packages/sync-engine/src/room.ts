@@ -196,9 +196,13 @@ export class RoomCoordinator {
     if (!participant)
       return this.failure('participant_missing', 'You are no longer part of this room.')
 
+    const previousReady = participant.ready
+    const previousMediaMatches = participant.mediaMatches
     participant.media = media
     participant.mediaMatches = mediaMatches(this.media, media)
     participant.ready = ready && participant.mediaMatches
+    if (participant.ready === previousReady && participant.mediaMatches === previousMediaMatches)
+      return this.success('readiness_unchanged')
     if (!participant.ready)
       this.pauseForMembershipChange()
     this.revision += 1
@@ -310,16 +314,15 @@ export class RoomCoordinator {
     if (!pending || nowMs < pending.deadlineAtServerMs)
       return null
     this.pendingSeek = null
-    if (pending.resumeWhenReady) {
-      this.playback = {
-        status: 'playing',
-        positionSeconds: pending.positionSeconds,
-        effectiveAtServerMs: nowMs + this.commandLeadMs(),
-        playbackRate: 1,
-      }
+    this.playback = {
+      status: 'paused',
+      positionSeconds: pending.positionSeconds,
+      effectiveAtServerMs: nowMs,
+      playbackRate: 1,
     }
     this.revision += 1
-    return this.success(pending.resumeWhenReady ? 'seek_timeout_play_scheduled' : 'seek_timeout_paused')
+    this.markStateBarrier()
+    return this.success('seek_timeout_paused')
   }
 
   pendingSeekDeadlineMs(): number | null {
