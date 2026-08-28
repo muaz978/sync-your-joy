@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isLikelyAdvertisingUrl, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
+import { hasUsableVideoSource, isLikelyAdvertisingUrl, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
 
 describe('generic site adapter guards', () => {
   it('boots the Animerco click-to-load player only on the shared top-level page', () => {
@@ -13,5 +13,13 @@ describe('generic site adapter guards', () => {
     expect(isLikelyAdvertisingUrl('https://acceptable.a-ads.com/2429603/')).toBe(true)
     expect(isLikelyAdvertisingUrl('https://video.example.org/embed/42')).toBe(false)
     expect(isLikelyAdvertisingUrl('not a URL')).toBe(false)
+  })
+
+  it('rejects visible decoy video elements that have no media source', () => {
+    expect(hasUsableVideoSource('', null, null, false)).toBe(false)
+    expect(hasUsableVideoSource('blob:https://player.example/id', null, null, false)).toBe(true)
+    expect(hasUsableVideoSource('', '/movie.m3u8', null, false)).toBe(true)
+    expect(hasUsableVideoSource('', null, '/movie.mp4', false)).toBe(true)
+    expect(hasUsableVideoSource('', null, null, true)).toBe(true)
   })
 })

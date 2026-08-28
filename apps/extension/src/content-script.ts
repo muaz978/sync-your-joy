@@ -4,13 +4,15 @@ import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSee
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
-import { shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
+import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
+import { miniControllerView } from './mini-controller-state.ts'
 
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
 const MEDIA_HEARTBEAT_INTERVAL_MS = 1_000
 const MEDIA_LOSS_GRACE_MS = 3_000
 const PLAYER_PILL_LAYER = '2147483600'
+const MINI_CONTROLLER_HIDDEN_KEY = 'syncYourJoyMiniControllerHidden'
 
 let video: HTMLVideoElement | null = null
 let activeState: ExtensionState | null = null
@@ -41,6 +43,7 @@ let siteBootstrapAttempts = 0
 let lastSiteBootstrapAt = 0
 let playerScanTimer: ReturnType<typeof setTimeout> | null = null
 let mediaLossTimer: ReturnType<typeof setTimeout> | null = null
+let miniControllerHidden = false
 
 const pillHost = document.createElement('div')
 pillHost.id = 'sync-your-joy-root'
@@ -106,6 +109,25 @@ shadow.innerHTML = `
     button:focus-visible { outline: 2px solid #42a99d; outline-offset: 2px; }
     button:active { transform: translateY(1px); box-shadow: inset 2px 2px 5px rgb(15 23 42 / 16%); }
     button[hidden] { display: none; }
+    .pill[hidden], .restore[hidden] { display: none; }
+    .hide-button {
+      min-width: 34px;
+      width: 34px;
+      padding: 0;
+      font-size: 17px;
+    }
+    .restore {
+      width: 42px;
+      min-width: 42px;
+      height: 42px;
+      min-height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px 0 0 14px;
+      background: var(--surface, #e9eef5);
+      color: var(--accent, #267d74);
+    }
+    .restore svg { width: 20px; height: 20px; }
     .notice { grid-column: 1 / -1; margin: 0 2px 2px; color: #a15c10; font-size: 11px; }
     .notice:empty { display: none; }
     @media (prefers-color-scheme: dark) {
@@ -117,6 +139,7 @@ shadow.innerHTML = `
         box-shadow: 7px 7px 18px rgb(2 6 23 / 48%), -3px -3px 12px rgb(51 65 85 / 30%);
       }
       button { box-shadow: 3px 3px 7px rgb(2 6 23 / 45%), -2px -2px 6px rgb(51 65 85 / 24%); }
+      .restore { background: #171d26; color: #69c4b8; }
       .mark { color: #0f172a; }
       .notice { color: #f3b562; }
     }
@@ -140,9 +163,17 @@ shadow.innerHTML = `
       <button id="syj-sync" type="button">Sync</button>
       <button id="syj-playback" type="button">Pause</button>
       <button id="syj-room" type="button">Room</button>
+      <button class="hide-button" id="syj-hide" type="button" aria-label="Hide SyncYourJoy controller" title="Hide controller">&#8722;</button>
     </span>
     <p class="notice" id="syj-notice"></p>
   </section>
+  <button class="restore" id="syj-restore" type="button" aria-label="Show SyncYourJoy controller" title="Show SyncYourJoy controller" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <path d="M8.5 14.5 6 17a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0"/>
+      <path d="m15.5 9.5 2.5-2.5a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0"/>
+      <path d="m8 16 8-8"/>
+    </svg>
+  </button>
 `
 
 document.documentElement.append(pillHost)
@@ -153,6 +184,21 @@ const noticeElement = shadow.querySelector<HTMLElement>('#syj-notice')
 const playbackButton = shadow.querySelector<HTMLButtonElement>('#syj-playback')
 const syncButton = shadow.querySelector<HTMLButtonElement>('#syj-sync')
 const roomButton = shadow.querySelector<HTMLButtonElement>('#syj-room')
+const pillElement = shadow.querySelector<HTMLElement>('.pill')
+const hideButton = shadow.querySelector<HTMLButtonElement>('#syj-hide')
+const restoreButton = shadow.querySelector<HTMLButtonElement>('#syj-restore')
+
+void chrome.storage.local.get(MINI_CONTROLLER_HIDDEN_KEY).then((stored) => {
+  miniControllerHidden = stored[MINI_CONTROLLER_HIDDEN_KEY] === true
+  renderPill()
+}).catch(() => undefined)
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes[MINI_CONTROLLER_HIDDEN_KEY])
+    return
+  miniControllerHidden = changes[MINI_CONTROLLER_HIDDEN_KEY].newValue === true
+  renderPill()
+})
 
 roomButton?.addEventListener('click', () => {
   void sendRuntime({ type: 'OPEN_PANEL' })
@@ -174,6 +220,14 @@ playbackButton?.addEventListener('click', () => {
 
 syncButton?.addEventListener('click', () => {
   forceSyncToRoom(true)
+})
+
+hideButton?.addEventListener('click', () => {
+  setMiniControllerHidden(true)
+})
+
+restoreButton?.addEventListener('click', () => {
+  setMiniControllerHidden(false)
 })
 
 chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _sender, sendResponse) => {
@@ -340,6 +394,8 @@ function findPrimaryVideo(): HTMLVideoElement | null {
 
 function isVisibleVideo(target: HTMLVideoElement): boolean {
   if (!target.isConnected)
+    return false
+  if (!hasUsableVideoSource(target.currentSrc, target.getAttribute('src'), target.querySelector('source[src]')?.getAttribute('src') ?? null, target.srcObject !== null))
     return false
   const style = getComputedStyle(target)
   if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0)
@@ -731,7 +787,14 @@ function restorePlaybackRate(): void {
 
 function renderPill(): void {
   const snapshot = activeState?.snapshot
-  pillHost.style.display = snapshot && (video || isNavigationTargetPage()) ? 'block' : 'none'
+  const view = miniControllerView(Boolean(snapshot && (video || isNavigationTargetPage())), miniControllerHidden)
+  pillHost.style.display = view.hostVisible ? 'block' : 'none'
+  pillHost.style.top = view.restoreVisible ? '20px' : 'auto'
+  pillHost.style.bottom = view.restoreVisible ? 'auto' : '20px'
+  if (pillElement)
+    pillElement.hidden = !view.controllerVisible
+  if (restoreButton)
+    restoreButton.hidden = !view.restoreVisible
   if (!snapshot || !activeState)
     return
 
@@ -771,6 +834,12 @@ function renderPill(): void {
     syncButton.disabled = !video
   if (noticeElement && activeState.lastError)
     noticeElement.textContent = activeState.lastError
+}
+
+function setMiniControllerHidden(hidden: boolean): void {
+  miniControllerHidden = hidden
+  renderPill()
+  void chrome.storage.local.set({ [MINI_CONTROLLER_HIDDEN_KEY]: hidden }).catch(() => undefined)
 }
 
 function isLocalController(): boolean {
@@ -1053,11 +1122,12 @@ function showNotice(message: string): void {
 
 function createMediaFingerprint(target: HTMLVideoElement): MediaFingerprint {
   const playerUrl = new URL(location.href)
-  const service = serviceName(playerUrl.hostname)
-  const pageUrl = normalizePageUrl(containerPageUrl(playerUrl))
+  const identityUrl = containerPageUrl(playerUrl)
+  const service = serviceName(identityUrl.hostname)
+  const pageUrl = normalizePageUrl(identityUrl)
   return {
     service,
-    canonicalId: canonicalMediaId(service, playerUrl).slice(0, 500),
+    canonicalId: canonicalMediaId(service, identityUrl).slice(0, 500),
     title: cleanMediaTitle(document.title).slice(0, 300) || 'Untitled video',
     durationSeconds: Number.isFinite(target.duration) ? Math.round(target.duration * 10) / 10 : null,
     ...(pageUrl ? { pageUrl } : {}),

@@ -169,7 +169,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         areaPixels: request.areaPixels,
         service: request.media.service,
       })
-      state.currentMedia = bindMediaToSharedPage(request.media, state.snapshot?.navigation?.url)
+      state.currentMedia = bindMediaToSharedPage(request.media, state.snapshot?.navigation?.url ?? sender.tab?.url)
       if (state.snapshot) {
         const me = state.snapshot.participants.find(participant => participant.id === state.participantId)
         const matches = mediaMatches(state.snapshot.media, state.currentMedia)
@@ -709,7 +709,8 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
       clearPlayerTab()
       return false
     }
-    state.currentMedia = context.media
+    const tab = await chrome.tabs.get(state.playerTabId)
+    state.currentMedia = bindMediaToSharedPage(context.media, state.snapshot?.navigation?.url ?? tab.url)
     state.lastPlayerSample = context.sample
     state.playerLastSeenAtMs = Date.now()
     return true

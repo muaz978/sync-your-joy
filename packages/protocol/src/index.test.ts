@@ -36,6 +36,20 @@ describe('media identity matching', () => {
     expect(mediaMatches(base, { ...base, canonicalId: 'crunchyroll:GOTHER123456' })).toBe(false)
   })
 
+  it('matches the same Qfilm video across page variants without relying on signed player URLs', () => {
+    const host: MediaFingerprint = {
+      service: 'qfilm', canonicalId: 'qfilm:a0821a41c', title: 'Host page', durationSeconds: null,
+      pageUrl: 'https://a.qfilm.tv/play.php?vid=a0821a41c',
+    }
+    const guest: MediaFingerprint = {
+      service: 'qfilm', canonicalId: 'qfilm:A0821A41C', title: 'Embedded player', durationSeconds: null,
+      pageUrl: 'https://a.qfilm.tv/embed.php?vid=A0821A41C',
+    }
+
+    expect(mediaMatches(host, guest)).toBe(true)
+    expect(normalizeCanonicalId(guest.service, guest.canonicalId)).toBe('qfilm:a0821a41c')
+  })
+
   it('treats identical normalized page links as a strong match on generic sites', () => {
     const host: MediaFingerprint = {
       service: 'html5', canonicalId: 'page:host-variant', title: 'Host title', durationSeconds: 100,

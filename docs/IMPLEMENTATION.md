@@ -3,7 +3,7 @@
 ## What works
 
 - Chrome Manifest V3 extension with a persistent side panel.
-- Floating Shadow DOM status pill that does not modify proprietary player controls.
+- Floating Shadow DOM status pill that does not modify proprietary player controls, can be hidden without stopping synchronization, and leaves a small top-edge restore handle.
 - Generic `HTMLVideoElement` detection on HTTP/HTTPS pages, including embedded video frames.
 - Room creation and joining with an eight-character code.
 - Two to ten participants with persistent participant identity for reconnects.
@@ -11,6 +11,7 @@
 - Pass-the-remote control transfer.
 - Explicit ready controls for every participant, including the controller, with canonical media fingerprint matching.
 - Stable Crunchyroll episode fingerprints based on the `/watch/{episode-id}` value, independent of domain, locale path, page slug, or translated title.
+- Stable Qfilm fingerprints based on the outer `vid` value across `play.php`, `watch.php`, `embed.php`, and the nested PlayerJS frame.
 - Per-room tab-and-frame binding with largest-player selection, so background videos and embedded ads cannot overwrite media identity or playback state.
 - A controller-only **Open link for everyone** action that validates and normalizes an HTTP/HTTPS video-page URL, schedules a new tab on all connected clients, pauses the room, and clears readiness.
 - Video-free create/join onboarding, allowing the room to assemble before the controller chooses and launches a page.

@@ -35,6 +35,8 @@ Normal media heartbeats never cancel readiness. A streaming site may briefly hid
 
 Play, pause, and dragging the progress bar are automatic when performed by the controller in the streaming player's native controls. If Chrome blocks or stalls playback, press **Sync** once in the in-page SyncYourJoy pill. This aligns the timeline and supplies the user activation Chrome may require; the room pauses instead of letting its displayed timeline run ahead of a stopped guest.
 
+If the in-page controller covers subtitles, select its **minus** button. Synchronization continues while the controller is hidden. A small link-shaped restore button moves to the top-right edge, and the preference remains in effect across pages until you restore the controller.
+
 The panel now labels the local reading **Your video**. It comes from the real bound player instead of a mathematical room clock, and it shows **stopped** if the room expected playback but the local video did not start.
 
 Live player and participant updates preserve the room panel's current scroll position. You can keep the lower controls in view while playback samples, readiness, latency, and room state continue updating.
@@ -58,6 +60,8 @@ This testing-only report does not contain video, audio, screenshots, cookies, pa
 Animerco episode pages initially contain only a poster and create their player iframe after the page's own play action. When such a page is opened through the room link, SyncYourJoy loads the default player server automatically and ignores the page's advertising iframe during player selection.
 
 The default Animerco option may nest a signed wrapper and a Google Drive preview. SyncYourJoy identifies every nested player by the room's original episode URL, waits for media metadata, clamps seeks to the player's available ranges, and waits for seek completion before resuming. If a provider cannot expose the requested position yet, the room pauses and retries; do not refresh.
+
+Qfilm pages use a cross-origin PlayerJS frame with a temporary signed HLS source. SyncYourJoy identifies the room media from the outer Qfilm `vid` value instead, so the page, watch, and embed variants of the same movie match without sharing or depending on the signed media URL.
 
 ## What to record
 

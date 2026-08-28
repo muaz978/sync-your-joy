@@ -4,7 +4,7 @@ SyncYourJoy is a Chrome extension for synchronized watch parties. Every particip
 
 ## Project status
 
-An end-to-end private beta is deployed. It includes the Manifest V3 extension, a Cloudflare Durable Objects WebSocket coordinator, a local development server, the shared synchronization engine, a generic HTML5 adapter, a local test player, and automated tests.
+An end-to-end public beta repository is deployed. It includes the Manifest V3 extension, a Cloudflare Durable Objects WebSocket coordinator, a local development server, the shared synchronization engine, a generic HTML5 adapter, a local test player, and automated tests.
 
 The beta room service is available at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its HTTP health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
@@ -20,9 +20,10 @@ The beta room service is available at `wss://sync-your-joy-rooms.sync-your-joy.w
 
 The current build combines:
 
-- a compact in-page sync pill for status and essential actions;
+- a compact in-page sync pill for status and essential actions, with a persistent hide control and a small top-edge restore handle;
 - a Chrome side panel for create/join, participants, readiness, control ownership, and diagnostics;
 - a generic HTML5 video adapter enabled on HTTP/HTTPS pages, including videos inside embedded frames;
+- stable Qfilm identity based on its outer `vid` value, independent of the temporary cross-origin player and signed HLS URL;
 - controller-driven shared-link navigation that opens the same normalized video page for every participant and resets readiness safely;
 - link-first rooms where guests join before opening any video, plus one-click local and room-wide resynchronization;
 - an ordered room protocol with clock-offset estimation, scheduled playback, acknowledgements, and drift correction;

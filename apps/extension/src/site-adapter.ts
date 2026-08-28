@@ -24,3 +24,7 @@ export function isLikelyAdvertisingUrl(value: string | undefined): boolean {
     return false
   }
 }
+
+export function hasUsableVideoSource(currentSrc: string, srcAttribute: string | null, nestedSource: string | null, hasSourceObject: boolean): boolean {
+  return hasSourceObject || Boolean(currentSrc.trim() || srcAttribute?.trim() || nestedSource?.trim())
+}

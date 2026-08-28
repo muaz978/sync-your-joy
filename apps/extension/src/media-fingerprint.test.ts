@@ -11,7 +11,25 @@ describe('streaming media fingerprints', () => {
       pageUrl: 'https://eta.animerco.org/jwplayer/?pnonce=temporary-client-token',
     }
     expect(bindMediaToSharedPage(nested, 'https://eta.animerco.org/episodes/example/')).toMatchObject({
+      service: 'html5',
+      canonicalId: 'page:https://eta.animerco.org/episodes/example',
       pageUrl: 'https://eta.animerco.org/episodes/example',
+    })
+  })
+
+  it('recovers Qfilm identity from the outer tab when the player suppresses its referrer', () => {
+    const nested = {
+      service: 'html5',
+      canonicalId: 'page:https://wwa.liiivideo.com/embed-temporary.html',
+      title: 'Untitled video',
+      durationSeconds: null,
+      pageUrl: 'https://wwa.liiivideo.com/embed-temporary.html',
+    }
+
+    expect(bindMediaToSharedPage(nested, 'https://a.qfilm.tv/play.php?vid=a0821a41c')).toMatchObject({
+      service: 'qfilm',
+      canonicalId: 'qfilm:a0821a41c',
+      pageUrl: 'https://a.qfilm.tv/play.php?vid=a0821a41c',
     })
   })
 
@@ -30,5 +48,17 @@ describe('streaming media fingerprints', () => {
     expect(serviceName('www.crunchyroll.com')).toBe('crunchyroll')
     expect(canonicalMediaId('netflix', new URL('https://www.netflix.com/watch/81712345?trackId=1')))
       .toBe('netflix:81712345')
+  })
+
+  it('uses the stable Qfilm video ID across page and embed variants', () => {
+    const variants = [
+      'https://a.qfilm.tv/play.php?vid=a0821a41c',
+      'https://a.qfilm.tv/watch.php?vid=a0821a41c',
+      'https://a.qfilm.tv/embed.php?vid=A0821A41C',
+    ]
+
+    expect(serviceName('a.qfilm.tv')).toBe('qfilm')
+    expect(variants.map(value => canonicalMediaId('qfilm', new URL(value))))
+      .toEqual(Array.from({ length: 3 }, () => 'qfilm:a0821a41c'))
   })
 })

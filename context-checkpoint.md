@@ -716,3 +716,160 @@
 ## Historical Checkpoint Notes
 - Checkpoints 1 through 3 remain preserved above.
 - Checkpoint 4 contains no passwords, cookies, tokens, credentials, private keys, or captured media.
+
+---
+
+# Context Checkpoint 5
+
+## Session Metadata
+- Task or project: SyncYourJoy public repository transition, hideable in-page controller, and Qfilm compatibility
+- Checkpoint number: 5
+- Date and time: 2026-08-29 01:14 Europe/Istanbul
+- Coverage period: Publication of the staged 0.1.13 reliability release through implementation and verification of extension version 0.1.14
+- Current context status: 0.1.14 is implemented, fully tested, verified in an isolated extension-loaded browser on the supplied Qfilm URL, production-built, and packaged. Source commit and push are the remaining release steps at this checkpoint.
+
+## User Objective and Requirements
+- Make `https://github.com/muaz978/sync-your-joy` public.
+- Add a way to hide the floating in-page mini controller when it covers subtitles.
+- Preserve synchronization while the controller is hidden and provide a clear way to restore it.
+- Ensure `https://a.qfilm.tv/play.php?vid=a0821a41c` is supported.
+- Continue from the previous session without discarding the staged 0.1.13 reliability work.
+
+## Current State
+- Commit `fa1d80f` contains the verified 0.1.13 readiness, backward-seek, and diagnostics reliability work and is pushed to `origin/main`.
+- The GitHub API currently reports repository visibility as `PUBLIC`.
+- Extension source and manifest are version 0.1.14.
+- The final automated check passes 82 tests across 16 test files, strict TypeScript checks, server build, and extension build.
+- The production extension bundle targets `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`.
+- The refreshed release archive is `release/sync-your-joy-beta.zip` with SHA-256 `734bbe23c81775690b7e8fb20df2ee51bb0ee541e9de2aa7a09215c233229294`.
+
+## Complete Chronological Activity Log
+
+### Preserve and publish the verified 0.1.13 baseline
+- The existing staged changes were inspected with `git status`, `git diff --cached --stat`, and `git diff --cached --check`.
+- The current full `npm run check` was rerun before publication. It passed 75 tests, typechecking, and both production builds.
+- The staged reliability work was committed as `fa1d80f` with message `fix: stabilize readiness and backward seek sync`.
+- The commit was pushed from local `main` to `origin/main`.
+
+### Inspect the supplied Qfilm page and the existing controller
+- The current content script, media fingerprinting, generic site adapter, manifest, frame-binding logic, and relevant tests were inspected.
+- The supplied Qfilm URL was fetched directly. It returned HTTP 200 and an outer Arabic movie page for Ip Man 2008.
+- The outer page was found to contain a cross-origin iframe at `https://wwa.liiivideo.com/embed-cpl7qos8hx1a.html`.
+- The inner page was found to use PlayerJS with a 6381.10-second signed HLS source.
+- The `vid=a0821a41c` parameter remained intact through existing URL normalization.
+- Playwright browser inspection confirmed a 1170 by 655 outer player iframe and a real HLS video inside the Liiivideo frame.
+- Browser inspection also found a second nearly full-size source-less video inside a Qfilm-origin blob frame. The source-less element was one pixel larger than the real player and could therefore win the previous area-based frame selection.
+
+### Implement hide and restore behavior
+- Added `apps/extension/src/mini-controller-state.ts` and its regression test.
+- Added a minus button with accessible label and title to the full in-page controller.
+- Added a 42-pixel link-shaped restore button.
+- Hiding stores `syncYourJoyMiniControllerHidden` in `chrome.storage.local`.
+- The hidden preference is synchronized across content-script frames with `chrome.storage.onChanged`.
+- When hidden, only the restore handle remains and moves to the top-right edge to avoid subtitle regions.
+- Restoring returns the full controller to its original bottom-right position.
+- Light and dark styles, focus behavior, accessible names, and minimum control size were retained.
+- The hide state affects presentation only. Media detection, player status sampling, commands, drift correction, and room synchronization remain active.
+
+### Implement stable Qfilm identity and real-player selection
+- Added Qfilm hostname recognition and canonical IDs in the form `qfilm:{vid}`.
+- Added protocol normalization so Qfilm IDs are case-insensitive and treated as strong canonical identities.
+- Added tests showing `play.php`, `watch.php`, and `embed.php` variants for the supplied video all resolve to `qfilm:a0821a41c`.
+- Initial static logic tried to derive identity from `document.referrer` inside the player frame.
+- An extension-loaded Chrome test showed that Qfilm uses a `no-referrer` policy, so the inner frame cannot see the outer Qfilm page URL.
+- The implementation was corrected in the service worker, which uses Chrome's sender tab URL as the outer identity source when no room navigation URL is already authoritative.
+- Player context restoration now also rebinds raw iframe media to the authoritative navigation URL or current tab URL.
+- Added a media-source guard that rejects visible video elements with no `currentSrc`, `src`, nested `<source>`, or `srcObject`.
+- This source guard excludes Qfilm's source-less decoy while preserving ordinary URL, blob, nested source, and MediaStream video players.
+
+### Automated verification
+- Tests were added for full controller visibility, hidden restore-only visibility, no-room visibility, Qfilm page variants, Qfilm outer-tab recovery under suppressed referrers, Qfilm protocol matching, and source-less decoy rejection.
+- The final `npm run check` passed 82 tests in 16 files.
+- TypeScript checking passed for both normal and edge-service configurations.
+- The room service and extension builds completed successfully.
+- `git diff --check` reported no patch formatting errors.
+
+### Isolated real-browser verification
+- Official Chrome for Testing 152.0.7977.64 for macOS arm64 was obtained from the Chrome for Testing public distribution.
+- Fresh disposable profiles were used. The normal daily browser profile, cookies, account sessions, and credentials were not used or inspected.
+- The unpacked 0.1.14 extension was loaded into Chrome for Testing.
+- DevTools Protocol inspection confirmed that the extension content script injected into the cross-origin Liiivideo frame.
+- Before the outer-tab worker correction, the browser reported the temporary inner identity. This failed attempt directly identified Qfilm's `no-referrer` behavior and led to the worker-side fix.
+- After rebuilding, the real bound player reported:
+  - service `qfilm`;
+  - canonical ID `qfilm:a0821a41c`;
+  - page URL `https://a.qfilm.tv/play.php?vid=a0821a41c`;
+  - the real sourced player frame rather than the source-less decoy.
+- A local coordinator room was created for UI verification. The room snapshot and current media both contained the stable Qfilm identity.
+- The real Shadow DOM hide button was activated through DevTools Protocol. Storage changed to `true`, the host remained displayed, and its position changed to top 20 pixels with bottom set to auto.
+- The restore button then became visible. Activating it changed storage to `false`, restored top to auto, and restored bottom to 20 pixels.
+- A second hidden-state run sampled the live extension state twice, two seconds apart. The room remained connected, the media remained `qfilm:a0821a41c`, and `lastPlayerSample.sampledAtLocalMs` advanced from `1787955099116` to `1787955101116`, proving status sampling continued while the controller was hidden.
+- All disposable browser and local room-service processes were stopped after testing.
+
+### Production package and public-repository safety checks
+- The final extension was rebuilt with the production WSS coordinator.
+- The built manifest was read back as version 0.1.14.
+- The built service worker was read back with the production room endpoint.
+- The release directory was refreshed and `release/sync-your-joy-beta.zip` rebuilt.
+- An initial macOS `ditto` archive included unnecessary `__MACOSX` metadata. It was superseded by a clean `zip -FS` archive containing only the extension directory and nine extension files.
+- The final archive passed `unzip -t` with no errors.
+- The current tree and all Git history were scanned by filename and high-confidence credential patterns. No tracked `.env`, private-key, credential, or high-confidence token match was found.
+- `gh repo view` confirmed `muaz978/sync-your-joy` is already public on GitHub, with `main` as its default branch.
+
+## Confirmed Successful Results
+- The 0.1.13 reliability baseline is committed and pushed as `fa1d80f`.
+- Qfilm's supplied player page loads and its real cross-origin HLS video is detected by the unpacked extension.
+- The Qfilm movie is identified as `qfilm:a0821a41c` from the outer page, independent of signed inner media URLs and suppressed referrers.
+- The source-less Qfilm decoy no longer binds as the room player.
+- The mini controller can be hidden and restored through real Shadow DOM buttons.
+- The hide preference persists in extension storage and synchronization sampling continues while hidden.
+- The final 0.1.14 source passes 82 tests, strict typechecking, and both builds.
+- The production-connected 0.1.14 ZIP passes integrity validation.
+- The GitHub repository is confirmed public.
+
+## Failed, Incomplete, or Unresolved Work
+- The generic web fetch tool returned no useful body for Qfilm, so curl, Playwright, and isolated Chrome for Testing were used instead.
+- Branded headless Chrome produced noisy updater and registration warnings; it was not used as the trusted extension verification environment.
+- The first Qfilm identity implementation relied on an iframe referrer and produced a temporary inner-page identity because Qfilm explicitly suppresses the referrer. This approach was replaced by worker-side outer-tab identity binding.
+- A first ZIP build using `ditto` contained `__MACOSX` metadata. That archive was replaced and is not the final artifact.
+- The 0.1.14 source commit and push remain pending at this checkpoint.
+
+## Decisions and Rationale
+- Hiding the controller must not disable synchronization, so UI visibility is stored separately from room and player state.
+- A tiny top-edge restore handle is less likely to cover subtitles than leaving a minimized control at the bottom.
+- Qfilm identity must come from its stable public `vid`, not a temporary cross-origin host or signed HLS query.
+- Outer-page identity is bound in the extension worker because Chrome supplies the sender tab URL even when the page's referrer policy hides it from the iframe.
+- A video element without any source or source object is not a controllable player and should not participate in largest-player frame selection.
+- The repository must be scanned across history, not only the working tree, before relying on public visibility.
+
+## Files and Artifacts
+- `apps/extension/src/content-script.ts`: hide/restore UI, persisted visibility state, real-source filter, and outer identity preparation.
+- `apps/extension/src/mini-controller-state.ts`: pure visibility model.
+- `apps/extension/src/mini-controller-state.test.ts`: visibility regression coverage.
+- `apps/extension/src/media-fingerprint.ts`: Qfilm service and canonical ID plus outer-page rebinding.
+- `apps/extension/src/media-fingerprint.test.ts`: Qfilm variants and suppressed-referrer recovery tests.
+- `apps/extension/src/site-adapter.ts`: usable media-source guard.
+- `apps/extension/src/site-adapter.test.ts`: URL, nested source, MediaStream, and source-less decoy tests.
+- `apps/extension/src/service-worker.ts`: bind media to authoritative navigation or sender tab URL.
+- `packages/protocol/src/index.ts`: Qfilm canonical normalization and strong matching.
+- `packages/protocol/src/index.test.ts`: Qfilm cross-page match test.
+- `README.md`, `docs/IMPLEMENTATION.md`, and `docs/PRIVATE_BETA.md`: public-beta, controller visibility, and Qfilm documentation.
+- `release/sync-your-joy-beta.zip`: production-connected version 0.1.14 package.
+
+## Assumptions and Uncertainties
+- The supplied Qfilm HLS endpoint returned a real player but did not decode media in headless Chrome during the inspection because the third-party source remained at `readyState` 0. Detection, identity, frame binding, UI behavior, and ongoing status reporting were verified. Full two-city playback on that third-party host still depends on the host's availability, ad-block requirements, browser autoplay policy, and network access at test time.
+- The repository was already public when checked in this session. No additional visibility mutation was necessary or performed after that confirmation.
+
+## Open Questions, Blockers, and Dependencies
+- No source or packaging blocker remains.
+- Commit and push 0.1.14, then verify public GitHub visibility and remote commit state once more.
+
+## Next Steps
+1. Stage and commit the 0.1.14 source, tests, documentation, version, and this checkpoint.
+2. Push `main` to GitHub.
+3. Verify GitHub visibility, remote HEAD, and the public repository URL.
+4. Give the user the updated ZIP path, checksum, verified behavior, and installation instructions.
+
+## Historical Checkpoint Notes
+- Checkpoints 1 through 4 remain preserved above.
+- Checkpoint 5 contains no passwords, cookies, account credentials, private keys, access tokens, signed HLS query values, or captured media.

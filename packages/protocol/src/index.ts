@@ -288,6 +288,12 @@ export function normalizeCanonicalId(service: string, canonicalId: string): stri
       return `netflix:${videoId}`
   }
 
+  if (service === 'qfilm') {
+    const videoId = canonicalId.match(/^qfilm:([a-z0-9]+)$/i)?.[1]
+    if (videoId)
+      return `qfilm:${videoId.toLowerCase()}`
+  }
+
   return canonicalId
 }
 
@@ -296,6 +302,7 @@ function hasStrongCanonicalId(service: string, canonicalId: string): boolean {
     || (service === 'netflix' && /^netflix:\d+$/.test(canonicalId))
     || (service === 'youtube' && canonicalId.startsWith('youtube:'))
     || (service === 'disney-plus' && canonicalId.startsWith('disney-plus:'))
+    || (service === 'qfilm' && /^qfilm:[a-z0-9]+$/.test(canonicalId))
 }
 
 export function parseClientMessage(value: unknown): ClientMessage | null {

@@ -11,6 +11,8 @@ export function serviceName(hostname: string): string {
     return 'crunchyroll'
   if (normalized.includes('youtube'))
     return 'youtube'
+  if (normalized === 'qfilm.tv' || normalized.endsWith('.qfilm.tv'))
+    return 'qfilm'
   return 'html5'
 }
 
@@ -39,6 +41,12 @@ export function canonicalMediaId(service: string, url: URL): string {
       return `disney-plus:${videoId.toLowerCase()}`
   }
 
+  if (service === 'qfilm') {
+    const videoId = url.searchParams.get('vid')?.trim()
+    if (videoId && /^[a-z0-9]+$/i.test(videoId))
+      return `qfilm:${videoId.toLowerCase()}`
+  }
+
   const normalized = normalizePageUrl(url)
   return normalized ? `page:${normalized}` : `${url.hostname.toLowerCase()}${url.pathname}`
 }
@@ -57,5 +65,14 @@ export function bindMediaToSharedPage(media: MediaFingerprint, navigationUrl: st
   if (!navigationUrl)
     return media
   const pageUrl = normalizeProtocolPageUrl(navigationUrl)
-  return pageUrl ? { ...media, pageUrl } : media
+  if (!pageUrl)
+    return media
+  const identityUrl = new URL(pageUrl)
+  const service = serviceName(identityUrl.hostname)
+  return {
+    ...media,
+    service,
+    canonicalId: canonicalMediaId(service, identityUrl).slice(0, 500),
+    pageUrl,
+  }
 }
