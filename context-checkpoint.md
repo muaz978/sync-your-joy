@@ -1317,6 +1317,8 @@
 - The elevated Git operation succeeded after the sandbox denied the first attempt. Commit `520b4ca` (`feat: harden playback and browser connectivity gates`) was created and pushed from `4b0a9f1` to public `main`.
 - GitHub CI run `33255960422` completed successfully on the exact commit. It passed install, source verification, Firefox sidebar smoke-build, and production dependency audit. GitHub emitted only the existing Node.js 20 action deprecation annotation.
 - The worktree is clean after the push. No release tag or GitHub Release was created for the Unreleased Gate 1-3 work.
+- Added `.github/workflows/deploy-edge.yml`, a manual production deployment workflow that requires the repository secret `CLOUDFLARE_API_TOKEN` and runs typecheck/tests before Wrangler deployment.
+- Added the corresponding README and `docs/RELEASING.md` instructions. Final local verification after this addition passed typecheck, all 101 tests, the Firefox build, and `git diff --check`.
 
 # Context Checkpoint 9
 

@@ -7,6 +7,12 @@ SyncYourJoy uses an automated, tag-driven GitHub Release workflow. Every release
 
 This makes the README's latest-download link remain valid across versions.
 
+## Deploy the room coordinator
+
+The Worker is deployed separately from extension releases. Add a GitHub Actions repository secret named `CLOUDFLARE_API_TOKEN` with permission to deploy the `sync-your-joy-rooms` Worker, then run the **Deploy room coordinator** workflow manually from the verified `main` commit. The workflow runs the typecheck and test suite before invoking Wrangler and never prints the token.
+
+Local deployment requires an authenticated Wrangler session (`npx wrangler login`) or a `CLOUDFLARE_API_TOKEN` environment variable. The account must own the Cloudflare Worker configured in `apps/edge-service/wrangler.jsonc`.
+
 ## What the workflow verifies
 
 When a tag matching `vMAJOR.MINOR.PATCH` is pushed, `.github/workflows/release.yml`:

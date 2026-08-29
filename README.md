@@ -122,6 +122,8 @@ npm run release:check-version   # verify all release versions agree
 npm run release:package         # create the production extension ZIP and checksum
 ```
 
+Production Worker deployments can also be run from the **Deploy room coordinator** GitHub Actions workflow after adding the repository secret `CLOUDFLARE_API_TOKEN`. The workflow performs source checks before deployment. Store that secret only in GitHub or Wrangler's secure login, never in the extension or repository.
+
 ## Releasing
 
 Pushing a semantic-version tag such as `v0.1.17` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.

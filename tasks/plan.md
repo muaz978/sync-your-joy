@@ -87,6 +87,7 @@ Expand SyncYourJoy's generic adapter so it detects and tracks the largest practi
 - [x] Add a heartbeat watchdog that closes an unresponsive socket and re-enters bounded exponential reconnect.
 - [x] Surface connection quality and RTT in the room panel and keep diagnostics sanitized.
 - [ ] Run network-throttle, offline/online, laptop-sleep, and reconnect chaos tests on two devices.
+- [x] Add a gated GitHub Actions deployment workflow that verifies source/tests before Wrangler production deployment.
 
 ### Gate 3: flexibility and browser portability
 
