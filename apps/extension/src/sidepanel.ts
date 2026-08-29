@@ -244,6 +244,7 @@ function roomView(current: ExtensionState): string {
       ${readinessControls(me, isController, controller, snapshot.media !== null, current.currentMedia !== null, pendingReadyValue !== null)}
       ${isController ? sharedLinkControls(current.currentMedia?.pageUrl ?? null, pendingOpenLinkUrl !== null) : ''}
       ${localSyncControls(current.currentMedia !== null, snapshot.media !== null)}
+      ${playerDiagnosticsCard(current)}
       ${isController && snapshot.media ? controllerControls(snapshot.playback.status, roomPosition, allReady, snapshot.seek ?? null, connected.length) : ''}
 
       <div>
@@ -360,11 +361,15 @@ function readinessControls(me: ParticipantState | undefined, isController: boole
       <div class="soft-panel p-4">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <p class="section-label m-0">Preparing your player</p>
-            <p class="mt-1 mb-0 text-xs leading-5 color-fade">The shared page opened. SyncYourJoy is loading and detecting its video.</p>
+            <p class="section-label m-0">No controllable video detected yet</p>
+            <p class="mt-1 mb-0 text-xs leading-5 color-fade">The page may still be loading, or it may render through a closed Shadow DOM, canvas, or a frame Chrome cannot inject into.</p>
           </div>
-          <span class="status-badge border-amber-600/20 bg-amber-500/10 text-amber-700 dark:text-amber-300">Loading</span>
+          <span class="status-badge border-amber-600/20 bg-amber-500/10 text-amber-700 dark:text-amber-300">Search</span>
         </div>
+        <button id="recheck-video" class="btn-primary mt-4 w-full tap-scale" type="button">
+          ${screenIcon('h-4 w-4')}
+          Redetect player
+        </button>
       </div>
     `
   }
@@ -386,7 +391,7 @@ function readinessControls(me: ParticipantState | undefined, isController: boole
           </button>`
         : `<button id="recheck-video" class="btn-primary mt-4 w-full tap-scale" type="button">
             ${screenIcon('h-4 w-4')}
-            Recheck this tab
+            Redetect player
           </button>`}
     </div>
   `
@@ -403,7 +408,36 @@ function localSyncControls(hasLocalPlayer: boolean, roomHasMedia: boolean): stri
         ${syncIcon('h-4 w-4')}
         Sync me now
       </button>
+      <button id="redetect-player" class="btn-action mt-2 w-full tap-scale" type="button">
+        ${screenIcon('h-4 w-4')}
+        Redetect player
+      </button>
     </div>
+  `
+}
+
+function playerDiagnosticsCard(current: ExtensionState): string {
+  const diagnostics = current.playerDiagnostics
+  const sample = current.lastPlayerSample
+  const frame = current.playerFrameId === null ? 'Not bound' : current.playerFrameId === 0 ? 'Top page' : `Embedded frame ${current.playerFrameId}`
+  const source = diagnostics?.currentSrcKind ?? 'none'
+  return `
+    <details class="soft-panel p-4">
+      <summary class="cursor-pointer list-none text-sm font-700">Player diagnostics</summary>
+      <div class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+        <span class="color-fade">Binding</span><span class="text-right">${escapeHtml(frame)}</span>
+        <span class="color-fade">Origin</span><span class="text-right">${escapeHtml(diagnostics?.origin ?? 'Not detected')}</span>
+        <span class="color-fade">Source</span><span class="text-right">${escapeHtml(source)}</span>
+        <span class="color-fade">Position</span><span class="text-right font-mono tabular-nums">${sample ? formatTime(sample.positionSeconds) : '—'}</span>
+        <span class="color-fade">Paused</span><span class="text-right">${sample ? sample.paused ? 'Yes' : 'No' : '—'}</span>
+        <span class="color-fade">Buffering</span><span class="text-right">${sample ? sample.buffering ? 'Yes' : 'No' : '—'}</span>
+        <span class="color-fade">Ready state</span><span class="text-right font-mono">${diagnostics?.readyState ?? '—'}</span>
+        <span class="color-fade">Network state</span><span class="text-right font-mono">${diagnostics?.networkState ?? '—'}</span>
+        <span class="color-fade">Duration</span><span class="text-right font-mono tabular-nums">${sample?.durationSeconds == null ? '—' : formatTime(sample.durationSeconds)}</span>
+        <span class="color-fade">MediaStream</span><span class="text-right">${diagnostics ? diagnostics.hasSourceObject ? 'Yes' : 'No' : '—'}</span>
+      </div>
+      <p class="mt-3 mb-0 text-[0.6875rem] leading-4 color-fade">These values describe the selected browser video element only. No media bytes or credentials are collected.</p>
+    </details>
   `
 }
 
@@ -562,6 +596,10 @@ function bindRoomActions(): void {
   })
 
   document.querySelector('#recheck-video')?.addEventListener('click', () => {
+    void perform({ type: 'RECHECK_MEDIA' })
+  })
+
+  document.querySelector('#redetect-player')?.addEventListener('click', () => {
     void perform({ type: 'RECHECK_MEDIA' })
   })
 

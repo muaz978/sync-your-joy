@@ -38,7 +38,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.1.16` includes:
+Version `0.1.17` includes:
 
 - automatic room-wide play, pause, forward seek, and backward seek;
 - a transactional seek barrier that aligns real players before playback resumes;
@@ -103,6 +103,7 @@ Useful commands:
 
 ```bash
 npm run dev:server              # local WebSocket room service
+npm run dev:fixture             # local generic-player compatibility fixture
 npm run dev:edge                # local Cloudflare Durable Objects runtime
 npm run deploy:edge             # deploy the edge room service
 npm run smoke:edge -- URL       # exercise two clients against a room service
@@ -116,7 +117,7 @@ npm run release:package         # create the production extension ZIP and checks
 
 ## Releasing
 
-Pushing a semantic-version tag such as `v0.1.16` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
+Pushing a semantic-version tag such as `v0.1.17` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
 
 Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and pushes to `main` run the same source, test, build, and production-dependency checks through [continuous integration](.github/workflows/ci.yml).
 
@@ -128,6 +129,7 @@ Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and push
 - [Reliability review and roadmap](docs/RELIABILITY_REVIEW.md)
 - [Product plan](docs/PRODUCT_PLAN.md)
 - [Research and constraints](docs/RESEARCH.md)
+- [Generic player fixture](docs/TEST_FIXTURE.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 

@@ -93,6 +93,11 @@ export interface DiagnosticsReport {
   mediaService: string | null
   mediaCanonicalId: string | null
   mediaPageUrl: string | null
+  playerOrigin?: string | null
+  playerReadyState?: number | null
+  playerNetworkState?: number | null
+  playerCurrentSrcKind?: string | null
+  playerHasSourceObject?: boolean | null
   sample: PlayerSample | null
   events: DiagnosticEvent[]
 }
@@ -431,6 +436,11 @@ function validDiagnosticsReport(value: unknown): value is DiagnosticsReport {
     && (value.mediaService === null || typeof value.mediaService === 'string' && value.mediaService.length <= 40)
     && (value.mediaCanonicalId === null || typeof value.mediaCanonicalId === 'string' && value.mediaCanonicalId.length <= 500)
     && (value.mediaPageUrl === null || validPageUrl(value.mediaPageUrl))
+    && (value.playerOrigin === undefined || value.playerOrigin === null || validShortText(value.playerOrigin, 40))
+    && (value.playerReadyState === undefined || value.playerReadyState === null || isFiniteNonNegative(value.playerReadyState))
+    && (value.playerNetworkState === undefined || value.playerNetworkState === null || isFiniteNonNegative(value.playerNetworkState))
+    && (value.playerCurrentSrcKind === undefined || value.playerCurrentSrcKind === null || validShortText(value.playerCurrentSrcKind, 20))
+    && (value.playerHasSourceObject === undefined || value.playerHasSourceObject === null || typeof value.playerHasSourceObject === 'boolean')
     && (value.sample === null || validPlayerSample(value.sample))
     && value.events.every(validDiagnosticEvent)
 }

@@ -55,6 +55,14 @@ Expand SyncYourJoy's generic adapter so it detects and tracks the largest practi
 | Autoplay or provider policy blocks play | Room clock can advance without frames | Preserve existing player-health reporting and explicit user-gesture Sync recovery. |
 | Closed or canvas-only players | No controllable HTML media element | Surface an explicit unsupported-player status and document the browser security limitation. |
 
+## Follow-up compatibility milestone
+
+- [x] Add player provenance and per-player health diagnostics to the side panel and sanitized reports.
+- [x] Add a Redetect player action for loading, unsupported, mismatched, and replaced players.
+- [x] Add a local fixture page and server for native, open-Shadow-DOM, MediaStream, replacement, and SPA-route checks.
+- [x] Extend provider identity regression coverage for YouTube and Disney Plus.
+- [ ] Run the fixture in a headed Chrome session and capture provider-specific regressions on authenticated services.
+
 ## Official references
 
 - Chrome content script frame matching: https://developer.chrome.com/docs/extensions/reference/manifest/content-scripts

@@ -13,3 +13,11 @@
 - [ ] Focused adapter tests pass.
 - [ ] Full typecheck, tests, and builds pass.
 - [ ] Real headed-browser fixture confirms Shadow DOM and SPA lifecycle behavior.
+
+## Follow-up milestone
+
+- [x] Player provenance and health diagnostics in the side panel and sanitized detailed reports.
+- [x] Redetect player action in all room states.
+- [x] Local generic-player fixture and server.
+- [x] YouTube and Disney Plus identity regression coverage.
+- [ ] Headed Chrome fixture run and authenticated provider regression pass.

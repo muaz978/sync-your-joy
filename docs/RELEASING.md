@@ -38,7 +38,7 @@ npm ci
 npm run release:check-version
 npm run check
 npm audit --omit=dev --audit-level=high
-RELEASE_VERSION=0.1.16 npm run release:package
+RELEASE_VERSION=0.1.17 npm run release:package
 ```
 
 The local packaging command writes ignored artifacts under `release/`. Inspect the ZIP and checksum before tagging.
@@ -50,8 +50,8 @@ Update `CHANGELOG.md` with only completed and verified behavior. Commit and push
 Create an annotated tag on the verified commit and push only that tag:
 
 ```bash
-git tag -a v0.1.16 -m "SyncYourJoy v0.1.16"
-git push origin v0.1.16
+git tag -a v0.1.17 -m "SyncYourJoy v0.1.17"
+git push origin v0.1.17
 ```
 
 The release workflow creates the GitHub Release. Do not upload a different hand-built ZIP under the same version. After it completes:

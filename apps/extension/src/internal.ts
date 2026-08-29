@@ -1,5 +1,15 @@
 import type { ClientRoomState, ControlKind, MediaFingerprint, PlayerSample } from '@syncyourjoy/protocol'
 
+export type PlayerOrigin = 'light-dom' | 'open-shadow-dom'
+
+export interface PlayerDiagnostics {
+  origin: PlayerOrigin
+  readyState: number
+  networkState: number
+  currentSrcKind: 'none' | 'http' | 'https' | 'blob' | 'data' | 'other'
+  hasSourceObject: boolean
+}
+
 export interface ExtensionState extends ClientRoomState {
   displayName: string
   playerTabId: number | null
@@ -7,6 +17,7 @@ export interface ExtensionState extends ClientRoomState {
   playerAreaPixels: number
   playerLastSeenAtMs: number
   currentMedia: MediaFingerprint | null
+  playerDiagnostics: PlayerDiagnostics | null
   lastPlayerSample: PlayerSample | null
   lastOpenedNavigationRevision: number
 }
@@ -24,7 +35,7 @@ export type RuntimeRequest =
   | { type: 'DOWNLOAD_DIAGNOSTICS' }
   | { type: 'CONTROL'; kind: ControlKind; positionSeconds?: number }
   | { type: 'TRANSFER_CONTROL'; participantId: string }
-  | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number }
+  | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number; diagnostics?: PlayerDiagnostics }
   | { type: 'MEDIA_LOST' }
   | { type: 'PLAYER_STATUS'; basedOnRevision: number; sample: PlayerSample }
   | { type: 'SEEK_APPLIED'; revision: number; positionSeconds: number }
@@ -38,6 +49,7 @@ export type ContentRequest =
 export interface PlayerContext {
   media: MediaFingerprint | null
   sample: PlayerSample | null
+  diagnostics: PlayerDiagnostics | null
 }
 
 export type RuntimeEvent =

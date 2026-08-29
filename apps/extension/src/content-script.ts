@@ -1,5 +1,5 @@
 import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
-import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
+import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
@@ -429,6 +429,7 @@ async function reportMedia(target: HTMLVideoElement, media = createMediaFingerpr
     type: 'MEDIA_DETECTED',
     media,
     areaPixels: Math.max(0, target.clientWidth * target.clientHeight),
+    diagnostics: playerDiagnostics(target),
   })
 }
 
@@ -675,9 +676,10 @@ async function reportPlayerStatus(buffering: boolean): Promise<void> {
 
 function currentPlayerContext(): PlayerContext {
   if (!video)
-    return { media: null, sample: null }
+    return { media: null, sample: null, diagnostics: null }
   return {
     media: createMediaFingerprint(video),
+    diagnostics: playerDiagnostics(video),
     sample: {
       positionSeconds: finiteOrZero(video.currentTime),
       durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
@@ -685,6 +687,33 @@ function currentPlayerContext(): PlayerContext {
       buffering: false,
       sampledAtLocalMs: Date.now(),
     },
+  }
+}
+
+function playerDiagnostics(target: HTMLVideoElement): PlayerDiagnostics {
+  let currentSrcKind: PlayerDiagnostics['currentSrcKind'] = 'none'
+  const currentSrc = target.currentSrc.trim()
+  if (currentSrc) {
+    try {
+      const protocol = new URL(currentSrc, location.href).protocol
+      currentSrcKind = protocol === 'http:' ? 'http'
+        : protocol === 'https:' ? 'https'
+          : protocol === 'blob:' ? 'blob'
+            : protocol === 'data:' ? 'data'
+              : 'other'
+    }
+    catch {
+      currentSrcKind = 'other'
+    }
+  }
+  const rootNode = target.getRootNode()
+  const origin: PlayerOrigin = rootNode instanceof ShadowRoot ? 'open-shadow-dom' : 'light-dom'
+  return {
+    origin,
+    readyState: target.readyState,
+    networkState: target.networkState,
+    currentSrcKind,
+    hasSourceObject: target.srcObject !== null,
   }
 }
 

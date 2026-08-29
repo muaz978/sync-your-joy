@@ -50,6 +50,14 @@ describe('streaming media fingerprints', () => {
       .toBe('netflix:81712345')
   })
 
+  it('keeps YouTube and Disney Plus IDs stable across cosmetic URL variants', () => {
+    expect(canonicalMediaId('youtube', new URL('https://www.youtube.com/watch?v=abc123&t=42')))
+      .toBe('youtube:abc123')
+    expect(canonicalMediaId('disney-plus', new URL('https://www.disneyplus.com/video/AbC-123?cid=tracking')))
+      .toBe('disney-plus:abc-123')
+    expect(serviceName('video.disneyplus.com')).toBe('disney-plus')
+  })
+
   it('uses the stable Qfilm video ID across page and embed variants', () => {
     const variants = [
       'https://a.qfilm.tv/play.php?vid=a0821a41c',

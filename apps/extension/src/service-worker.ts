@@ -39,6 +39,7 @@ let state: ExtensionState = {
   playerAreaPixels: 0,
   playerLastSeenAtMs: 0,
   currentMedia: null,
+  playerDiagnostics: null,
   lastPlayerSample: null,
   lastOpenedNavigationRevision: 0,
 }
@@ -87,6 +88,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   state.playerAreaPixels = 0
   state.playerLastSeenAtMs = 0
   state.currentMedia = null
+  state.playerDiagnostics = null
   state.lastPlayerSample = null
   if (state.snapshot)
     sendToServer({ type: 'set_ready', ready: false, media: null })
@@ -173,8 +175,14 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         frameId: sender.frameId ?? null,
         areaPixels: request.areaPixels,
         service: request.media.service,
+        origin: request.diagnostics?.origin ?? null,
+        readyState: request.diagnostics?.readyState ?? null,
+        networkState: request.diagnostics?.networkState ?? null,
+        currentSrcKind: request.diagnostics?.currentSrcKind ?? null,
+        hasSourceObject: request.diagnostics?.hasSourceObject ?? null,
       })
       state.currentMedia = candidateMedia
+      state.playerDiagnostics = request.diagnostics ?? null
       if (state.snapshot) {
         const me = state.snapshot.participants.find(participant => participant.id === state.participantId)
         const matches = mediaMatches(state.snapshot.media, state.currentMedia)
@@ -205,6 +213,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       if (!isBoundPlayerSender(sender))
         return success()
       state.currentMedia = null
+      state.playerDiagnostics = null
       state.lastPlayerSample = null
       clearPendingMediaMismatch()
       recordDiagnostic('player', 'media_lost', { frameId: sender.frameId ?? null })
@@ -741,6 +750,7 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
     }
     const tab = await chrome.tabs.get(state.playerTabId)
     state.currentMedia = bindMediaToSharedPage(context.media, state.snapshot?.navigation?.url ?? tab.url)
+    state.playerDiagnostics = context.diagnostics
     state.lastPlayerSample = context.sample
     state.playerLastSeenAtMs = Date.now()
     return true
@@ -775,6 +785,7 @@ async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snaps
         throw new Error('Chrome did not return the opened tab.')
       void bindPlayerContext(tab.id, null, 0)
       state.currentMedia = null
+      state.playerDiagnostics = null
       state.lastPlayerSample = null
       state.lastError = null
       void publishState()
@@ -791,6 +802,7 @@ function clearPlayerTab(): void {
   state.playerAreaPixels = 0
   state.playerLastSeenAtMs = 0
   state.currentMedia = null
+  state.playerDiagnostics = null
   state.lastPlayerSample = null
   clearPendingMediaMismatch()
 }
@@ -875,6 +887,7 @@ function detachedState(): ExtensionState {
     playerAreaPixels: 0,
     playerLastSeenAtMs: 0,
     currentMedia: null,
+    playerDiagnostics: null,
     lastPlayerSample: null,
     lastError: null,
   }
@@ -919,6 +932,11 @@ function buildDiagnosticsReport(): DiagnosticsReport {
     mediaService: state.currentMedia?.service ?? null,
     mediaCanonicalId: sanitizeDiagnosticCanonicalId(state.currentMedia?.canonicalId),
     mediaPageUrl: sanitizeDiagnosticPageUrl(state.currentMedia?.pageUrl),
+    playerOrigin: state.playerDiagnostics?.origin ?? null,
+    playerReadyState: state.playerDiagnostics?.readyState ?? null,
+    playerNetworkState: state.playerDiagnostics?.networkState ?? null,
+    playerCurrentSrcKind: state.playerDiagnostics?.currentSrcKind ?? null,
+    playerHasSourceObject: state.playerDiagnostics?.hasSourceObject ?? null,
     sample: state.lastPlayerSample ? { ...state.lastPlayerSample } : null,
     events: diagnosticEvents.map(event => ({ ...event, details: { ...event.details } })),
   }

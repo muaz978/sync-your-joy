@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SyncYourJoy generic player fixture</title>
+  <style>
+    :root { color-scheme: dark; font: 16px system-ui, sans-serif; background: #111827; color: #f8fafc; }
+    body { max-width: 960px; margin: 0 auto; padding: 2rem; }
+    .controls { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+    button { border: 1px solid #475569; border-radius: .5rem; background: #1e293b; color: inherit; padding: .65rem .8rem; cursor: pointer; }
+    video { display: block; width: min(100%, 720px); min-height: 120px; background: #000; }
+    .decoy { display: none; }
+    pre { padding: 1rem; border-radius: .5rem; background: #0f172a; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>SyncYourJoy generic player fixture</h1>
+  <p>Use this page to exercise native video, open Shadow DOM, MediaStream, dynamic replacement, and SPA navigation.</p>
+  <div class="controls">
+    <button id="add-shadow" type="button">Add open Shadow DOM player</button>
+    <button id="replace" type="button">Replace native player</button>
+    <button id="route" type="button">Change SPA route</button>
+    <button id="stream" type="button">Attach MediaStream player</button>
+  </div>
+  <video id="native-player" controls preload="metadata" src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"></video>
+  <video class="decoy" aria-hidden="true"></video>
+  <main id="dynamic"></main>
+  <pre id="state">route: /generic-player</pre>
+  <script>
+    const source = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4'
+    const state = document.querySelector('#state')
+    const dynamic = document.querySelector('#dynamic')
+    document.querySelector('#add-shadow').addEventListener('click', () => {
+      if (document.querySelector('x-open-player')) return
+      const host = document.createElement('x-open-player')
+      dynamic.append(host)
+    })
+    customElements.define('x-open-player', class extends HTMLElement {
+      connectedCallback() {
+        const root = this.attachShadow({ mode: 'open' })
+        root.innerHTML = `<h2>Open Shadow DOM player</h2><video controls preload="metadata" src="${source}"></video>`
+      }
+    })
+    document.querySelector('#replace').addEventListener('click', () => {
+      const current = document.querySelector('#native-player')
+      const replacement = document.createElement('video')
+      replacement.id = 'native-player'
+      replacement.controls = true
+      replacement.preload = 'metadata'
+      replacement.src = source
+      current.replaceWith(replacement)
+    })
+    document.querySelector('#route').addEventListener('click', () => {
+      const next = location.pathname + '?episode=2'
+      history.pushState({}, '', next)
+      state.textContent = `route: ${location.pathname}${location.search}`
+    })
+    document.querySelector('#stream').addEventListener('click', () => {
+      if (document.querySelector('#stream-player')) return
+      const canvas = document.createElement('canvas')
+      canvas.width = 640
+      canvas.height = 360
+      const context = canvas.getContext('2d')
+      if (!context || !canvas.captureStream) {
+        state.textContent = 'MediaStream is not available in this browser.'
+        return
+      }
+      let hue = 0
+      setInterval(() => {
+        hue = (hue + 1) % 360
+        context.fillStyle = `hsl(${hue} 55% 35%)`
+        context.fillRect(0, 0, canvas.width, canvas.height)
+      }, 50)
+      const video = document.createElement('video')
+      video.id = 'stream-player'
+      video.controls = true
+      video.autoplay = true
+      video.muted = true
+      video.srcObject = canvas.captureStream(30)
+      dynamic.append(video)
+    })
+  </script>
+</body>
+</html>

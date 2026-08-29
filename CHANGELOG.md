@@ -2,6 +2,20 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.1.17] - 2026-08-29
+
+### Added
+
+- Player diagnostics in the side panel, including binding frame, light-DOM/open-Shadow-DOM origin, source kind, playback position, pause/buffer state, ready state, network state, duration, and MediaStream status.
+- A Redetect player action in every room state, including while a shared page is still loading or has no controllable video.
+- Clear unsupported-player guidance for pages that use canvas rendering, closed Shadow DOM, inaccessible frames, or browser-internal surfaces.
+- A local generic-player fixture for native video, open Shadow DOM, MediaStream, player replacement, and SPA route testing.
+- Additional regression coverage for YouTube, Disney Plus, and generic player-source identity normalization.
+
+### Fixed
+
+- Included player diagnostics in the sanitized detailed report without collecting media bytes, credentials, cookies, or signed URL parameters.
+
 ## [0.1.16] - 2026-08-29
 
 ### Added
@@ -70,3 +84,4 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 [0.1.15]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.15
 [0.1.16]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.16
+[0.1.17]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.17
