@@ -1,6 +1,7 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "sync-your-joy-rooms",
+  "account_id": "40ae5b90cfe7a505dd1acc3f845ef3af",
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-08",
   "observability": {
