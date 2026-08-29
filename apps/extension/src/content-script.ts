@@ -7,6 +7,7 @@ import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-int
 import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
 import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
+import { discoverOpenShadowRoots, discoverVideoElements } from './video-discovery.ts'
 
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
@@ -44,6 +45,8 @@ let lastSiteBootstrapAt = 0
 let playerScanTimer: ReturnType<typeof setTimeout> | null = null
 let mediaLossTimer: ReturnType<typeof setTimeout> | null = null
 let miniControllerHidden = false
+let lastObservedPageIdentity = normalizePageUrl(new URL(location.href))
+const playerObservers = new Map<Node, MutationObserver>()
 
 const pillHost = document.createElement('div')
 pillHost.id = 'sync-your-joy-root'
@@ -285,16 +288,14 @@ void sendRuntime({ type: 'GET_STATE' }).then((response) => {
 
 scanForPlayer()
 setInterval(scanForPlayer, PLAYER_SCAN_INTERVAL_MS)
-const playerObserver = new MutationObserver(schedulePlayerScan)
-playerObserver.observe(document.documentElement, {
-  subtree: true,
-  childList: true,
-  attributes: true,
-  attributeFilter: ['class', 'style', 'src'],
-})
+setInterval(observePageIdentity, 500)
+window.addEventListener('popstate', observePageIdentity)
+window.addEventListener('hashchange', observePageIdentity)
+refreshPlayerObservers()
 setInterval(() => {
   if (!video)
     return
+  observePageIdentity()
   void reportPlayerStatus(false)
   applyAuthoritativeState()
 }, SAMPLE_INTERVAL_MS)
@@ -308,6 +309,8 @@ document.addEventListener('fullscreenchange', () => {
 })
 
 function scanForPlayer(): void {
+  observePageIdentity()
+  refreshPlayerObservers()
   const candidate = findPrimaryVideo()
   if (!candidate) {
     maybeBootstrapSitePlayer()
@@ -368,6 +371,48 @@ function schedulePlayerScan(): void {
   }, 25)
 }
 
+function refreshPlayerObservers(): void {
+  const roots: Array<Document | ShadowRoot> = [document, ...discoverOpenShadowRoots(document)]
+  const currentRoots = new Set<Node>(roots)
+  for (const root of roots) {
+    if (playerObservers.has(root))
+      continue
+    const observer = new MutationObserver(schedulePlayerScan)
+    observer.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'src', 'hidden'],
+    })
+    playerObservers.set(root, observer)
+  }
+  for (const [root, observer] of playerObservers) {
+    if (currentRoots.has(root))
+      continue
+    observer.disconnect()
+    playerObservers.delete(root)
+  }
+}
+
+function observePageIdentity(): void {
+  let currentIdentity: string | null = null
+  try {
+    currentIdentity = normalizePageUrl(new URL(location.href))
+  }
+  catch {
+    return
+  }
+  if (currentIdentity === lastObservedPageIdentity)
+    return
+  lastObservedPageIdentity = currentIdentity
+  lastFingerprintKey = ''
+  lastMediaReportAt = 0
+  if (video) {
+    reportMediaIfChanged(video)
+    void reportPlayerStatus(false)
+  }
+}
+
 function reportMediaIfChanged(target: HTMLVideoElement): void {
   const media = createMediaFingerprint(target)
   const key = JSON.stringify(media)
@@ -388,7 +433,7 @@ async function reportMedia(target: HTMLVideoElement, media = createMediaFingerpr
 }
 
 function findPrimaryVideo(): HTMLVideoElement | null {
-  const videos = [...document.querySelectorAll('video')]
+  const videos = discoverVideoElements(document)
     .filter(item => item instanceof HTMLVideoElement && isVisibleVideo(item))
   return videos.sort((a, b) => videoCandidateScore(b) - videoCandidateScore(a))[0] ?? null
 }
@@ -396,7 +441,14 @@ function findPrimaryVideo(): HTMLVideoElement | null {
 function isVisibleVideo(target: HTMLVideoElement): boolean {
   if (!target.isConnected)
     return false
-  if (!hasUsableVideoSource(target.currentSrc, target.getAttribute('src'), target.querySelector('source[src]')?.getAttribute('src') ?? null, target.srcObject !== null))
+  if (!hasUsableVideoSource(
+    target.currentSrc,
+    target.getAttribute('src'),
+    target.querySelector('source[src]')?.getAttribute('src') ?? null,
+    target.srcObject !== null,
+    target.readyState,
+    target.networkState,
+  ))
     return false
   const style = getComputedStyle(target)
   if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0)
@@ -430,8 +482,12 @@ function attachPlayer(target: HTMLVideoElement): void {
   target.addEventListener('playing', handleCanPlay)
   target.addEventListener('canplay', handleCanPlay)
   target.addEventListener('loadedmetadata', handleMediaReady)
+  target.addEventListener('loadeddata', handleMediaReady)
   target.addEventListener('durationchange', handleMediaReady)
   target.addEventListener('progress', handleMediaReady)
+  target.addEventListener('loadstart', handleMediaLifecycle)
+  target.addEventListener('emptied', handleMediaLifecycle)
+  target.addEventListener('error', handleMediaLifecycle)
   renderPill()
 }
 
@@ -449,8 +505,12 @@ function detachPlayer(target: HTMLVideoElement | null): void {
   target.removeEventListener('playing', handleCanPlay)
   target.removeEventListener('canplay', handleCanPlay)
   target.removeEventListener('loadedmetadata', handleMediaReady)
+  target.removeEventListener('loadeddata', handleMediaReady)
   target.removeEventListener('durationchange', handleMediaReady)
   target.removeEventListener('progress', handleMediaReady)
+  target.removeEventListener('loadstart', handleMediaLifecycle)
+  target.removeEventListener('emptied', handleMediaLifecycle)
+  target.removeEventListener('error', handleMediaLifecycle)
   if (seekIntentTimer)
     clearTimeout(seekIntentTimer)
   seekIntentTimer = null
@@ -587,6 +647,14 @@ function handleCanPlay(): void {
 function handleMediaReady(): void {
   applyAuthoritativeState()
   maybeAcknowledgeRoomSeek()
+}
+
+function handleMediaLifecycle(): void {
+  lastFingerprintKey = ''
+  lastMediaReportAt = 0
+  schedulePlayerScan()
+  if (video)
+    reportMediaIfChanged(video)
 }
 
 async function reportPlayerStatus(buffering: boolean): Promise<void> {

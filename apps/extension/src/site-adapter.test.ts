@@ -21,5 +21,7 @@ describe('generic site adapter guards', () => {
     expect(hasUsableVideoSource('', '/movie.m3u8', null, false)).toBe(true)
     expect(hasUsableVideoSource('', null, '/movie.mp4', false)).toBe(true)
     expect(hasUsableVideoSource('', null, null, true)).toBe(true)
+    expect(hasUsableVideoSource('', null, null, false, 1, 2)).toBe(true)
+    expect(hasUsableVideoSource('', null, null, false, 0, 2)).toBe(false)
   })
 })

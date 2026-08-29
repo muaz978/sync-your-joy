@@ -22,6 +22,14 @@ The differentiator should not be “watch together exists.” It should be that 
 - Chrome autoplay rules can reject `play()` without an accepted user interaction. The [autoplay policy](https://developer.chrome.com/blog/autoplay/) makes an explicit ready/join gesture and a visible recovery prompt necessary.
 - Chrome Web Store policy requires [minimum permissions and secure handling](https://developer.chrome.com/docs/webstore/program-policies/user-data-faq). Browsing activity and website content count as user data, even when processed locally.
 - [Manifest V3 store requirements](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements) allow server communication but require extension functionality to remain discernible from the submitted package. Remote configuration may be data, not executable logic.
+- Chrome's content-script `all_frames` and `match_origin_as_fallback` options cover matching child frames and related `about:`, `data:`, `blob:`, and `filesystem:` frames, but they do not bypass frame-injection restrictions or expose closed Shadow DOM.
+
+## Generic player coverage
+
+- [HTMLMediaElement.currentSrc](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/currentSrc) is the browser's chosen absolute media resource and may be empty while the media network state is `EMPTY`.
+- [HTMLMediaElement.readyState](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/readyState) distinguishes no media information from initialized metadata and current/future decoded data. The generic adapter uses these signals with `networkState` and `srcObject` to avoid rejecting initialized MSE or MediaStream players while filtering pre-created decoys.
+- [ShadowRoot](https://developer.mozilla.org/en-US/docs/Web/API/ShadowRoot) allows traversal of open roots. Closed roots intentionally remain outside the extension's capability boundary.
+- Native MP4/WebM/Ogg, HLS/DASH through browser-native or MSE playback, and DRM-backed providers are compatible only when they expose an ordinary controllable `HTMLVideoElement`. The extension never obtains DRM keys, decoded frames, media bytes, or network responses.
 
 ## Realtime backend findings
 

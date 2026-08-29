@@ -25,6 +25,19 @@ export function isLikelyAdvertisingUrl(value: string | undefined): boolean {
   }
 }
 
-export function hasUsableVideoSource(currentSrc: string, srcAttribute: string | null, nestedSource: string | null, hasSourceObject: boolean): boolean {
-  return hasSourceObject || Boolean(currentSrc.trim() || srcAttribute?.trim() || nestedSource?.trim())
+export function hasUsableVideoSource(
+  currentSrc: string,
+  srcAttribute: string | null,
+  nestedSource: string | null,
+  hasSourceObject: boolean,
+  readyState = 0,
+  networkState = 0,
+): boolean {
+  // MediaSource-backed players can be initialized through source buffers
+  // without a useful src attribute. Once metadata exists and the media
+  // network state is not EMPTY, the element is a real player rather than a
+  // decorative or pre-created decoy video.
+  return hasSourceObject
+    || Boolean(currentSrc.trim() || srcAttribute?.trim() || nestedSource?.trim())
+    || (networkState !== 0 && readyState >= 1)
 }

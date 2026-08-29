@@ -67,7 +67,11 @@ The content script reads only the bound video element's playback state and a min
 
 ## Current platform approach
 
-All HTTP/HTTPS platforms use the generic standards-based video adapter in this build. The adapter calls ordinary `HTMLMediaElement` operations such as `play()`, `pause()`, `currentTime`, and `playbackRate`. It does not access or alter DRM.
+All HTTP/HTTPS platforms use the generic standards-based video adapter in this build. The adapter calls ordinary `HTMLMediaElement` operations such as `play()`, `pause()`, `currentTime`, and `playbackRate`. It discovers native `<video>` elements in the light DOM and open Shadow DOM roots, and each matching child frame receives its own adapter instance through Manifest V3 frame injection. It accepts normal source URLs, nested `<source>` elements, MediaSource/blob players, and MediaStream-backed players once the browser reports initialized media metadata. It does not access or alter DRM.
+
+Chrome's `all_frames` and `match_origin_as_fallback` settings cover matching child frames and related `data:`, `blob:`, and `filesystem:` frames. They do not grant access to closed Shadow DOM, canvas-only renderers, browser-internal pages, native applications, or frames into which Chrome refuses to inject a content script. Those cases are reported as unsupported rather than handled through screen capture or player reverse engineering.
+
+The adapter rechecks open Shadow DOM roots and page identity continuously. This covers single-page navigation and provider player replacement without requiring a refresh. A page that reuses one video element for multiple titles still needs an authoritative room link or a provider-specific stable identity so the room cannot mistake two titles at the same URL.
 
 Commercial streaming sites change their page structure and playback behavior regularly. Each platform still needs a dedicated compatibility and regression test pass before it can be described as production-supported. The generic adapter fails visibly when it cannot find a controllable video instead of attempting to bypass the player.
 

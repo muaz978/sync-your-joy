@@ -1,6 +1,6 @@
 {
   "name": "sync-your-joy",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Synchronize play, pause, and seeking across separate streaming accounts without screen sharing.",
   "private": true,
   "type": "module",

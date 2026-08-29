@@ -1058,3 +1058,135 @@
 ## Historical Checkpoint Notes
 - Checkpoints 1 through 5 remain preserved above without deletion or shortening.
 - This checkpoint deliberately omits OAuth codes, tokens, cookies, passwords, browser sessions, and the correct account email from the tracked public file.
+
+# Context Checkpoint 7
+
+## Session Metadata
+- Task or project: SyncYourJoy broad browser video-player compatibility expansion
+- Checkpoint number: 7
+- Date and time: 2026-08-29, Europe/Istanbul
+- Coverage period: Compatibility design and implementation after the verified public 0.1.15 release through version 0.1.16 verification and packaging
+- Current context status: Generic player discovery and lifecycle resilience are implemented and verified by source tests, builds, manifest checks, and a production protocol smoke. The source changes are not yet committed or published as a GitHub release.
+
+## User Objective and Requirements
+- Widen availability to cover as many browser-hosted video formats, players, websites, and streaming sites as practical.
+- Preserve the product boundary: synchronize browser playback state only, with no screen capture, media transport, credential handling, DRM-key access, or network-response interception.
+- Avoid promising support for player implementations that browser content scripts cannot control.
+
+## Current State
+- Repository: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy`.
+- Public GitHub repository remains `https://github.com/muaz978/sync-your-joy`.
+- Branch remains `main`; latest published release remains `v0.1.15`.
+- Source and extension version references are now 0.1.16 in `package.json`, `package-lock.json`, `apps/extension/package.json`, and `apps/extension/static/manifest.json`.
+- A new installable ZIP was packaged locally at `release/sync-your-joy-extension.zip`; its SHA-256 is `f2b6f931043c14c6ab684fc3019a62653c567d4b65251569ce877c4f3303eb11`.
+- Production Worker was not changed in this slice, so the last verified production version remains `9dc1f82f-f994-4023-8e2a-bf95c8d146ab` as recorded in checkpoint 6.
+
+## Complete Chronological Activity Log
+
+### Compatibility plan and source research
+- The latest user request changed the focus from individual providers to broad browser player coverage.
+- The planning-and-task-breakdown skill was read and applied. A concrete plan was written to `tasks/plan.md`, with phases for discovery, lifecycle resilience, documentation, and release readiness.
+- The source-driven-development skill was read and applied. Official Chrome and MDN references were used for claims about content-script frame matching, `currentSrc`, `readyState`, and `ShadowRoot`.
+- Official references reviewed included Chrome content-script matching and related-frame behavior, MDN `HTMLMediaElement.currentSrc`, MDN `HTMLMediaElement.readyState`, and MDN `ShadowRoot`.
+- The compatibility boundary was explicitly set at a controllable `HTMLVideoElement`. Native MP4/WebM/Ogg, MSE-based adaptive playback, blob-backed players, MediaStream-backed players, and DRM-backed sites are covered only when they expose that browser element.
+
+### Generic discovery implementation
+- Added `apps/extension/src/video-discovery.ts` with recursive light-DOM and open-Shadow-DOM traversal. It tracks visited roots and deduplicates video elements and roots.
+- Added `apps/extension/src/video-discovery.test.ts` with tests for nested open Shadow DOM discovery and shared-root/video deduplication.
+- Updated `apps/extension/src/content-script.ts` to use the discovery helper instead of only `document.querySelectorAll('video')`.
+- The implementation intentionally does not traverse closed Shadow DOM, canvas renderers, browser-internal pages, native applications, or inaccessible frames.
+
+### Source and media lifecycle resilience
+- Expanded `hasUsableVideoSource` in `apps/extension/src/site-adapter.ts` to accept initialized source-less media when the network state is not `EMPTY` and metadata is available, while still rejecting an empty pre-created decoy.
+- Added adapter tests for initialized source-less media and a source-less element without metadata.
+- Updated player selection to pass `readyState` and `networkState` into the source guard and to continue accepting `srcObject` MediaStream elements.
+- Replaced the single document mutation observer with bounded observers for the document and currently reachable open Shadow DOM roots. Removed roots are disconnected during rescans.
+- Added immediate lifecycle rescans on `loadstart`, `emptied`, `error`, metadata/data readiness, source transitions, and dynamic player replacement.
+- Added SPA URL identity monitoring through `history` events plus a 500 ms fallback check. Same-element route changes now clear fingerprint throttling and re-report media without requiring a refresh.
+- Retained the manifest's `all_frames`, `match_about_blank`, and `match_origin_as_fallback` configuration so matching child and related frames can receive their own adapter instance.
+
+### Documentation and task tracking
+- Updated `README.md` with the 0.1.16 compatibility bullets, expanded support matrix, source types, explicit unsupported classes, and release command references.
+- Updated `docs/IMPLEMENTATION.md` with the open-Shadow-DOM, related-frame, MSE/blob, MediaStream, and SPA lifecycle approach.
+- Updated `docs/RESEARCH.md` with official links and the generic-player compatibility analysis.
+- Added a 0.1.16 entry to `CHANGELOG.md`.
+- Updated `docs/RELEASING.md` examples to use 0.1.16.
+- Marked completed implementation and verification items in `tasks/plan.md` and `tasks/todo.md`. The headed real-browser fixture item remains explicitly open because the local Chrome environment did not inject the content script in disposable headless runs.
+
+### Disposable Chrome fixture attempt
+- A temporary `scripts/verify-generic-player.mjs` harness was created to start a local fixture with an open-Shadow-DOM player, a source-less decoy, and an SPA route change, then inspect extension state through Chrome DevTools Protocol.
+- The harness was corrected several times: connection retries were added, the DevTools port was adjusted, the extension-only flag was supplied, and navigation was delayed until the service worker target was present.
+- Chrome's service worker target loaded the extension, but the content script did not inject into the local fixture page in the installed disposable headless session. The page check consistently reported `hasExtensionRoot: false`.
+- A direct extension-page message attempt was also invalid in that CDP-created page target because `chrome.runtime` was undefined there. A service-worker self-message rejected because there was no receiving end, so neither path was treated as extension E2E proof.
+- A short non-headless probe confirmed the extension service worker could load, but the headed fixture could not obtain a usable page target in this environment.
+- The brittle disposable harness was removed rather than shipped as a failing verification command. This is an environment limitation, not evidence that the source implementation fails in a normal user Chrome session.
+
+### Verification and packaging
+- An initial `npm test -- --runInBand` attempt failed because Vitest does not support the Jest-only `--runInBand` option. This did not modify source files.
+- The correct `npm test` run passed 18 test files and 96 tests.
+- `npm run typecheck` passed for the workspace and edge-service TypeScript configuration.
+- `npm run check` passed typechecking, all 96 tests, the room-service build, and the production extension build.
+- `npm run release:check-version` returned `0.1.16`.
+- `RELEASE_VERSION=0.1.16 npm run release:package` passed archive integrity checks and produced the recorded ZIP and checksum.
+- The production two-client WebSocket smoke against `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms` passed with 85 ms round trip, 101 ms seek barrier, protected timeout release, diagnostics collection, and stale/startup buffering protections.
+- No Worker deployment was attempted because this change only affects extension discovery and lifecycle handling, not the coordinator protocol or edge implementation.
+
+## Confirmed Successful Results
+- Open Shadow DOM and light-DOM recursive video discovery is implemented and covered by unit tests.
+- Initialized source-less MSE-style players are accepted only after metadata/network initialization; empty decoys remain filtered.
+- MediaStream-backed players remain supported through `srcObject`.
+- Dynamic open Shadow DOM roots, player replacement, media lifecycle transitions, and SPA route identity changes now trigger bounded rescans and fresh reports.
+- README, implementation, research, changelog, release procedure, and task tracking documentation reflect the new compatibility scope.
+- Full `npm run check` passed: TypeScript, 96 tests, room-service build, and extension build.
+- Production protocol smoke passed against the deployed coordinator.
+- Version 0.1.16 was packaged and its ZIP integrity check passed. It has not yet been committed, pushed, tagged, or published.
+
+## Failed, Incomplete, or Unresolved Work
+- The real headed-browser fixture remains unverified in this environment because the installed Chrome session did not inject MV3 content scripts in disposable headless mode and the headed probe did not expose a usable page target.
+- The 0.1.16 source, documentation, and task files are still uncommitted.
+- A GitHub Release v0.1.16 has not been created.
+- Provider-specific manual validation remains required for changing authenticated sites such as Netflix, Disney+, Crunchyroll, Qfilm, and Animerco.
+
+## Decisions and Rationale
+- Coverage is broadened through standards-based browser APIs rather than provider-specific reverse engineering. This maximizes compatibility while preserving the privacy and DRM boundary.
+- Open Shadow DOM is supported because ordinary content scripts can traverse it; closed Shadow DOM and canvas-only renderers remain explicit limitations.
+- Source-less media is accepted only when the browser exposes initialized metadata/network state, preventing decorative video elements from becoming the selected player.
+- The disposable browser harness was removed after repeated injection-environment failures so no release command would be advertised as a false end-to-end guarantee.
+- The extension version was advanced to 0.1.16 after source tests, builds, and production protocol validation passed. Edge deployment is unnecessary for this source-only change.
+
+## Files and Artifacts
+- `apps/extension/src/video-discovery.ts`
+- `apps/extension/src/video-discovery.test.ts`
+- `apps/extension/src/content-script.ts`
+- `apps/extension/src/site-adapter.ts`
+- `apps/extension/src/site-adapter.test.ts`
+- `apps/extension/static/manifest.json`
+- `README.md`
+- `docs/IMPLEMENTATION.md`
+- `docs/RESEARCH.md`
+- `docs/RELEASING.md`
+- `CHANGELOG.md`
+- `package.json`, `package-lock.json`, `apps/extension/package.json`
+- `tasks/plan.md`, `tasks/todo.md`
+- Local package: `release/sync-your-joy-extension.zip`
+
+## Assumptions and Uncertainties
+- The installed Chrome headless injection failure is environmental and does not establish a failure in normal headed Chrome content-script injection.
+- Generic support means the page exposes a controllable HTML video element. A site can still block autoplay, hide the real element in a closed root, render to canvas, or prevent injection through browser policy.
+- A new release should not claim that every streaming provider is permanently supported. Site-specific regression testing remains necessary.
+
+## Open Questions, Blockers, and Dependencies
+- Should the 0.1.16 source be committed, pushed, and published as a GitHub release now?
+- A headed browser with a usable page target is still needed for the open-Shadow-DOM and SPA fixture acceptance test.
+- Future compatibility work could add a user-visible unsupported-player explanation and a diagnostics field indicating whether the selected player is light DOM, open Shadow DOM, or a related frame.
+
+## Next Steps
+1. Review the final diff and run `git diff --check`.
+2. Commit the 0.1.16 source, tests, documentation, tasks, and this checkpoint.
+3. Push `main` and wait for CI.
+4. Tag `v0.1.16` only after CI succeeds, then verify the generated ZIP and checksum release assets.
+5. Test the extension manually in a normal Chrome window on at least one open-Shadow-DOM/MSE page and one nested-frame page.
+
+## Historical Checkpoint Notes
+- Checkpoints 1 through 6 remain preserved above without deletion or shortening.
+- This checkpoint contains no passwords, cookies, OAuth codes, access tokens, signed media URLs, or captured media.

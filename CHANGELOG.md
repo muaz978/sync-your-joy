@@ -2,6 +2,20 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.1.16] - 2026-08-29
+
+### Added
+
+- Broad generic player discovery through light DOM and open Shadow DOM roots.
+- Coverage for initialized MediaSource/blob and MediaStream-backed HTML video players, including players that do not expose a normal `src` attribute.
+- Continuous recovery for dynamic player insertion, player replacement, metadata/source changes, and single-page-app history navigation.
+
+### Fixed
+
+- Avoided rejecting initialized source-less MSE players while continuing to filter hidden, empty, and decorative video elements.
+- Rebound media identity promptly when a site reuses a page or video element for a different route or episode.
+- Kept the compatibility boundary explicit for closed Shadow DOM, canvas-only renderers, native applications, browser-internal pages, and inaccessible frames.
+
 ## [0.1.15] - 2026-08-29
 
 ### Added
@@ -55,3 +69,4 @@ All notable user-facing changes are recorded here. This project follows semantic
 - Improved diagnostic visibility for missing seek participants and seek timeout state.
 
 [0.1.15]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.15
+[0.1.16]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.16

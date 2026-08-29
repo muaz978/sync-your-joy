@@ -38,14 +38,16 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.1.15` includes:
+Version `0.1.16` includes:
 
 - automatic room-wide play, pause, forward seek, and backward seek;
 - a transactional seek barrier that aligns real players before playback resumes;
 - readiness for every participant, retained through brief reconnects and protected against temporary player replacement or media loss;
 - controller-driven link launch so guests can join before any video is open, without duplicating a page that is already open;
 - normalized link and platform identity matching across nested or signed players;
-- a generic HTML5 adapter on HTTP and HTTPS pages, including embedded frames;
+- a generic HTML5 adapter on HTTP and HTTPS pages, including matching embedded frames and open Shadow DOM players;
+- MediaSource/blob, MediaStream, and dynamically initialized source-less player detection after metadata becomes available;
+- fast recovery when a single-page app changes history, replaces a player, or swaps media on the same element;
 - dedicated identity and player-discovery handling for Crunchyroll, Animerco, and Qfilm;
 - a hideable in-page controller with a small restore handle, so it does not cover subtitles;
 - one-click local or room-wide resynchronization;
@@ -59,12 +61,15 @@ The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-
 
 | Platform or player | Current status |
 | --- | --- |
-| Ordinary HTML5 video | Broad beta support through the generic adapter, including controllable embedded frames |
+| Ordinary HTML5 video | Broad beta support through the generic adapter, including controllable embedded frames and open Shadow DOM players |
+| Native MP4/WebM/Ogg and adaptive MSE players | Supported when the browser exposes a controllable HTML video element and usable metadata |
+| Blob/MediaSource-backed players | Supported when the element is initialized and reports media metadata, even without a normal `src` attribute |
+| MediaStream-backed players | Supported as a live session when the browser exposes `srcObject` and a controllable video element |
 | Qfilm | Stable identity from the outer `vid` value, independent of temporary PlayerJS and signed HLS URLs |
 | Animerco | Click-to-load and nested-player support, with advertising-frame filtering |
 | Crunchyroll | Stable episode identity and generic player control, with ongoing live regression testing |
 | Netflix and Disney+ | Generic-adapter compatibility only, with dedicated automated compatibility coverage still required |
-| Canvas-only, native-app, browser-internal, or inaccessible players | Not supported by the generic HTML5 adapter |
+| Closed-Shadow-DOM, canvas-only, native-app, browser-internal, or inaccessible players | Not supported by the generic HTML5 adapter |
 
 Commercial streaming sites change frequently. The table describes the current beta implementation, not a permanent compatibility guarantee. Please use the [bug report form](https://github.com/muaz978/sync-your-joy/issues/new?template=bug_report.yml) and attach the sanitized detailed report when a supported player behaves incorrectly.
 
@@ -111,7 +116,7 @@ npm run release:package         # create the production extension ZIP and checks
 
 ## Releasing
 
-Pushing a semantic-version tag such as `v0.1.15` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
+Pushing a semantic-version tag such as `v0.1.16` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
 
 Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and pushes to `main` run the same source, test, build, and production-dependency checks through [continuous integration](.github/workflows/ci.yml).
 
