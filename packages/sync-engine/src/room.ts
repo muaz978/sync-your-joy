@@ -10,7 +10,7 @@ import type {
 } from '@syncyourjoy/protocol'
 import { mediaMatches, normalizePageUrl } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { hasPlaybackApplicationFailed, hasPlaybackProgressStalled, isPlaybackPastStartupGrace } from './playback-health.ts'
+import { hasPlaybackProgressStalled, isPlaybackPastStartupGrace } from './playback-health.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
@@ -396,8 +396,8 @@ export class RoomCoordinator {
 
     const nowMs = this.now()
     const priorSample = participant.lastSample
-    const progressed = priorSample !== null
-      && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= 0.12
+    const progressed = sample.progressed === true || (priorSample !== null
+      && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= 0.12)
     participant.lastSample = sample
     participant.lastSampleReceivedAtMs = nowMs
     if (progressed || participant.lastProgressAtServerMs === undefined)
@@ -405,12 +405,13 @@ export class RoomCoordinator {
     const stalled = !sample.paused
       && !sample.buffering
       && hasPlaybackProgressStalled(this.playback, participant.lastProgressAtServerMs, nowMs)
+    const explicitPlaybackFailure = sample.playbackStartFailed === true
     if (basedOnRevision === this.revision
       && participant.connected
       && participant.ready
       && participant.mediaMatches
-      && (hasPlaybackApplicationFailed(this.playback, sample.paused, nowMs)
-        || (sample.buffering && isPlaybackPastStartupGrace(this.playback, nowMs))
+      && (explicitPlaybackFailure
+        || (sample.buffering && sample.playbackStarted !== false && isPlaybackPastStartupGrace(this.playback, nowMs))
         || stalled)) {
       this.playback = {
         status: 'paused',
@@ -420,7 +421,7 @@ export class RoomCoordinator {
       }
       this.revision += 1
       this.markStateBarrier()
-      return this.success(sample.paused
+      return this.success(explicitPlaybackFailure
         ? 'participant_playback_blocked'
         : stalled ? 'participant_playback_stalled' : 'participant_buffering')
     }

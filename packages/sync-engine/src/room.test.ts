@@ -526,7 +526,7 @@ describe('RoomCoordinator', () => {
     expect(room.snapshot().playback.status).toBe('playing')
   })
 
-  it('stops the room clock when a ready participant remains paused after play', () => {
+  it('does not stop the room clock for a transient paused report', () => {
     let nowMs = 10_000
     const room = createRoom(() => nowMs)
     room.setReady('participant_host', true, media)
@@ -546,6 +546,55 @@ describe('RoomCoordinator', () => {
       paused: true,
       buffering: false,
       sampledAtLocalMs: nowMs,
+    })
+
+    expect(result).toBeNull()
+    expect(room.snapshot().playback.status).toBe('playing')
+  })
+
+  it('does not treat a player that never started as a buffering failure without explicit rejection', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_waiting_for_gesture',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    const playRevision = room.snapshot().revision
+    nowMs = room.snapshot().playback.effectiveAtServerMs + 4_000
+    expect(room.updatePlayerStatus('participant_host', playRevision, {
+      positionSeconds: 20,
+      durationSeconds: 600,
+      paused: true,
+      buffering: true,
+      sampledAtLocalMs: nowMs,
+      playbackStarted: false,
+    })).toBeNull()
+  })
+
+  it('stops the room clock when the browser explicitly rejects synchronized play', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_blocked_explicit',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    const playRevision = room.snapshot().revision
+    nowMs += 100
+    const result = room.updatePlayerStatus('participant_host', playRevision, {
+      positionSeconds: 20,
+      durationSeconds: 600,
+      paused: true,
+      buffering: false,
+      sampledAtLocalMs: nowMs,
+      playbackStartFailed: true,
     })
 
     expect(result).toMatchObject({

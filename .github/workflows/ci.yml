@@ -35,5 +35,8 @@ jobs:
       - name: Verify source, tests, and builds
         run: npm run check
 
+      - name: Smoke-build Firefox sidebar package
+        run: npm run build:extension:firefox
+
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high

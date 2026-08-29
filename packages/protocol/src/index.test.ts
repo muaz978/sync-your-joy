@@ -90,6 +90,16 @@ describe('media identity matching', () => {
       type: 'player_status',
       basedOnRevision: 4,
     })
+    expect(parseClientMessage({
+      type: 'player_status',
+      basedOnRevision: 4,
+      sample: { ...sample, progressed: true, playbackStarted: true, playbackStartFailed: false },
+    })).toMatchObject({ sample: { progressed: true, playbackStarted: true } })
+    expect(parseClientMessage({
+      type: 'player_status',
+      basedOnRevision: 4,
+      sample: { ...sample, progressed: 'yes' },
+    })).toBeNull()
   })
 
   it('accepts only finite seek-completion acknowledgements', () => {

@@ -2,6 +2,20 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [Unreleased]
+
+### Added
+
+- Explicit player-health signals for real progress, confirmed synchronized-play start, and browser play rejection.
+- Control-channel quality reporting with RTT, clock uncertainty, and heartbeat age, plus an automatic heartbeat watchdog.
+- Standards-first WebExtensions API selection and Firefox package metadata.
+
+### Fixed
+
+- A transient paused sample no longer stops the room immediately after a play command.
+- Synchronized backward and forward seeks retry at a bounded 120 ms cadence instead of waiting a full second between attempts.
+- Player health baselines recover after visibility changes, bfcache restores, and page focus recovery.
+
 ## [0.1.17] - 2026-08-29
 
 ### Added

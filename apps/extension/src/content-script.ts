@@ -1,6 +1,6 @@
 import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS } from '@syncyourjoy/sync-engine'
+import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
@@ -38,6 +38,9 @@ let seekIntentTimer: ReturnType<typeof setTimeout> | null = null
 let pendingControllerSeekTarget: number | null = null
 let lastProgressPosition = 0
 let lastProgressAt = performance.now()
+let lastReportedPosition: number | null = null
+let playbackStarted = false
+let playbackStartFailedUntil = 0
 let unexpectedPauseSince = 0
 let stallNoticeShown = false
 let siteBootstrapAttempts = 0
@@ -45,6 +48,7 @@ let lastSiteBootstrapAt = 0
 let playerScanTimer: ReturnType<typeof setTimeout> | null = null
 let mediaLossTimer: ReturnType<typeof setTimeout> | null = null
 let miniControllerHidden = false
+let lockedVideo: HTMLVideoElement | null = null
 let lastObservedPageIdentity = normalizePageUrl(new URL(location.href))
 const playerObservers = new Map<Node, MutationObserver>()
 
@@ -239,6 +243,21 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     return false
   }
 
+  if (message.type === 'LOCK_PLAYER') {
+    if (video) {
+      lockedVideo = video
+      renderPill()
+      void reportMedia(video)
+    }
+    return false
+  }
+
+  if (message.type === 'UNLOCK_PLAYER') {
+    lockedVideo = null
+    scanForPlayer()
+    return false
+  }
+
   if (message.type === 'REPORT_PLAYER_CONTEXT') {
     if (video) {
       void reportMedia(video)
@@ -299,6 +318,22 @@ setInterval(() => {
   void reportPlayerStatus(false)
   applyAuthoritativeState()
 }, SAMPLE_INTERVAL_MS)
+
+function recoverAfterPageVisibilityChange(): void {
+  resetPlaybackHealthBaseline()
+  schedulePlayerScan()
+  if (video) {
+    void reportMedia(video)
+    void reportPlayerStatus(false)
+    applyAuthoritativeState()
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible')
+    recoverAfterPageVisibilityChange()
+})
+window.addEventListener('pageshow', recoverAfterPageVisibilityChange)
 
 document.addEventListener('fullscreenchange', () => {
   const target = document.fullscreenElement
@@ -436,6 +471,11 @@ async function reportMedia(target: HTMLVideoElement, media = createMediaFingerpr
 function findPrimaryVideo(): HTMLVideoElement | null {
   const videos = discoverVideoElements(document)
     .filter(item => item instanceof HTMLVideoElement && isVisibleVideo(item))
+  if (lockedVideo) {
+    if (videos.includes(lockedVideo))
+      return lockedVideo
+    lockedVideo = null
+  }
   return videos.sort((a, b) => videoCandidateScore(b) - videoCandidateScore(a))[0] ?? null
 }
 
@@ -472,6 +512,9 @@ function videoCandidateScore(target: HTMLVideoElement): number {
 function attachPlayer(target: HTMLVideoElement): void {
   lastProgressPosition = finiteOrZero(target.currentTime)
   lastProgressAt = performance.now()
+  lastReportedPosition = finiteOrZero(target.currentTime)
+  playbackStarted = !target.paused && target.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+  playbackStartFailedUntil = 0
   target.addEventListener('play', handlePlay)
   target.addEventListener('pause', handlePause)
   target.addEventListener('seeking', handleSeeking)
@@ -518,12 +561,17 @@ function detachPlayer(target: HTMLVideoElement | null): void {
   pendingControllerSeekTarget = null
   localSeeking = false
   pendingSeek = null
+  playbackStarted = false
+  playbackStartFailedUntil = 0
+  lastReportedPosition = null
   clearSeekCompletionTimer()
   clearSeekAckRetryTimer()
 }
 
 function handlePlay(): void {
   resetPlaybackHealthBaseline()
+  playbackStarted = false
+  playbackStartFailedUntil = 0
   const expected = consumeExpectedPlay()
   if (!expected && video && isLocalController() && activeState?.snapshot?.seek) {
     expectPauseEvent()
@@ -640,6 +688,10 @@ function handleCanPlay(): void {
   if (bufferingTimer)
     clearTimeout(bufferingTimer)
   bufferingTimer = null
+  if (video && !video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    playbackStarted = true
+    playbackStartFailedUntil = 0
+  }
   applyAuthoritativeState()
   maybeAcknowledgeRoomSeek()
   void reportPlayerStatus(false)
@@ -664,13 +716,22 @@ async function reportPlayerStatus(buffering: boolean): Promise<void> {
     return
   const seekPendingTooLong = pendingSeek !== null && performance.now() - pendingSeek.since >= 1_500
   const inferredBuffering = detectPlaybackStall(video, buffering || seekPendingTooLong)
+  const positionSeconds = finiteOrZero(video.currentTime)
+  const progressed = !video.paused
+    && !inferredBuffering
+    && lastReportedPosition !== null
+    && Math.abs(positionSeconds - lastReportedPosition) >= 0.05
   const sample: PlayerSample = {
-    positionSeconds: finiteOrZero(video.currentTime),
+    positionSeconds,
     durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
     paused: video.paused,
     buffering: inferredBuffering,
     sampledAtLocalMs: Date.now(),
+    progressed,
+    playbackStartFailed: Date.now() < playbackStartFailedUntil,
+    playbackStarted: playbackStarted || (!video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA),
   }
+  lastReportedPosition = positionSeconds
   await sendRuntime({ type: 'PLAYER_STATUS', basedOnRevision: snapshot.revision, sample })
 }
 
@@ -686,6 +747,8 @@ function currentPlayerContext(): PlayerContext {
       paused: video.paused,
       buffering: false,
       sampledAtLocalMs: Date.now(),
+      progressed: false,
+      playbackStarted: playbackStarted || (!video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA),
     },
   }
 }
@@ -714,6 +777,7 @@ function playerDiagnostics(target: HTMLVideoElement): PlayerDiagnostics {
     networkState: target.networkState,
     currentSrcKind,
     hasSourceObject: target.srcObject !== null,
+    locked: lockedVideo === target,
   }
 }
 
@@ -805,6 +869,7 @@ function playVideo(): void {
     renderPill()
   }).catch(() => {
     expectedPlayUntil = 0
+    playbackStartFailedUntil = Date.now() + 5_000
     renderPill()
     showNotice('Playback was blocked. The room is pausing—press Sync once, then ask the host to play again.')
     void reportPlayerStatus(true)
@@ -824,6 +889,7 @@ function activateSynchronizedPlayback(): void {
     renderPill()
     applyAuthoritativeState()
   }).catch(() => {
+    playbackStartFailedUntil = Date.now() + 5_000
     showNotice('Click the video player once, then press Sync again.')
     void reportPlayerStatus(true)
   })
@@ -866,6 +932,7 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
     void reportPlayerStatus(false)
   }).catch(() => {
     expectedPlayUntil = 0
+    playbackStartFailedUntil = Date.now() + 5_000
     renderPill()
     showNotice(fromUserGesture
       ? 'The player still blocked playback. Click its video area once, then press Sync.'
@@ -1089,7 +1156,7 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
   if (aligned && !pendingSeek)
     return true
 
-  if (matchingPending && now - matchingPending.lastAttemptAt < 1_000)
+  if (matchingPending && now - matchingPending.lastAttemptAt < SEEK_RETRY_INTERVAL_MS)
     return false
   pendingSeek = matchingPending
     ? { ...matchingPending, lastAttemptAt: now }

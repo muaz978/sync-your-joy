@@ -196,8 +196,7 @@ function roomView(current: ExtensionState): string {
   const roomPosition = expectedPosition(snapshot.playback, serverNowMs)
   const localPosition = current.lastPlayerSample?.positionSeconds ?? roomPosition
   const localPlaybackBlocked = snapshot.playback.status === 'playing'
-    && current.lastPlayerSample?.paused === true
-    && serverNowMs >= snapshot.playback.effectiveAtServerMs + 500
+    && current.lastPlayerSample?.playbackStartFailed === true
   return `
     <section class="flex flex-col gap-4">
       <div class="flex items-center justify-between gap-3">
@@ -208,7 +207,7 @@ function roomView(current: ExtensionState): string {
             ${copyIcon('h-4 w-4 color-fade')}
           </button>
         </div>
-        ${connectionBadge(current.connection)}
+        ${connectionBadge(current)}
       </div>
 
       <div class="soft-panel p-4">
@@ -436,6 +435,9 @@ function playerDiagnosticsCard(current: ExtensionState): string {
         <span class="color-fade">Duration</span><span class="text-right font-mono tabular-nums">${sample?.durationSeconds == null ? '—' : formatTime(sample.durationSeconds)}</span>
         <span class="color-fade">MediaStream</span><span class="text-right">${diagnostics ? diagnostics.hasSourceObject ? 'Yes' : 'No' : '—'}</span>
       </div>
+      ${sample && current.playerFrameId !== null
+        ? `<button id="toggle-player-lock" class="btn-action mt-3 w-full tap-scale" type="button">${diagnostics?.locked ? 'Unlock selected player' : 'Lock selected player'}</button>`
+        : ''}
       <p class="mt-3 mb-0 text-[0.6875rem] leading-4 color-fade">These values describe the selected browser video element only. No media bytes or credentials are collected.</p>
     </details>
   `
@@ -603,6 +605,10 @@ function bindRoomActions(): void {
     void perform({ type: 'RECHECK_MEDIA' })
   })
 
+  document.querySelector('#toggle-player-lock')?.addEventListener('click', () => {
+    void perform({ type: state?.playerDiagnostics?.locked ? 'UNLOCK_PLAYER' : 'LOCK_PLAYER' })
+  })
+
   document.querySelectorAll<HTMLElement>('[data-transfer]').forEach((button) => {
     button.addEventListener('click', () => {
       const participantId = button.dataset.transfer
@@ -718,12 +724,16 @@ function errorPanel(message: string): string {
   `
 }
 
-function connectionBadge(connection: ExtensionState['connection']): string {
-  const connected = connection === 'connected'
+function connectionBadge(current: ExtensionState): string {
+  const connected = current.connection === 'connected'
+  const qualityLabel = current.connectionQuality === 'good'
+    ? current.roundTripMs === null ? 'Good' : `${current.roundTripMs} ms`
+    : current.connectionQuality === 'degraded' ? 'Degraded'
+      : current.connectionQuality === 'offline' ? 'Offline' : 'Measuring'
   return `
-    <span class="status-badge ${connected ? 'border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-600/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'}">
-      <span class="h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-amber-500'}" aria-hidden="true"></span>
-      ${connected ? 'Connected' : 'Reconnecting'}
+    <span class="status-badge ${connected && current.connectionQuality !== 'degraded' ? 'border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-600/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'}" title="Control channel: ${escapeAttribute(qualityLabel)}">
+      <span class="h-1.5 w-1.5 rounded-full ${connected && current.connectionQuality !== 'degraded' ? 'bg-emerald-500' : 'bg-amber-500'}" aria-hidden="true"></span>
+      ${connected ? `Connected · ${qualityLabel}` : 'Reconnecting'}
     </span>
   `
 }

@@ -21,3 +21,14 @@
 - [x] Local generic-player fixture and server.
 - [x] YouTube and Disney Plus identity regression coverage.
 - [ ] Headed Chrome fixture run and authenticated provider regression pass.
+
+## Gates 1-3 hardening
+
+- [x] Require explicit browser play rejection before pausing the room for playback application failure.
+- [x] Include real progress and playback-start state in player health samples.
+- [x] Retry room seeks at a bounded sub-second cadence and recover after page visibility changes.
+- [x] Add connection quality, RTT, and heartbeat watchdog state.
+- [x] Add standards-first browser API shim and Firefox metadata.
+- [ ] Execute real two-device provider and network-chaos acceptance tests.
+- [ ] Implement and test manual multi-player selection/lock UI.
+- [ ] Gate 4 store packaging and submissions after the above checks pass.

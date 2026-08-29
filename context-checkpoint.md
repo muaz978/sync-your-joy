@@ -1191,6 +1191,128 @@
 - Checkpoints 1 through 6 remain preserved above without deletion or shortening.
 - This checkpoint contains no passwords, cookies, OAuth codes, access tokens, signed media URLs, or captured media.
 
+# Context Checkpoint 10
+
+## Session Metadata
+- Task or project: SyncYourJoy Gates 1-3 synchronization, connectivity, and browser portability hardening
+- Checkpoint number: 10
+- Date and time: 2026-08-29, Europe/Istanbul
+- Coverage period: Gate planning through local implementation, regression verification, production smoke, and deployment attempt
+- Current context status: Gate 1-3 source and CI changes are implemented and locally verified. Production Worker deployment is blocked by missing Cloudflare Wrangler authentication.
+
+## User Objective and Requirements
+- Start and implement Gates 1 through 3 before beginning Gate 4 store publication work.
+- Make synchronized playback resilient to false pauses, real playback stalls, seeking in either direction, visibility changes, and connection loss.
+- Improve connection observability and reconnection behavior.
+- Broaden player and browser support, including a way to lock the intended player when a page exposes multiple video elements.
+- Do not claim store readiness or begin Gate 4 until real multi-device acceptance is healthy.
+
+## Current State
+- GitHub repository remains public at `https://github.com/muaz978/sync-your-joy`.
+- Latest published release remains `v0.1.17`; these Gate 1-3 changes are unreleased on the working tree.
+- Local source builds and tests pass after the new changes.
+- Production endpoint remains `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`, but this turn's Worker source has not been deployed.
+
+## Complete Chronological Activity Log
+
+### Gate scope and code inspection
+- Restored the prior checkpoint and inspected the current plan, todo list, protocol, room coordinator, content script, service worker, side panel, manifest, and release/build scripts.
+- Confirmed the existing server stopped the room on a single paused sample after a 500 ms grace period. This was identified as the principal false-pause path behind reports that playback starts and immediately pauses.
+- Confirmed seek retry logic had a one-second retry guard even though the seek probe and barrier constants were sub-second. This was identified as a major source of slow backward/forward alignment.
+- Confirmed reconnect backoff and ping existed, but no heartbeat watchdog or user-visible RTT quality state existed.
+
+### Gate 1 implementation
+- Extended `PlayerSample` with backward-compatible optional `progressed`, `playbackStartFailed`, and `playbackStarted` fields and added strict validation for their types.
+- Updated the content script to track reported position, actual playback-start state, and explicit `video.play()` rejection. Failed play requests remain marked for five seconds so the coordinator can safely stop a room without treating an ordinary transient pause as a failure.
+- Updated server-side progress accounting to prefer the explicit progress flag and changed playback application failure handling to require explicit browser rejection. Startup buffering from a player that never started is ignored unless it is explicitly rejected; real post-start buffering and no-progress stalls retain safety handling.
+- Added visibility and bfcache recovery handlers that reset the health baseline, rescan the player, refresh media identity, report status, and reapply authoritative state when a page becomes visible again.
+- Added `SEEK_RETRY_INTERVAL_MS = 120` and changed pending seek attempts to use it instead of a one-second guard.
+- Added room coordinator tests for transient paused reports, never-started buffering, explicit play rejection, and retained stall behavior.
+
+### Gate 2 implementation
+- Added `apps/extension/src/connection-quality.ts` and tests. Quality is derived from connection state, RTT, clock uncertainty, and heartbeat age, with `good`, `degraded`, `unknown`, and `offline` states.
+- Added persisted extension state for connection quality, latest RTT, and last pong timestamp.
+- Added a one-second heartbeat watchdog alongside the existing five-second ping loop. A socket with no pong for 15 seconds is recorded as a timeout, closed, and allowed to enter the existing bounded exponential reconnect path.
+- Added connection quality and RTT to the side-panel connection badge and to state notifications.
+
+### Gate 3 implementation
+- Added `apps/extension/src/browser-api.ts`, a standards-first `browser`/Chromium `chrome` WebExtensions API selection shim, and used it for side-panel calls with a safe fallback when a browser has no `sidePanel` API.
+- Added Firefox `browser_specific_settings.gecko` metadata to the source manifest.
+- Added `npm run build:extension:firefox`. The build script now targets Firefox 109, removes Chrome-only minimum and side-panel manifest keys, filters the `sidePanel` permission, and emits a Firefox `sidebar_action` entry. Chrome build behavior remains unchanged.
+- Added a lock/unlock player action to the side panel and content script. Locking holds the currently selected visible video element while competing video elements are present; if the locked element disappears, normal discovery resumes.
+
+### Documentation and CI
+- Updated `tasks/plan.md` and `tasks/todo.md` with Gate 1, Gate 2, and Gate 3 tasks and explicit real-device/browser checks that remain outstanding before Gate 4.
+- Updated `CHANGELOG.md` with an Unreleased section and `README.md` with progress telemetry, heartbeat quality, player locking, and Firefox build instructions. Store distribution remains documented as Gate 4.
+- Added a Firefox sidebar build step to `.github/workflows/ci.yml`.
+
+### Verification
+- An initial attempt to run `npm test -- --runInBand` failed because Vitest does not support the Jest-only `--runInBand` option. The command was corrected to `npm test`.
+- `npm test` passed with 101 tests across 19 files.
+- `npm run typecheck` passed for the root and edge-service TypeScript configurations.
+- `npm run build` passed for the room service and Chrome extension.
+- `npm run build:extension:firefox` passed and produced a manifest with Firefox metadata, no Chrome-only minimum, no `sidePanel` permission, and a `sidebar_action` panel.
+- `npm run release:check-version` passed and reported `0.1.17`.
+- `git diff --check` passed.
+- Production smoke against `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms` passed with a 73 ms measured RTT, 88 ms seek barrier, 1.794 s intentional timeout release, diagnostics from both participants, stale buffering protection, and startup buffering protection.
+
+### Deployment attempt
+- `npm run deploy:edge` was attempted so the new coordinator behavior could be tested in production.
+- Wrangler first reported `EPERM` writing `/Users/muazsabbagh/Library/Preferences/.wrangler/logs/...`, then reported that non-interactive deployment requires `CLOUDFLARE_API_TOKEN` and suggested interactive login or a temporary account.
+- No production deployment was claimed or inferred from the failed command. The production Worker remains on its prior deployed version until Cloudflare authentication is provided.
+
+## Confirmed Successful Results
+- Gate 1 source changes compile and are covered by passing unit tests.
+- Gate 2 quality classification and heartbeat code compile and have focused quality tests.
+- Gate 3 Chrome and Firefox build paths compile; Firefox manifest transformation was inspected successfully.
+- The deployed production endpoint continues to pass the existing protocol smoke. This confirms no regression in the currently deployed server, not deployment of the new source.
+- No media, credentials, cookies, passwords, or signed URLs were added to diagnostics or checkpoint records.
+
+## Failed, Incomplete, or Unresolved Work
+- The new Worker source is not deployed because Wrangler lacks a Cloudflare API token or authenticated interactive session and cannot write its default log directory in this environment.
+- Real two-device acceptance remains outstanding: authenticated Crunchyroll/Netflix/Disney/Qfilm or arbitrary-provider playback, backward and forward seeks, autoplay rejection, offline/online recovery, sleep/wake recovery, and heartbeat reconnect.
+- Firefox installation smoke on a real Firefox profile is not yet run.
+- Safari conversion and signing/package smoke are not started.
+- Manual multi-player lock behavior has source coverage but not a headed browser acceptance test.
+- Gate 4 store packaging, store listings, signing, and submission have not begun.
+
+## Decisions and Rationale
+- A transient paused report is not enough evidence to stop a room because browser scheduling and provider startup can legitimately emit it. An explicit play rejection is strong evidence and is handled immediately.
+- Real progress is tracked independently from the play promise because a resolved promise does not guarantee advancing media frames.
+- Seek retries are bounded at 120 ms to improve responsiveness without unbounded loops; the existing 1.5 s local timeout and 1.8 s room barrier remain safety limits.
+- The browser shim is additive and preserves Chromium behavior. Firefox has a dedicated sidebar manifest transformation; Safari still needs its platform-specific conversion and signing workflow.
+- Store publication is intentionally gated on real provider and browser acceptance rather than local unit/build success alone.
+
+## Files and Artifacts
+- `packages/protocol/src/index.ts`, `packages/protocol/src/index.test.ts`
+- `packages/sync-engine/src/room.ts`, `packages/sync-engine/src/room.test.ts`, `packages/sync-engine/src/seek-barrier.ts`, `packages/sync-engine/src/seek-barrier.test.ts`
+- `apps/extension/src/content-script.ts`, `apps/extension/src/internal.ts`, `apps/extension/src/service-worker.ts`, `apps/extension/src/sidepanel.ts`
+- `apps/extension/src/browser-api.ts`
+- `apps/extension/src/connection-quality.ts`, `apps/extension/src/connection-quality.test.ts`
+- `apps/extension/static/manifest.json`
+- `scripts/build-extension.mjs`, `package.json`, `.github/workflows/ci.yml`
+- `README.md`, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md`
+
+## Assumptions and Uncertainties
+- Existing `chrome.*` APIs continue to be available in Chromium and Firefox compatibility mode; the standards-first shim primarily protects side-panel feature detection and future browser-specific calls.
+- The source version remains `0.1.17` until the Gate 1-3 acceptance work is complete and a release version is intentionally selected.
+- Production smoke does not prove actual media playback because it uses protocol clients and synthetic player samples.
+
+## Open Questions, Blockers, and Dependencies
+- Cloudflare deployment requires the account that owns the `sync-your-joy-rooms` Worker and a valid Wrangler login or API token. No token is recorded here.
+- A headed Chrome/Firefox environment with authenticated provider sessions is required to validate real player events and multi-device alignment.
+- Safari requires a macOS/Xcode packaging decision and Apple Developer signing credentials before any store submission work.
+
+## Next Steps
+1. Authenticate Wrangler for the Cloudflare account that owns `sync-your-joy-rooms`, then deploy and rerun the production smoke against the new source.
+2. Run the two-device acceptance matrix, including backward seeks, autoplay-block recovery, network interruption, sleep/wake, and competing-player lock behavior.
+3. Run Firefox local install and headed playback smoke, then decide the Safari conversion target.
+4. Only after Gate 1-3 evidence is green, begin Gate 4 packaging, signing, store metadata, and submission workflows.
+
+## Historical Checkpoint Notes
+- Checkpoints 1 through 9 remain preserved above without deletion or shortening, including earlier release and production evidence.
+- This checkpoint records the deployment blocker without exposing any secret or token.
+
 # Context Checkpoint 9
 
 ## Session Metadata

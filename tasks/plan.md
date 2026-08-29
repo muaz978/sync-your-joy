@@ -70,3 +70,29 @@ Expand SyncYourJoy's generic adapter so it detects and tracks the largest practi
 - HTMLMediaElement.currentSrc: https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/currentSrc
 - HTMLMediaElement.readyState: https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/readyState
 - ShadowRoot: https://developer.mozilla.org/en-US/docs/Web/API/ShadowRoot
+
+## Gates 1-3 hardening milestone
+
+### Gate 1: synchronization proof
+
+- [x] Add explicit playback-start failure reporting so one transient paused sample cannot stop a room immediately.
+- [x] Report real media progress separately from the play promise and use it for server stall detection.
+- [x] Recover player health after tab visibility, bfcache, and focus transitions.
+- [x] Reduce synchronized seek retry cadence to a bounded 120 ms interval while retaining the 1.5 s local safety timeout.
+- [ ] Run multi-device playback, backward-seek, and intentional autoplay-block tests against real providers.
+
+### Gate 2: connectivity and observability
+
+- [x] Add a control-channel quality model based on RTT, clock uncertainty, and heartbeat age.
+- [x] Add a heartbeat watchdog that closes an unresponsive socket and re-enters bounded exponential reconnect.
+- [x] Surface connection quality and RTT in the room panel and keep diagnostics sanitized.
+- [ ] Run network-throttle, offline/online, laptop-sleep, and reconnect chaos tests on two devices.
+
+### Gate 3: flexibility and browser portability
+
+- [x] Add a standards-first WebExtensions API shim and Firefox metadata while retaining Chromium behavior.
+- [x] Preserve generic native-video, MSE/blob, MediaStream, open-Shadow-DOM, nested-frame, and SPA coverage.
+- [ ] Add a Firefox build/install smoke and a Safari conversion/package smoke on supported host tooling.
+- [ ] Add a UI for selecting or locking among multiple detected players when a page exposes competing videos.
+
+Gate 4, store submissions, signing, listing copy, and marketplace review remain out of scope until every unchecked Gate 1-3 validation item is complete.

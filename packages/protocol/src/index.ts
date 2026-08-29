@@ -69,6 +69,12 @@ export interface PlayerSample {
   paused: boolean
   buffering: boolean
   sampledAtLocalMs: number
+  /** True when the player has emitted real playback progress since the last sample. */
+  progressed?: boolean
+  /** True only when the browser rejected the synchronized play request. */
+  playbackStartFailed?: boolean
+  /** True after the player has reached a playing state for the current command. */
+  playbackStarted?: boolean
 }
 
 export type DiagnosticValue = string | number | boolean | null
@@ -419,6 +425,9 @@ function validPlayerSample(value: unknown): value is PlayerSample {
     && typeof value.paused === 'boolean'
     && typeof value.buffering === 'boolean'
     && isFiniteNonNegative(value.sampledAtLocalMs)
+    && (value.progressed === undefined || typeof value.progressed === 'boolean')
+    && (value.playbackStartFailed === undefined || typeof value.playbackStartFailed === 'boolean')
+    && (value.playbackStarted === undefined || typeof value.playbackStarted === 'boolean')
 }
 
 function validDiagnosticsReport(value: unknown): value is DiagnosticsReport {

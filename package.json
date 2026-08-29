@@ -11,6 +11,7 @@
   "scripts": {
     "build": "npm run build:server && npm run build:extension",
     "build:extension": "node scripts/build-extension.mjs",
+    "build:extension:firefox": "SYNCYOURJOY_BROWSER=firefox node scripts/build-extension.mjs",
     "build:server": "esbuild apps/room-service/src/server.ts --bundle --platform=node --format=esm --outfile=apps/room-service/dist/server.mjs --external:ws",
     "dev:server": "tsx apps/room-service/src/server.ts",
     "dev:fixture": "node scripts/serve-fixture.mjs",

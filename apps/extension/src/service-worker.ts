@@ -7,6 +7,8 @@ import { isLikelyAdvertisingUrl } from './site-adapter.ts'
 import { bindMediaToSharedPage } from './media-fingerprint.ts'
 import { resolveControlPosition } from './control-position.ts'
 import { shouldConfirmMediaMismatch } from './readiness-state.ts'
+import { connectionQuality } from './connection-quality.ts'
+import { browserApi } from './browser-api.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -42,12 +44,16 @@ let state: ExtensionState = {
   playerDiagnostics: null,
   lastPlayerSample: null,
   lastOpenedNavigationRevision: 0,
+  connectionQuality: 'offline',
+  roundTripMs: null,
+  lastPongAtMs: 0,
 }
 
 let socket: WebSocket | null = null
 let connectionPromise: Promise<void> | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let pingTimer: ReturnType<typeof setInterval> | null = null
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let reconnectAttempts = 0
 let intentionallyClosed = false
 let clock = new ClockSynchronizer()
@@ -59,7 +65,8 @@ let pendingMediaMismatchObservedAtMs: number | null = null
 const initialized = initialize()
 
 chrome.runtime.onInstalled.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+  if (browserApi.sidePanel)
+    void browserApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
 })
 
 chrome.runtime.onStartup.addListener(() => {
@@ -100,12 +107,18 @@ chrome.runtime.onMessage.addListener((request: RuntimeRequest | RuntimeEvent, se
     return false
 
   if (request.type === 'OPEN_PANEL' && sender.tab?.id !== undefined) {
-    void chrome.sidePanel.open({ tabId: sender.tab.id })
-      .then(() => sendResponse(success()))
-      .catch(() => {
-        void sendToPlayerTab({ type: 'SHOW_NOTICE', message: 'Open SyncYourJoy from Chrome’s extensions button.' })
-        sendResponse(success())
-      })
+    if (!browserApi.sidePanel) {
+      void sendToPlayerTab({ type: 'SHOW_NOTICE', message: 'Open SyncYourJoy from the browser extensions button.' })
+      sendResponse(success())
+    }
+    else {
+      void browserApi.sidePanel.open({ tabId: sender.tab.id })
+        .then(() => sendResponse(success()))
+        .catch(() => {
+          void sendToPlayerTab({ type: 'SHOW_NOTICE', message: 'Open SyncYourJoy from the browser extensions button.' })
+          sendResponse(success())
+        })
+    }
     return true
   }
 
@@ -135,6 +148,9 @@ async function initialize(): Promise<void> {
     connection: stored?.snapshot ? 'reconnecting' : 'disconnected',
     displayName: typeof displayName === 'string' && displayName.trim() ? displayName : state.displayName,
     lastError: null,
+    connectionQuality: stored?.connectionQuality ?? 'offline',
+    roundTripMs: stored?.roundTripMs ?? null,
+    lastPongAtMs: stored?.lastPongAtMs ?? 0,
   }
 
   if (state.snapshot) {
@@ -306,6 +322,22 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return success()
     }
 
+    case 'LOCK_PLAYER':
+      if (!state.snapshot || state.playerTabId === null || state.playerFrameId === null || !state.currentMedia)
+        return failure('Detect a video before locking the player.')
+      await sendToPlayerTab({ type: 'LOCK_PLAYER' })
+      recordDiagnostic('player', 'player_locked', { frameId: state.playerFrameId })
+      await refreshBoundPlayerTab()
+      await publishState()
+      return success()
+
+    case 'UNLOCK_PLAYER':
+      await sendToPlayerTab({ type: 'UNLOCK_PLAYER' })
+      recordDiagnostic('player', 'player_unlocked')
+      await refreshBoundPlayerTab()
+      await publishState()
+      return success()
+
     case 'SYNC_NOW':
       if (!state.snapshot || state.playerTabId === null || state.playerFrameId === null || !state.currentMedia)
         return failure('The shared player is not ready yet.')
@@ -476,6 +508,9 @@ async function connect(roomCode: string): Promise<void> {
     nextSocket.addEventListener('open', () => {
       connectionPromise = null
       reconnectAttempts = 0
+      state.connectionQuality = 'unknown'
+      state.roundTripMs = null
+      state.lastPongAtMs = Date.now()
       startPingLoop()
       recordDiagnostic('connection', 'socket_opened', { roomCode })
       resolve()
@@ -498,6 +533,7 @@ async function connect(roomCode: string): Promise<void> {
 
       if (!intentionallyClosed && state.snapshot) {
         state.connection = 'reconnecting'
+        state.connectionQuality = 'offline'
         void publishState()
         scheduleReconnect()
       }
@@ -614,22 +650,48 @@ function handleServerMessage(raw: string): void {
     const estimate = clock.addSample(message.sentAtLocalMs, receivedAtLocalMs, message.serverTimeMs)
     state.serverOffsetMs = estimate.offsetMs
     state.clockUncertaintyMs = Number.isFinite(estimate.uncertaintyMs) ? estimate.uncertaintyMs : 99_999
+    state.roundTripMs = Math.max(0, Math.min(receivedAtLocalMs - message.sentAtLocalMs, 10_000))
+    state.lastPongAtMs = receivedAtLocalMs
+    state.connectionQuality = connectionQuality({
+      connection: state.connection,
+      roundTripMs: state.roundTripMs,
+      clockUncertaintyMs: state.clockUncertaintyMs,
+      lastPongAtMs: state.lastPongAtMs,
+      nowMs: receivedAtLocalMs,
+    })
     sendToServer({ type: 'client_metrics', roundTripMs: receivedAtLocalMs - message.sentAtLocalMs })
     void persistState()
+    notifyExtensionViews()
   }
 }
 
 function startPingLoop(): void {
   stopPingLoop()
+  state.lastPongAtMs = Date.now()
+  state.connectionQuality = 'unknown'
   const ping = () => sendToServer({ type: 'ping', id: createId('ping'), sentAtLocalMs: Date.now() })
   ping()
   pingTimer = setInterval(ping, 5_000)
+  heartbeatTimer = setInterval(() => {
+    if (socket?.readyState !== WebSocket.OPEN)
+      return
+    const nowMs = Date.now()
+    if (nowMs - state.lastPongAtMs <= 15_000)
+      return
+    recordDiagnostic('connection', 'heartbeat_timeout', { ageMs: nowMs - state.lastPongAtMs })
+    state.connectionQuality = 'offline'
+    socket.close(4001, 'heartbeat_timeout')
+  }, 1_000)
 }
 
 function stopPingLoop(): void {
   if (pingTimer)
     clearInterval(pingTimer)
   pingTimer = null
+  if (heartbeatTimer)
+    clearInterval(heartbeatTimer)
+  heartbeatTimer = null
+  state.connectionQuality = 'offline'
 }
 
 function sendToServer(message: ClientMessage): boolean {
@@ -651,6 +713,9 @@ function leaveRoom(): void {
   socket?.close(1000, 'left_room')
   socket = null
   state.connection = 'disconnected'
+  state.connectionQuality = 'offline'
+  state.roundTripMs = null
+  state.lastPongAtMs = 0
   state.snapshot = null
   state.inviteToken = null
   clearPlayerTab()
@@ -890,6 +955,9 @@ function detachedState(): ExtensionState {
     playerDiagnostics: null,
     lastPlayerSample: null,
     lastError: null,
+    connectionQuality: 'offline',
+    roundTripMs: null,
+    lastPongAtMs: 0,
   }
 }
 

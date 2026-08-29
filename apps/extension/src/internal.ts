@@ -8,6 +8,7 @@ export interface PlayerDiagnostics {
   networkState: number
   currentSrcKind: 'none' | 'http' | 'https' | 'blob' | 'data' | 'other'
   hasSourceObject: boolean
+  locked?: boolean
 }
 
 export interface ExtensionState extends ClientRoomState {
@@ -20,6 +21,9 @@ export interface ExtensionState extends ClientRoomState {
   playerDiagnostics: PlayerDiagnostics | null
   lastPlayerSample: PlayerSample | null
   lastOpenedNavigationRevision: number
+  connectionQuality: 'unknown' | 'good' | 'degraded' | 'offline'
+  roundTripMs: number | null
+  lastPongAtMs: number
 }
 
 export type RuntimeRequest =
@@ -30,6 +34,8 @@ export type RuntimeRequest =
   | { type: 'LEAVE_ROOM' }
   | { type: 'SET_READY'; ready: boolean }
   | { type: 'RECHECK_MEDIA' }
+  | { type: 'LOCK_PLAYER' }
+  | { type: 'UNLOCK_PLAYER' }
   | { type: 'OPEN_LINK'; url: string }
   | { type: 'SYNC_NOW' }
   | { type: 'DOWNLOAD_DIAGNOSTICS' }
@@ -58,6 +64,8 @@ export type RuntimeEvent =
   | { type: 'PAUSE_LOCAL' }
   | { type: 'FORCE_SYNC' }
   | { type: 'SHOW_NOTICE'; message: string }
+  | { type: 'LOCK_PLAYER' }
+  | { type: 'UNLOCK_PLAYER' }
 
 export interface RuntimeResponse {
   ok: boolean

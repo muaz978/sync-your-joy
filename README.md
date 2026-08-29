@@ -51,9 +51,13 @@ Version `0.1.17` includes:
 - dedicated identity and player-discovery handling for Crunchyroll, Animerco, and Qfilm;
 - a hideable in-page controller with a small restore handle, so it does not cover subtitles;
 - one-click local or room-wide resynchronization;
+- a player lock action for pages that expose more than one competing video element;
+- control-channel RTT and quality status with heartbeat timeout recovery;
 - real-player health checks that stop a false advancing timeline when playback did not start;
 - controller handoff after a disconnected-controller grace period;
 - a testing-only detailed JSON report assembled from connected participants.
+
+The current `main` branch also contains the next Gate 1-3 hardening slice. It adds explicit play-rejection and real-progress telemetry, avoids false room pauses from transient startup samples, retries seeks at 120 ms, recovers after page visibility changes, exposes control-channel quality and heartbeat timeout recovery, and includes Firefox WebExtensions metadata. These changes are not yet a tagged release until real two-device provider and network-chaos acceptance tests pass.
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
@@ -72,6 +76,8 @@ The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-
 | Closed-Shadow-DOM, canvas-only, native-app, browser-internal, or inaccessible players | Not supported by the generic HTML5 adapter |
 
 Commercial streaming sites change frequently. The table describes the current beta implementation, not a permanent compatibility guarantee. Please use the [bug report form](https://github.com/muaz978/sync-your-joy/issues/new?template=bug_report.yml) and attach the sanitized detailed report when a supported player behaves incorrectly.
+
+Firefox builds can be generated with `npm run build:extension:firefox`. The build uses Firefox's sidebar metadata and the standards-first WebExtensions API shim. Safari distribution still requires conversion and signing in Xcode on macOS, which is part of Gate 4.
 
 ## Privacy and permissions
 
@@ -108,6 +114,7 @@ npm run dev:edge                # local Cloudflare Durable Objects runtime
 npm run deploy:edge             # deploy the edge room service
 npm run smoke:edge -- URL       # exercise two clients against a room service
 npm run build                   # server and unpacked extension
+npm run build:extension:firefox # Firefox sidebar build for local smoke testing
 npm run typecheck               # strict TypeScript checks
 npm test                        # protocol, server, sync, and permission tests
 npm run check                   # full verification pipeline

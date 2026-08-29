@@ -3,6 +3,12 @@
   "name": "SyncYourJoy",
   "version": "0.1.17",
   "description": "Sync play, pause, and seeking across separate streaming accounts without screen sharing.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "syncyourjoy@muaz978.dev",
+      "strict_min_version": "109.0"
+    }
+  },
   "minimum_chrome_version": "116",
   "action": {
     "default_title": "Open SyncYourJoy"
