@@ -1852,6 +1852,54 @@
 - No credentials, tokens, private keys, cookies, media bytes, or signed URLs are stored in this checkpoint.
 - Earlier checkpoint history remains preserved above.
 
+## Checkpoint 17 - Generalized seek fix published as 0.1.21
+
+### Session Metadata
+- Task or project: SyncYourJoy repeated forward/backward seek failure after `v0.1.20`.
+- Checkpoint number: 17.
+- Date: 2026-08-30.
+- Coverage period: From final `0.1.21` checks through public release and independent package verification.
+- Current context status: The generalized controller-seek barrier fix is public. A fresh two-city test using only `v0.1.21` remains required.
+
+### Complete Chronological Activity Log
+- The second `download.json` report was inspected and confirmed extension version `0.1.20`, expected two participants, one received participant, four collection attempts, and one missing participant.
+- Its repeated trace still showed `control_seek_pending`, one `seek_participant_aligned`, and `seek_timeout_paused`, but no `native_player_intent`. This demonstrated that the previous native-only confirmation path did not cover the reported control path.
+- `RoomCoordinator.control` was changed so every seek created by the current controller, regardless of whether it came from native dragging or a side-panel control, starts with the controller already acknowledged. All connected ready matching guests remain independently required.
+- The temporary `controllerSeekApplied` protocol field and service-worker plumbing were removed because the distinction was no longer useful.
+- Room and chaos tests were updated to reflect the controller-first acknowledgement list while retaining guest confirmation, obsolete-acknowledgement, and timeout coverage.
+- Version references, README, changelog, test guide, Gate closeout, release examples, package metadata, and manifest were bumped to `0.1.21`.
+- The Word and PDF friend-test guide were regenerated for `0.1.21` and the PDF remained a tagged three-page A4 document without JavaScript or encryption.
+- `npm run release:check-version`, `npm run check`, and production dependency audit passed. The final full suite reported 21 files and 107 tests, with no vulnerabilities.
+- Chrome, Firefox, and macOS Safari package smoke passed with manifest version `0.1.21`.
+- The local `0.1.21` release ZIP passed `unzip -t` and reported the expected Manifest V3 metadata.
+- Commit `61604fe` was pushed to `main` and annotated tag `v0.1.21` was pushed to GitHub.
+- GitHub main CI run `33276088816` completed successfully.
+- GitHub release workflow run `33276089983` completed successfully and published the public release, ZIP, and checksum.
+- The public ZIP and checksum were downloaded into a disposable directory. `shasum -a 256 -c` returned `OK`, and the manifest reported version `0.1.21`.
+
+### Confirmed Successful Results
+- Public release page: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.21
+- Stable ZIP: https://github.com/muaz978/sync-your-joy/releases/download/v0.1.21/sync-your-joy-extension.zip
+- SHA-256 asset: https://github.com/muaz978/sync-your-joy/releases/download/v0.1.21/sync-your-joy-extension.zip.sha256
+- Generalized seek barrier fix is included in the public package.
+- The user-facing test guide has been regenerated for the exact new version.
+
+### Failed, Incomplete, or Unresolved Work
+- The supplied reports do not yet contain a complete two-sided diagnostic collection, so the next failure report is still needed.
+- Real provider playback and seek behavior on two separate computers is not proven by unit tests or package smoke.
+- If `v0.1.21` reaches the final aligned-playing state but one video still fails to progress, that will indicate a separate player/provider buffering or player-binding problem.
+
+### Next Steps
+1. Remove every older unpacked build from both computers and install only `v0.1.21`.
+2. Create a fresh room and repeat forward, backward, paused, playing, and rapid alternating seek tests.
+3. Confirm both visible players progress after the room reaches the final aligned-playing state.
+4. Download a fresh detailed report immediately after any failure and verify that both participants are included.
+5. Keep Gate 4 store submission blocked until the fresh acceptance matrix passes.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed URLs are stored in this checkpoint.
+- Earlier checkpoint history remains preserved above.
+
 ## Checkpoint 16 - Generalized seek-barrier fix prepared as 0.1.21
 
 ### Session Metadata
