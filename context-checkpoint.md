@@ -1317,6 +1317,10 @@
 - The elevated Git operation succeeded after the sandbox denied the first attempt. Commit `520b4ca` (`feat: harden playback and browser connectivity gates`) was created and pushed from `4b0a9f1` to public `main`.
 - GitHub CI run `33255960422` completed successfully on the exact commit. It passed install, source verification, Firefox sidebar smoke-build, and production dependency audit. GitHub emitted only the existing Node.js 20 action deprecation annotation.
 - The worktree is clean after the push. No release tag or GitHub Release was created for the Unreleased Gate 1-3 work.
+- The user added the `CLOUDFLARE_API_TOKEN` repository secret and manually ran **Deploy room coordinator #1** from `main`. GitHub reports success on commit `f4a16f2` in deployment run `33273072327`.
+- The live health endpoint `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health` returned `{"ok":true,"service":"sync-your-joy-rooms","region":"MXP"}`.
+- The post-deployment production smoke passed against `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms` with 64 ms RTT, 85 ms seek barrier, 1.794 s intentional timeout release, diagnostics from both participants, stale buffering protection, and startup buffering protection.
+- The earlier Cloudflare deployment blocker is resolved. Remaining Gate 1-3 work is real-browser/two-device acceptance, Firefox installation smoke, and Safari packaging, not deployment authentication.
 - Added `.github/workflows/deploy-edge.yml`, a manual production deployment workflow that requires the repository secret `CLOUDFLARE_API_TOKEN` and runs typecheck/tests before Wrangler deployment.
 - Added the corresponding README and `docs/RELEASING.md` instructions. Final local verification after this addition passed typecheck, all 101 tests, the Firefox build, and `git diff --check`.
 
