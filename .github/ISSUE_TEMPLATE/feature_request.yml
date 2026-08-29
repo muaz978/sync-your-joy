@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a focused product, platform, reliability, or accessibility improvement.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: User need
+      description: What problem should SyncYourJoy solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Desired workflow
+      description: Describe what the controller and guests should experience.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Relevant platform or website
+      description: Leave blank if the request applies everywhere.
+
+  - type: checkboxes
+    id: boundary
+    attributes:
+      label: Playback-only boundary
+      options:
+        - label: This request does not require screen capture, account sharing, DRM bypass, or retransmitting video/audio.
+          required: true

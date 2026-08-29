@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a synchronization, player detection, readiness, or interface problem.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing SyncYourJoy. Do not include account credentials, cookies, payment details, or protected video content.
+
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: Find this on chrome://extensions.
+      placeholder: 0.1.14
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Website or streaming platform
+      placeholder: Qfilm, Crunchyroll, Netflix, or another site
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include what the controller did, what the guest saw, and whether the room showed Ready, Wrong video, Aligning, or Playback blocked.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Created a room...
+        2. Guest joined...
+        3. Controller sought backward...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser version, operating system, number of participants, and approximate distance or network situation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Detailed report
+      description: Drag the JSON report produced by Download detailed report here. Review it before uploading. Never upload account or payment information.
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I checked the report and description and did not include passwords, cookies, payment information, or protected video/audio.
+          required: true

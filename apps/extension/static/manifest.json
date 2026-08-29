@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SyncYourJoy",
   "version": "0.1.14",
-  "description": "Synchronize playback while everyone watches through their own streaming account.",
+  "description": "Sync play, pause, and seeking across separate streaming accounts without screen sharing.",
   "minimum_chrome_version": "116",
   "action": {
     "default_title": "Open SyncYourJoy"

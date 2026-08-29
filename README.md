@@ -1,92 +1,131 @@
 # SyncYourJoy
 
-SyncYourJoy is a Chrome extension for synchronized watch parties. Every participant watches through their own streaming-service account; SyncYourJoy coordinates only playback state such as play, pause, seek, readiness, and drift.
+[![Continuous integration](https://github.com/muaz978/sync-your-joy/actions/workflows/ci.yml/badge.svg)](https://github.com/muaz978/sync-your-joy/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/muaz978/sync-your-joy?display_name=tag)](https://github.com/muaz978/sync-your-joy/releases/latest)
 
-## Project status
+Synchronize play, pause, and seeking across separate streaming accounts without screen sharing.
 
-An end-to-end public beta repository is deployed. It includes the Manifest V3 extension, a Cloudflare Durable Objects WebSocket coordinator, a local development server, the shared synchronization engine, a generic HTML5 adapter, a local test player, and automated tests.
+Every participant watches through their own authorized account. SyncYourJoy coordinates playback state only. It does not capture, proxy, decrypt, record, or retransmit video or audio.
 
-The beta room service is available at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its HTTP health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
+## Download and install
 
-## Product principles
+[Download the latest extension ZIP](https://github.com/muaz978/sync-your-joy/releases/latest/download/sync-your-joy-extension.zip) or visit the [latest release page](https://github.com/muaz978/sync-your-joy/releases/latest). A [SHA-256 checksum](https://github.com/muaz978/sync-your-joy/releases/latest/download/sync-your-joy-extension.zip.sha256) is published beside every ZIP.
 
-- Host controls must feel immediate and behave predictably.
-- Everyone must watch the same title and episode through their own authorized account.
-- The service never captures, proxies, decrypts, or retransmits video or audio.
-- Synchronization quality must be measured honestly. The internet cannot provide literal zero latency, so the product targets an explicit sync tolerance and corrects drift automatically.
-- Permissions and collected data stay as narrow as possible.
+Chrome cannot load an extension directly from a ZIP file. Each participant must:
 
-## Implemented MVP
+1. Download `sync-your-joy-extension.zip`.
+2. Extract it to a folder that will remain on the computer.
+3. Open `chrome://extensions` in Google Chrome.
+4. Enable **Developer mode**.
+5. Select **Load unpacked**.
+6. Choose the extracted `sync-your-joy-extension` folder, the one that contains `manifest.json`.
+7. Pin SyncYourJoy from Chrome's Extensions menu.
 
-The current build combines:
+After installing a newer release, replace the old extracted folder, select **Reload** on `chrome://extensions`, and refresh any streaming tabs that were already open.
 
-- a compact in-page sync pill for status and essential actions, with a persistent hide control and a small top-edge restore handle;
-- a Chrome side panel for create/join, participants, readiness, control ownership, and diagnostics;
-- a generic HTML5 video adapter enabled on HTTP/HTTPS pages, including videos inside embedded frames;
-- stable Qfilm identity based on its outer `vid` value, independent of the temporary cross-origin player and signed HLS URL;
-- controller-driven shared-link navigation that opens the same normalized video page for every participant and resets readiness safely;
-- link-first rooms where guests join before opening any video, plus one-click local and room-wide resynchronization;
-- an ordered room protocol with clock-offset estimation, scheduled playback, acknowledgements, and drift correction;
-- real-player health checks that stop the room when a participant remains paused or stops progressing;
-- a testing-only, controller-triggered JSON report containing sanitized logs from all connected participants.
+Unpacked extensions do not update automatically. Normal one-click installation and automatic updates on Windows and macOS require publishing through the Chrome Web Store. See [Releasing](docs/RELEASING.md) for the GitHub and future Web Store paths.
 
-It does not request screen capture, desktop capture, cookies, web request interception, or debugger permissions. It never captures or retransmits video or audio.
+## Use a room
 
-## Run locally
+1. Everyone signs in to the selected service with their own account.
+2. One person opens SyncYourJoy and creates a room.
+3. Friends open SyncYourJoy and join with the eight-character room code. They do not need to paste or open a video link first.
+4. The controller opens the intended video page, or pastes its page URL under **Video page link** and selects **Open link for everyone**.
+5. Everyone waits for **Video matches**, then selects **I'm ready**.
+6. The controller uses the streaming player's normal play, pause, and progress-bar controls. SyncYourJoy sends those actions to the room automatically.
 
-Requirements: Node.js 22 or newer and Google Chrome 116 or newer.
+If a provider blocks autoplay, click its video once. Use **Sync me now** for one participant or **Sync everyone** for the whole room if a player drifts. No refresh should be required.
+
+## Current public beta
+
+Version `0.1.14` includes:
+
+- automatic room-wide play, pause, forward seek, and backward seek;
+- a transactional seek barrier that aligns real players before playback resumes;
+- readiness for every participant, protected against temporary player replacement or media loss;
+- controller-driven link launch so guests can join before any video is open;
+- normalized link and platform identity matching across nested or signed players;
+- a generic HTML5 adapter on HTTP and HTTPS pages, including embedded frames;
+- dedicated identity and player-discovery handling for Crunchyroll, Animerco, and Qfilm;
+- a hideable in-page controller with a small restore handle, so it does not cover subtitles;
+- one-click local or room-wide resynchronization;
+- real-player health checks that stop a false advancing timeline when playback did not start;
+- controller handoff after a disconnected-controller grace period;
+- a testing-only detailed JSON report assembled from connected participants.
+
+The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
+
+## Platform compatibility
+
+| Platform or player | Current status |
+| --- | --- |
+| Ordinary HTML5 video | Broad beta support through the generic adapter, including controllable embedded frames |
+| Qfilm | Stable identity from the outer `vid` value, independent of temporary PlayerJS and signed HLS URLs |
+| Animerco | Click-to-load and nested-player support, with advertising-frame filtering |
+| Crunchyroll | Stable episode identity and generic player control, with ongoing live regression testing |
+| Netflix and Disney+ | Generic-adapter compatibility only, with dedicated automated compatibility coverage still required |
+| Canvas-only, native-app, browser-internal, or inaccessible players | Not supported by the generic HTML5 adapter |
+
+Commercial streaming sites change frequently. The table describes the current beta implementation, not a permanent compatibility guarantee. Please use the [bug report form](https://github.com/muaz978/sync-your-joy/issues/new?template=bug_report.yml) and attach the sanitized detailed report when a supported player behaves incorrectly.
+
+## Privacy and permissions
+
+SyncYourJoy requests `sidePanel`, `storage`, `tabs`, `downloads`, and HTTP/HTTPS content-script access. All-sites access lets the generic adapter discover a controllable video on arbitrary pages. The script does nothing when it cannot find a video.
+
+The extension does not request:
+
+- screen or tab capture;
+- cookies;
+- web-request interception;
+- debugger access;
+- streaming credentials or DRM keys.
+
+Room messages contain only synchronization state, a minimal media fingerprint, readiness, latency, and bounded diagnostics. See [Technical architecture](docs/ARCHITECTURE.md) for the complete boundary.
+
+## Develop locally
+
+Requirements: Node.js 22 or newer, npm, and Google Chrome 116 or newer.
 
 ```bash
-npm install
+npm ci
 npm run check
 npm run dev:server
 ```
 
-Then:
+Then open `chrome://extensions`, enable Developer mode, select **Load unpacked**, and choose `apps/extension/dist`.
 
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Choose **Load unpacked** and select `apps/extension/dist`.
-4. Open `http://127.0.0.1:8787/test-player`, or any HTTP/HTTPS page with a controllable HTML5 video.
-5. Select the same local test video in two Chrome profiles, open SyncYourJoy, create a room in one profile, and join with the code in the other.
-
-The test player never uploads the selected file. Each browser creates a local object URL for its own copy.
-
-## Deploy an edge beta
-
-Authenticate Wrangler, deploy the room coordinator, and build the extension with the resulting WSS endpoint:
+Useful commands:
 
 ```bash
-npx wrangler login
-npm run deploy:edge
-SYNCYOURJOY_ROOM_SERVER_URL=wss://YOUR-WORKER.workers.dev/rooms npm run build:extension
-npm run smoke:edge -- wss://YOUR-WORKER.workers.dev/rooms
+npm run dev:server              # local WebSocket room service
+npm run dev:edge                # local Cloudflare Durable Objects runtime
+npm run deploy:edge             # deploy the edge room service
+npm run smoke:edge -- URL       # exercise two clients against a room service
+npm run build                   # server and unpacked extension
+npm run typecheck               # strict TypeScript checks
+npm test                        # protocol, server, sync, and permission tests
+npm run check                   # full verification pipeline
+npm run release:check-version   # verify all release versions agree
+npm run release:package         # create the production extension ZIP and checksum
 ```
 
-The build script inserts that endpoint into the extension bundle and adds its origin to the Manifest V3 content security policy. See [private beta testing](docs/PRIVATE_BETA.md) for installation and two-city test instructions.
+## Releasing
 
-## Commands
+Pushing a semantic-version tag such as `v0.1.14` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
 
-```bash
-npm run dev:server      # local WebSocket room service
-npm run dev:edge        # local Cloudflare Durable Objects runtime
-npm run deploy:edge     # deploy the edge room service
-npm run smoke:edge -- URL # exercise two clients against a room service
-npm run build           # server and unpacked extension
-npm run typecheck       # strict TypeScript check
-npm test                # protocol, server, sync, and permission tests
-npm run check           # full verification pipeline
-```
+Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and pushes to `main` run the same source, test, build, and production-dependency checks through [continuous integration](.github/workflows/ci.yml).
 
-## Planning documents
+## Project documentation
 
-- [Product plan](docs/PRODUCT_PLAN.md)
-- [Technical architecture](docs/ARCHITECTURE.md)
-- [Research and constraints](docs/RESEARCH.md)
+- [Public beta testing](docs/PRIVATE_BETA.md)
 - [Current implementation](docs/IMPLEMENTATION.md)
-- [Private beta testing](docs/PRIVATE_BETA.md)
+- [Technical architecture](docs/ARCHITECTURE.md)
 - [Reliability review and roadmap](docs/RELIABILITY_REVIEW.md)
+- [Product plan](docs/PRODUCT_PLAN.md)
+- [Research and constraints](docs/RESEARCH.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
-## Working name
+## License
 
-`SyncYourJoy` is the working project name. Naming, visual identity, and public positioning are deliberately deferred until the core synchronization experience is validated.
+No open-source license has been selected yet. The source is publicly visible, but public visibility alone does not grant permission to copy, modify, or redistribute it. A license should be added only after the project owner chooses the intended terms.

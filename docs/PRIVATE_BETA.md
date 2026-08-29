@@ -1,4 +1,4 @@
-# Private beta testing
+# Public beta testing
 
 This beta synchronizes playback commands and timing only. It never captures, uploads, proxies, or retransmits video or audio. Every participant must use their own authorized streaming-service account and open the same title or episode on their own device.
 
@@ -6,14 +6,14 @@ The current extension package connects to the deployed Cloudflare room service a
 
 ## Install on both computers
 
-1. Send `sync-your-joy-beta.zip` to the other tester through your preferred private file-sharing channel.
-2. On each computer, unzip it into a folder that will not be deleted during the test.
+1. On each computer, download `sync-your-joy-extension.zip` from the [latest GitHub Release](https://github.com/muaz978/sync-your-joy/releases/latest). The stable direct-download link is [sync-your-joy-extension.zip](https://github.com/muaz978/sync-your-joy/releases/latest/download/sync-your-joy-extension.zip).
+2. Unzip it into a folder that will not be deleted during the test. Chrome cannot load the ZIP directly.
 3. Open `chrome://extensions` in Chrome.
 4. Enable **Developer mode**.
 5. Select **Load unpacked** and choose the unzipped folder that contains `manifest.json`.
 6. Pin SyncYourJoy from Chrome's extensions menu.
 
-Because this is an unpacked beta, Chrome does not auto-update it. Both testers should replace their folder when a new beta ZIP is provided.
+Because this is an unpacked beta, Chrome does not auto-update it. Both testers should download the next release, replace the old extracted folder, select **Reload** on `chrome://extensions`, and refresh open streaming tabs.
 
 Chrome shows an all-sites access warning because the universal adapter must discover HTML5 video on arbitrary HTTP/HTTPS pages. The beta does not request capture, cookies, web-request interception, or debugger access.
 

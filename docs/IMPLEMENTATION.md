@@ -74,7 +74,7 @@ Commercial streaming sites change their page structure and playback behavior reg
 - The Node room service is still available for local development; the remote beta build targets the Durable Objects backend.
 - The deployed beta endpoint is `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`.
 - Rooms are intentionally ephemeral and expire after all participants have left.
-- The extension is an unpacked development build and is not ready for Chrome Web Store submission.
+- Versioned public-beta ZIPs are published through GitHub Releases and installed with Chrome's **Load unpacked** flow. Chrome Web Store submission and automatic updates are not implemented yet.
 - There is no account system, chat, voice, video calling, or room history.
 - Episode transitions still require participants to confirm the new media state; the host can coordinate them with **Open link for everyone**, but automatic next-episode detection is not implemented.
 - There is no production abuse prevention beyond message validation, room size limits, per-connection rate limiting, expiring empty rooms, and unguessable internal room tokens.
@@ -105,8 +105,9 @@ npm run check
 
 ## Next production milestone
 
-1. Run the private two-city pilot and record connection, autoplay, buffering, and drift observations.
+1. Continue public two-city pilots and record connection, autoplay, buffering, and drift observations.
 2. Add browser automation across two persistent Chrome profiles with network shaping.
-3. Create versioned compatibility fixtures for Crunchyroll, Netflix, and Disney+.
-4. Add privacy disclosures, telemetry consent, retention policy, and adapter kill switches.
-5. Validate performance objectives before making synchronization claims.
+3. Create versioned compatibility fixtures for Crunchyroll, Netflix, Disney+, Animerco, and Qfilm.
+4. Prepare the Chrome Web Store listing, privacy disclosures, store assets, and review package.
+5. Add telemetry consent, retention policy, and adapter kill switches before any production telemetry.
+6. Validate performance objectives before making broader synchronization claims.

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Download the latest release
+    url: https://github.com/muaz978/sync-your-joy/releases/latest
+    about: Download the extension ZIP and read the installation notes.
