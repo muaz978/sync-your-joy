@@ -1389,6 +1389,17 @@
 3. Monitor the release workflow and verify the public ZIP/checksum assets.
 4. Send the release link and installation/testing instructions to the user.
 5. Collect real two-device playback results before beginning Gate 4 store submissions.
+
+### Release publication update
+- The verified release version commit was created as `4cc4dfd` (`release: prepare SyncYourJoy 0.1.18`) and pushed to `main`.
+- CI run `33273366151` passed on the exact release commit before tagging.
+- Annotated tag `v0.1.18` was created on `4cc4dfd` and pushed to GitHub.
+- Release workflow `33273404226` completed successfully. It validated the tag, ran source checks and 101 tests, audited production dependencies, built against the production Worker, packaged the ZIP, verified the checksum, and published the GitHub Release.
+- Public release page: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.18`.
+- Public ZIP: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.18/sync-your-joy-extension.zip`.
+- Public checksum: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.18/sync-your-joy-extension.zip.sha256`.
+- The downloaded public ZIP checksum independently returned `OK`; its embedded manifest reports version `0.1.18`, Manifest V3, and the production WSS endpoint.
+- The release is a normal public GitHub Release, not a draft or prerelease. Real two-device provider testing remains the next beta activity.
 - Added `.github/workflows/deploy-edge.yml`, a manual production deployment workflow that requires the repository secret `CLOUDFLARE_API_TOKEN` and runs typecheck/tests before Wrangler deployment.
 - Added the corresponding README and `docs/RELEASING.md` instructions. Final local verification after this addition passed typecheck, all 101 tests, the Firefox build, and `git diff --check`.
 
