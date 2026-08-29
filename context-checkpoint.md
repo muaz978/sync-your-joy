@@ -873,3 +873,188 @@
 ## Historical Checkpoint Notes
 - Checkpoints 1 through 4 remain preserved above.
 - Checkpoint 5 contains no passwords, cookies, account credentials, private keys, access tokens, signed HLS query values, or captured media.
+
+---
+
+# Context Checkpoint 6
+
+## Session Metadata
+- Task or project: SyncYourJoy 0.1.15 reliability audit, automated public release, Cloudflare account recovery, production deployment, and release verification
+- Checkpoint number: 6
+- Date and time: 2026-08-29, Europe/Istanbul
+- Coverage period: Completion of checkpoint 5 follow-up through the verified public `v0.1.15` release
+- Current context status: Version 0.1.15 is deployed to the existing production Worker and published as a verified GitHub Release. The repository is clean and synchronized with `origin/main` after this checkpoint is committed.
+
+## User Objective and Requirements
+- Create an automated releasing workflow so people can download a stable extension ZIP from GitHub and load it unpacked into Chrome.
+- Update the README, project description, and supporting documentation to reflect the latest public-beta implementation.
+- Fix the shared-link field so it never receives unexpected clipboard or browser autofill text, remains manually selectable and editable, and does not lose selection while room state refreshes.
+- Prevent readiness from cancelling without a real media change, reconnection mismatch, or explicit user action.
+- Sweep the extension for related bugs and keep all controls snappy.
+- Finish the production backend deployment before creating the release.
+- Help identify the correct Cloudflare account after Wrangler repeatedly authorized an account that did not own the existing Worker.
+
+## Current State
+- Public repository: `https://github.com/muaz978/sync-your-joy`.
+- Branch: `main`.
+- Release source commit before this checkpoint update: `d1c664f93d431881e77a4cc7cbead9816c5af314`.
+- Public release: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.15`.
+- Installable asset: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.15/sync-your-joy-extension.zip`.
+- Checksum asset: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.15/sync-your-joy-extension.zip.sha256`.
+- ZIP SHA-256: `1177c6655a6b77c1964e10ff01230ab444c171e3fbd4e0c973cdb4969674f273`.
+- Production coordinator: `https://sync-your-joy-rooms.sync-your-joy.workers.dev` and WebSocket path `/rooms`.
+- Production Worker version: `9dc1f82f-f994-4023-8e2a-bf95c8d146ab`.
+- Confirmed Cloudflare account ID: `40ae5b90cfe7a505dd1acc3f845ef3af`.
+- The correct account email was verified locally through Wrangler but is intentionally omitted from this tracked public checkpoint.
+
+## Complete Chronological Activity Log
+
+### Release workflow and public documentation request
+- The user asked how to create a release that anyone could download and load as a Chrome extension.
+- The user approved implementing a release workflow and updating the README, description, and all release documentation for the latest project state.
+- A tag-triggered GitHub Actions workflow was added to validate semantic version consistency, install locked dependencies, run the full verification pipeline, audit production dependencies, build the production-connected extension, create a deterministic ZIP and checksum, and publish a GitHub Release.
+- Stable asset names were selected so README links remain valid across releases: `sync-your-joy-extension.zip` and `sync-your-joy-extension.zip.sha256`.
+- The README was rewritten for public installation, privacy boundaries, supported-site behavior, development commands, and release instructions.
+- Releasing, implementation, architecture, private-beta, reliability, contribution, changelog, issue-template, and workflow documentation were updated.
+- Repository metadata was updated with the public description and topics relevant to Chrome extensions, Cloudflare Workers, WebSockets, and synchronized watch parties.
+
+### Shared-link and readiness reliability audit
+- The user asked to continue the interrupted release work, then fix unexpected pasted links, problematic manual selection, readiness cancellation, and any related control bugs.
+- The shared-link input was audited for browser autocomplete, clipboard-like autofill behavior, and state-render replacement.
+- Automatic completion was disabled and shared-link adoption was made explicit through Use current, Select, and Clear controls.
+- Side-panel rendering was deferred while the field had an active pointer gesture or text selection, preventing live room snapshots from replacing the input during manual selection.
+- A pending-readiness state was added so a rapid second click cannot accidentally undo the first Ready request before the authoritative snapshot arrives.
+- Reconnection readiness is preserved only through a short same-media reconnect path and does not survive a genuine media change.
+- Media mismatch publication was debounced so transient player scans do not immediately revoke readiness.
+- Ready-player media-loss grace was increased from three seconds to ten seconds.
+- Stale, tiny, or wrong replacement frames cannot displace a ready primary player.
+- Shared navigation avoids opening a duplicate tab when the controller is already on the authoritative room link.
+- An old-WebSocket replacement race was corrected in both the edge and local room services so a late close from an obsolete socket cannot disconnect the new session.
+- Version references were advanced consistently to 0.1.15.
+
+### Automated and browser verification before deployment
+- The full workspace reached 94 passing tests across 17 files.
+- Strict TypeScript checks passed for the normal workspace and edge-service configuration.
+- Room-service and production extension builds passed.
+- A clean `npm ci` verification passed, and the production dependency audit reported zero vulnerabilities.
+- The release packager passed for `RELEASE_VERSION=0.1.15`.
+- A real side-panel browser regression verified that selection remains intact during live state updates, autocomplete is disabled, an empty shared-link draft disables Open, typing enables Open, and a Ready click survives an incoming state update.
+- A pre-deployment live smoke against the existing coordinator passed with 79 ms round trip, 84 ms seek barrier, approximately 1795 ms intentional timeout release, and buffering protections.
+- Source commits were pushed in sequence:
+  - `8479ae2`, release automation and documentation;
+  - `7590257`, locked dependency correction for the edge workspace;
+  - `700f885`, version 0.1.15 reliability fixes.
+- GitHub CI run `33240026739` passed for `700f885`.
+
+### Initial Cloudflare authorization mismatch
+- Production deployment was intentionally held before tagging because the updated reconnect and readiness behavior included coordinator changes.
+- Wrangler browser and device authorization were attempted more than once.
+- The authorized token repeatedly resolved to Cloudflare account `705b012abe3fdf8ad43b257e0b0e1bee`.
+- Read-only deployment listing and API checks proved that account did not own `sync-your-joy-rooms` and did not own the `sync-your-joy.workers.dev` subdomain.
+- GitHub repository secrets were inspected and no stored Cloudflare deployment credential existed.
+- The incorrect local Wrangler session was logged out. A second device authorization accidentally selected the same incorrect browser account again.
+- No deployment was attempted against a newly created Worker, and no production state was overwritten during this mismatch.
+- The release tag was deliberately withheld until ownership could be verified.
+
+### Cloudflare account reconstruction
+- The user explained that they had signed into their main account but did not remember manually configuring Cloudflare for this software.
+- Repository configuration and checkpoint history confirmed that the first deployment occurred during the original SyncYourJoy setup on August 10.
+- The original session transcript was inspected for the first successful Wrangler deployment output.
+- That output showed that Wrangler originally began unauthenticated, then used Cloudflare OAuth device authorization, created the Durable Object Worker, and deployed to account `40ae5b90cfe7a505dd1acc3f845ef3af`.
+- The user supplied a Cloudflare Workers & Pages screenshot showing the exact existing application `sync-your-joy-rooms` at `sync-your-joy-rooms.sync-your-joy.workers.dev`.
+- The screenshot established that the browser profile being shown was logged into the correct owner account.
+- A read-only check using the incorrect Wrangler token and the recovered `40ae...` account ID returned Cloudflare authentication error 10000, proving the issue was OAuth account selection rather than a missing Worker.
+- The incorrect Wrangler token was removed and a fresh OAuth device code was started.
+- The user approved the code from the same browser profile that displayed the Worker.
+- `wrangler whoami` then confirmed account `40ae5b90cfe7a505dd1acc3f845ef3af`.
+- `wrangler deployments list` returned all ten historical deployments, beginning with version `87592341-3dfc-4780-b1ca-22c1695aefa1` and ending with the previously live version `dbf68195-5534-40aa-9587-2560e2e1e0fe`.
+- The Worker configuration was updated with the verified non-secret account ID so future Wrangler runs cannot silently default to the unrelated account.
+
+### Final verification and production deployment
+- After pinning the account ID, `npm run check` passed again with all 94 tests, TypeScript, and both builds.
+- Wrangler dry-run successfully bundled the Worker and validated the Durable Object binding. Its sandboxed attempt could not write an optional debug log under macOS Library Preferences, but the command exited successfully and the bundle validation completed.
+- The verified coordinator was deployed to the existing production Worker.
+- Cloudflare reported Worker version `9dc1f82f-f994-4023-8e2a-bf95c8d146ab` and the expected production URL.
+- The `/health` endpoint returned `{"ok":true,"service":"sync-your-joy-rooms","region":"MXP"}`.
+- The first full WebSocket smoke immediately after deployment timed out waiting for a room-service message. It was recorded as a failed cold-start attempt and was not counted as successful verification.
+- The smoke was repeated once against the warm Worker and completed successfully in room `BPVVGJ22`.
+- The successful run measured 62 ms round trip, 83 ms normal seek alignment, 1794 ms intentional missing-ack safety release, and 195 ms scheduled lead.
+- Both diagnostic participants were returned only to the controller, and stale/startup buffering protections passed.
+
+### Production account safeguard commit and CI
+- The account-ID safeguard passed `git diff --check`.
+- A sandboxed Git commit attempt failed because the restricted environment could not create `.git/index.lock`.
+- The identical scoped add and commit were rerun with repository write authorization and succeeded as `d1c664f` with message `fix: pin production Cloudflare account`.
+- `main` was pushed to GitHub.
+- Continuous integration run `33253043416` passed on exact commit `d1c664f93d431881e77a4cc7cbead9816c5af314`.
+
+### GitHub v0.1.15 release
+- The local tag list, remote tag list, and GitHub releases were checked first. No prior `v0.1.15` tag or release existed.
+- Annotated tag `v0.1.15` was created on verified commit `d1c664f` and pushed.
+- Release workflow run `33253074986` completed successfully in 19 seconds.
+- The workflow passed checkout, Node setup, tag/version validation, locked dependency installation, all source tests and builds, production dependency audit, extension packaging, checksum verification, and GitHub Release publication.
+- GitHub emitted a non-failing annotation that pinned official checkout and setup-node actions still target the deprecated Node 20 action runtime and were forced to Node 24 by the runner.
+- The published release is neither a draft nor a prerelease.
+- Release assets were independently downloaded into a disposable directory.
+- `shasum -a 256 -c sync-your-joy-extension.zip.sha256` returned `sync-your-joy-extension.zip: OK`.
+- ZIP inspection found one top-level `sync-your-joy-extension/` directory and the expected Manifest V3 bundle files.
+- An initial `unzip -p ... manifest.json` command used the wrong archive path and returned filename-not-matched. The correct nested path was then used successfully.
+- The packaged manifest reports version `0.1.15`, minimum Chrome 116, and the expected permissions and all-frame HTTP/HTTPS content script.
+- The packaged service worker contains `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`.
+
+## Confirmed Successful Results
+- The correct Cloudflare owner account was recovered and authenticated without creating a replacement Worker.
+- Production Worker version `9dc1f82f-f994-4023-8e2a-bf95c8d146ab` is deployed at the existing endpoint.
+- Production health and the complete warm two-participant protocol smoke passed.
+- The account-selection safeguard is committed and pushed as `d1c664f`.
+- GitHub CI passed on that exact commit.
+- Public release `v0.1.15` exists and is neither a draft nor a prerelease.
+- The downloadable ZIP and SHA-256 checksum assets exist with stable names.
+- The downloaded checksum independently validated.
+- The packaged extension is Manifest V3 version 0.1.15 and targets the production coordinator.
+
+## Failed, Incomplete, or Unresolved Work
+- The first production WebSocket smoke immediately after deployment timed out. A second warm run passed completely. The cold-start timeout remains an observability/reliability item and must not be represented as a successful first run.
+- Wrangler dry-run could not write its optional debug log while sandboxed, although bundle validation and the command exit succeeded. The real elevated deployment wrote through the normal Wrangler environment and succeeded.
+- The first manifest read from the downloaded ZIP used an incorrect archive path. It was corrected and the manifest then validated.
+- GitHub warns that some pinned official actions still identify Node 20 as their action runtime. The runner automatically used Node 24 and the release passed, but the workflow dependencies should be refreshed when upstream stable revisions are selected.
+
+## Decisions and Rationale
+- Production deployment had to precede the release tag because version 0.1.15 contains coordinator behavior used by the extension.
+- A Cloudflare account ID is not a secret and is appropriate in `wrangler.jsonc`; pinning it prevents deployment to an unrelated account after OAuth browser-profile confusion.
+- A public screenshot of the Worker list was sufficient evidence to identify the correct browser profile, but live Wrangler deployment history was required before authorizing a deployment.
+- The first post-deploy smoke timeout was recorded honestly and not converted into a pass. One complete warm rerun was required before release.
+- The release tag was created only after local verification, live deployment verification, a clean repository, and successful GitHub CI on the exact commit.
+
+## Files and Artifacts
+- `apps/edge-service/wrangler.jsonc`: pinned production Cloudflare account ID.
+- `.github/workflows/ci.yml`: continuous verification for pushes and pull requests.
+- `.github/workflows/release.yml`: tag-triggered extension release publication.
+- `scripts/package-extension.mjs`: stable ZIP and checksum packaging.
+- `scripts/check-release-version.mjs`: tag and manifest version consistency.
+- `README.md`: public download, installation, privacy, support, development, and release documentation.
+- `docs/RELEASING.md`: maintainer release procedure.
+- `docs/RELIABILITY_REVIEW.md`: audit findings and future recommendations.
+- `apps/extension/src/sidepanel.ts`: shared-link selection/autofill safeguards and pending-readiness interaction.
+- `apps/extension/src/service-worker.ts`: readiness preservation and shared-navigation behavior.
+- `apps/extension/src/content-script.ts`: player stability, media-loss grace, and transient mismatch handling.
+- `apps/edge-service/src/worker.ts` and `apps/room-service/src/server.ts`: WebSocket replacement-race fix.
+- Public ZIP and checksum URLs listed in Current State.
+
+## Assumptions and Uncertainties
+- The complete live smoke verifies the deployed protocol but does not replace ongoing real-provider testing on Netflix, Disney+, Crunchyroll, Qfilm, and changing generic sites.
+- The one cold-start timeout may be transient Cloudflare startup behavior or a timing weakness in the smoke client. It did not recur on the immediate complete rerun, but remains worth tracking.
+
+## Open Questions, Blockers, and Dependencies
+- No release, deployment, source, authentication, or packaging blocker remains for version 0.1.15.
+- Future work can update pinned GitHub Actions revisions to variants that declare the current Node action runtime.
+- Future releases should continue to run a production smoke after Worker deployment and before tagging.
+
+## Next Steps
+1. Commit and push this checkpoint-only documentation update so the chronological project history remains durable.
+2. Give the user the correct Cloudflare account identity, release link, direct ZIP, checksum, installation steps, and verified deployment evidence.
+3. For the next version, investigate the single post-deploy cold-start smoke timeout and consider a bounded connection-ready retry in the smoke harness.
+
+## Historical Checkpoint Notes
+- Checkpoints 1 through 5 remain preserved above without deletion or shortening.
+- This checkpoint deliberately omits OAuth codes, tokens, cookies, passwords, browser sessions, and the correct account email from the tracked public file.
