@@ -1191,6 +1191,99 @@
 - Checkpoints 1 through 6 remain preserved above without deletion or shortening.
 - This checkpoint contains no passwords, cookies, OAuth codes, access tokens, signed media URLs, or captured media.
 
+# Context Checkpoint 9
+
+## Session Metadata
+- Task or project: SyncYourJoy compatibility observability, unsupported-player UX, local fixture, and v0.1.17 release
+- Checkpoint number: 9
+- Date and time: 2026-08-29, Europe/Istanbul
+- Coverage period: User approval of all recommended improvements through implementation, verification, publication, and asset validation
+- Current context status: v0.1.17 is published and independently verified. A final checkpoint-only documentation commit is still pending.
+
+## User Objective and Requirements
+- The user approved implementing all recommended compatibility improvements from the previous response.
+- Requested improvements included player-origin visibility, unsupported-player guidance, manual redetection, richer per-player diagnostics, a local compatibility fixture, additional provider regression coverage, and a downloadable release.
+
+## Complete Chronological Activity Log
+
+### Diagnostics and origin metadata
+- Added `PlayerOrigin` and `PlayerDiagnostics` types in `apps/extension/src/internal.ts`.
+- Content scripts now classify the selected element as light DOM or open Shadow DOM and report ready state, network state, current source kind, and MediaStream presence.
+- The service worker stores the selected player diagnostics, resets them during navigation/player loss, and includes them in sanitized detailed reports and media-detected diagnostic events.
+- Added a side-panel Player diagnostics disclosure showing binding frame, origin, source kind, position, pause state, buffering state, ready state, network state, duration, and MediaStream status.
+
+### Unsupported-player UX and manual recovery
+- Room readiness now explains that a page may still be loading or may use canvas rendering, closed Shadow DOM, an inaccessible frame, or another non-controllable surface when no video is detected.
+- Added a Redetect player button to the no-player/loading state and to the playback-repair controls. It uses the existing active-tab recheck path and never requires a refresh.
+- The existing media-loss and mismatch behavior remains intact, so redetection does not silently mark a participant ready.
+
+### Fixture and provider regressions
+- Added `fixtures/generic-player.html`, a self-contained compatibility page with native video, an open Shadow DOM player, a hidden decoy, dynamic player replacement, SPA route changes, and a canvas-backed MediaStream player.
+- Added `scripts/serve-fixture.mjs` and the `npm run dev:fixture` command.
+- Added `docs/TEST_FIXTURE.md` with normal Chrome testing instructions and explicit network/provider limitations.
+- Added YouTube and Disney Plus canonical-ID regression coverage to `apps/extension/src/media-fingerprint.test.ts`.
+- Extended the protocol diagnostics validator with optional player metadata fields for backward-compatible room reports.
+
+### Verification and release
+- An initial test command with the unsupported Vitest `--runInBand` flag was not used for acceptance. The correct test run passed 97 tests across 18 files.
+- `npm run check` passed TypeScript, all tests, room-service build, and extension build.
+- The local fixture server was started and fetched successfully at `http://127.0.0.1:8788/generic-player`; it served the expected fixture content. The temporary server was then stopped.
+- Production two-client smoke passed with 65 ms round trip, 86 ms seek barrier, approximately 1.79 seconds intentional timeout release, diagnostics collection, and stale/startup buffering protection.
+- Version references were advanced consistently to 0.1.17.
+- The implementation was committed as `2273358` with message `feat: add player diagnostics and compatibility fixture` and pushed to `main`.
+- GitHub CI run `33254805192` passed on the exact commit.
+- Annotated tag `v0.1.17` was pushed. Release workflow run `33254829153` passed all verification, packaging, checksum, and publication steps.
+- The published ZIP was independently downloaded. `shasum -a 256 -c sync-your-joy-extension.zip.sha256` returned `OK`, and the packaged manifest reported version 0.1.17, all-frame HTTP/HTTPS injection, and `match_origin_as_fallback`.
+- The published v0.1.17 ZIP SHA-256 is `88dccb653ec7e421289a12ec550bc42fe8c22d29b8cac6c04a77456d8fbd1027`.
+
+## Confirmed Successful Results
+- Player provenance and health diagnostics are visible in the side panel and included in sanitized room reports.
+- Every room state offers manual player redetection, including before a player is found.
+- Unsupported-player guidance is explicit and preserves the no-capture/no-DRM boundary.
+- The local generic-player fixture and server are available in the repository.
+- YouTube and Disney Plus identity regressions are covered by tests.
+- Full local verification passed with 97 tests, strict TypeScript checks, and both builds.
+- Production protocol smoke passed.
+- Public GitHub Release v0.1.17 exists with a valid downloadable ZIP and checksum.
+
+## Failed, Incomplete, or Unresolved Work
+- A real headed-browser automation run remains environment-dependent. The installed Chrome did not inject MV3 content scripts in disposable headless mode, so this release does not claim automated headed provider playback verification.
+- Authenticated provider regression checks remain manual and can change as site implementations change.
+- The checkpoint-only documentation update still needs to be committed and pushed after this section is appended.
+
+## Decisions and Rationale
+- Diagnostics are deliberately limited to the selected HTML video element and sanitized state metadata. No media bytes, credentials, cookies, DRM keys, or signed URL parameters are collected.
+- The fixture uses an external public sample video because embedding a large binary media asset would make the repository unnecessarily heavy. DOM and player discovery checks remain local.
+- Optional protocol fields preserve compatibility with older diagnostic clients and existing room servers.
+- The release version was incremented to 0.1.17 because the recommended improvements are user-visible and packaged for download.
+
+## Files and Artifacts
+- `apps/extension/src/internal.ts`
+- `apps/extension/src/content-script.ts`
+- `apps/extension/src/service-worker.ts`
+- `apps/extension/src/sidepanel.ts`
+- `packages/protocol/src/index.ts`
+- `apps/extension/src/media-fingerprint.test.ts`
+- `fixtures/generic-player.html`
+- `scripts/serve-fixture.mjs`
+- `docs/TEST_FIXTURE.md`
+- `CHANGELOG.md`, `README.md`, `docs/RELEASING.md`
+- `tasks/plan.md`, `tasks/todo.md`
+- Public release: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.17`
+
+## Open Questions, Blockers, and Dependencies
+- A normal headed Chrome session is still needed to validate the fixture's content-script injection and provider-specific playback behavior.
+- Future work can add browser automation on a host with a display or a supported Chrome-for-Testing setup.
+
+## Next Steps
+1. Commit and push this checkpoint-only documentation section.
+2. Install v0.1.17 in Chrome and run the fixture plus at least one nested-frame provider manually.
+3. Capture the detailed report if a provider reports a frozen or unsupported player.
+
+## Historical Checkpoint Notes
+- Checkpoints 1 through 8 remain preserved above without deletion or shortening.
+- This checkpoint contains no passwords, cookies, OAuth codes, access tokens, signed media URLs, or captured media.
+
 # Context Checkpoint 8
 
 ## Session Metadata
