@@ -4,6 +4,7 @@ dist/
 coverage/
 release/
 .wrangler/
+.browser-package-smoke-*/
 .env
 .env.*
 !.env.example

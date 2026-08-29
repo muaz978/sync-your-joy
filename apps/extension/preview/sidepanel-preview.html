@@ -59,7 +59,7 @@
       }
       chromeMock.storage = {
         local: {
-          async get() { return forceLight ? { syncYourJoyTheme: 'light' } : {} },
+          async get() { return forceLight ? { syncYourJoyTheme: 'light', syncYourJoyPrivacyAcknowledgedAt: 'preview' } : { syncYourJoyPrivacyAcknowledgedAt: 'preview' } },
           async set() {},
         },
       }

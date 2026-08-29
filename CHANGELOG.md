@@ -16,6 +16,19 @@ All notable user-facing changes are recorded here. This project follows semantic
 - Synchronized backward and forward seeks retry at a bounded 120 ms cadence instead of waiting a full second between attempts.
 - Player health baselines recover after visibility changes, bfcache restores, and page focus recovery.
 
+## [0.1.19] - 2026-08-29
+
+### Added
+
+- First-use in-extension privacy disclosure and acknowledgement before creating or joining rooms.
+- Deterministic network-chaos coverage for delayed controls, duplicate actions, seek barriers, and seek timeouts.
+- Reproducible PNG toolbar/store icons and Chrome, Firefox, and macOS Safari package smoke verification.
+- Gates 1-3 privacy, store, closeout, and two-city friend-test documentation in Markdown, Word, and PDF formats.
+
+### Fixed
+
+- Release and package documentation now points to one consistent beta version and the downloadable test guide artifacts.
+
 ## [Unreleased]
 
 ## [0.1.17] - 2026-08-29
@@ -102,3 +115,4 @@ All notable user-facing changes are recorded here. This project follows semantic
 [0.1.16]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.16
 [0.1.17]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.17
 [0.1.18]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.18
+[0.1.19]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.19

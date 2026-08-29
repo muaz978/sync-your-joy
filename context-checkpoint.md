@@ -1545,3 +1545,138 @@
 ## Historical Checkpoint Notes
 - Checkpoints 1 through 7 remain preserved above without deletion or shortening.
 - This checkpoint contains no passwords, cookies, OAuth codes, access tokens, signed media URLs, or captured media.
+
+## Checkpoint 12 - Gate 1-3 repository closeout and friend-test pack
+
+### Session Metadata
+- Task or project: SyncYourJoy pre-Gate-4 reliability, privacy, packaging, and friend-test preparation.
+- Checkpoint number: 12.
+- Date: 2026-08-29.
+- Coverage period: From the user's request to complete all repository-side Gate 1-3 work through preparation of a DOCX/PDF friend-test guide.
+- Current context status: Repository-side work is implemented locally but has not yet been version-bumped, committed, pushed, or released in this checkpoint.
+
+### User Objective and Requirements
+- Complete everything still actionable on the assistant side for Gates 1 through 3 before the user's two-city test with friends.
+- Prepare a practical file, preferably PDF or Word, that explains exactly what to install and test.
+- Complete privacy-policy and store-preparation work, not just code changes.
+- Preserve the distinction between repository-verified checks and real provider/device checks that require the user and friends.
+
+### Current State
+- Existing public repository baseline before this work was GitHub `muaz978/sync-your-joy`, release `v0.1.18`, with production Worker endpoint `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`.
+- Working tree now contains privacy, store, closeout, and test-guide documentation; an in-extension first-use privacy acknowledgement; deterministic network-chaos tests; browser package verification; reproducible PNG icons; and README/CHANGELOG/task-list updates.
+- DOCX and PDF friend-test artifacts exist under `docs/artifacts/` and have been generated successfully. Visual review of all pages still needs to be completed after context restoration.
+- Real two-device provider tests, real throttled/offline/sleep-wake tests, Firefox runtime installation, Safari runtime installation, headed fixture acceptance, and final privacy-contact publication remain user or owner environment checks.
+
+### Complete Chronological Activity Log
+
+#### Planning and skill selection
+- The project-planning and shipping-readiness guidance was selected because the request spans implementation, verification, privacy, store preparation, release packaging, and a user handoff.
+- The DOCX and PDF document skills were read before generating the requested Word/PDF artifact.
+- Bundled workspace dependencies were loaded. The available runtimes included the bundled Node executable, Python executable, LibreOffice/soffice, and document libraries.
+- The existing repository, current release baseline, production Worker endpoint, task plan, todo checklist, README, release documentation, side panel, service worker, edge Worker, and existing tests were treated as the starting state.
+
+#### Privacy and store preparation
+- Created `docs/PRIVACY_POLICY.md` as a draft privacy policy dated 2026-08-29. It documents display names, room identifiers, room state, minimal page/media matching metadata, connection metrics, bounded diagnostics, local preferences, Cloudflare/WebSocket handling, local storage, reports, security, and non-affiliation with streaming brands.
+- The policy explicitly states that SyncYourJoy does not collect or transmit screen captures, camera/microphone data, video/audio bytes, passwords, cookies, DRM/payment information, unrelated browsing history, advertising profiles, or a viewing-history database.
+- Created `docs/STORE_SUBMISSION.md` containing Chrome Web Store, Firefox Add-ons, and Safari distribution preparation, permission rationale, privacy-disclosure requirements, assets, source/build instructions, reviewer instructions, and release exit criteria.
+- Created `docs/GATE_1_3_CLOSEOUT.md` to distinguish repository-verified results from real-user acceptance and to define Gate 4 entry criteria.
+- Updated README and CHANGELOG with the privacy acknowledgement, browser package checks, closeout documentation, store pack, and friend-test guide.
+
+#### In-extension consent and UX safeguards
+- Edited `apps/extension/src/sidepanel.ts` to add a first-use privacy acknowledgement stored under `syncYourJoyPrivacyAcknowledgedAt`.
+- The disclosure appears on the welcome and room views until acknowledged, links to the repository policy, and explains that only playback state, minimal matching metadata, connection quality, and sanitized diagnostics are involved.
+- Create-room and join-room actions now require acknowledgement and provide a clear action if it has not been accepted.
+- Updated the preview mock in `apps/extension/preview/sidepanel-preview.html` with a preview acknowledgement value so the preview remains usable.
+
+#### Automated tests and browser packaging
+- Added `tests/store-readiness.test.ts` to check privacy/store/gate documentation and required README links.
+- Extended `tests/manifest.test.ts` to enforce the intended permissions, service worker, restrictive CSP, PNG icon paths, and valid PNG signatures.
+- Added `packages/sync-engine/src/network-chaos.test.ts` covering delayed rapid controls, duplicate action idempotency, seek barriers with jittered acknowledgements, and seek-timeout paused-target behavior.
+- Updated `tasks/plan.md` and `tasks/todo.md` to record deterministic chaos coverage and browser package smoke checks as completed, while leaving real runtime checks explicitly open.
+- Added `scripts/verify-browser-packages.mjs` and `npm run verify:browser-packages`. It builds and validates Chrome and Firefox packages and invokes Apple's Safari Web Extension packager when `xcrun` is available.
+- The first browser-package run failed because the Safari staging directory was under `/tmp` and macOS denied the packager access. The staging location was changed to a short-lived repository-local directory.
+- The next run exposed nested Xcode-project discovery in the script. The detection logic was changed to search deeper with `find -maxdepth 5`.
+- Safari packager output also warned about unsupported Chrome-only metadata such as `sidePanel`, `match_origin_as_fallback`, `side_panel`, `downloads`, and `match_about_blank`. The package smoke nevertheless completed, and these warnings are recorded as compatibility limitations rather than runtime proof.
+- Chrome's icon documentation was checked. SVG-only icons were not sufficient for the target package, so a source SVG plus reproducible raster assets were added.
+- Added `apps/extension/static/icon.svg`, `scripts/generate-icons.py`, and PNGs at `apps/extension/static/icons/icon-16.png`, `icon-32.png`, `icon-48.png`, and `icon-128.png`.
+- Updated `apps/extension/static/manifest.json` with the icon map and action icons, and updated `scripts/build-extension.mjs` to copy the icon directory into the built extension.
+- Added `.browser-package-smoke-*/` to `.gitignore` so temporary Safari package output is not committed.
+
+#### Verification attempts and fixes
+- `npm run check` initially failed only because the store-readiness assertion expected the exact phrase `No refresh should be required`. The test was corrected to match the actual guide wording `do not refresh`.
+- After correction, `npm run check` passed typecheck, Vitest, server build, and Chrome build. At that point the suite reported 20 test files and 103 tests before the new chaos test was included in a later run.
+- `npm run verify:browser-packages` first failed on the `/tmp` Safari boundary and then on project discovery. After both fixes, the command passed with Chrome manifest 0.1.18 and service worker `service-worker.js`, Firefox manifest 0.1.18 and `sidepanel.html`, and Safari macOS package smoke success.
+- The Safari debug project was removed from `.safari-debug` after inspection. No secrets or generated Xcode project were retained.
+
+#### Friend-test document generation
+- Created `docs/TEST_GUIDE.md` with installation, first-use privacy acknowledgement, create/join-room flow, automatic play/pause, forward/backward/repeated seek, autoplay recovery, reconnect/readiness stability, controller handoff, matching/player lock, network chaos, detailed report download, issue-report fields, a pass/fail worksheet, and release-blocking outcomes.
+- Created `scripts/generate-test-guide.mjs`, using the bundled `docx` module from the workspace dependency runtime.
+- The first generator attempt failed because `PageNumber` was used as a constructor. It was changed to `PageNumber.CURRENT`, then headers/footers were removed when the API shape did not match the installed library.
+- The first DOCX output contained invalid `<0/>` XML caused by nested child arrays. Section children were flattened and explicit page-break paragraphs were removed. The regenerated DOCX contains zero `<0/>` occurrences.
+- The first DOCX-to-PDF conversion failed because of the invalid XML. After the generator fix, LibreOffice converted successfully to PDF using `writer_pdf_Export`.
+- Generated artifacts:
+  - `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx`
+  - `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.pdf`
+- `pdfinfo` confirmed the PDF title, author, three-page A4 output, tagged structure, no JavaScript, and no encryption.
+- Raster previews were generated as `/private/tmp/sync-guide-page-1.jpg`, `sync-guide-page-2.jpg`, and `sync-guide-page-3.jpg`. A parallel image inspection returned truncated tool output, so one-page-at-a-time visual inspection remains the next verification action.
+
+### Confirmed Successful Results
+- Privacy policy, store-submission pack, Gate 1-3 closeout, Markdown test guide, deterministic chaos tests, browser package verification, first-use consent UI, and PNG extension icons were created locally.
+- `npm run check` passed after the assertion correction, including typecheck, test suite, server build, and extension build.
+- `npm run verify:browser-packages` passed after Safari staging and discovery fixes for Chrome, Firefox, and Safari macOS package smoke.
+- DOCX generation completed and the output was repaired so it contains no invalid `<0/>` XML markers.
+- PDF conversion completed successfully. `pdfinfo` verified a three-page tagged A4 PDF without JavaScript or encryption.
+
+### Failed, Incomplete, or Unresolved Work
+- The working tree is not yet version-bumped, committed, pushed, tagged, or released for this checkpoint. The current generated guide still references release `0.1.18` and should either be released as a new `0.1.19` build or explicitly labeled as a source-state guide.
+- Real playback on two separate computers and authenticated providers remains unverified locally. Automated unit/integration tests cannot prove Netflix, Disney+, Crunchyroll, or arbitrary third-party player behavior.
+- Real network throttling, offline/online recovery, sleep/wake, browser restarts, and repeated seek behavior still require the user's two-city test.
+- Firefox runtime installation and Safari runtime execution have not been verified. Safari package smoke only proves that Apple's packager accepted a generated package while warning about Chrome-only metadata.
+- The privacy policy still needs a stable HTTPS publication URL and a real privacy contact controlled by the owner before store submission.
+- The generated PDF pages need one-at-a-time visual inspection. Table-width warnings from docx-js may be worth cleaning before final publication.
+
+### Decisions and Rationale
+- Repository-side completion is treated as a separate milestone from real-world acceptance. Gate 4 must not be claimed complete until the user reports successful two-city tests and owner-controlled privacy/store details are ready.
+- The privacy acknowledgement is intentionally first-use and local. It is not an account system and does not imply that video content, screen captures, or credentials are transmitted.
+- PNG icons are included because Chrome's current extension packaging guidance expects raster icons for reliable store/package compatibility; SVG remains a source asset only.
+- Safari support is described as a package smoke result with known manifest differences, not as a guarantee that every Chrome-specific extension feature runs unchanged in Safari.
+- The friend guide is written for two people on separate devices and includes exact failure evidence to collect with the in-extension detailed report.
+
+### Files and Artifacts
+- `docs/PRIVACY_POLICY.md`
+- `docs/STORE_SUBMISSION.md`
+- `docs/GATE_1_3_CLOSEOUT.md`
+- `docs/TEST_GUIDE.md`
+- `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx`
+- `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.pdf`
+- `scripts/generate-test-guide.mjs`
+- `scripts/verify-browser-packages.mjs`
+- `scripts/generate-icons.py`
+- `apps/extension/static/icon.svg`
+- `apps/extension/static/icons/icon-16.png`, `icon-32.png`, `icon-48.png`, `icon-128.png`
+- `packages/sync-engine/src/network-chaos.test.ts`
+- `tests/store-readiness.test.ts`
+- modified README, CHANGELOG, manifest, side panel, build script, CI workflow, task plan, todo list, package script, and `.gitignore`.
+
+### Assumptions and Uncertainties
+- The owner wants the repository-side changes released as a new beta build before the friend test, even though the immediate request primarily asks for completion and a test file.
+- The current production Worker endpoint remains the intended endpoint for the next package unless the owner changes deployment configuration.
+- The detailed report feature already present in the extension is the intended evidence mechanism; this checkpoint does not add a second report format.
+- Any provider-specific URL or player behavior may vary by account, region, login state, DOM, DRM implementation, or site update.
+
+### Open Questions, Blockers, and Dependencies
+- Which real privacy contact URL/email should replace the policy placeholder?
+- Has the Cloudflare Worker account's retention/logging posture been confirmed for the published privacy text?
+- Can the owner perform the two-device acceptance matrix and return detailed reports for failures?
+- Should the next release be `0.1.19`? The likely next action is to bump all version references consistently and publish a new beta release.
+
+### Next Steps
+1. Inspect the three generated PDF pages one at a time and correct any layout or table-width issue.
+2. Decide and apply a consistent `0.1.19` version bump across package, manifest, docs, guide, and changelog.
+3. Re-run `npm run check`, `npm run verify:browser-packages`, dependency audit, and release packaging.
+4. Add the DOCX/PDF artifacts and all intended source/docs changes to Git, commit, push `main`, tag `v0.1.19`, and verify the release workflow if the release path is authorized by the existing project workflow.
+5. Provide the user the release ZIP, PDF/DOCX/Markdown guide links, exact two-city test matrix, and a clear list of the remaining owner-only Gate 4 prerequisites.
+
+### Historical Checkpoint Notes
+- This checkpoint preserves the complete chronological record of this turn and does not include passwords, API tokens, private keys, cookies, or other secrets.
+- Earlier checkpoint history remains unchanged above.

@@ -63,5 +63,6 @@ if (!manifest.content_security_policy.extension_pages.includes(connectSource))
   manifest.content_security_policy.extension_pages += ` ${connectSource}`
 await writeFile(resolve(outputDirectory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 await cp(resolve(staticDirectory, 'sidepanel.html'), resolve(outputDirectory, 'sidepanel.html'))
+await cp(resolve(staticDirectory, 'icons'), resolve(outputDirectory, 'icons'), { recursive: true })
 
 console.log(`Built ${browserTarget === 'firefox' ? 'Firefox' : 'Chrome'} extension at ${outputDirectory}`)

@@ -21,7 +21,7 @@ Chrome cannot load an extension directly from a ZIP file. Each participant must:
 6. Choose the extracted `sync-your-joy-extension` folder, the one that contains `manifest.json`.
 7. Pin SyncYourJoy from Chrome's Extensions menu.
 
-After installing a newer release, replace the old extracted folder, select **Reload** on `chrome://extensions`, and refresh any streaming tabs that were already open.
+After installing a newer release, replace the old extracted folder, select **Reload** on `chrome://extensions`, and refresh any streaming tabs that were already open. On first use, review the in-extension privacy disclosure and choose **I understand and continue** before creating or joining a room.
 
 Unpacked extensions do not update automatically. Normal one-click installation and automatic updates on Windows and macOS require publishing through the Chrome Web Store. See [Releasing](docs/RELEASING.md) for the GitHub and future Web Store paths.
 
@@ -38,7 +38,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.1.18` includes:
+Version `0.1.19` includes:
 
 - automatic room-wide play, pause, forward seek, and backward seek;
 - a transactional seek barrier that aligns real players before playback resumes;
@@ -57,7 +57,7 @@ Version `0.1.18` includes:
 - controller handoff after a disconnected-controller grace period;
 - a testing-only detailed JSON report assembled from connected participants.
 
-Version `0.1.18` adds explicit play-rejection and real-progress telemetry, avoids false room pauses from transient startup samples, retries seeks at 120 ms, recovers after page visibility changes, exposes control-channel quality and heartbeat timeout recovery, includes Firefox WebExtensions metadata, and adds a player lock action for pages with competing video elements.
+Version `0.1.19` adds a first-use privacy acknowledgement, deterministic network-chaos coverage, reproducible PNG icons, Chrome/Firefox/Safari package smoke verification, and the complete Gates 1-3 friend-test pack on top of the 0.1.18 synchronization hardening.
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
@@ -93,6 +93,8 @@ The extension does not request:
 
 Room messages contain only synchronization state, a minimal media fingerprint, readiness, latency, and bounded diagnostics. See [Technical architecture](docs/ARCHITECTURE.md) for the complete boundary.
 
+Read the [SyncYourJoy privacy policy](docs/PRIVACY_POLICY.md) and the [store submission pack](docs/STORE_SUBMISSION.md) before distributing the beta. The privacy policy is a draft until the project owner publishes it at a stable HTTPS URL and replaces the placeholder privacy-contact instruction.
+
 ## Develop locally
 
 Requirements: Node.js 22 or newer, npm, and Google Chrome 116 or newer.
@@ -115,6 +117,7 @@ npm run deploy:edge             # deploy the edge room service
 npm run smoke:edge -- URL       # exercise two clients against a room service
 npm run build                   # server and unpacked extension
 npm run build:extension:firefox # Firefox sidebar build for local smoke testing
+npm run verify:browser-packages # Chrome, Firefox, and Safari package smoke (Safari on macOS)
 npm run typecheck               # strict TypeScript checks
 npm test                        # protocol, server, sync, and permission tests
 npm run check                   # full verification pipeline
@@ -126,13 +129,19 @@ Production Worker deployments can also be run from the **Deploy room coordinator
 
 ## Releasing
 
-Pushing a semantic-version tag such as `v0.1.18` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
+Pushing a semantic-version tag such as `v0.1.19` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
 
 Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and pushes to `main` run the same source, test, build, and production-dependency checks through [continuous integration](.github/workflows/ci.yml).
 
 ## Project documentation
 
 - [Public beta testing](docs/PRIVATE_BETA.md)
+- [Gates 1-3 friend test guide](docs/TEST_GUIDE.md)
+- [Gates 1-3 friend test guide PDF](docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.pdf)
+- [Gates 1-3 friend test guide Word document](docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx)
+- [Gate 1-3 closeout and Gate 4 entry criteria](docs/GATE_1_3_CLOSEOUT.md)
+- [Store submission pack](docs/STORE_SUBMISSION.md)
+- [Privacy policy](docs/PRIVACY_POLICY.md)
 - [Current implementation](docs/IMPLEMENTATION.md)
 - [Technical architecture](docs/ARCHITECTURE.md)
 - [Reliability review and roadmap](docs/RELIABILITY_REVIEW.md)

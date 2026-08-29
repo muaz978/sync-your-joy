@@ -28,7 +28,9 @@
 - [x] Include real progress and playback-start state in player health samples.
 - [x] Retry room seeks at a bounded sub-second cadence and recover after page visibility changes.
 - [x] Add connection quality, RTT, and heartbeat watchdog state.
+- [x] Add deterministic network-chaos simulation coverage for delayed, duplicate, and timeout-safe controls.
 - [x] Add standards-first browser API shim and Firefox metadata.
 - [ ] Execute real two-device provider and network-chaos acceptance tests.
-- [ ] Implement and test manual multi-player selection/lock UI.
+- [x] Implement the selected-player lock UI and package-level browser smoke checks.
+- [ ] Test the lock UI and player replacement behavior in a headed browser.
 - [ ] Gate 4 store packaging and submissions after the above checks pass.

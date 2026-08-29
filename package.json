@@ -1,6 +1,6 @@
 {
   "name": "sync-your-joy",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "Synchronize play, pause, and seeking across separate streaming accounts without screen sharing.",
   "private": true,
   "type": "module",
@@ -18,6 +18,8 @@
     "dev:edge": "wrangler dev --config apps/edge-service/wrangler.jsonc",
     "deploy:edge": "wrangler deploy --config apps/edge-service/wrangler.jsonc",
     "smoke:edge": "node scripts/smoke-room-service.mjs",
+    "verify:browser-packages": "node scripts/verify-browser-packages.mjs",
+    "docs:test-guide": "node scripts/generate-test-guide.mjs",
     "release:check-version": "node scripts/check-release-version.mjs",
     "release:package": "bash scripts/package-extension.sh",
     "test": "vitest run",

@@ -86,6 +86,7 @@ Expand SyncYourJoy's generic adapter so it detects and tracks the largest practi
 - [x] Add a control-channel quality model based on RTT, clock uncertainty, and heartbeat age.
 - [x] Add a heartbeat watchdog that closes an unresponsive socket and re-enters bounded exponential reconnect.
 - [x] Surface connection quality and RTT in the room panel and keep diagnostics sanitized.
+- [x] Add deterministic jitter, duplicate-control, and seek-timeout simulation coverage.
 - [ ] Run network-throttle, offline/online, laptop-sleep, and reconnect chaos tests on two devices.
 - [x] Add a gated GitHub Actions deployment workflow that verifies source/tests before Wrangler production deployment.
 
@@ -93,7 +94,8 @@ Expand SyncYourJoy's generic adapter so it detects and tracks the largest practi
 
 - [x] Add a standards-first WebExtensions API shim and Firefox metadata while retaining Chromium behavior.
 - [x] Preserve generic native-video, MSE/blob, MediaStream, open-Shadow-DOM, nested-frame, and SPA coverage.
-- [ ] Add a Firefox build/install smoke and a Safari conversion/package smoke on supported host tooling.
-- [ ] Add a UI for selecting or locking among multiple detected players when a page exposes competing videos.
+- [x] Add an automated Firefox build/install-package check and Safari conversion/package smoke on supported host tooling.
+- [x] Add a UI for locking the selected player when a page exposes competing videos.
+- [ ] Run the real Firefox install, Safari runtime, headed fixture, and multiple-player acceptance checks.
 
 Gate 4, store submissions, signing, listing copy, and marketplace review remain out of scope until every unchecked Gate 1-3 validation item is complete.

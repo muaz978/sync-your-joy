@@ -24,6 +24,8 @@ let pendingReadyValue: boolean | null = null
 let pendingReadyTimer: ReturnType<typeof setTimeout> | null = null
 let pendingOpenLinkUrl: string | null = null
 let pendingOpenLinkTimer: ReturnType<typeof setTimeout> | null = null
+const PRIVACY_ACK_KEY = 'syncYourJoyPrivacyAcknowledgedAt'
+let privacyAccepted = false
 
 app.addEventListener('pointerdown', () => {
   panelPointerActive = true
@@ -32,6 +34,7 @@ window.addEventListener('pointerup', releasePanelPointer, true)
 window.addEventListener('pointercancel', releasePanelPointer, true)
 
 void initializeTheme()
+void initializePrivacy()
 void refreshState()
 
 chrome.runtime.onMessage.addListener((message: RuntimeEvent) => {
@@ -130,6 +133,7 @@ function welcomeView(current: ExtensionState): string {
   const media = current.currentMedia
   return `
     <section class="flex flex-col gap-4">
+      ${privacyDisclosure()}
       <div class="soft-panel p-4">
         <div class="flex items-start gap-3">
           <span class="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-3 bg-secondary color-active" aria-hidden="true">
@@ -199,6 +203,7 @@ function roomView(current: ExtensionState): string {
     && current.lastPlayerSample?.playbackStartFailed === true
   return `
     <section class="flex flex-col gap-4">
+      ${privacyDisclosure()}
       <div class="flex items-center justify-between gap-3">
         <div>
           <p class="section-label m-0">Room code</p>
@@ -472,6 +477,7 @@ function participantRow(participant: ParticipantState, current: ExtensionState, 
 
 function bindCommonActions(): void {
   document.querySelector('#theme-button')?.addEventListener('click', () => void toggleTheme())
+  document.querySelector('#privacy-accept')?.addEventListener('click', () => void acknowledgePrivacy())
 }
 
 function bindWelcomeActions(): void {
@@ -487,10 +493,14 @@ function bindWelcomeActions(): void {
 
   document.querySelector('#create-form')?.addEventListener('submit', event => {
     event.preventDefault()
+    if (!requirePrivacyAcknowledgement())
+      return
     void saveNameThen({ type: 'CREATE_ROOM' })
   })
   document.querySelector('#join-form')?.addEventListener('submit', event => {
     event.preventDefault()
+    if (!requirePrivacyAcknowledgement())
+      return
     void saveNameThen({ type: 'JOIN_ROOM', code: draftCode })
   })
 }
@@ -764,6 +774,39 @@ async function initializeTheme(): Promise<void> {
   const theme = stored.syncYourJoyTheme
   const dark = theme === 'dark' || (theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
   document.documentElement.classList.toggle('dark', dark)
+}
+
+async function initializePrivacy(): Promise<void> {
+  const stored = await chrome.storage.local.get(PRIVACY_ACK_KEY)
+  privacyAccepted = typeof stored[PRIVACY_ACK_KEY] === 'string' && Boolean(stored[PRIVACY_ACK_KEY])
+  requestRender(true)
+}
+
+async function acknowledgePrivacy(): Promise<void> {
+  privacyAccepted = true
+  await chrome.storage.local.set({ [PRIVACY_ACK_KEY]: new Date().toISOString() })
+  requestRender(true)
+}
+
+function requirePrivacyAcknowledgement(): boolean {
+  if (privacyAccepted)
+    return true
+  showToast('Review the privacy notice and choose “I understand and continue” first.')
+  document.querySelector<HTMLElement>('#privacy-accept')?.focus()
+  return false
+}
+
+function privacyDisclosure(): string {
+  if (privacyAccepted)
+    return ''
+  return `
+    <section class="soft-panel border-primary-500/30 bg-primary-500/8 p-4" role="region" aria-labelledby="privacy-disclosure-title">
+      <p id="privacy-disclosure-title" class="section-label m-0">Before you create or join a room</p>
+      <p class="mt-1 mb-0 text-xs leading-5 color-fade">SyncYourJoy sends only the room state needed to synchronize your own video: your chosen display name, a minimal page/video match, playback state, readiness, connection measurements, and optional sanitized diagnostics. It never sends video, audio, cookies, passwords, or screen captures.</p>
+      <a class="mt-2 inline-block text-xs font-700 text-primary-700 underline dark:text-primary-300" href="https://github.com/muaz978/sync-your-joy/blob/main/docs/PRIVACY_POLICY.md" target="_blank" rel="noopener noreferrer">Read the privacy policy</a>
+      <button id="privacy-accept" class="btn-primary mt-3 w-full tap-scale" type="button">I understand and continue</button>
+    </section>
+  `
 }
 
 async function toggleTheme(): Promise<void> {
