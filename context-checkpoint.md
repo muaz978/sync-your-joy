@@ -1313,6 +1313,11 @@
 - Checkpoints 1 through 9 remain preserved above without deletion or shortening, including earlier release and production evidence.
 - This checkpoint records the deployment blocker without exposing any secret or token.
 
+### Post-checkpoint publication update
+- The elevated Git operation succeeded after the sandbox denied the first attempt. Commit `520b4ca` (`feat: harden playback and browser connectivity gates`) was created and pushed from `4b0a9f1` to public `main`.
+- GitHub CI run `33255960422` completed successfully on the exact commit. It passed install, source verification, Firefox sidebar smoke-build, and production dependency audit. GitHub emitted only the existing Node.js 20 action deprecation annotation.
+- The worktree is clean after the push. No release tag or GitHub Release was created for the Unreleased Gate 1-3 work.
+
 # Context Checkpoint 9
 
 ## Session Metadata
