@@ -1190,3 +1190,53 @@
 ## Historical Checkpoint Notes
 - Checkpoints 1 through 6 remain preserved above without deletion or shortening.
 - This checkpoint contains no passwords, cookies, OAuth codes, access tokens, signed media URLs, or captured media.
+
+# Context Checkpoint 8
+
+## Session Metadata
+- Task or project: SyncYourJoy broad browser video-player compatibility expansion and public release
+- Checkpoint number: 8
+- Date and time: 2026-08-29, Europe/Istanbul
+- Coverage period: Commit, CI, tag, GitHub Release publication, and independent asset verification after checkpoint 7
+- Current context status: Version 0.1.16 is committed, pushed, published, and independently verified. The follow-up checkpoint-only documentation change remains to be committed and pushed.
+
+## Complete Chronological Activity Log
+
+### Source commit and CI
+- `git diff --check` passed before commit.
+- The compatibility implementation, tests, documentation, version references, task plan, task checklist, and checkpoint 7 were committed as `0612268` with message `feat: broaden generic video player compatibility`.
+- `git push origin main` succeeded and advanced public `main` from `a73c093` to `0612268`.
+- GitHub Continuous Integration run `33254345113` completed successfully on the exact pushed SHA. Typecheck, tests, builds, and production dependency audit all passed.
+
+### Public release
+- Annotated tag `v0.1.16` was created on the verified compatibility commit and pushed to GitHub.
+- Release workflow run `33254371629` completed successfully. It validated the semantic version, installed the lockfile, reran source verification, audited dependencies, built and packaged the production extension, verified the checksum, and published the GitHub Release.
+- The public release is available at `https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.16`.
+- The direct ZIP is `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.16/sync-your-joy-extension.zip`.
+- The published ZIP was downloaded into a disposable directory. `shasum -a 256 -c sync-your-joy-extension.zip.sha256` returned `OK`.
+- The downloaded archive's nested manifest reports version `0.1.16`, Manifest V3, minimum Chrome 116, HTTP/HTTPS all-frame content scripts, `match_origin_as_fallback`, and the production WebSocket endpoint.
+- The published release ZIP SHA-256 is `f2b6f931043c14c6ab684fc3019a62653c567d4b65251569ce877c4f3303eb11`.
+
+### Documentation-only checkpoint follow-up
+- This checkpoint 8 was appended after the release so the publication evidence is durable. It is intentionally not folded into the release tag, because changing the tagged source after publication would make the tag and latest main differ.
+
+## Confirmed Successful Results
+- Public GitHub `main` contains commit `0612268` with the broad compatibility implementation.
+- CI passed on the exact commit.
+- Public GitHub Release `v0.1.16` exists and its workflow completed successfully.
+- The published ZIP and checksum assets exist, the checksum independently validates, and the packaged manifest reports version 0.1.16 and the production room endpoint.
+- The extension's broad compatibility changes are now available for download and unpacked installation.
+
+## Failed, Incomplete, or Unresolved Work
+- The headed real-browser Shadow DOM/SPA fixture is still not verified in this environment. That remains an explicit manual validation item and is not claimed by the release.
+- This checkpoint-only documentation update is not yet included in the pushed `main` branch.
+- Provider-specific behavior can still change and requires manual regression checks on authenticated services.
+
+## Next Steps
+1. Commit and push checkpoint 8 documentation only.
+2. Give the user the v0.1.16 download link, installation steps, supported compatibility scope, limitations, and verification evidence.
+3. For future work, run a headed Chrome fixture on a machine where content scripts can be injected, then add a focused browser acceptance test if stable.
+
+## Historical Checkpoint Notes
+- Checkpoints 1 through 7 remain preserved above without deletion or shortening.
+- This checkpoint contains no passwords, cookies, OAuth codes, access tokens, signed media URLs, or captured media.
