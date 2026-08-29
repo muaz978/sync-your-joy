@@ -1808,3 +1808,46 @@
 ### Historical Checkpoint Notes
 - This checkpoint contains no credentials, API tokens, private keys, cookies, signed media URLs, or captured media.
 - Earlier checkpoint history remains preserved above.
+
+## Checkpoint 15 - Native seek barrier fix released as 0.1.20
+
+### Session Metadata
+- Task or project: SyncYourJoy production friend-test seek failure.
+- Checkpoint number: 15.
+- Date: 2026-08-30.
+- Coverage period: From final local checks through public `v0.1.20` release and independent download verification.
+- Current context status: The seek fix and diagnostic-collection improvement are public. The next required evidence is a fresh two-city test using only `v0.1.20`.
+
+### Complete Chronological Activity Log
+- `git diff --check` passed after removing two Markdown trailing-space lines introduced by the version bump.
+- The `0.1.20` source was committed as `02c3050` with message `fix: prevent native seek barrier deadlocks`.
+- `main` and annotated tag `v0.1.20` were pushed to `https://github.com/muaz978/sync-your-joy.git` with elevated permission because the sandbox blocks Git index writes.
+- GitHub Continuous integration run `33275392292` completed successfully on the pushed SHA.
+- GitHub Release workflow run `33275392801` completed successfully, including source checks, type/tests/build, production dependency audit, packaging, checksum verification, and publication. The only workflow annotation was the known Node.js 20 deprecation warning for checkout/setup-node actions.
+- GitHub Release `v0.1.20` was queried and confirmed public, non-draft, non-prerelease, with ZIP and SHA-256 assets.
+- The public ZIP and checksum were downloaded into a disposable directory. `shasum -a 256 -c` returned `OK`. The nested manifest reported SyncYourJoy version `0.1.20`, Manifest V3, permissions `sidePanel`, `storage`, `tabs`, and `downloads`, and service worker `service-worker.js`.
+- The patch implementation is now ready for the user to retest. The downloaded failure report itself remains evidence from `0.1.18`; it does not prove the new release's runtime behavior.
+
+### Confirmed Successful Results
+- Public release: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.20
+- Stable download: https://github.com/muaz978/sync-your-joy/releases/download/v0.1.20/sync-your-joy-extension.zip
+- Checksum asset: https://github.com/muaz978/sync-your-joy/releases/download/v0.1.20/sync-your-joy-extension.zip.sha256
+- Public release asset checksum independently validated.
+- Public package manifest and version independently validated.
+- The controller-native seek barrier fix and longer diagnostics collection are included in the released package.
+
+### Failed, Incomplete, or Unresolved Work
+- Real two-city runtime behavior is not verified by local tests. The user must remove old unpacked builds and install only `v0.1.20` on both computers.
+- The next report should be downloaded after a fresh failure. If it is incomplete again, the new eight-second retry window and attempts count will provide more evidence.
+- Safari runtime and authenticated commercial-provider behavior remain outside repository-only verification.
+
+### Next Steps
+1. On both computers, remove the old extracted extension folder, download `v0.1.20`, extract it to a new permanent folder, load that folder in `chrome://extensions`, and refresh the provider tab.
+2. Repeat a forward seek, backward seek, and two rapid alternating seeks while both participants are ready and the room is playing.
+3. Confirm that the room reaches the final `seek_aligned_play_scheduled` state and that both visible videos progress from the same target without a refresh.
+4. If it fails, download the detailed JSON report immediately and provide the new file, browser versions, provider URLs without credentials, and which side stopped progressing.
+5. Do not begin Gate 4 store submission until the fresh `v0.1.20` acceptance matrix passes.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed URLs are stored in this checkpoint.
+- Earlier checkpoint history remains preserved above.
