@@ -1,6 +1,6 @@
 # Gate 1-3 Closeout and Gate 4 Entry Criteria
 
-**Current release:** `0.1.20`
+**Current release:** `0.1.21`
 **Purpose:** record what can be completed by the repository and what requires two real people, real provider accounts, or marketplace accounts.
 
 ## Verified in the repository and production workflow
@@ -12,7 +12,7 @@
 - The Cloudflare room coordinator health endpoint responds successfully.
 - The production-connected protocol smoke covers room creation, joining, readiness, shared-link navigation, play, seek barriers, timeout-safe pause, diagnostics, reconnect-safe state, and startup/stale buffering protection.
 - The GitHub release workflow publishes a versioned ZIP and SHA-256 checksum.
-- The public `v0.1.19` package was published, downloaded independently, and checksum-verified. The `v0.1.20` patch candidate adds the controller-confirmed native-seek path and longer diagnostics collection before the next friend test.
+- The public `v0.1.19` and `v0.1.20` packages were published, downloaded independently, and checksum-verified. The `v0.1.21` patch candidate makes the controller confirmation consistent across native and side-panel seek paths before the next friend test.
 - Release page for the prior beta: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.19
 
 ## Gate 1: synchronization proof

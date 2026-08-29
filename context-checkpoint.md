@@ -1851,3 +1851,53 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed URLs are stored in this checkpoint.
 - Earlier checkpoint history remains preserved above.
+
+## Checkpoint 16 - Generalized seek-barrier fix prepared as 0.1.21
+
+### Session Metadata
+- Task or project: SyncYourJoy repeated forward/backward seek failure after `v0.1.20`.
+- Checkpoint number: 16.
+- Date: 2026-08-30.
+- Coverage period: From the new `download.json` report through preparation of the generalized `v0.1.21` patch candidate.
+- Current context status: Local `v0.1.21` checks are green and the release archive is valid; publication is the next action.
+
+### Complete Chronological Activity Log
+- Read the new `/Users/muazsabbagh/Downloads/download.json` as diagnostic data. It reported extension `0.1.20`, expected two participants, received one, four collection attempts, and one missing participant.
+- The report showed two additional failures: revision 76 seek target approximately 454.741 seconds with one acknowledgement followed by `seek_timeout_paused` revision 77, and the same repeated asymmetric pattern as the earlier report.
+- Unlike the first report, this one did not contain a `native_player_intent` event. This proved that the `v0.1.20` controller-native marker was not sufficient for side-panel or other control paths.
+- Generalized `RoomCoordinator.control` so every seek originating from the current controller starts with the controller ID already acknowledged. Guests remain required to acknowledge independently before the room can resume.
+- Removed the now-unnecessary optional `controllerSeekApplied` protocol field and extension plumbing to keep the wire contract simple. Older clients may still send the unknown field harmlessly because the parser already returns validated control data without relying on it.
+- Updated room and chaos tests for the controller-first acknowledgement list and retained obsolete-acknowledgement and guest-barrier coverage.
+- Bumped source, manifest, lockfile, README, store pack, Gate closeout, release examples, changelog, and test-guide references to `0.1.21`.
+- Regenerated the DOCX and PDF friend-test guide for `0.1.21`; PDF conversion and metadata validation passed.
+- `npm run release:check-version` passed with `0.1.21`.
+- `npm run check` passed: strict typecheck, 21 Vitest files, 107 tests, server build, and extension build.
+- `npm audit --omit=dev --audit-level=high` returned `found 0 vulnerabilities`.
+- `npm run verify:browser-packages` passed for Chrome, Firefox, and macOS Safari package smoke with manifest version `0.1.21`.
+- `RELEASE_VERSION=0.1.21 npm run release:package` produced a valid ZIP. `unzip -t` reported no errors and the nested manifest reported Manifest V3 version `0.1.21`, permissions `sidePanel`, `storage`, `tabs`, and `downloads`, and the service worker.
+- `git diff --check` passed. The patch is ready to commit and publish.
+
+### Confirmed Successful Results
+- The new report was mapped to a second concrete root cause: the earlier fix handled only one control path, while the reported path still waited for an asynchronous controller acknowledgement.
+- The generalized fix removes that path distinction and preserves guest confirmation as the actual remote barrier.
+- `0.1.21` local tests, build, audit, browser package smoke, guide regeneration, and release ZIP validation passed.
+
+### Failed, Incomplete, or Unresolved Work
+- The `0.1.21` candidate has not yet been committed, pushed, tagged, or published.
+- The report remains incomplete because only one participant responded, so the next fresh report is still needed to validate both sides.
+- Real two-city runtime behavior across each provider remains unverified by local tests.
+
+### Decisions and Rationale
+- Every controller seek is treated as controller-confirmed because the controller is the origin of the target command. The room still waits for all connected, ready, media-matching guests.
+- If the controller's own player cannot apply the target, its player-health report can still pause the room after the normal stall window. This is preferable to an indefinite barrier timeout that hides the real failure.
+- The user must test only `v0.1.21`; mixing old unpacked folders can produce misleading behavior.
+
+### Next Steps
+1. Commit and push the `0.1.21` patch, tag `v0.1.21`, and verify the public ZIP/checksum.
+2. Have both friends remove old `0.1.18`, `0.1.19`, and `0.1.20` folders before loading the new package.
+3. Repeat forward, backward, paused, playing, and rapid alternating seek tests.
+4. Download a fresh detailed report after any failure. Confirm whether the report contains both participants and whether a final `seek_aligned_play_scheduled` event occurred.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed URLs are stored in this checkpoint.
+- Earlier checkpoint history remains preserved above.

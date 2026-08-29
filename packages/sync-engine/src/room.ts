@@ -47,7 +47,6 @@ export interface ControlIntent {
   leaseEpoch: number
   kind: ControlKind
   positionSeconds: number
-  controllerSeekApplied?: boolean
 }
 
 export interface OpenLinkIntent {
@@ -271,7 +270,11 @@ export class RoomCoordinator {
         positionSeconds,
         resumeWhenReady,
         deadlineAtServerMs: nowMs + SEEK_BARRIER_MAX_WAIT_MS,
-        acknowledgedParticipantIds: participantId === this.controllerId && intent.controllerSeekApplied === true
+        // A controller seek request is emitted after the controller has chosen
+        // the target in its own player, so the controller is already the
+        // source of truth for this side of the barrier. Every guest still
+        // has to acknowledge independently before playback can resume.
+        acknowledgedParticipantIds: participantId === this.controllerId
           ? [participantId]
           : [],
       }

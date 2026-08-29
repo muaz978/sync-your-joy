@@ -2,6 +2,12 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.1.21] - 2026-08-30
+
+### Fixed
+
+- All controller seek paths now count the controller side immediately, preventing native dragging and side-panel seek controls from waiting forever for a second controller acknowledgement while still requiring every guest to confirm.
+
 ## [0.1.20] - 2026-08-30
 
 ### Fixed
@@ -124,3 +130,4 @@ All notable user-facing changes are recorded here. This project follows semantic
 [0.1.18]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.18
 [0.1.19]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.19
 [0.1.20]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.20
+[0.1.21]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.21

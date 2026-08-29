@@ -1,6 +1,6 @@
 # SyncYourJoy Gates 1-3 Friend Test Guide
 
-**Test build:** SyncYourJoy `0.1.20` beta
+**Test build:** SyncYourJoy `0.1.21` beta
 **Download:** https://github.com/muaz978/sync-your-joy/releases/latest/download/sync-your-joy-extension.zip  
 **Room service:** `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`
 

@@ -411,7 +411,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     }
 
     case 'CONTROL':
-      return sendControl(request.kind, request.positionSeconds, request.kind === 'seek')
+      return sendControl(request.kind, request.positionSeconds)
 
     case 'PLAYER_INTENT': {
       if (!isBoundPlayerSender(sender))
@@ -446,7 +446,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
   }
 }
 
-async function sendControl(kind: ControlKind, explicitPosition?: number, controllerSeekApplied = false): Promise<RuntimeResponse> {
+async function sendControl(kind: ControlKind, explicitPosition?: number): Promise<RuntimeResponse> {
   const snapshot = state.snapshot
   if (!snapshot)
     return failure('Join a room first.')
@@ -474,7 +474,6 @@ async function sendControl(kind: ControlKind, explicitPosition?: number, control
     leaseEpoch: snapshot.controller.leaseEpoch,
     kind,
     positionSeconds: Math.max(0, positionSeconds),
-    ...(controllerSeekApplied && kind === 'seek' ? { controllerSeekApplied: true } : {}),
   })
   if (!sent)
     return failure('The room connection was interrupted. Reconnecting now.')

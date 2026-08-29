@@ -52,7 +52,6 @@ describe('deterministic network-chaos simulation', () => {
       leaseEpoch: snapshot.controller.leaseEpoch,
       kind: 'seek',
       positionSeconds: 240,
-      controllerSeekApplied: true,
     })
     expect(seek).toMatchObject({ ok: true, snapshot: { seek: { positionSeconds: 240 } } })
     if (!seek.ok)

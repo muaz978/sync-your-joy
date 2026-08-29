@@ -139,8 +139,6 @@ export type ClientMessage =
       leaseEpoch: number
       kind: ControlKind
       positionSeconds: number
-      /** True only when the controller emitted a native seek after its own seeked event. */
-      controllerSeekApplied?: boolean
     }
   | {
       type: 'transfer_control'
@@ -339,7 +337,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return value as unknown as ClientMessage
 
     case 'control':
-      if (!validId(value.actionId) || !isNonNegativeInteger(value.basedOnRevision) || !isNonNegativeInteger(value.leaseEpoch) || !isControlKind(value.kind) || !isFiniteNonNegative(value.positionSeconds) || (value.controllerSeekApplied !== undefined && typeof value.controllerSeekApplied !== 'boolean'))
+      if (!validId(value.actionId) || !isNonNegativeInteger(value.basedOnRevision) || !isNonNegativeInteger(value.leaseEpoch) || !isControlKind(value.kind) || !isFiniteNonNegative(value.positionSeconds))
         return null
       return value as unknown as ClientMessage
 
