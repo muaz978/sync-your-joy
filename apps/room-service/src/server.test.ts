@@ -61,6 +61,42 @@ describe('room service', () => {
     socket.close()
   })
 
+  it('keeps a replacement connection ready and connected after closing its prior socket', async () => {
+    service = await createRoomService({ port: 0 })
+    const original = await connect(service.url)
+    const media = {
+      service: 'youtube',
+      canonicalId: 'youtube:abc123',
+      title: 'A useful test video',
+      durationSeconds: 600,
+    }
+    original.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'REJOIN12', media,
+    }))
+    await nextMessage(original)
+    original.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    await nextMessage(original)
+
+    const originalClosed = new Promise<void>((resolve) => original.once('close', () => resolve()))
+    const replacement = await connect(service.url)
+    replacement.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'REJOIN12', media,
+    }))
+    const joined = await nextMessage(replacement)
+    expect(joined).toMatchObject({
+      type: 'room_joined',
+      snapshot: { participants: [expect.objectContaining({ id: 'participant_host', connected: true, ready: true })] },
+    })
+    await originalClosed
+
+    replacement.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    const confirmed = await nextRoomSnapshot(replacement, 'readiness_unchanged')
+    expect(confirmed.snapshot.participants).toEqual([
+      expect.objectContaining({ id: 'participant_host', connected: true, ready: true, mediaMatches: true }),
+    ])
+    replacement.close()
+  })
+
   it('collects sanitized diagnostic reports from every participant for the controller', async () => {
     service = await createRoomService({ port: 0 })
     const host = await connect(service.url)
@@ -123,4 +159,13 @@ async function nextMessage(socket: WebSocket): Promise<ServerMessage> {
       resolve(JSON.parse(data.toString()) as ServerMessage)
     })
   })
+}
+
+async function nextRoomSnapshot(socket: WebSocket, reason: string): Promise<Extract<ServerMessage, { type: 'room_snapshot' }>> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const message = await nextMessage(socket)
+    if (message.type === 'room_snapshot' && message.reason === reason)
+      return message
+  }
+  throw new Error(`Timed out waiting for room snapshot: ${reason}`)
 }

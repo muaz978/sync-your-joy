@@ -312,6 +312,47 @@ describe('RoomCoordinator', () => {
     expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
   })
 
+  it('restores readiness after a brief reconnect with the same matching media', () => {
+    const room = createRoom()
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_friend', true, media)
+
+    const disconnected = room.disconnect('participant_friend')
+    expect(disconnected).toMatchObject({
+      ok: true,
+      snapshot: { participants: expect.arrayContaining([
+        expect.objectContaining({ id: 'participant_friend', connected: false, ready: true }),
+      ]) },
+    })
+
+    const reconnected = room.join({ id: 'participant_friend', name: 'Rana', media })
+    expect(reconnected).toMatchObject({
+      ok: true,
+      snapshot: { participants: expect.arrayContaining([
+        expect.objectContaining({ id: 'participant_friend', connected: true, ready: true, mediaMatches: true }),
+      ]) },
+    })
+  })
+
+  it('does not restore readiness when a participant reconnects on different media', () => {
+    const room = createRoom()
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_friend', true, media)
+    room.disconnect('participant_friend')
+
+    const reconnected = room.join({
+      id: 'participant_friend',
+      name: 'Rana',
+      media: { ...media, canonicalId: 'youtube:different' },
+    })
+    expect(reconnected).toMatchObject({
+      ok: true,
+      snapshot: { participants: expect.arrayContaining([
+        expect.objectContaining({ id: 'participant_friend', connected: true, ready: false, mediaMatches: false }),
+      ]) },
+    })
+  })
+
   it('ignores buffering reports from participants who are not ready', () => {
     const room = createRoom()
     room.setReady('participant_host', true, media)

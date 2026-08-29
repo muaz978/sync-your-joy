@@ -1,4 +1,18 @@
+import { normalizePageUrl } from '@syncyourjoy/protocol'
+
 export const PLAYER_CONTEXT_STALE_MS = 2_500
+
+export function shouldReusePlayerTabForNavigation(
+  playerTabId: number | null,
+  currentPageUrl: string | undefined,
+  navigationUrl: string,
+): boolean {
+  if (playerTabId === null || !currentPageUrl)
+    return false
+  const current = normalizePageUrl(currentPageUrl)
+  const navigation = normalizePageUrl(navigationUrl)
+  return current !== null && navigation !== null && current === navigation
+}
 
 export function shouldAcceptPlayerContext(options: {
   hasRoom: boolean
@@ -11,6 +25,7 @@ export function shouldAcceptPlayerContext(options: {
   senderFrameId: number
   senderIsActive: boolean
   senderAreaPixels: number
+  senderMediaMatchesRoom: boolean
   nowMs: number
 }): boolean {
   if (!options.hasRoom)
@@ -27,7 +42,10 @@ export function shouldAcceptPlayerContext(options: {
     return false
   if (options.boundFrameId === null || options.boundFrameId === options.senderFrameId)
     return true
-  if (options.nowMs - options.boundLastSeenAtMs >= PLAYER_CONTEXT_STALE_MS)
-    return true
-  return !options.participantReady && options.senderAreaPixels > options.boundAreaPixels
+  if (!options.participantReady)
+    return options.senderAreaPixels > options.boundAreaPixels
+  const boundIsStale = options.nowMs - options.boundLastSeenAtMs >= PLAYER_CONTEXT_STALE_MS
+  const replacementIsLargeEnough = options.boundAreaPixels === 0
+    || options.senderAreaPixels >= options.boundAreaPixels * 0.5
+  return boundIsStale && options.senderMediaMatchesRoom && replacementIsLargeEnough
 }

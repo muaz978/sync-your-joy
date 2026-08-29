@@ -254,9 +254,9 @@ export class RoomDurableObject extends DurableObject<Env> {
         return
       }
 
-      this.closePriorParticipantSocket(message.participantId, socket)
       attachment.participantId = message.participantId
       socket.serializeAttachment(attachment)
+      this.closePriorParticipantSocket(message.participantId, socket)
       if (this.pendingController?.participantId === message.participantId)
         this.pendingController = null
       this.emptySinceMs = null

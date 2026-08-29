@@ -6,11 +6,11 @@ import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
 import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
 import { miniControllerView } from './mini-controller-state.ts'
+import { mediaLossGraceMs } from './readiness-state.ts'
 
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
 const MEDIA_HEARTBEAT_INTERVAL_MS = 1_000
-const MEDIA_LOSS_GRACE_MS = 3_000
 const PLAYER_PILL_LAYER = '2147483600'
 const MINI_CONTROLLER_HIDDEN_KEY = 'syncYourJoyMiniControllerHidden'
 
@@ -336,6 +336,7 @@ function scanForPlayer(): void {
 function scheduleMediaLossConfirmation(): void {
   if (!video || mediaLossTimer)
     return
+  const me = activeState?.snapshot?.participants.find(participant => participant.id === activeState?.participantId)
   mediaLossTimer = setTimeout(() => {
     mediaLossTimer = null
     if (findPrimaryVideo()) {
@@ -349,7 +350,7 @@ function scheduleMediaLossConfirmation(): void {
     lastMediaReportAt = 0
     renderPill()
     void sendRuntime({ type: 'MEDIA_LOST' })
-  }, MEDIA_LOSS_GRACE_MS)
+  }, mediaLossGraceMs(me?.ready ?? false))
 }
 
 function clearMediaLossConfirmation(): void {

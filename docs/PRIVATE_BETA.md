@@ -31,7 +31,9 @@ After replacing or reloading the extension, refresh the open streaming tab so Ch
 
 If SyncYourJoy reports **Wrong video**, focus the tab containing the intended episode and select **Recheck this tab**. Equal normalized page links are treated as a strong match. After a room binds to a player tab and frame, unrelated videos, ads, and background tabs cannot control or overwrite that room.
 
-Normal media heartbeats never cancel readiness. A streaming site may briefly hide or replace its video while seeking or changing quality; SyncYourJoy now waits three seconds and rechecks the page before treating that as a real player loss. Readiness changes only after a confirmed player/media transition, navigation, disconnect, or the participant's own Ready button.
+Normal media heartbeats never cancel readiness. A streaming site may briefly hide or replace its video while seeking or changing quality; a ready participant now receives a ten-second replacement grace period, and a mismatching fingerprint must remain stable before it can revoke readiness. A brief WebSocket reconnect preserves readiness when the same participant returns with the same matching video. Confirmed navigation, a lasting player or media change, or the participant's own Ready button can still change readiness.
+
+The shared-link field disables browser URL autofill, keeps manual text and selection stable during live room updates, and provides **Use current**, **Select**, and **Clear** buttons. Opening the current page for everyone reuses the controller's existing matching tab while guests open or reuse the same page.
 
 Play, pause, and dragging the progress bar are automatic when performed by the controller in the streaming player's native controls. If Chrome blocks or stalls playback, press **Sync** once in the in-page SyncYourJoy pill. This aligns the timeline and supplies the user activation Chrome may require; the room pauses instead of letting its displayed timeline run ahead of a stopped guest.
 

@@ -16,6 +16,7 @@
         canonicalId: 'crunchyroll:GR75Q020Y',
         title: 'Frieren: Beyond Journey’s End, Episode 8',
         durationSeconds: 1420,
+        pageUrl: 'https://www.crunchyroll.com/watch/GR75Q020Y/example-episode',
       }
       const previewState = {
         connection: withRoom ? 'connected' : 'disconnected',
@@ -33,6 +34,11 @@
             { id: 'participant_friend', name: 'Rana', role: 'member', ready: true, connected: true, mediaMatches: true, latencyMs: 76 },
           ],
           policy: { buffering: 'pause-all' },
+          navigation: {
+            revision: 7,
+            url: 'https://www.crunchyroll.com/watch/GR75Q020Y/example-episode',
+            effectiveAtServerMs: Date.now() - 1_000,
+          },
         } : null,
         serverOffsetMs: 4,
         clockUncertaintyMs: 38,
@@ -42,10 +48,12 @@
         lastPlayerSample: null,
       }
       const listeners = []
+      const previewRequests = []
       const chromeMock = globalThis.chrome || {}
       chromeMock.runtime = {
         onMessage: { addListener(listener) { listeners.push(listener) } },
         async sendMessage(request) {
+          previewRequests.push(request)
           return { ok: true, state: previewState }
         },
       }

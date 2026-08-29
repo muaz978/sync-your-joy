@@ -10,10 +10,12 @@
 - One authoritative controller with a server-issued lease epoch.
 - Pass-the-remote control transfer.
 - Explicit ready controls for every participant, including the controller, with canonical media fingerprint matching.
+- Readiness retention across brief reconnects when the same participant returns with matching media, plus confirmed-mismatch and ready-player replacement grace periods.
 - Stable Crunchyroll episode fingerprints based on the `/watch/{episode-id}` value, independent of domain, locale path, page slug, or translated title.
 - Stable Qfilm fingerprints based on the outer `vid` value across `play.php`, `watch.php`, `embed.php`, and the nested PlayerJS frame.
 - Per-room tab-and-frame binding with largest-player selection, so background videos and embedded ads cannot overwrite media identity or playback state.
 - A controller-only **Open link for everyone** action that validates and normalizes an HTTP/HTTPS video-page URL, schedules a new tab on all connected clients, pauses the room, and clears readiness.
+- Interaction-safe shared-link editing with browser URL autofill disabled, explicit current/select/clear actions, and matching-tab reuse to avoid duplicate controller tabs.
 - Video-free create/join onboarding, allowing the room to assemble before the controller chooses and launches a page.
 - A guarded Animerco click-to-load adapter that starts the site's default player only for a room-shared page and filters known advertising frames.
 - Shared-page identity propagation through arbitrarily nested players, preventing per-client signed iframe URLs from causing false mismatches.

@@ -115,6 +115,12 @@ export async function createRoomService(options: { port?: number; host?: string 
         return
 
       room.sockets.delete(socket)
+      const stillConnected = [...room.sockets].some((candidate) => {
+        const candidateClient = clients.get(candidate)
+        return candidateClient?.participantId === client.participantId
+      })
+      if (stillConnected)
+        return
       const result = room.coordinator.disconnect(client.participantId)
       if (result?.ok)
         broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
@@ -191,6 +197,12 @@ export async function createRoomService(options: { port?: number; host?: string 
       entry.sockets.add(socket)
       entry.emptySinceMs = null
       clients.set(socket, { socket, participantId: message.participantId, roomCode: message.code })
+      for (const priorSocket of entry.sockets) {
+        if (priorSocket === socket)
+          continue
+        if (clients.get(priorSocket)?.participantId === message.participantId)
+          priorSocket.close(1000, 'session_replaced')
+      }
       send(socket, {
         type: 'room_joined',
         participantId: message.participantId,

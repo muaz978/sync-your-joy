@@ -1,12 +1,12 @@
-import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticValue, ServerMessage } from '@syncyourjoy/protocol'
+import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticValue, MediaFingerprint, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { mediaMatches, normalizePageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
-import { PLAYER_CONTEXT_STALE_MS, shouldAcceptPlayerContext } from './player-tab.ts'
+import { PLAYER_CONTEXT_STALE_MS, shouldAcceptPlayerContext, shouldReusePlayerTabForNavigation } from './player-tab.ts'
 import { isLikelyAdvertisingUrl } from './site-adapter.ts'
 import { bindMediaToSharedPage } from './media-fingerprint.ts'
 import { resolveControlPosition } from './control-position.ts'
-import { shouldPublishMediaMatchChange } from './readiness-state.ts'
+import { shouldConfirmMediaMismatch } from './readiness-state.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -52,6 +52,8 @@ let intentionallyClosed = false
 let clock = new ClockSynchronizer()
 const diagnosticEvents: DiagnosticEvent[] = []
 let diagnosticCollection: DiagnosticCollection | null = null
+let pendingMediaMismatchKey: string | null = null
+let pendingMediaMismatchObservedAtMs: number | null = null
 
 const initialized = initialize()
 
@@ -159,7 +161,10 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     }
 
     case 'MEDIA_DETECTED':
-      if (isLikelyAdvertisingUrl(sender.url) || !acceptMediaSender(sender, request.areaPixels))
+      if (isLikelyAdvertisingUrl(sender.url))
+        return success()
+      const candidateMedia = bindMediaToSharedPage(request.media, state.snapshot?.navigation?.url ?? sender.tab?.url)
+      if (!acceptMediaSender(sender, request.areaPixels, candidateMedia))
         return success()
       if (sender.tab?.id !== undefined && sender.frameId !== undefined)
         await bindPlayerContext(sender.tab.id, sender.frameId, request.areaPixels)
@@ -169,12 +174,29 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         areaPixels: request.areaPixels,
         service: request.media.service,
       })
-      state.currentMedia = bindMediaToSharedPage(request.media, state.snapshot?.navigation?.url ?? sender.tab?.url)
+      state.currentMedia = candidateMedia
       if (state.snapshot) {
         const me = state.snapshot.participants.find(participant => participant.id === state.participantId)
         const matches = mediaMatches(state.snapshot.media, state.currentMedia)
-        if (shouldPublishMediaMatchChange(me?.mediaMatches, matches))
+        const nowMs = Date.now()
+        const mismatchKey = JSON.stringify(state.currentMedia)
+        if (matches) {
+          clearPendingMediaMismatch()
+        }
+        else if (pendingMediaMismatchKey !== mismatchKey) {
+          pendingMediaMismatchKey = mismatchKey
+          pendingMediaMismatchObservedAtMs = nowMs
+        }
+        if (shouldConfirmMediaMismatch({
+          participantReady: me?.ready ?? false,
+          currentMatches: me?.mediaMatches,
+          nextMatches: matches,
+          mismatchObservedAtMs: pendingMediaMismatchObservedAtMs,
+          nowMs,
+        })) {
           sendToServer({ type: 'set_ready', ready: false, media: state.currentMedia })
+          clearPendingMediaMismatch()
+        }
       }
       await publishState()
       return success()
@@ -184,6 +206,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         return success()
       state.currentMedia = null
       state.lastPlayerSample = null
+      clearPendingMediaMismatch()
       recordDiagnostic('player', 'media_lost', { frameId: sender.frameId ?? null })
       if (state.snapshot)
         sendToServer({ type: 'set_ready', ready: false, media: null })
@@ -632,12 +655,13 @@ function leaveRoom(): void {
     void sendToTab(previousPlayerTabId, { type: 'APPLY_ROOM_STATE', state }, previousPlayerFrameId)
 }
 
-function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: number): boolean {
+function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: number, media: MediaFingerprint): boolean {
   const senderTabId = sender.tab?.id
   const senderFrameId = sender.frameId
   if (senderTabId === undefined || senderFrameId === undefined)
     return false
   const me = state.snapshot?.participants.find(participant => participant.id === state.participantId)
+  const senderMediaMatchesRoom = state.snapshot ? mediaMatches(state.snapshot.media, media) : false
   return shouldAcceptPlayerContext({
     hasRoom: state.snapshot !== null,
     boundTabId: state.playerTabId,
@@ -649,8 +673,14 @@ function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: num
     senderFrameId,
     senderIsActive: sender.tab?.active === true,
     senderAreaPixels: Math.max(0, areaPixels),
+    senderMediaMatchesRoom,
     nowMs: Date.now(),
   })
+}
+
+function clearPendingMediaMismatch(): void {
+  pendingMediaMismatchKey = null
+  pendingMediaMismatchObservedAtMs = null
 }
 
 function isBoundPlayerSender(sender: chrome.runtime.MessageSender): boolean {
@@ -733,6 +763,13 @@ async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snaps
   setTimeout(() => {
     if (state.snapshot?.navigation?.revision !== navigation.revision)
       return
+    if (shouldReusePlayerTabForNavigation(state.playerTabId, state.currentMedia?.pageUrl, navigation.url)) {
+      if (state.currentMedia)
+        state.currentMedia = bindMediaToSharedPage(state.currentMedia, navigation.url)
+      state.lastError = null
+      void publishState()
+      return
+    }
     void chrome.tabs.create({ url: navigation.url, active: true }).then((tab) => {
       if (tab.id === undefined)
         throw new Error('Chrome did not return the opened tab.')
@@ -755,6 +792,7 @@ function clearPlayerTab(): void {
   state.playerLastSeenAtMs = 0
   state.currentMedia = null
   state.lastPlayerSample = null
+  clearPendingMediaMismatch()
 }
 
 async function bindPlayerContext(tabId: number, frameId: number | null, areaPixels: number): Promise<void> {

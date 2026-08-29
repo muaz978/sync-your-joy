@@ -38,12 +38,12 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.1.14` includes:
+Version `0.1.15` includes:
 
 - automatic room-wide play, pause, forward seek, and backward seek;
 - a transactional seek barrier that aligns real players before playback resumes;
-- readiness for every participant, protected against temporary player replacement or media loss;
-- controller-driven link launch so guests can join before any video is open;
+- readiness for every participant, retained through brief reconnects and protected against temporary player replacement or media loss;
+- controller-driven link launch so guests can join before any video is open, without duplicating a page that is already open;
 - normalized link and platform identity matching across nested or signed players;
 - a generic HTML5 adapter on HTTP and HTTPS pages, including embedded frames;
 - dedicated identity and player-discovery handling for Crunchyroll, Animerco, and Qfilm;
@@ -111,7 +111,7 @@ npm run release:package         # create the production extension ZIP and checks
 
 ## Releasing
 
-Pushing a semantic-version tag such as `v0.1.14` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
+Pushing a semantic-version tag such as `v0.1.15` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
 
 Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and pushes to `main` run the same source, test, build, and production-dependency checks through [continuous integration](.github/workflows/ci.yml).
 

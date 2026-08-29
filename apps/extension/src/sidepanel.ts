@@ -1,7 +1,8 @@
-import type { ParticipantState, SharedSeek } from '@syncyourjoy/protocol'
+import { normalizePageUrl, type ParticipantState, type SharedSeek } from '@syncyourjoy/protocol'
 import type { ExtensionState, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { expectedPosition } from '@syncyourjoy/sync-engine'
 import { retainedPanelScrollTop } from './panel-scroll.ts'
+import { shouldDeferPanelRender } from './panel-interaction.ts'
 
 const appElement = document.querySelector<HTMLElement>('#app')
 if (!appElement)
@@ -17,6 +18,18 @@ let draftNavigationRevision = 0
 let toastMessage = ''
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 let renderedViewKey: string | null = null
+let panelPointerActive = false
+let renderQueued = false
+let pendingReadyValue: boolean | null = null
+let pendingReadyTimer: ReturnType<typeof setTimeout> | null = null
+let pendingOpenLinkUrl: string | null = null
+let pendingOpenLinkTimer: ReturnType<typeof setTimeout> | null = null
+
+app.addEventListener('pointerdown', () => {
+  panelPointerActive = true
+}, true)
+window.addEventListener('pointerup', releasePanelPointer, true)
+window.addEventListener('pointercancel', releasePanelPointer, true)
 
 void initializeTheme()
 void refreshState()
@@ -24,18 +37,39 @@ void refreshState()
 chrome.runtime.onMessage.addListener((message: RuntimeEvent) => {
   if (message.type === 'ROOM_STATE_UPDATED') {
     state = message.state
-    draftName = message.state.displayName
+    syncDisplayNameDraft(message.state)
     syncSharedLinkDraft(message.state)
-    render()
+    reconcilePendingActions(message.state)
+    requestRender()
   }
 })
 
 async function refreshState(): Promise<void> {
   const response = await sendRuntime({ type: 'GET_STATE' })
   state = response.state
-  draftName = response.state.displayName
+  syncDisplayNameDraft(response.state)
   syncSharedLinkDraft(response.state)
   render()
+}
+
+function requestRender(force = false): void {
+  const activeElementId = document.activeElement instanceof HTMLElement && document.activeElement.id
+    ? document.activeElement.id
+    : null
+  if (!force && shouldDeferPanelRender(panelPointerActive, activeElementId)) {
+    renderQueued = true
+    return
+  }
+  renderQueued = false
+  render()
+}
+
+function releasePanelPointer(): void {
+  panelPointerActive = false
+  setTimeout(() => {
+    if (renderQueued)
+      requestRender()
+  }, 0)
 }
 
 function render(): void {
@@ -116,7 +150,7 @@ function welcomeView(current: ExtensionState): string {
       <form id="create-form" class="soft-panel p-4">
         <div class="mb-4">
           <label class="section-label mb-1.5 block" for="display-name">Your name</label>
-          <input id="display-name" class="field-base" name="name" maxlength="40" autocomplete="nickname" value="${escapeAttribute(draftName)}" placeholder="How friends see you">
+          <input id="display-name" class="field-base" name="name" maxlength="40" autocomplete="nickname" data-draft-input value="${escapeAttribute(draftName)}" placeholder="How friends see you">
         </div>
         <button class="btn-primary w-full tap-scale" type="submit">
           ${plusIcon('h-4 w-4')}
@@ -132,7 +166,7 @@ function welcomeView(current: ExtensionState): string {
 
       <form id="join-form" class="soft-panel p-4">
         <label class="section-label mb-1.5 block" for="room-code">Room code</label>
-        <input id="room-code" class="field-base font-mono tracking-[0.18em] uppercase tabular-nums" name="code" maxlength="8" autocomplete="off" spellcheck="false" value="${escapeAttribute(draftCode)}" placeholder="A7K9P2QX">
+        <input id="room-code" class="field-base font-mono tracking-[0.18em] uppercase tabular-nums" name="code" maxlength="8" autocomplete="off" spellcheck="false" data-draft-input value="${escapeAttribute(draftCode)}" placeholder="A7K9P2QX">
         <button class="btn-action mt-3 w-full tap-scale" type="submit">
           ${enterIcon('h-4 w-4')}
           Join room
@@ -207,8 +241,8 @@ function roomView(current: ExtensionState): string {
         </div>
       </div>
 
-      ${readinessControls(me, isController, controller, snapshot.media !== null, current.currentMedia !== null)}
-      ${isController ? sharedLinkControls() : ''}
+      ${readinessControls(me, isController, controller, snapshot.media !== null, current.currentMedia !== null, pendingReadyValue !== null)}
+      ${isController ? sharedLinkControls(current.currentMedia?.pageUrl ?? null, pendingOpenLinkUrl !== null) : ''}
       ${localSyncControls(current.currentMedia !== null, snapshot.media !== null)}
       ${isController && snapshot.media ? controllerControls(snapshot.playback.status, roomPosition, allReady, snapshot.seek ?? null, connected.length) : ''}
 
@@ -253,15 +287,20 @@ function diagnosticControls(): string {
   `
 }
 
-function sharedLinkControls(): string {
+function sharedLinkControls(currentPageUrl: string | null, openingLink: boolean): string {
   return `
     <form id="shared-link-form" class="soft-panel p-4">
       <label class="section-label mb-1.5 block" for="shared-video-url">Video page link</label>
-      <p class="mt-0 mb-3 text-xs color-fade">Open the same page for everyone. Readiness resets after navigation.</p>
-      <input id="shared-video-url" class="field-base" name="url" type="url" inputmode="url" autocomplete="url" value="${escapeAttribute(draftSharedUrl)}" placeholder="https://example.com/watch/video">
-      <button class="btn-action mt-3 w-full tap-scale" type="submit">
+      <p class="mt-0 mb-3 text-xs color-fade">Use the detected video page or enter one manually. Browser autofill is disabled and live room updates will not interrupt editing.</p>
+      <input id="shared-video-url" class="field-base" name="syncyourjoy-video-page-url" type="url" inputmode="url" autocomplete="off" aria-autocomplete="none" autocapitalize="off" spellcheck="false" data-draft-input value="${escapeAttribute(draftSharedUrl)}" placeholder="https://example.com/watch/video">
+      <div class="mt-2 grid grid-cols-3 gap-2">
+        <button id="use-current-link" class="btn-action min-h-10 px-2 text-xs" type="button" ${currentPageUrl ? '' : 'disabled'}>Use current</button>
+        <button id="select-shared-link" class="btn-action min-h-10 px-2 text-xs" type="button" ${draftSharedUrl ? '' : 'disabled'}>Select</button>
+        <button id="clear-shared-link" class="btn-action min-h-10 px-2 text-xs" type="button" ${draftSharedUrl ? '' : 'disabled'}>Clear</button>
+      </div>
+      <button id="open-shared-link" class="btn-action mt-3 w-full tap-scale" type="submit" ${draftSharedUrl && !openingLink ? '' : 'disabled'}>
         ${enterIcon('h-4 w-4')}
-        Open link for everyone
+        ${openingLink ? 'Opening for everyone…' : 'Open link for everyone'}
       </button>
     </form>
   `
@@ -303,7 +342,7 @@ function controllerControls(status: 'paused' | 'playing', position: number, allR
   `
 }
 
-function readinessControls(me: ParticipantState | undefined, isController: boolean, controller: ParticipantState | undefined, roomHasMedia: boolean, hasLocalPlayer: boolean): string {
+function readinessControls(me: ParticipantState | undefined, isController: boolean, controller: ParticipantState | undefined, roomHasMedia: boolean, hasLocalPlayer: boolean, updatingReady: boolean): string {
   const ready = me?.ready ?? false
   const matches = me?.mediaMatches ?? false
   if (!roomHasMedia) {
@@ -341,9 +380,9 @@ function readinessControls(me: ParticipantState | undefined, isController: boole
           : '<span class="status-badge border-rose-600/20 bg-rose-500/10 text-rose-700 dark:text-rose-300">Wrong video</span>'}
       </div>
       ${matches
-        ? `<button id="ready-button" class="${ready ? 'btn-action' : 'btn-primary'} mt-4 w-full tap-scale" type="button">
+        ? `<button id="ready-button" class="${ready ? 'btn-action' : 'btn-primary'} mt-4 w-full tap-scale" type="button" ${updatingReady ? 'disabled' : ''}>
             ${ready ? checkIcon('h-4 w-4') : readyIcon('h-4 w-4')}
-            ${ready ? 'Ready — click to undo' : "I'm ready"}
+            ${updatingReady ? 'Updating readiness…' : ready ? 'Ready — click to undo' : "I'm ready"}
           </button>`
         : `<button id="recheck-video" class="btn-primary mt-4 w-full tap-scale" type="button">
             ${screenIcon('h-4 w-4')}
@@ -422,19 +461,65 @@ function bindWelcomeActions(): void {
 
 function bindRoomActions(): void {
   const sharedUrlInput = document.querySelector<HTMLInputElement>('#shared-video-url')
+  const selectSharedLinkButton = document.querySelector<HTMLButtonElement>('#select-shared-link')
+  const clearSharedLinkButton = document.querySelector<HTMLButtonElement>('#clear-shared-link')
+  const openSharedLinkButton = document.querySelector<HTMLButtonElement>('#open-shared-link')
+  const updateSharedLinkActionState = () => {
+    const hasDraft = Boolean(sharedUrlInput?.value.trim())
+    if (selectSharedLinkButton)
+      selectSharedLinkButton.disabled = !hasDraft
+    if (clearSharedLinkButton)
+      clearSharedLinkButton.disabled = !hasDraft
+    if (openSharedLinkButton)
+      openSharedLinkButton.disabled = !hasDraft || pendingOpenLinkUrl !== null
+  }
   sharedUrlInput?.addEventListener('input', () => {
     draftSharedUrl = sharedUrlInput.value
+    updateSharedLinkActionState()
   })
   document.querySelector('#shared-link-form')?.addEventListener('submit', event => {
     event.preventDefault()
-    void perform({ type: 'OPEN_LINK', url: draftSharedUrl })
+    const normalizedUrl = normalizePageUrl(draftSharedUrl)
+    if (!normalizedUrl) {
+      showToast('Enter a valid HTTP or HTTPS video page link.')
+      sharedUrlInput?.focus()
+      return
+    }
+    draftSharedUrl = normalizedUrl
+    sharedUrlInput?.blur()
+    beginPendingOpenLink(normalizedUrl)
+    void perform({ type: 'OPEN_LINK', url: normalizedUrl })
+  })
+  document.querySelector('#use-current-link')?.addEventListener('click', () => {
+    const currentUrl = state?.currentMedia?.pageUrl
+    if (!currentUrl || !sharedUrlInput)
+      return
+    draftSharedUrl = currentUrl
+    sharedUrlInput.value = currentUrl
+    updateSharedLinkActionState()
+    sharedUrlInput.focus()
+    sharedUrlInput.select()
+  })
+  document.querySelector('#select-shared-link')?.addEventListener('click', () => {
+    sharedUrlInput?.focus()
+    sharedUrlInput?.select()
+  })
+  document.querySelector('#clear-shared-link')?.addEventListener('click', () => {
+    draftSharedUrl = ''
+    if (sharedUrlInput) {
+      sharedUrlInput.value = ''
+      updateSharedLinkActionState()
+      sharedUrlInput.focus()
+    }
   })
 
   document.querySelector('#copy-code')?.addEventListener('click', () => {
     const code = state?.snapshot?.code
     if (!code)
       return
-    void navigator.clipboard.writeText(code).then(() => showToast('Room code copied.'))
+    void navigator.clipboard.writeText(code)
+      .then(() => showToast('Room code copied.'))
+      .catch(() => showToast('Chrome could not copy the room code. Select it manually instead.'))
   })
 
   document.querySelector('#primary-control')?.addEventListener('click', () => {
@@ -468,8 +553,12 @@ function bindRoomActions(): void {
   })
 
   document.querySelector('#ready-button')?.addEventListener('click', () => {
+    if (pendingReadyValue !== null)
+      return
     const me = state?.snapshot?.participants.find(participant => participant.id === state?.participantId)
-    void perform({ type: 'SET_READY', ready: !(me?.ready ?? false) })
+    const ready = !(me?.ready ?? false)
+    beginPendingReady(ready)
+    void perform({ type: 'SET_READY', ready })
   })
 
   document.querySelector('#recheck-video')?.addEventListener('click', () => {
@@ -502,13 +591,66 @@ async function perform(request: RuntimeRequest): Promise<void> {
   const response = await sendRuntime(request)
   state = response.state
   syncSharedLinkDraft(response.state)
-  if (!response.ok)
+  reconcilePendingActions(response.state)
+  if (!response.ok) {
+    if (request.type === 'SET_READY')
+      clearPendingReady()
+    if (request.type === 'OPEN_LINK')
+      clearPendingOpenLink()
     showToast(response.error ?? 'That action could not be completed.')
+  }
   else if (request.type === 'SYNC_NOW')
     showToast('Sync requested. If playback is blocked, press Sync once in the in-page pill.')
   else if (request.type === 'DOWNLOAD_DIAGNOSTICS')
     showToast('Collecting logs from everyone. The JSON report will download shortly.')
-  render()
+  requestRender(true)
+}
+
+function beginPendingReady(ready: boolean): void {
+  clearPendingReady()
+  pendingReadyValue = ready
+  pendingReadyTimer = setTimeout(() => {
+    pendingReadyTimer = null
+    pendingReadyValue = null
+    showToast('The readiness update was not confirmed. Check the connection and try again.')
+  }, 4_000)
+  requestRender(true)
+}
+
+function clearPendingReady(): void {
+  if (pendingReadyTimer)
+    clearTimeout(pendingReadyTimer)
+  pendingReadyTimer = null
+  pendingReadyValue = null
+}
+
+function beginPendingOpenLink(url: string): void {
+  clearPendingOpenLink()
+  pendingOpenLinkUrl = url
+  pendingOpenLinkTimer = setTimeout(() => {
+    pendingOpenLinkTimer = null
+    pendingOpenLinkUrl = null
+    showToast('The room did not confirm the shared link. Check the connection and try again.')
+  }, 5_000)
+  requestRender(true)
+}
+
+function clearPendingOpenLink(): void {
+  if (pendingOpenLinkTimer)
+    clearTimeout(pendingOpenLinkTimer)
+  pendingOpenLinkTimer = null
+  pendingOpenLinkUrl = null
+}
+
+function reconcilePendingActions(nextState: ExtensionState): void {
+  if (pendingReadyValue !== null) {
+    const me = nextState.snapshot?.participants.find(participant => participant.id === nextState.participantId)
+    if (me?.ready === pendingReadyValue)
+      clearPendingReady()
+  }
+  if (pendingOpenLinkUrl !== null
+    && nextState.snapshot?.navigation?.url === pendingOpenLinkUrl)
+    clearPendingOpenLink()
 }
 
 function syncSharedLinkDraft(nextState: ExtensionState): void {
@@ -519,6 +661,15 @@ function syncSharedLinkDraft(nextState: ExtensionState): void {
   draftRoomCode = roomCode
   draftNavigationRevision = navigationRevision
   draftSharedUrl = nextState.snapshot?.navigation?.url ?? nextState.snapshot?.media?.pageUrl ?? ''
+}
+
+function syncDisplayNameDraft(nextState: ExtensionState): void {
+  const nameInput = document.querySelector<HTMLInputElement>('#display-name')
+  if (nameInput && document.activeElement === nameInput) {
+    draftName = nameInput.value
+    return
+  }
+  draftName = nextState.displayName
 }
 
 function errorPanel(message: string): string {
@@ -555,9 +706,9 @@ function showToast(message: string): void {
     clearTimeout(toastTimer)
   toastTimer = setTimeout(() => {
     toastMessage = ''
-    render()
+    requestRender()
   }, 3_500)
-  render()
+  requestRender()
 }
 
 async function initializeTheme(): Promise<void> {

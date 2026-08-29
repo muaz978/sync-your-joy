@@ -156,11 +156,12 @@ export class RoomCoordinator {
   join(participant: { id: string; name: string; media: MediaFingerprint | null }): RoomResult {
     const existing = this.participants.get(participant.id)
     if (existing) {
+      const wasReady = existing.ready
       existing.connected = true
       existing.name = participant.name
       existing.media = participant.media
       existing.mediaMatches = mediaMatches(this.media, participant.media)
-      existing.ready = false
+      existing.ready = wasReady && existing.mediaMatches
       this.pauseForMembershipChange()
       this.revision += 1
       this.markStateBarrier()
@@ -439,7 +440,6 @@ export class RoomCoordinator {
       return null
 
     participant.connected = false
-    participant.ready = false
 
     this.pauseForMembershipChange()
 

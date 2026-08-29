@@ -13,7 +13,7 @@ body:
     attributes:
       label: Extension version
       description: Find this on chrome://extensions.
-      placeholder: 0.1.14
+      placeholder: 0.1.15
     validations:
       required: true
 
