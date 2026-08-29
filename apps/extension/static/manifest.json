@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SyncYourJoy",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Sync play, pause, and seeking across separate streaming accounts without screen sharing.",
   "browser_specific_settings": {
     "gecko": {

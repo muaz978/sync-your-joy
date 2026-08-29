@@ -1321,6 +1321,74 @@
 - The live health endpoint `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health` returned `{"ok":true,"service":"sync-your-joy-rooms","region":"MXP"}`.
 - The post-deployment production smoke passed against `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms` with 64 ms RTT, 85 ms seek barrier, 1.794 s intentional timeout release, diagnostics from both participants, stale buffering protection, and startup buffering protection.
 - The earlier Cloudflare deployment blocker is resolved. Remaining Gate 1-3 work is real-browser/two-device acceptance, Firefox installation smoke, and Safari packaging, not deployment authentication.
+
+# Context Checkpoint 11
+
+## Session Metadata
+- Task or project: SyncYourJoy v0.1.18 release preparation and publication
+- Checkpoint number: 11
+- Date and time: 2026-08-29, Europe/Istanbul
+- Coverage period: User confirmation of successful Cloudflare deployment through version alignment, release packaging, and pre-tag verification
+- Current context status: The v0.1.18 release candidate is prepared locally. Version/documentation changes are not yet committed or tagged at this checkpoint.
+
+## User Objective and Requirements
+- Create a new public extension release so the user can send the download link to friends for two-person testing.
+- Update every necessary version and release-facing document, not only the manifest.
+- Use the already deployed production Worker and preserve the existing automated ZIP/checksum release workflow.
+
+## Current State
+- Production Worker deployment succeeded earlier in GitHub Actions run `33273072327` on source commit `f4a16f2`.
+- Production health and smoke checks passed after deployment.
+- Release version has been changed from `0.1.17` to `0.1.18` in the root package, extension package, manifest, and lockfile.
+- `CHANGELOG.md` now promotes the verified Gate 1-3 hardening work to `0.1.18` and retains an empty Unreleased section.
+- README and `docs/RELEASING.md` now reference `v0.1.18` for the current release examples.
+
+## Complete Chronological Activity Log
+
+### Release preparation
+- Inspected the release workflow, package scripts, version checker, package script, changelog, README, extension package, manifest, and lockfile.
+- Applied version `0.1.18` to `package.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json`, and the corresponding workspace package entries in `package-lock.json`.
+- Promoted the prior Unreleased Gate 1-3 changelog content to `## [0.1.18] - 2026-08-29` and added a fresh Unreleased heading.
+- Updated README current-beta and release workflow examples to `0.1.18`.
+- Updated `docs/RELEASING.md` sample packaging and tag commands to `0.1.18`.
+
+### Verification
+- `npm run release:check-version` passed and printed `0.1.18`.
+- `npm run check` passed: strict TypeScript checks, 101 tests across 19 files, room-service build, and Chrome extension build.
+- `RELEASE_VERSION=0.1.18 SYNCYOURJOY_ROOM_SERVER_URL=wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms npm run release:package` passed.
+- ZIP integrity validation passed with `unzip -t`.
+- The release checksum initially appeared to fail when checked from the repository root because the checksum contains a relative filename. Re-running from the `release` directory passed: `sync-your-joy-extension.zip: OK`.
+- The packaged manifest was inspected and reports version `0.1.18`, Manifest V3, Chrome 116 minimum, Firefox metadata, and the production WSS endpoint.
+- `npm audit --omit=dev --audit-level=high` passed with `found 0 vulnerabilities`.
+
+## Confirmed Successful Results
+- Release candidate package exists at `release/sync-your-joy-extension.zip` with checksum `8db17a603666a011d23d6cb8664b90a87e7716941ffdf68851bdb0842d370e6c`.
+- The candidate ZIP checksum validates from its output directory.
+- The candidate ZIP embeds manifest version `0.1.18` and the production room endpoint.
+- All release checks and dependency audit pass.
+
+## Failed, Incomplete, or Unresolved Work
+- The version/documentation changes still need a commit, push, annotated tag `v0.1.18`, and successful GitHub Release workflow before a public download link exists.
+- The release ZIP is local and ignored; it is not yet a GitHub release asset.
+- Real two-person provider testing remains a post-release beta validation step.
+
+## Decisions and Rationale
+- Publish `v0.1.18` only from a commit containing the exact verified source and version references.
+- Use the existing tag-driven workflow so GitHub rebuilds the package against the production Worker, verifies its checksum, and publishes the stable asset names.
+- Keep Firefox metadata in the Chrome release package because it is harmless in Chromium and allows the same source artifact to be inspected for cross-browser readiness; the dedicated Firefox build remains available separately.
+
+## Files and Artifacts
+- `package.json`, `package-lock.json`
+- `apps/extension/package.json`, `apps/extension/static/manifest.json`
+- `CHANGELOG.md`, `README.md`, `docs/RELEASING.md`
+- Local ignored candidate: `release/sync-your-joy-extension.zip` and `.sha256`
+
+## Next Steps
+1. Commit and push the release version and documentation.
+2. Create and push annotated tag `v0.1.18`.
+3. Monitor the release workflow and verify the public ZIP/checksum assets.
+4. Send the release link and installation/testing instructions to the user.
+5. Collect real two-device playback results before beginning Gate 4 store submissions.
 - Added `.github/workflows/deploy-edge.yml`, a manual production deployment workflow that requires the repository secret `CLOUDFLARE_API_TOKEN` and runs typecheck/tests before Wrangler deployment.
 - Added the corresponding README and `docs/RELEASING.md` instructions. Final local verification after this addition passed typecheck, all 101 tests, the Firefox build, and `git diff --check`.
 

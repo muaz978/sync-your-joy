@@ -2,7 +2,7 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
-## [Unreleased]
+## [0.1.18] - 2026-08-29
 
 ### Added
 
@@ -15,6 +15,8 @@ All notable user-facing changes are recorded here. This project follows semantic
 - A transient paused sample no longer stops the room immediately after a play command.
 - Synchronized backward and forward seeks retry at a bounded 120 ms cadence instead of waiting a full second between attempts.
 - Player health baselines recover after visibility changes, bfcache restores, and page focus recovery.
+
+## [Unreleased]
 
 ## [0.1.17] - 2026-08-29
 
@@ -99,3 +101,4 @@ All notable user-facing changes are recorded here. This project follows semantic
 [0.1.15]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.15
 [0.1.16]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.16
 [0.1.17]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.17
+[0.1.18]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.18

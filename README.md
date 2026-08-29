@@ -38,7 +38,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.1.17` includes:
+Version `0.1.18` includes:
 
 - automatic room-wide play, pause, forward seek, and backward seek;
 - a transactional seek barrier that aligns real players before playback resumes;
@@ -57,7 +57,7 @@ Version `0.1.17` includes:
 - controller handoff after a disconnected-controller grace period;
 - a testing-only detailed JSON report assembled from connected participants.
 
-The current `main` branch also contains the next Gate 1-3 hardening slice. It adds explicit play-rejection and real-progress telemetry, avoids false room pauses from transient startup samples, retries seeks at 120 ms, recovers after page visibility changes, exposes control-channel quality and heartbeat timeout recovery, and includes Firefox WebExtensions metadata. These changes are not yet a tagged release until real two-device provider and network-chaos acceptance tests pass.
+Version `0.1.18` adds explicit play-rejection and real-progress telemetry, avoids false room pauses from transient startup samples, retries seeks at 120 ms, recovers after page visibility changes, exposes control-channel quality and heartbeat timeout recovery, includes Firefox WebExtensions metadata, and adds a player lock action for pages with competing video elements.
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
@@ -126,7 +126,7 @@ Production Worker deployments can also be run from the **Deploy room coordinator
 
 ## Releasing
 
-Pushing a semantic-version tag such as `v0.1.17` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
+Pushing a semantic-version tag such as `v0.1.18` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
 
 Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and pushes to `main` run the same source, test, build, and production-dependency checks through [continuous integration](.github/workflows/ci.yml).
 
