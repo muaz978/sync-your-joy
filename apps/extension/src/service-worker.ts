@@ -16,7 +16,10 @@ const ROOM_SERVER_URL = __ROOM_SERVER_URL__
 const SESSION_STATE_KEY = 'syncYourJoySessionState'
 const DISPLAY_NAME_KEY = 'syncYourJoyDisplayName'
 const DIAGNOSTIC_EVENT_LIMIT = 100
-const DIAGNOSTIC_COLLECTION_TIMEOUT_MS = 2_500
+// A participant may be waking a suspended service worker or a throttled tab.
+// Give the room-wide report enough time to collect every response without
+// making the normal playback path wait for diagnostics.
+const DIAGNOSTIC_COLLECTION_TIMEOUT_MS = 8_000
 
 interface DiagnosticCollection {
   reportId: string
@@ -380,8 +383,9 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       if (!diagnosticCollection)
         return success()
       collection.retryTimers.push(
-        setTimeout(() => requestDiagnosticResponses(reportId), 750),
-        setTimeout(() => requestDiagnosticResponses(reportId), 1_500),
+        setTimeout(() => requestDiagnosticResponses(reportId), 1_000),
+        setTimeout(() => requestDiagnosticResponses(reportId), 3_000),
+        setTimeout(() => requestDiagnosticResponses(reportId), 6_000),
       )
       return success()
     }
@@ -407,7 +411,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     }
 
     case 'CONTROL':
-      return sendControl(request.kind, request.positionSeconds)
+      return sendControl(request.kind, request.positionSeconds, request.kind === 'seek')
 
     case 'PLAYER_INTENT': {
       if (!isBoundPlayerSender(sender))
@@ -442,7 +446,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
   }
 }
 
-async function sendControl(kind: ControlKind, explicitPosition?: number): Promise<RuntimeResponse> {
+async function sendControl(kind: ControlKind, explicitPosition?: number, controllerSeekApplied = false): Promise<RuntimeResponse> {
   const snapshot = state.snapshot
   if (!snapshot)
     return failure('Join a room first.')
@@ -470,6 +474,7 @@ async function sendControl(kind: ControlKind, explicitPosition?: number): Promis
     leaseEpoch: snapshot.controller.leaseEpoch,
     kind,
     positionSeconds: Math.max(0, positionSeconds),
+    ...(controllerSeekApplied && kind === 'seek' ? { controllerSeekApplied: true } : {}),
   })
   if (!sent)
     return failure('The room connection was interrupted. Reconnecting now.')

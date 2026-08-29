@@ -52,6 +52,7 @@ describe('deterministic network-chaos simulation', () => {
       leaseEpoch: snapshot.controller.leaseEpoch,
       kind: 'seek',
       positionSeconds: 240,
+      controllerSeekApplied: true,
     })
     expect(seek).toMatchObject({ ok: true, snapshot: { seek: { positionSeconds: 240 } } })
     if (!seek.ok)
@@ -59,11 +60,7 @@ describe('deterministic network-chaos simulation', () => {
 
     nowMs += 85
     const friendAck = room.acknowledgeSeek('friend', seek.snapshot.revision, 240.08)
-    expect(friendAck).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' }, seek: { acknowledgedParticipantIds: ['friend'] } } })
-
-    nowMs += 110
-    const hostAck = room.acknowledgeSeek('host', seek.snapshot.revision, 239.96)
-    expect(hostAck).toMatchObject({
+    expect(friendAck).toMatchObject({
       ok: true,
       reason: 'seek_aligned_play_scheduled',
       snapshot: { playback: { status: 'playing', positionSeconds: 240 }, seek: null },

@@ -6,7 +6,7 @@ This document is the store-facing preparation checklist for Gate 4. It is intent
 
 - Product name: SyncYourJoy
 - Single purpose: synchronize play, pause, and seeking for people watching the same video through their own authorized accounts.
-- Current beta: `0.1.19`
+- Current beta: `0.1.20`
 - Repository: https://github.com/muaz978/sync-your-joy
 - Support and bug reports: https://github.com/muaz978/sync-your-joy/issues
 - Privacy policy draft: [docs/PRIVACY_POLICY.md](PRIVACY_POLICY.md)

@@ -38,7 +38,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.1.19` includes:
+Version `0.1.20` includes:
 
 - automatic room-wide play, pause, forward seek, and backward seek;
 - a transactional seek barrier that aligns real players before playback resumes;
@@ -57,7 +57,7 @@ Version `0.1.19` includes:
 - controller handoff after a disconnected-controller grace period;
 - a testing-only detailed JSON report assembled from connected participants.
 
-Version `0.1.19` adds a first-use privacy acknowledgement, deterministic network-chaos coverage, reproducible PNG icons, Chrome/Firefox/Safari package smoke verification, and the complete Gates 1-3 friend-test pack on top of the 0.1.18 synchronization hardening.
+Version `0.1.20` adds a controller-confirmed native-seek barrier path and a longer, retrying room-wide diagnostics collection window on top of the 0.1.19 beta hardening.
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
@@ -129,7 +129,7 @@ Production Worker deployments can also be run from the **Deploy room coordinator
 
 ## Releasing
 
-Pushing a semantic-version tag such as `v0.1.19` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
+Pushing a semantic-version tag such as `v0.1.20` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
 
 Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and pushes to `main` run the same source, test, build, and production-dependency checks through [continuous integration](.github/workflows/ci.yml).
 

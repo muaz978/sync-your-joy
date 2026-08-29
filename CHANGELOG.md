@@ -2,6 +2,13 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.1.20] - 2026-08-30
+
+### Fixed
+
+- Controller-originated native seeks now confirm the controller side immediately after its own `seeked` event, preventing a one-sided seek barrier from timing out while still requiring every guest to acknowledge.
+- Room-wide detailed diagnostic collection now retries for up to eight seconds so a waking or throttled guest is less likely to be missing from the debug report.
+
 ## [0.1.18] - 2026-08-29
 
 ### Added
@@ -116,3 +123,4 @@ All notable user-facing changes are recorded here. This project follows semantic
 [0.1.17]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.17
 [0.1.18]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.18
 [0.1.19]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.19
+[0.1.20]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.20

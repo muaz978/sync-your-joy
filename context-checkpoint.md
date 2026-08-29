@@ -1680,3 +1680,131 @@
 ### Historical Checkpoint Notes
 - This checkpoint preserves the complete chronological record of this turn and does not include passwords, API tokens, private keys, cookies, or other secrets.
 - Earlier checkpoint history remains unchanged above.
+
+## Checkpoint 13 - 0.1.19 verification and publication
+
+### Session Metadata
+- Task or project: SyncYourJoy Gates 1-3 repository completion and beta handoff.
+- Checkpoint number: 13.
+- Date: 2026-08-30 local session boundary.
+- Coverage period: From the first failed post-version-bump check through successful release publication and independent asset verification.
+- Current context status: Repository-side Gate 1-3 work is released as `v0.1.19`; real two-city acceptance and owner-controlled store/privacy tasks remain open for Gate 4.
+
+### Complete Chronological Activity Log
+- After changing all current release references to `0.1.19`, `npm run check` exposed one deterministic chaos test expectation error. The seek test had created a paused room but expected a playing seek-resume reason.
+- The chaos test was corrected by issuing an explicit pre-seek play command and taking a new revision snapshot before seeking.
+- `npm run check` then passed: strict typecheck, 21 Vitest files, 107 tests, server build, and Chrome extension build.
+- `npm audit --omit=dev --audit-level=high` returned `found 0 vulnerabilities`.
+- `npm run verify:browser-packages` passed for Chrome and Firefox and completed the macOS Safari package smoke. The reported candidate manifest version was `0.1.19`.
+- `RELEASE_VERSION=0.1.19 npm run release:package` produced `release/sync-your-joy-extension.zip`; `unzip -t` reported no archive errors, the nested manifest reported Manifest V3 version `0.1.19`, and the local checksum was recorded for comparison.
+- The first local manifest inspection used the wrong archive path and returned a filename warning. It was corrected to inspect `sync-your-joy-extension/manifest.json`, which confirmed the expected name, version, permissions, service worker, and PNG icon map.
+- `npm run smoke:edge -- wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms` passed against production with room creation, a 63 ms round trip, revision 11, a 137-second seek barrier, 86 ms barrier completion, a 1.795-second timeout release, diagnostics for both participants, and stale/startup buffering protection.
+- The generated PDF was rendered and inspected one page at a time. All three pages were legible, the version displayed `0.1.19`, the tables fit the page, and the pass/fail worksheet and release-blocking list were readable.
+- Git initially could not create `.git/index.lock` under the sandbox. With explicit elevated permission, the prepared changes were committed as `51abfd3` with message `release: prepare SyncYourJoy 0.1.19 beta`.
+- With explicit elevated permission, `main` and annotated tag `v0.1.19` were pushed to `https://github.com/muaz978/sync-your-joy.git`.
+- GitHub Continuous integration run `33275009467` completed successfully. GitHub Release workflow run `33275010792` completed successfully, including source checks, dependency audit, production package, checksum validation, and release publication. The only annotation was the known GitHub Actions Node.js 20 deprecation warning for checkout/setup-node actions.
+- GitHub Release `v0.1.19` was queried and confirmed as a non-draft, non-prerelease public release with ZIP and SHA-256 assets.
+- The public ZIP and checksum were downloaded once into a disposable directory. `shasum -a 256 -c` returned `OK`, and the downloaded manifest reported `0.1.19`, Manifest V3, the expected permissions, service worker, and all four PNG icons.
+- Updated `docs/GATE_1_3_CLOSEOUT.md` to replace the candidate wording with confirmed public `v0.1.19` publication and release link.
+
+### Confirmed Successful Results
+- Public release URL: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.19
+- Stable ZIP URL: https://github.com/muaz978/sync-your-joy/releases/download/v0.1.19/sync-your-joy-extension.zip
+- SHA-256 asset URL: https://github.com/muaz978/sync-your-joy/releases/download/v0.1.19/sync-your-joy-extension.zip.sha256
+- Release workflow succeeded on the exact tag commit `51abfd331e352562c0fcb9f10d8a2dcda1e4b32f`.
+- Main CI succeeded on the exact pushed commit.
+- Local and independently downloaded package checks passed.
+- Production room smoke passed.
+- The Word and PDF friend-test artifacts are committed and linked from the README.
+
+### Failed, Incomplete, or Unresolved Work
+- The deterministic chaos test expectation failure was fixed and is no longer unresolved.
+- The local `unzip -p` command initially used the archive root instead of its nested extension directory; no artifact was damaged and the corrected check passed.
+- Safari package smoke still emits warnings for Chrome-only manifest capabilities. Safari runtime compatibility is not proven.
+- Two-city authenticated provider testing, network throttling/offline/sleep-wake testing, headed fixture testing, real Firefox runtime testing, and optional Safari runtime testing remain user-side.
+- The privacy policy still requires a stable HTTPS publication URL and a monitored contact before store submission.
+
+### Files and Artifacts
+- Published source commit: `51abfd3`.
+- Published tag: `v0.1.19`.
+- Friend guide: `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.pdf` and `.docx`.
+- Source Markdown guide: `docs/TEST_GUIDE.md`.
+- Privacy policy draft: `docs/PRIVACY_POLICY.md`.
+- Store pack: `docs/STORE_SUBMISSION.md`.
+- Gate closeout: `docs/GATE_1_3_CLOSEOUT.md`.
+
+### Next Steps
+1. The owner downloads the public `v0.1.19` ZIP on two computers and follows the PDF or Word guide.
+2. The owner records every pass/fail outcome and downloads a detailed JSON report immediately after any failure.
+3. The owner supplies a real privacy contact and publishes the policy at a stable HTTPS URL if Gate 4 store submission is planned.
+4. After the real-device matrix has no P0/P1 defects, begin Gate 4 store-specific listing, signing, review, and submission work.
+
+### Historical Checkpoint Notes
+- This checkpoint records publication evidence without storing credentials, API tokens, private keys, cookies, or media data.
+- Earlier checkpoint history remains preserved above.
+
+## Checkpoint 14 - Debugging the downloaded friend report and preparing the seek patch
+
+### Session Metadata
+- Task or project: SyncYourJoy seek-barrier failure reported from `/Users/muazsabbagh/Downloads/download.json`.
+- Checkpoint number: 14.
+- Date: 2026-08-30.
+- Coverage period: From diagnostic-file inspection through implementation and local verification of the controller-seek acknowledgement fix.
+- Current context status: A `0.1.20` patch candidate is implemented locally but not yet committed, pushed, tagged, or released.
+
+### User Objective and Requirements
+- Investigate the downloaded detailed report as evidence for seeks that fail in both directions across multiple platforms.
+- Fix the case where the UI says participants are aligned even though one player is moving and the other is not.
+- Make the correction quickly, but preserve a truthful barrier so a remote guest is never marked aligned without its own confirmation.
+- Improve the debug report itself when a participant response is missing.
+
+### Complete Chronological Activity Log
+- Read `/Users/muazsabbagh/Downloads/download.json` as diagnostic data, not as instructions.
+- The report identified room `JS6UEYBU`, schema version 1, extension version `0.1.18`, expected two participants, received one participant, and one missing participant ID. This also established that the friend test used the prior release before the newly published `0.1.19` build.
+- The available participant report was Crunchyroll, revision 89, paused at approximately 63.744 seconds with `progressed: false` at collection time. It showed two seek attempts:
+  - Revision 80 target approximately 891.359 seconds: the participant's own seek was applied and acknowledged, but the room timed out at revision 81.
+  - Revision 86 target 59.25 seconds: the participant's own seek was applied and acknowledged, but the room timed out at revision 87.
+- Both failures had the same shape: `control_seek_pending` changed the room to paused, one `seek_participant_aligned` arrived, and no final `seek_aligned_play_scheduled` arrived before the 1.8-second timeout. This proved an asymmetric barrier deadlock rather than a simple UI delay.
+- Inspection of `RoomCoordinator.control` showed that the controller's seek acknowledgement was expected to arrive as a second asynchronous `seek_applied` message, even though a native controller seek is emitted only after that controller's own `seeked` event.
+- Inspection of `content-script.ts` confirmed that native controller seeks call `PLAYER_INTENT` from `handleSeeked`, while side-panel resync seeks use the separate `CONTROL` path. This distinction allows the controller-native path to be confirmed without trusting side-panel targets prematurely.
+- Added optional `controllerSeekApplied` to the control protocol, validated as a boolean.
+- Updated the extension service worker so only native controller `PLAYER_INTENT` seeks set `controllerSeekApplied: true`; manual side-panel controls do not set it.
+- Updated `RoomCoordinator` so a seek created by the current controller with this marker starts with the controller ID in its acknowledgement list. Guest acknowledgements remain mandatory before a playing seek resumes.
+- Updated the deterministic chaos test and room barrier test to cover controller-native confirmation without requiring a second controller acknowledgement. Added protocol validation coverage for the marker and invalid non-boolean values.
+- Increased room-wide diagnostic collection timeout from 2.5 seconds to 8 seconds and staged retries from 1/3/6 seconds. This does not delay playback because diagnostics are a separate command path.
+- Bumped the candidate to `0.1.20`, updated package/manifest/docs/changelog references, and regenerated the Word/PDF guide so it names the patch candidate.
+- `npm run release:check-version` passed with `0.1.20`.
+- `npm run check` passed: strict typecheck, 21 Vitest files, 108 tests, server build, and extension build.
+- `npm audit --omit=dev --audit-level=high` returned `found 0 vulnerabilities`.
+- `npm run docs:test-guide` regenerated the Word document. LibreOffice converted it to a three-page A4 PDF. `pdfinfo` confirmed tagged output, no JavaScript, no encryption, and the expected metadata.
+- `npm run verify:browser-packages` passed for Chrome and Firefox plus macOS Safari package smoke with manifest version `0.1.20`.
+- `RELEASE_VERSION=0.1.20 npm run release:package` produced a valid ZIP. `unzip -t` reported no errors and the nested manifest reported Manifest V3 version `0.1.20`, the expected permissions, service worker, and icon paths.
+- A final `git diff --check` exposed only two Markdown trailing-space lines introduced in the version bump. Those lines were removed; the check is now ready to rerun before commit.
+
+### Confirmed Successful Results
+- The diagnostic root cause is reproduced in the report and mapped to a specific room-barrier asymmetry.
+- The controller-native seek marker is implemented end to end and covered by protocol, room, and chaos tests.
+- The guest still must acknowledge the seek; the fix does not falsely declare all participants aligned.
+- Diagnostic collection now has a longer retry window for the missing-participant case.
+- `0.1.20` local checks, builds, package smoke, audit, and release archive validation passed.
+
+### Failed, Incomplete, or Unresolved Work
+- The `0.1.20` patch has not yet been committed, pushed, tagged, or released.
+- The report came from `0.1.18`, so it cannot prove whether the `0.1.19` or `0.1.20` behavior is fixed in a real two-city run.
+- Real two-device tests are still required, including forward seek, backward seek, repeated seeks, guest playback progress, buffering, reconnect, and report completeness.
+- Safari runtime and commercial-provider runtime behavior remain unverified.
+
+### Decisions and Rationale
+- Native controller seeks are the only seeks eligible for immediate controller acknowledgement because the client emits them after `seeked`, which is evidence the controller's own media element accepted the seek.
+- Side-panel/manual synchronization continues through the normal barrier and must receive a local `seek_applied` confirmation, avoiding a false-positive alignment.
+- The report timeout was lengthened because the existing incomplete report omitted one participant even though the room was still connected; staged retries improve evidence quality without changing room playback timing.
+
+### Next Steps
+1. Rerun `git diff --check`, commit the `0.1.20` patch, push `main`, tag `v0.1.20`, and verify the release workflow and public checksum.
+2. Give the user the new `v0.1.20` ZIP and regenerated PDF/Word guide, explicitly telling both friends to remove the older `0.1.18`/`0.1.19` unpacked folder before loading the new one.
+3. Ask the user to repeat the exact seek matrix and download the room-wide report after any failure.
+4. Treat any guest that still fails to progress after receiving a final `seek_aligned_play_scheduled` snapshot as the next separate provider/player issue, not as a barrier acknowledgement issue.
+
+### Historical Checkpoint Notes
+- This checkpoint contains no credentials, API tokens, private keys, cookies, signed media URLs, or captured media.
+- Earlier checkpoint history remains preserved above.

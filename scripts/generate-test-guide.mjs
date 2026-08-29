@@ -63,7 +63,7 @@ const document = new Document({
       bulletList([
         'Two computers in different locations, each with a stable internet connection.',
         'Google Chrome 116 or newer for the primary test. Firefox is optional for the portability test.',
-        'The same SyncYourJoy 0.1.19 release installed on every computer.',
+        'The same SyncYourJoy 0.1.20 release installed on every computer.',
         'A separate authorized account for the selected video service on each computer.',
         'One short, known video for the first run. Avoid live streams and pages with many unrelated videos at first.',
       ]),
@@ -221,7 +221,7 @@ function metadataTable() {
     width: { size: 100, type: WidthType.PERCENTAGE },
     columnWidths: [2400, 6600],
     rows: [
-      ['Test build', 'SyncYourJoy 0.1.19 beta'],
+      ['Test build', 'SyncYourJoy 0.1.20 beta'],
       ['Room service', 'wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms'],
       ['Primary target', 'Chrome desktop, two separate devices'],
       ['Evidence', 'Playback, pause, seeking, readiness, reconnect, matching, browser portability'],

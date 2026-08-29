@@ -153,22 +153,17 @@ describe('RoomCoordinator', () => {
       leaseEpoch: room.snapshot().controller.leaseEpoch,
       kind: 'seek',
       positionSeconds: 120,
+      controllerSeekApplied: true,
     })
 
     expect(sought).toMatchObject({
       ok: true,
       snapshot: {
         playback: { status: 'paused', positionSeconds: 120 },
-        seek: { positionSeconds: 120, resumeWhenReady: true, acknowledgedParticipantIds: [] },
+        seek: { positionSeconds: 120, resumeWhenReady: true, acknowledgedParticipantIds: ['participant_host'] },
       },
     })
     const seekRevision = sought.snapshot.revision
-    const hostAligned = room.acknowledgeSeek('participant_host', seekRevision, 120.1)
-    expect(hostAligned).toMatchObject({
-      ok: true,
-      snapshot: { playback: { status: 'paused' }, seek: { acknowledgedParticipantIds: ['participant_host'] } },
-    })
-
     nowMs = 11_000
     const allAligned = room.acknowledgeSeek('participant_friend', seekRevision, 119.9)
     expect(allAligned).toMatchObject({

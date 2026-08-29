@@ -47,6 +47,7 @@ export interface ControlIntent {
   leaseEpoch: number
   kind: ControlKind
   positionSeconds: number
+  controllerSeekApplied?: boolean
 }
 
 export interface OpenLinkIntent {
@@ -270,7 +271,9 @@ export class RoomCoordinator {
         positionSeconds,
         resumeWhenReady,
         deadlineAtServerMs: nowMs + SEEK_BARRIER_MAX_WAIT_MS,
-        acknowledgedParticipantIds: [],
+        acknowledgedParticipantIds: participantId === this.controllerId && intent.controllerSeekApplied === true
+          ? [participantId]
+          : [],
       }
       return this.success('control_seek_pending')
     }

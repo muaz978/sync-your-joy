@@ -102,6 +102,27 @@ describe('media identity matching', () => {
     })).toBeNull()
   })
 
+  it('accepts the controller seek confirmation marker only as a boolean', () => {
+    expect(parseClientMessage({
+      type: 'control',
+      actionId: 'action_seek_native',
+      basedOnRevision: 1,
+      leaseEpoch: 1,
+      kind: 'seek',
+      positionSeconds: 7,
+      controllerSeekApplied: true,
+    })).toMatchObject({ type: 'control', controllerSeekApplied: true })
+    expect(parseClientMessage({
+      type: 'control',
+      actionId: 'action_seek_native',
+      basedOnRevision: 1,
+      leaseEpoch: 1,
+      kind: 'seek',
+      positionSeconds: 7,
+      controllerSeekApplied: 'yes',
+    })).toBeNull()
+  })
+
   it('accepts only finite seek-completion acknowledgements', () => {
     expect(parseClientMessage({ type: 'seek_applied', revision: 7, positionSeconds: 120 })).toMatchObject({
       type: 'seek_applied',
