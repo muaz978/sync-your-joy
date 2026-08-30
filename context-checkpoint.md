@@ -2505,3 +2505,49 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
 - This checkpoint records documentation improvements only and does not claim new runtime provider results.
+
+## Checkpoint 26 - Refreshed test guide committed and CI-verified
+
+### Session Metadata
+- Task or project: Publish the updated two-device friend-testing guide.
+- Checkpoint number: 26.
+- Date: 2026-08-30.
+- Coverage period: Commit and push after Checkpoint 25.
+- Current context status: Updated Markdown, generator, DOCX, PDF, and checkpoint are pushed to `origin/main` at `5c1d5c4`; the resulting CI run passed.
+
+### Complete Chronological Activity Log
+- Staged the refreshed guide, generator, DOCX/PDF artifacts, and Checkpoint 25.
+- `git diff --cached --check` passed.
+- Created commit `5c1d5c4` with message `docs: refresh friend testing guide`.
+- Pushed `5c1d5c4` to `origin/main`.
+- GitHub Actions started CI run `33304210673` for the guide update.
+- Watched the run to completion. Typecheck, tests/builds, Chrome/Firefox package verification, dependency audit, and cleanup all passed.
+- The immutable published extension release remains `v0.1.22`; only the guide and documentation changed after that tag.
+
+### Confirmed Successful Results
+- Refreshed guide is available in the repository at `docs/TEST_GUIDE.md`.
+- Generated DOCX and PDF artifacts are updated and pushed.
+- The guide now includes production preflight, actual native-video progress checks, backward/forward seek evidence, readiness stability, provider/browser matrix, detailed-report timing, and frozen-video recovery.
+- Commit `5c1d5c4` is on `origin/main`.
+- CI run `33304210673` passed.
+
+### Failed, Incomplete, or Unresolved Work
+- The provider matrix is still user-side evidence collection; no provider is considered verified solely because it appears in the worksheet.
+- The `v0.1.22` release asset itself was not rebuilt because the guide update is documentation-only and the existing immutable release remains the correct extension package.
+
+### Files and Artifacts
+- Guide: `docs/TEST_GUIDE.md`.
+- Generator: `scripts/generate-test-guide.mjs`.
+- DOCX: `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx`.
+- PDF: `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.pdf`.
+- CI run: `https://github.com/muaz978/sync-your-joy/actions/runs/33304210673`.
+
+### Next Steps
+1. Send friends the published `v0.1.22` extension ZIP.
+2. Send the refreshed Markdown, DOCX, or PDF testing guide.
+3. Run the provider/browser matrix and record actual video progress after every control.
+4. Download the detailed report before refreshing whenever a seek or playback failure occurs.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- This checkpoint records the guide publication and CI evidence only.
