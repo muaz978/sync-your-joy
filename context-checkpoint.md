@@ -2450,3 +2450,58 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
 - This checkpoint records user-provided deployment evidence and does not infer more than the commands and output demonstrate.
+
+## Checkpoint 25 - Friend testing guide refreshed for live `0.1.22`
+
+### Session Metadata
+- Task or project: Update the SyncYourJoy two-device testing guide after production deployment.
+- Checkpoint number: 25.
+- Date: 2026-08-30.
+- Coverage period: Guide and generated-artifact changes after Checkpoint 24.
+- Current context status: The Markdown guide, DOCX, and PDF now describe the live Worker and focus on real video progress, not only room status. The changes are not yet committed in this checkpoint.
+
+### Complete Chronological Activity Log
+- User asked whether the testing guide should be updated after the Worker deployment and successful production smoke.
+- Read the repository documentation-and-ADR skill before editing user-facing documentation.
+- Inspected `docs/TEST_GUIDE.md` and `scripts/generate-test-guide.mjs` to keep the Markdown and generated DOCX content aligned.
+- Updated the guide download link from the moving `latest` URL to the immutable `v0.1.22` ZIP URL and added the production coordinator deployment status.
+- Added a warning that an aligned room timeline does not prove that a provider's real video element is progressing. The guide now requires checking native video time and visible frame progress.
+- Added a production preflight section with the correct repository-directory commands for deployment and smoke testing. It explicitly states that friends do not need Node.js, Wrangler, or Cloudflare access.
+- Strengthened room setup instructions so the host opens the link for everyone, guests do not paste video URLs, popup blocking is handled once, every side has the ready button, readiness is confirmed on both sides, and the mini controller can be hidden when it covers subtitles.
+- Rewrote forward/backward seek checks to require no refresh, actual native-video target movement, backward-seek frame progress, rapid-seek final-target wins, explicit Sync everyone recovery, and a detailed report before any refresh when only room seconds move.
+- Strengthened autoplay recovery to require at least 15 seconds of real guest progress after manual recovery.
+- Expanded reconnect testing to record whether readiness cancellation was caused by a real media URL, selected-player, or room-connection change.
+- Added Test H provider/browser matrix rows for the generic fixture, Crunchyroll, Netflix, Disney+, Animerco/nested players, Qfilm/cross-origin players, and an optional Firefox provider run. The guide warns that one provider's success does not prove another's.
+- Added a fast-recovery procedure for frozen video: confirm native controls, click once for user gesture, use Sync me now, compare visible video time, download a report, and only then refresh as a separate test.
+- Added native time and visible-frame fields to the issue-recording checklist and added Test H to the pass/fail worksheet.
+- Updated `scripts/generate-test-guide.mjs` to generate matching production-preflight, real-progress, seek, readiness, provider-matrix, recovery, and worksheet content.
+- Ran `npm run docs:test-guide`; the DOCX regenerated successfully at `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx`.
+- Converted the regenerated DOCX to PDF using the bundled `soffice` runtime. Fontconfig emitted non-fatal cache warnings, but conversion succeeded and produced a four-page A4 PDF at `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.pdf`.
+- Verified the Markdown contains the new production preflight, provider matrix, seek evidence, and recovery sections. Verified the PDF has four pages and an A4 page size.
+- Ran `git diff --check`; an intentional Markdown hard-break space on the download line was detected and removed. The remaining guide changes require staging, commit, and push.
+
+### Confirmed Successful Results
+- `docs/TEST_GUIDE.md` now points directly to the published `v0.1.22` package and the live production coordinator.
+- The guide now explicitly tests real video progress after play, pause, forward seek, backward seek, rapid seek, autoplay recovery, reconnect, and provider changes.
+- DOCX and PDF artifacts were regenerated successfully.
+- PDF conversion succeeded with four A4 pages.
+
+### Failed, Incomplete, or Unresolved Work
+- The guide changes have not yet been committed or pushed in this checkpoint.
+- The provider matrix remains a user-side acceptance worksheet; no commercial provider is declared verified by the guide text alone.
+
+### Files and Artifacts
+- Markdown guide: `docs/TEST_GUIDE.md`.
+- Generator: `scripts/generate-test-guide.mjs`.
+- DOCX: `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx`.
+- PDF: `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.pdf`.
+
+### Next Steps
+1. Stage the guide, generator, DOCX/PDF, and this checkpoint.
+2. Run diff checks and commit the documentation update.
+3. Push it to `origin/main` and confirm the resulting CI run.
+4. Send friends the published ZIP and the refreshed guide.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- This checkpoint records documentation improvements only and does not claim new runtime provider results.
