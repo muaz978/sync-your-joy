@@ -2356,3 +2356,50 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
 - The published release is confirmed; the Worker deployment remains a distinct external state transition.
+
+## Checkpoint 23 - Final repository state after publication record
+
+### Session Metadata
+- Task or project: SyncYourJoy friend-testing release handoff.
+- Checkpoint number: 23.
+- Date: 2026-08-30.
+- Coverage period: Final documentation checkpoint and post-publication CI verification.
+- Current context status: `origin/main` is clean at `a4f9796`; the immutable `v0.1.22` release remains at `ee78bcd`; both release and final main CI runs passed.
+
+### Complete Chronological Activity Log
+- After GitHub release publication, appended Checkpoint 22 to preserve the full commit/tag/release/deployment chronology.
+- Created documentation commit `a4f9796` with message `docs: record v0.1.22 publication` and pushed it to `origin/main`.
+- Confirmed `main` and `origin/main` point to `a4f9796`, while annotated tag `v0.1.22` remains on `ee78bcd` and was not rewritten.
+- GitHub started main CI run `33303792412` for the checkpoint documentation commit.
+- Waited for the final CI run; it completed successfully.
+- The user-provided Wrangler output was incorporated into the handoff: OAuth login succeeded from `~`, while deployment and smoke commands failed only because npm was run outside the repository and could not find `/Users/muazsabbagh/package.json`.
+
+### Confirmed Successful Results
+- `origin/main` contains the complete implementation plus the publication checkpoint.
+- `v0.1.22` is published and downloadable with both ZIP and checksum assets.
+- Release workflow `33303692825` passed.
+- Main CI workflow for the implementation commit `33303684485` passed.
+- Main CI workflow for the final checkpoint commit `33303792412` passed.
+- Working tree is clean.
+
+### Failed, Incomplete, or Unresolved Work
+- The updated Cloudflare Worker has not been deployed from the repository directory yet.
+- The user's corrected command sequence still needs to be run from `/Users/muazsabbagh/Codex/Projects/SyncYourJoy`:
+  `npm run deploy:edge`, followed by the production smoke command.
+- Real two-device friend testing remains pending.
+
+### Files and Artifacts
+- Release page: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.22`.
+- Extension ZIP: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/sync-your-joy-extension.zip`.
+- Checksum asset: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/sync-your-joy-extension.zip.sha256`.
+- Main CI run: `https://github.com/muaz978/sync-your-joy/actions/runs/33303792412`.
+
+### Next Steps
+1. Change directory to the repository before running the deployment command.
+2. Deploy and smoke-test the updated Worker.
+3. Install the published ZIP on each participant's browser and execute `docs/TEST_GUIDE.md`.
+4. Download a detailed report immediately if any synchronization issue reappears.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- This is the final checkpoint for the commit/push/release publication turn.
