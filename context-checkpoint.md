@@ -2551,3 +2551,46 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
 - This checkpoint records the guide publication and CI evidence only.
+
+## Checkpoint 27 - Word and PDF guides attached to the release
+
+### Session Metadata
+- Task or project: Make the refreshed testing guide downloadable alongside the extension.
+- Checkpoint number: 27.
+- Date: 2026-08-30.
+- Coverage period: GitHub Release asset upload after Checkpoint 26.
+- Current context status: The published `v0.1.22` release now includes the extension ZIP, checksum, DOCX guide, and PDF guide.
+
+### Complete Chronological Activity Log
+- User requested the PDF and Word versions as well as the Markdown guide.
+- Inspected the existing `v0.1.22` release assets and confirmed only the extension ZIP and checksum were attached initially.
+- Confirmed the refreshed local artifacts existed: 16,082-byte DOCX and 215,240-byte PDF.
+- Uploaded both guide artifacts to the existing `v0.1.22` GitHub Release using the GitHub CLI:
+  - `SyncYourJoy-Gates-1-3-Test-Guide.docx`, labeled `SyncYourJoy-Testing-Guide.docx`.
+  - `SyncYourJoy-Gates-1-3-Test-Guide.pdf`, labeled `SyncYourJoy-Testing-Guide.pdf`.
+- Queried the release again and confirmed both assets are uploaded, downloadable, and associated with `v0.1.22`.
+- Recorded the GitHub-provided asset digests:
+  - DOCX: `sha256:bccddc14c1e0cca5d6786eeb4cc1979a934938c3ce196918853653c3349a2425`.
+  - PDF: `sha256:43749e6c89f16352e0754805ace8d10650eb1dcee19fd6755c4c9af2a27e06b2`.
+
+### Confirmed Successful Results
+- Word guide direct download: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/SyncYourJoy-Gates-1-3-Test-Guide.docx`.
+- PDF guide direct download: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/SyncYourJoy-Gates-1-3-Test-Guide.pdf`.
+- The existing extension ZIP and checksum remain attached to the same release.
+
+### Failed, Incomplete, or Unresolved Work
+- The release workflow currently uploads the extension ZIP and checksum automatically; the DOCX/PDF were attached manually to `v0.1.22`. Future releases will need an explicit workflow update if guide assets should be uploaded automatically.
+
+### Files and Artifacts
+- Release page: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.22`.
+- DOCX asset: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/SyncYourJoy-Gates-1-3-Test-Guide.docx`.
+- PDF asset: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/SyncYourJoy-Gates-1-3-Test-Guide.pdf`.
+
+### Next Steps
+1. Send the release page or the three direct links to friends.
+2. Have every tester use the same extension ZIP and the refreshed guide.
+3. Collect detailed reports for any real video-progress or seeking failure.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- The guide assets were uploaded to the immutable release without changing the extension ZIP.
