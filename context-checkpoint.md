@@ -2403,3 +2403,50 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
 - This is the final checkpoint for the commit/push/release publication turn.
+
+## Checkpoint 24 - Production Worker deployed and smoke-verified
+
+### Session Metadata
+- Task or project: Activate the new SyncYourJoy room coordinator before friend testing.
+- Checkpoint number: 24.
+- Date: 2026-08-30.
+- Coverage period: User-provided Cloudflare deployment and production smoke output after Checkpoint 23.
+- Current context status: The updated Worker is deployed at the production endpoint. The production protocol smoke passed. Two-device real-provider testing remains pending.
+
+### Complete Chronological Activity Log
+- User reran the commands from the repository directory after the earlier home-directory mistake:
+  - `cd /Users/muazsabbagh/Codex/Projects/SyncYourJoy`
+  - `npm run deploy:edge`
+  - `npm run smoke:edge -- wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`
+- Wrangler successfully uploaded and deployed `sync-your-joy-rooms` using the configured Durable Object binding.
+- Cloudflare reported the live Worker URL `https://sync-your-joy-rooms.sync-your-joy.workers.dev` and deployment version ID `11de04d9-f41d-4563-bdda-08136016777e`.
+- The production smoke connected to `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms` and returned `ok: true`.
+- Smoke evidence reported room create/join, 74 ms round trip, revision 11, seek barrier protection, 76 ms seek barrier application, approximately 1.8 second timeout-safe release, 144 ms scheduled lead, diagnostics from both smoke participants, stale buffering protection, and startup buffering protection.
+
+### Confirmed Successful Results
+- The updated Worker is live in Cloudflare.
+- The production endpoint accepts the current protocol and passes the complete automated smoke scenario.
+- The server-side changes from the `0.1.22` implementation are now active in production, including diagnostics bounds, participant session capabilities, reviewed origin handling, pending-connection protection, and room lifetime enforcement.
+
+### Failed, Incomplete, or Unresolved Work
+- The smoke test is synthetic protocol coverage. It does not prove actual HTML5/MSE/iframe provider video progress on two separate computers.
+- Real friend testing remains required for play, pause, forward seek, backward seek, rapid seek, buffering, refresh/reconnect, tab replacement, and actual frame progress.
+- The invite capability remains a future public-distribution hardening item; room-code admission is still used for new guests.
+
+### Files and Artifacts
+- Production Worker URL: `https://sync-your-joy-rooms.sync-your-joy.workers.dev`.
+- Production WebSocket URL: `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`.
+- Cloudflare deployment version ID: `11de04d9-f41d-4563-bdda-08136016777e`.
+- Published extension: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/sync-your-joy-extension.zip`.
+- Testing guide: `docs/TEST_GUIDE.md`.
+
+### Next Steps
+1. Have every participant download the published `v0.1.22` ZIP and load the extracted folder as an unpacked extension.
+2. Ensure everyone refreshes the streaming tab after installing or reloading the extension.
+3. Run the two-device testing guide with a real provider and verify that the video itself progresses on both devices.
+4. Use the side-panel detailed report immediately after a failure, before refreshing if possible.
+5. Send the report together with the exact guide step, provider, page URL type, browser, and whether the affected video was paused, buffering, or playing.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- This checkpoint records user-provided deployment evidence and does not infer more than the commands and output demonstrate.
