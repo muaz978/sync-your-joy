@@ -13,6 +13,8 @@ const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const MAX_MESSAGE_BYTES = 16_384
 const CONTROLLER_GRACE_MS = 10_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
+const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
+const MAX_PENDING_CONNECTIONS_PER_ROOM = 20
 const testPlayerHtml = await readFile(new URL('../static/test-player.html', import.meta.url), 'utf8')
 
 interface ConnectedClient {
@@ -25,6 +27,7 @@ interface RoomEntry {
   coordinator: RoomCoordinator
   sockets: Set<WebSocket>
   emptySinceMs: number | null
+  createdAtMs: number
 }
 
 export interface RoomService {
@@ -63,6 +66,13 @@ export async function createRoomService(options: { port?: number; host?: string 
     const url = new URL(request.url ?? '/', 'http://localhost')
     if (url.pathname !== '/rooms' || !originAllowed(request)) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    const pendingConnections = [...webSocketServer.clients].filter((candidate) => !clients.has(candidate)).length
+    if (pendingConnections >= MAX_PENDING_CONNECTIONS_PER_ROOM) {
+      socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
       socket.destroy()
       return
     }
@@ -155,15 +165,17 @@ export async function createRoomService(options: { port?: number; host?: string 
       const code = rooms.has(message.code) ? createUniqueCode(rooms) : message.code
       const coordinator = new RoomCoordinator(
         { roomId: randomUUID(), code, inviteToken: randomBytes(16).toString('base64url') },
-        { id: message.participantId, name: message.name, media: message.media },
+        { id: message.participantId, name: message.name, media: message.media, sessionToken: randomBytes(16).toString('base64url') },
       )
-      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), emptySinceMs: null }
+      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), emptySinceMs: null, createdAtMs: Date.now() }
       rooms.set(code, entry)
       clients.set(socket, { socket, participantId: message.participantId, roomCode: code })
+      const sessionToken = coordinator.exportState().participants.find(item => item.id === message.participantId)?.sessionToken
       send(socket, {
         type: 'room_joined',
         participantId: message.participantId,
         inviteToken: coordinator.inviteToken,
+        sessionToken: sessionToken ?? '',
         snapshot: coordinator.snapshot(),
       })
       return
@@ -181,7 +193,15 @@ export async function createRoomService(options: { port?: number; host?: string 
         return
       }
 
-      const result = entry.coordinator.join({ id: message.participantId, name: message.name, media: message.media })
+      const existing = entry.coordinator.exportState().participants.find(item => item.id === message.participantId)
+      const sessionToken = existing
+        ? existing.sessionToken ? message.sessionToken : randomBytes(16).toString('base64url')
+        : randomBytes(16).toString('base64url')
+      if (!sessionToken) {
+        send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: entry.coordinator.snapshot() })
+        return
+      }
+      const result = entry.coordinator.join({ id: message.participantId, name: message.name, media: message.media, sessionToken })
       if (!result.ok) {
         sendResult(socket, null, result)
         return
@@ -207,6 +227,7 @@ export async function createRoomService(options: { port?: number; host?: string 
         type: 'room_joined',
         participantId: message.participantId,
         inviteToken: entry.coordinator.inviteToken,
+        sessionToken,
         snapshot: result.snapshot,
       })
       broadcast(entry, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot }, socket)
@@ -303,6 +324,11 @@ export async function createRoomService(options: { port?: number; host?: string 
         broadcast(room, { type: 'room_snapshot', reason: expiredSeek.reason, snapshot: expiredSeek.snapshot })
       if (room.emptySinceMs !== null && nowMs - room.emptySinceMs >= EMPTY_ROOM_TTL_MS)
         rooms.delete(code)
+      else if (nowMs - room.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
+        for (const socket of room.sockets)
+          socket.close(1000, 'room_expired')
+        rooms.delete(code)
+      }
     }
   }, 100)
   cleanupTimer.unref()
@@ -351,6 +377,9 @@ function originAllowed(request: IncomingMessage): boolean {
   const origin = request.headers.origin
   return origin === undefined
     || origin.startsWith('chrome-extension://')
+    || origin.startsWith('moz-extension://')
+    || origin.startsWith('safari-web-extension://')
+    || origin.startsWith('safari-extension://')
     || origin.startsWith('http://127.0.0.1')
     || origin.startsWith('http://localhost')
 }

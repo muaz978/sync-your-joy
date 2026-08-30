@@ -57,7 +57,7 @@ The controller no longer waits for its streaming site to emit `seeked` before no
 
 The controller can select **Download detailed report** under **Beta diagnostics**. SyncYourJoy immediately includes the controller's local report, asks every connected participant for its bounded in-memory playback log up to three times, waits up to 2.5 seconds, and downloads one JSON file on the controller's device. The file records room revisions, sanitized player binding changes, play and seek positions, paused or buffering states, connection events, extension versions, collection attempt counts, and any participants that did not respond.
 
-This testing-only report does not contain video, audio, screenshots, cookies, passwords, subscription data, invite tokens, or page query parameters. Reports are relayed directly through the active room and are not stored as a report archive by the room coordinator. Send the JSON file with the bug description when a synchronization issue needs investigation.
+This testing-only report does not contain video, audio, screenshots, cookies, passwords, subscription data, session capabilities, or page query parameters. Reports are relayed directly through the active room and are not stored as a report archive by the room coordinator. Reports are kept below the room transport message budget by retaining the newest events first. Send the JSON file with the bug description when a synchronization issue needs investigation.
 
 Animerco episode pages initially contain only a poster and create their player iframe after the page's own play action. When such a page is opened through the room link, SyncYourJoy loads the default player server automatically and ignores the page's advertising iframe during player selection.
 

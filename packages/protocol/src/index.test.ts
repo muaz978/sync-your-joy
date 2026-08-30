@@ -1,6 +1,6 @@
 import type { MediaFingerprint } from './index.ts'
 import { describe, expect, it } from 'vitest'
-import { mediaMatches, normalizeCanonicalId, normalizePageUrl, parseClientMessage } from './index.ts'
+import { mediaMatches, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, parseClientMessage } from './index.ts'
 
 describe('media identity matching', () => {
   it('does not treat two missing players as a video match', () => {
@@ -77,6 +77,11 @@ describe('media identity matching', () => {
     })).toBeNull()
   })
 
+  it('removes unknown temporary query parameters from media identity URLs', () => {
+    expect(normalizeMediaPageUrl('https://eta.animerco.org/jwplayer/?pnonce=temporary-client-token')).toBe('https://eta.animerco.org/jwplayer')
+    expect(normalizeMediaPageUrl('https://a.qfilm.tv/play.php?vid=A0821A41C&token=temporary')).toBe('https://a.qfilm.tv/play.php?vid=A0821A41C')
+  })
+
   it('requires player-health reports to identify the room revision they observed', () => {
     const sample = {
       positionSeconds: 7,
@@ -136,6 +141,17 @@ describe('media identity matching', () => {
       type: 'diagnostics_response',
       reportId: 'report_123456',
       report: { ...report, events: Array.from({ length: 121 }, () => report.events[0]) },
+    })).toBeNull()
+  })
+
+  it('accepts an optional reconnect session token only in join messages', () => {
+    expect(parseClientMessage({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: 'ABCDEFGH', media: null,
+      sessionToken: '0123456789abcdefghij',
+    })).toMatchObject({ sessionToken: '0123456789abcdefghij' })
+    expect(parseClientMessage({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: 'ABCDEFGH', media: null,
+      sessionToken: 'short',
     })).toBeNull()
   })
 })

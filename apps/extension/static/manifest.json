@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SyncYourJoy",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "Sync play, pause, and seeking across separate streaming accounts without screen sharing.",
   "icons": {
     "16": "icons/icon-16.png",

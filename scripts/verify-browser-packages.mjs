@@ -32,6 +32,10 @@ try {
   assertFirefoxManifest(firefoxManifest)
   result.firefox = { ok: true, manifestVersion: firefoxManifest.version, sidebar: firefoxManifest.sidebar_action?.default_panel }
 
+  // Leave the canonical dist directory in its default Chrome form. The
+  // Firefox build above is copied to staging for verification only.
+  await run(process.execPath, ['scripts/build-extension.mjs'], { cwd: root, env: buildEnvironment })
+
   if (await commandExists('xcrun')) {
     const safariProject = join(staging, 'safari-project')
     await run('xcrun', [

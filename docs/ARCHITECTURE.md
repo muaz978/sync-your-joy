@@ -140,18 +140,18 @@ Never rely only on the visible title or duration. The coordinator blocks readine
 - In `pause-all` mode, one sustained stall produces one ordered room pause. Resume requires readiness and controller intent.
 - Navigation or episode transition invalidates readiness until the new fingerprint matches.
 - On controller disconnect, pause the room and hold its lease briefly for reconnection. After the grace period, transfer only through a deterministic server rule and broadcast the new lease epoch.
-- WebSocket reconnect uses exponential backoff with jitter, the last applied revision, and an expiring resume token.
+- WebSocket reconnect uses exponential backoff with jitter, the last applied revision, and a per-participant session capability.
 
 ## 7. Security and privacy boundaries
 
 - WSS/HTTPS only.
-- Random 128-bit room secret in invite links; human codes map to rooms through rate-limited, expiring lookups.
+- Random room and participant session capabilities; human room codes are still required and should be treated as private beta bearer secrets.
 - Ephemeral rooms, default expiration after the party, with an explicit maximum lifetime.
 - No streaming-service tokens, cookies, passwords, media bytes, screenshots, decoded frames, full DOM, or full browsing history.
-- Strip URL query strings and fragments before any transmission unless a platform-specific review proves a field essential and safe.
+- Strip fragments and unknown URL query strings before media identity transmission; retain only provider or generic identifier keys that have been reviewed for matching.
 - Minimize Chrome host permissions; request supported domains when the user enables them where practical.
 - Redact logs and set short retention before collecting production telemetry.
-- Rate-limit creation, join attempts, messages, and control intents.
+- Rate-limit pending connections and messages; add deployment-level controls for creation and join attempts before broad distribution.
 - Validate every message against a versioned schema and size limit.
 - Threat-model room-code guessing, malicious members, replayed controller commands, stale leases, cross-site message spoofing, extension compromise, and adapter event loops.
 

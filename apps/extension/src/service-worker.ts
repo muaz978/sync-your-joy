@@ -9,6 +9,7 @@ import { resolveControlPosition } from './control-position.ts'
 import { shouldConfirmMediaMismatch } from './readiness-state.ts'
 import { connectionQuality } from './connection-quality.ts'
 import { browserApi } from './browser-api.ts'
+import { fitDiagnosticsReport } from './diagnostics-budget.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -34,6 +35,7 @@ let state: ExtensionState = {
   connection: 'disconnected',
   participantId: createId('participant'),
   inviteToken: null,
+  sessionToken: null,
   snapshot: null,
   serverOffsetMs: 0,
   clockUncertaintyMs: 99_999,
@@ -270,6 +272,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
 
     case 'CREATE_ROOM':
       const newRoomCode = createRoomCode()
+      state.sessionToken = null
       await startFreshConnection(newRoomCode)
       sendToServer({
         type: 'create_room',
@@ -285,7 +288,10 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       const code = request.code.trim().toUpperCase()
       if (!/^[A-Z0-9]{8}$/.test(code))
         return failure('Enter the eight-character room code.')
+      const resumeToken = state.snapshot?.code === code ? state.sessionToken : null
       await startFreshConnection(code)
+      if (!resumeToken)
+        state.sessionToken = null
       sendToServer({
         type: 'join_room',
         protocolVersion: 1,
@@ -293,6 +299,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         name: state.displayName,
         code,
         media: state.currentMedia,
+        ...(resumeToken ? { sessionToken: resumeToken } : {}),
       })
       return success()
     }
@@ -561,6 +568,7 @@ async function reconnectIfNeeded(): Promise<void> {
       name: state.displayName,
       code: state.snapshot.code,
       media: state.currentMedia,
+      ...(state.sessionToken ? { sessionToken: state.sessionToken } : {}),
     })
   }
   catch {
@@ -588,6 +596,7 @@ function handleServerMessage(raw: string): void {
     state.connection = 'connected'
     state.participantId = message.participantId
     state.inviteToken = message.inviteToken
+    state.sessionToken = message.sessionToken ?? null
     state.snapshot = message.snapshot
     state.lastError = null
     recordDiagnostic('room', 'room_joined', { revision: message.snapshot.revision })
@@ -1015,7 +1024,7 @@ function buildDiagnosticsReport(): DiagnosticsReport {
 }
 
 function validatedDiagnosticsReport(): DiagnosticsReport {
-  const report = buildDiagnosticsReport()
+  const report = fitDiagnosticsReport(buildDiagnosticsReport())
   const parsed = parseClientMessage({ type: 'diagnostics_response', reportId: 'report_validation_check', report })
   if (parsed?.type === 'diagnostics_response')
     return parsed.report

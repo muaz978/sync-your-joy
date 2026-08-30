@@ -38,7 +38,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.1.21` includes:
+Version `0.1.22` includes:
 
 - automatic room-wide play, pause, forward seek, and backward seek;
 - a transactional seek barrier that aligns real players before playback resumes;
@@ -57,7 +57,7 @@ Version `0.1.21` includes:
 - controller handoff after a disconnected-controller grace period;
 - a testing-only detailed JSON report assembled from connected participants.
 
-Version `0.1.21` makes every controller seek path count the controller side immediately while still requiring each guest to acknowledge, and keeps the longer, retrying room-wide diagnostics collection window.
+Version `0.1.22` bounds diagnostics below the room transport limit, protects reconnecting participant identities with session capabilities, sanitizes media identity query parameters, supports WebExtension origins across target browsers, and enforces occupied-room lifetime limits.
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
@@ -129,7 +129,7 @@ Production Worker deployments can also be run from the **Deploy room coordinator
 
 ## Releasing
 
-Pushing a semantic-version tag such as `v0.1.21` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
+Pushing a semantic-version tag such as `v0.1.22` runs the release workflow. It verifies the repository, builds against the deployed room coordinator, packages the unpacked extension, validates its checksum, and creates a GitHub Release with a stable ZIP filename.
 
 Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and pushes to `main` run the same source, test, build, and production-dependency checks through [continuous integration](.github/workflows/ci.yml).
 

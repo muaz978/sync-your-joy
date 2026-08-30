@@ -1949,3 +1949,334 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed URLs are stored in this checkpoint.
 - Earlier checkpoint history remains preserved above.
+
+## Checkpoint 18 - Repository-wide deep audit started
+
+### Session Metadata
+- Task or project: SyncYourJoy whole-code audit for correctness, security, reliability, performance, observability, packaging, and release readiness.
+- Checkpoint number: 18.
+- Date: 2026-08-30.
+- Coverage period: Current audit turn after the public `v0.1.21` release baseline.
+- Current context status: Audit inventory is in progress. No source-code fixes have been made in this audit turn yet.
+
+### User Objective and Requirements
+- User asked for a deep audit of the entire codebase, all features, and all possible problems.
+- Audit must cover the room protocol, authoritative coordinator, edge and local services, extension service worker, content-script/player discovery, side panel UI, diagnostics, packaging, browser compatibility, security, performance, observability, tests, and release workflows.
+- Findings must distinguish confirmed defects from runtime validation gaps and recommendations. The existing seek fix and release must not be treated as proof of real two-device provider playback.
+
+### Current State
+- Repository is `/Users/muazsabbagh/Codex/Projects/SyncYourJoy` on `main`.
+- Public production worker is `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`; health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
+- Public latest release is `v0.1.21`, including the generalized controller-first seek acknowledgement fix.
+- Current HEAD at audit start was `0e7772e` (`docs: record generalized seek fix release`).
+- A plan was created with four stages: inventory architecture and tests; audit correctness/security/performance/observability/release; run verification and probes; document prioritized findings and Gate 4 readiness.
+
+### Complete Chronological Activity Log
+- Announced a repository-wide audit rather than another seek-only pass. The stated scope included protocol, room state, edge service, extension/service worker, player discovery/adapters, UI, diagnostics, packaging, security, performance, tests, and release configuration.
+- Read the code-review-and-quality, security-and-hardening, performance-optimization, and observability-and-instrumentation skill instructions before auditing. These were selected because the requested audit spans correctness, attack surface, latency, and evidence collection.
+- Enumerated the repository with `find . -maxdepth 3 -type f | sort`. This revealed source, tests, workflows, generated distribution files, and `.DS_Store` files at the repository root and under `apps/`.
+- Counted source sizes with `wc -l`. Major files include `apps/extension/src/content-script.ts` (1325 lines), `apps/extension/src/service-worker.ts` (1123), `apps/extension/src/sidepanel.ts` (889), `packages/protocol/src/index.ts` (499), `packages/sync-engine/src/room.ts` (551), `packages/sync-engine/src/room.test.ts` (664), `apps/edge-service/src/worker.ts` (440), `apps/room-service/src/server.ts` (393), and `scripts/smoke-room-service.mjs` (295).
+- Searched source for TODO/FIXME/HACK markers, throws, catches, console use, `innerHTML`, WebSocket, tabs, downloads, and storage usage. No TODO/FIXME/HACK markers were found. `innerHTML` occurs in static shadow-DOM/UI templates and requires interpolation review; no conclusion was made yet.
+- Inspected recent Git history. The latest release history contains `v0.1.21` at `61604fe`, followed by documentation commit `0e7772e`.
+- Inspected root and extension package metadata and the MV3 manifest. The manifest uses broad `http://*/*` and `https://*/*` content-script matches, `all_frames`, `match_about_blank`, and `match_origin_as_fallback`; permissions include `sidePanel`, `storage`, `tabs`, and `downloads`.
+- The manifest CSP currently lists `connect-src 'self' ws://127.0.0.1:8787 ws://localhost:8787`. The service worker is expected to connect to the production WSS worker, so this is a high-priority suspected production blocker pending confirmation in the built package and runtime policy behavior.
+- The combined first inspection of edge and local service source was too large and was truncated. It did not establish findings; smaller chunked inspection is required.
+- Recorded candidate areas for deep inspection: WebSocket origin policy, participant authentication and room-code access, invite-token use, rate limits and abuse controls, unbounded action/diagnostic memory, Durable Object write frequency, seek acknowledgement races, player binding/navigation races, navigation URL normalization, report privacy, browser packaging differences, workflow action deprecations, source-map shipping, and release gates.
+
+### Confirmed Successful Results
+- The public release baseline and prior generalized seek fix are established from repository history and the existing checkpoint record.
+- The repository inventory and source-size inventory completed successfully.
+- The four audit skills were selected and read before making audit judgments.
+
+### Failed, Incomplete, or Unresolved Work
+- No whole-code audit conclusion has been reached yet.
+- The suspected production CSP mismatch is not yet confirmed by a browser install/runtime probe.
+- Edge and local server, protocol, coordinator, extension, and workflow code still require chunked inspection.
+- No new tests, fixes, commits, pushes, or releases were performed during this audit turn.
+- Real two-device, real-provider behavior remains outside local unit/build checks.
+
+### Decisions and Rationale
+- This turn is diagnostic. Per the task rules, implementation changes will not be made solely because a defect is suspected; confirmed findings will be reported first, with fixes recommended or separately authorized.
+- A written audit report will be created after evidence collection so severity, file references, verification scope, and Gate 4 implications are preserved in the repository without claiming unverified runtime success.
+
+### Files and Artifacts
+- Existing history file: `context-checkpoint.md`.
+- Candidate final audit artifact: `docs/CODE_AUDIT.md` (not yet created).
+- Key inspected files: `apps/extension/static/manifest.json`, `apps/extension/src/content-script.ts`, `apps/extension/src/service-worker.ts`, `apps/extension/src/sidepanel.ts`, `apps/edge-service/src/worker.ts`, `apps/room-service/src/server.ts`, `packages/protocol/src/index.ts`, `packages/sync-engine/src/room.ts`, package metadata, workflows, and packaging scripts.
+
+### Assumptions and Uncertainties
+- The current production worker URL and public `v0.1.21` release are taken from the prior verified release baseline and may need a live health check during this audit.
+- Broad content-script permissions are intentional for the user-requested any-page video support, but their store-policy impact must be assessed separately from runtime necessity.
+- A CSP endpoint omission is a code-level risk only until a targeted extension runtime probe confirms whether the browser blocks the WSS connection.
+
+### Open Questions, Blockers, and Dependencies
+- Does the released extension’s effective CSP permit `wss://sync-your-joy-rooms.sync-your-joy.workers.dev`?
+- Are WebSocket origins restricted to the extension and known local origins?
+- Is the generated invite token actually used to authenticate joins, or is the room code the only access control?
+- Are participant IDs, action IDs, diagnostics, and room state bounded?
+- Do all seek, navigation, and player-binding paths converge safely after tab/iframe replacement?
+- Do CI and release workflows run all relevant checks and avoid deprecated action runtimes?
+
+### Next Steps
+1. Inspect edge and local services in small chunks, including origin checks, join/control authorization, limits, storage, diagnostics, and broadcast behavior.
+2. Inspect protocol validators and coordinator invariants, then the extension seek, navigation, readiness, scroll, diagnostics, and UI paths.
+3. Inspect build/package/workflow files, run type/tests/audit/package/production smoke checks, and review bundle and permission surfaces.
+4. Create a severity-ranked `docs/CODE_AUDIT.md`, update the plan, and report confirmed findings, unresolved runtime gaps, and Gate 4 readiness.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed URLs are stored here.
+- Earlier checkpoints, including the `v0.1.21` release and generalized seek fix, remain preserved above even though the historical headings are not strictly chronological.
+
+## Checkpoint 19 - Whole-code audit completed
+
+### Session Metadata
+- Task or project: SyncYourJoy whole-code audit.
+- Checkpoint number: 19.
+- Date: 2026-08-30.
+- Coverage period: Completion of the repository-wide audit started in Checkpoint 18.
+- Current context status: Audit report created locally. No product-code fixes or external publication were made in this audit turn.
+
+### Complete Chronological Activity Log
+- Inspected Cloudflare edge and local room service implementations in chunks. Confirmed message size limits, per-socket rate limiting, room joins, controller checks, diagnostics relay, seek acknowledgements, persistence, alarms, and origin checks.
+- Inspected protocol and coordinator code. Confirmed bounded participant count (10), bounded action IDs (500), schema validation, seek barriers, controller-first acknowledgement, readiness transitions, reconnect behavior, and the absence of aggregate diagnostics payload-size validation.
+- Inspected extension service worker, content script, player discovery, player binding, side panel, media fingerprinting, seek helpers, readiness helpers, diagnostics, and scroll/input-preservation paths.
+- Confirmed the production package build appends the deployed WSS origin to the effective extension CSP. The initial concern from the static localhost-only manifest is therefore not a production-package defect; the release package manifest contains `wss://sync-your-joy-rooms.sync-your-joy.workers.dev`.
+- Confirmed the edge and local `originAllowed` functions explicitly accept only missing Origin, `chrome-extension://`, and local HTTP origins. No `moz-extension://` or Safari WebExtension origin is present.
+- Confirmed `inviteToken` is generated and returned in `room_joined`, but no client message carries it and no service validates it. Duplicate participant IDs are treated as reconnections and prior sockets are closed.
+- Confirmed `normalizePageUrl` strips fragments and known tracking keys but preserves unknown query parameters. This conflicts with the stricter architecture privacy statement and can preserve temporary provider parameters.
+- Confirmed empty-room expiration exists but occupied rooms have no maximum lifetime and edge admission/join creation has no global or per-IP abuse limit.
+- Confirmed main CI runs browser-package verification but the tag release workflow does not repeat it. Confirmed the browser-package verification script leaves the Firefox build in the canonical `apps/extension/dist` directory after a successful run.
+- Confirmed the release ZIP includes three JavaScript source maps.
+- Ran `npm run check`: passed with 21 test files and 107 tests, strict typechecking, server build, and extension build.
+- Ran `npm audit --omit=dev --audit-level=high`: passed with 0 vulnerabilities.
+- Ran `npm audit signatures` once against the user's root-owned npm cache and received an `EPERM`; reran with `npm_config_cache=/tmp/npm-cache-syj` and passed with 159 verified registry signatures and 85 verified attestations.
+- Ran the production-connected edge smoke against `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`: passed room create/join, diagnostics relay, navigation, readiness, play, seek barrier, timeout-safe pause, rapid controls, and buffering protection.
+- Ran `npm run verify:browser-packages` without escalation. Chrome/Firefox build checks ran, but Safari packaging failed because macOS denied access to the staging path. Reran the same command with explicit macOS security approval; Chrome, Firefox, and Safari conversion smoke all passed.
+- Packaged a production `0.1.21` ZIP in `/tmp/syj-audit-release` with the deployed WSS URL. `unzip -t` passed and the manifest was inspected for the production connect-src entry.
+- Measured a representative valid diagnostics response. With 100 one-second player-status events it serialized to 16,737 bytes, above the 16,384-byte edge/local limit. At 95 events it was 15,937 bytes, leaving only 447 bytes for variation. This establishes a concrete overflow path.
+- Created `docs/CODE_AUDIT.md` with executive summary, severity-ranked findings, code references, evidence, strengths, unresolved runtime validation, Gate 4 verdict, and remediation order.
+- Marked the four audit plan steps completed.
+
+### Confirmed Successful Results
+- Full local check passed: 21 files, 107 tests, typecheck, server build, and extension build.
+- Production dependency vulnerability audit passed with 0 vulnerabilities.
+- Clean-cache npm signature and attestation verification passed.
+- Production WebSocket protocol smoke passed.
+- Chrome/Firefox package checks and Safari macOS conversion smoke passed after the required macOS security approval.
+- Production release ZIP was structurally valid and contained the deployed WSS CSP origin.
+- Whole-code audit report created at `docs/CODE_AUDIT.md`.
+
+### Failed, Incomplete, or Unresolved Work
+- No source-code fixes were made for the audit findings because the latest request asked for diagnosis/audit rather than implementation authorization.
+- `SYJ-AUD-001` diagnostics overflow is a confirmed P1 defect and likely explains missing participants in long-session reports.
+- `SYJ-AUD-002` cross-browser production origin coverage is a confirmed code gap; live Firefox/Safari WebSocket compatibility remains unverified.
+- `SYJ-AUD-003` unused invite-token authentication is a confirmed access-control gap.
+- Real two-device provider playback, seeking, buffering, tab suspension, and actual frame progress remain unverified.
+- Privacy policy is still a draft and its query-string statement is stricter than current implementation.
+
+### Decisions and Rationale
+- The production CSP concern was downgraded from suspected blocker to verified non-defect for release packaging because the build script correctly appends the configured WSS origin. The static manifest remains localhost-oriented for default development builds.
+- Diagnostics overflow was elevated to P1 because the message limit is enforced by both production and local services and the overflow can close a participant connection, not merely omit optional metadata.
+- Firefox/Safari support was not declared verified based only on package conversion. The origin allowlist and lack of live runtime tests require an explicit support decision before Gate 4.
+- The report is local and not pushed or released during this audit turn. No credentials, tokens, or private participant data were written to it.
+
+### Files and Artifacts
+- Audit report: `docs/CODE_AUDIT.md`.
+- Session history: `context-checkpoint.md`.
+- Production audit package: `/tmp/syj-audit-release/sync-your-joy-extension.zip` (disposable, not a repository artifact).
+- Key reviewed files include edge/local services, protocol/coordinator, extension service worker/content script/side panel, media/player helpers, package scripts, manifests, workflows, privacy/store docs, and tests.
+
+### Assumptions and Uncertainties
+- Firefox and Safari origin names are based on their standard WebExtension origin models; a real browser connection test is still required before making a final support claim.
+- The representative diagnostics-size measurement uses valid current fields and ordinary event values. Longer real event details can exceed the limit sooner; smaller reports may pass.
+- No production logs or user secrets were accessed. Findings are code- and probe-based.
+
+### Open Questions, Blockers, and Dependencies
+- Should diagnostics be compacted/capped below 16 KB, and should that fix be implemented in the next patch release?
+- Should private beta retain code-only access temporarily, or should participant capabilities and host approval be implemented before wider testing?
+- Are Firefox and Safari required in Gate 4, or should the first store release be Chrome-only?
+- What monitored HTTPS privacy/support URL should replace the draft GitHub issue contact?
+
+### Next Steps
+1. Implement and test the diagnostics payload budget fix.
+2. Decide and implement cross-browser authenticated handshake/origin policy, or remove unsupported browser claims.
+3. Resolve invite/session authentication and URL redaction policy.
+4. Run the two-device headed acceptance matrix with generic fixture and each provider planned for listing.
+5. Re-run Gate 1-3 and only then update the Gate 4 submission pack.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed URLs are stored here.
+- Earlier checkpoint history remains preserved above.
+
+## Checkpoint 20 - Audit remediation implementation and release verification
+
+### Session Metadata
+- Task or project: SyncYourJoy audit remediation and reliability hardening.
+- Checkpoint number: 20.
+- Date: 2026-08-30.
+- Coverage period: Implementation work performed after the whole-code audit in Checkpoint 19.
+- Current context status: Source changes and local verification are complete for the planned remediation slice. The updated Cloudflare Worker has not yet been deployed, pushed, or released in this turn.
+
+### User Objective and Requirements
+- Implement the outstanding reliability, security, packaging, and documentation fixes identified by the whole-code audit.
+- Preserve state-only playback synchronization and the existing seek barrier while making sessions more robust and diagnostics useful.
+- Prepare a versioned extension package and supporting documentation without claiming real two-device/provider success until it is actually tested.
+
+### Complete Chronological Activity Log
+- Restored the SyncYourJoy repository context and prior audit findings from the previous checkpoint and memory. The main implementation priorities were bounded diagnostics transport, authenticated reconnects, cross-browser origins, URL identity redaction, room lifetime/admission controls, packaging hygiene, CI/release verification, and regression coverage.
+- Updated `packages/protocol/src/index.ts`:
+  - Added optional `sessionToken` to client room joins.
+  - Added required `sessionToken` to server `room_joined` messages and client room state.
+  - Added validation for 20-80 character URL-safe session tokens.
+  - Added `normalizeMediaPageUrl` to retain only reviewed identity query keys (`vid` for Qfilm, `v` for YouTube, and a small generic identity set elsewhere), sort retained parameters, and remove unknown temporary parameters.
+  - Changed media matching to use the media-specific normalizer while preserving ordinary navigation URL normalization.
+- Updated `packages/sync-engine/src/room.ts`:
+  - Added optional per-participant session capabilities.
+  - Rejected duplicate participant replacement when an existing participant has a token and the supplied token is absent or incorrect.
+  - Allowed old persisted participants without tokens to bootstrap a new token.
+  - Removed session tokens from public room snapshots so they are not broadcast to other participants.
+- Updated `apps/edge-service/src/worker.ts`:
+  - Persisted room creation time and enforced a six-hour maximum room lifetime.
+  - Limited pending unjoined WebSocket connections per room to 20.
+  - Added token issuance and validation to room create/join flow.
+  - Added `moz-extension://`, `safari-web-extension://`, and `safari-extension://` to the accepted WebSocket origins while retaining localhost/development handling.
+  - Closed and deleted rooms at maximum lifetime.
+- Updated `apps/room-service/src/server.ts` with the same session-token, origin, pending-connection, and maximum-lifetime protections for local development parity.
+- Updated `apps/extension/src/service-worker.ts`:
+  - Stored the issued room session token in extension state.
+  - Sent it on same-room reconnects and joins, clearing it when creating or entering a different room.
+  - Fitted diagnostics reports to a 12,000-byte envelope before sending them over WebSocket.
+- Added `apps/extension/src/diagnostics-budget.ts` and its regression test. The fitter trims oldest events first, preserves newest evidence, and bounds oversized identifying fields as a final fallback.
+- Updated `apps/extension/src/media-fingerprint.ts` to use the reviewed media URL normalizer for generic media identity and shared-page binding.
+- Added protocol tests for Animerco/Qfilm query redaction and join-token validation, plus a coordinator test for duplicate identity replacement with an incorrect versus correct token.
+- Updated packaging and browser verification:
+  - `scripts/package-extension.sh` now removes JavaScript source maps from release packages.
+  - `scripts/verify-browser-packages.mjs` now restores the canonical Chrome build after validating the Firefox build, preventing a Firefox manifest from being left in `apps/extension/dist`.
+- Updated CI/release/deploy workflows to checkout/setup-node action versions that avoid the Node.js 20 deprecation warning, and made the release workflow rerun browser-package verification.
+- Bumped repository, extension, lockfile, README, changelog, store, release, implementation, architecture, privacy, beta, and generated test-guide references to `0.1.22` where applicable.
+- Ran `npm run typecheck`. The first typecheck exposed exact-optional-property issues in coordinator changes; those were fixed by conditionally adding optional token properties. A subsequent typecheck passed.
+- Ran the test suite. One local room-service test initially failed because an existing participant's token was reused when the replacement join omitted a token. Corrected token selection so an existing token requires the supplied token, an old tokenless participant receives a new token, and a missing calculated token is rejected. The final suite passed with 22 test files and 113 tests.
+- Ran `npm run check`. It passed typechecking, all 22 test files and 113 tests, the room-service build, and the extension build.
+- Packaged a production-configured `0.1.22` extension using the deployed WSS room URL in `/tmp/syj-release-022`. ZIP integrity passed, no `.map` files were present, the manifest version was `0.1.22`, and the effective CSP contained `wss://sync-your-joy-rooms.sync-your-joy.workers.dev`. The measured SHA-256 was `f2b372e6e24b055aae3a9c40ab9acb9ec5f038cc3b124286b477268faa30648d`.
+- Reran browser-package verification with explicit macOS security approval after the first run was denied staging-path access. Chrome and Firefox manifest checks and Safari conversion smoke passed. The script restored the Chrome manifest afterward.
+- Inspected the current working tree. The manifest is Chrome-form `0.1.22` with `side_panel: true` and no Firefox `sidebar_action`; `git diff --check` passed. Changes are still uncommitted and unpushed.
+
+### Confirmed Successful Results
+- Protocol/coordinator/session-capability changes compile and are covered by passing tests.
+- Local services now share the same session, origin, pending-connection, and room-lifetime policy.
+- Diagnostics reports are bounded below the service message limit by a tested 12 KB fitter.
+- Media identity matching removes unreviewed temporary query parameters while retaining provider identity keys required by known URL formats.
+- Release packaging omits source maps and browser verification leaves the canonical Chrome distribution intact.
+- `npm run check` passed with 22 test files and 113 tests.
+- Production-configured `0.1.22` package was structurally valid and contained the production WSS CSP endpoint.
+- Chrome, Firefox, and Safari package/conversion verification passed after macOS approval.
+
+### Failed, Incomplete, or Unresolved Work
+- The updated Worker code is not yet deployed to Cloudflare in this turn. The production Worker therefore does not yet enforce the new session-token and room-lifetime behavior until deployment succeeds.
+- The updated code has not yet been committed, pushed to GitHub, or attached to a GitHub release in this turn.
+- Production smoke has not yet been rerun against the new Worker build; the prior production smoke validated the old deployed version.
+- Real two-device headed testing with actual Netflix, Disney+, Crunchyroll, Animerco, Qfilm, and other providers remains unverified. Unit/build/package checks cannot prove video progress, browser autoplay, seeking, buffering, or cross-city behavior.
+- Generated test-guide artifacts and the audit report still need a final refresh/status pass after the implementation edits.
+- No claim of bug-free behavior or instant synchronization is justified until the new Worker is deployed and the two-device acceptance matrix passes.
+
+### Decisions and Rationale
+- Session tokens are treated as capabilities for reconnect continuity, not as public room state. This prevents a participant's reconnect credential from being broadcast to every guest.
+- A media-specific URL identity policy is separate from navigation URL policy. This keeps navigation useful while preventing temporary provider parameters from making identical media appear different.
+- A 12 KB diagnostics budget leaves headroom below the 16 KB WebSocket message limit used by both room implementations.
+- Maximum room lifetime and pending-connection limits are applied symmetrically to edge and local services so development does not hide production behavior.
+- Source maps are omitted from distributable ZIPs to reduce package exposure and size; source maps remain available in development builds.
+- Version `0.1.22` is a candidate release only until the updated Worker is deployed and external GitHub publication is verified.
+
+### Files and Artifacts
+- Session history: `context-checkpoint.md`.
+- Audit report: `docs/CODE_AUDIT.md`.
+- Diagnostics fitter: `apps/extension/src/diagnostics-budget.ts` and `apps/extension/src/diagnostics-budget.test.ts`.
+- Production-configured package: `/tmp/syj-release-022/sync-your-joy-extension.zip`.
+- Modified protocol, coordinator, edge/local service, extension, packaging, workflow, documentation, and version files are listed by `git status --short` in the current repository.
+
+### Assumptions and Uncertainties
+- The generated production WSS endpoint remains the current deployed room URL, but it must be checked again after Worker deployment.
+- Browser package conversion passing does not establish live Firefox/Safari WebSocket origin behavior.
+- The session-token handshake is backward-tolerant in the extension (`room_joined.sessionToken` is accepted defensively), but full protection begins only after the new server is deployed.
+
+### Open Questions, Blockers, and Dependencies
+- Cloudflare deployment credentials and authorization are needed to publish the updated Worker.
+- GitHub authentication and repository write access are needed to commit, push, and create/update the `v0.1.22` release.
+- The two-device acceptance matrix must verify actual frame progress after play, forward/backward seek, reconnect, buffering, navigation, and room expiration behavior.
+- The generated test guide and `docs/CODE_AUDIT.md` should be refreshed to distinguish baseline findings from remediated `0.1.22` candidate status.
+
+### Next Steps
+1. Refresh generated test-guide/report documentation and add an implementation-status note to the audit report without erasing baseline findings.
+2. Run final dependency/security checks, package assertions, and inspect the complete diff.
+3. Deploy the updated edge Worker when Cloudflare authorization is available, then run production smoke against the deployed build.
+4. Commit and push the verified source and documentation, then create the release package/tag only after deployment and smoke evidence are current.
+5. Have the user run the two-device provider acceptance matrix and return diagnostics reports for any remaining runtime issue.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- This checkpoint preserves the initial failing-test attempt and its fix so the implementation history remains reconstructable.
+
+## Checkpoint 21 - Final local verification and deployment blocker confirmation
+
+### Session Metadata
+- Task or project: SyncYourJoy audit remediation, candidate release preparation, and final verification.
+- Checkpoint number: 21.
+- Date: 2026-08-30.
+- Coverage period: Work completed after Checkpoint 20 through the latest local verification commands.
+- Current context status: Candidate `0.1.22` is locally verified and packaged. Cloudflare deployment and GitHub publication remain external pending actions.
+
+### Complete Chronological Activity Log
+- Rechecked the working tree after Checkpoint 20. The Chrome-form manifest reports version `0.1.22`, `side_panel: true`, and no Firefox `sidebar_action`; `git diff --check` passed.
+- Ran `npm run docs:test-guide`. It regenerated `docs/TEST_GUIDE.md` and the tracked DOCX artifact at `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx`; the repository also contains the corresponding PDF artifact.
+- Reviewed version references and found the historical Gate 1-3 closeout still described `0.1.21`. Updated it to identify `0.1.22` as the current unpublished candidate and listed the new remediation work and pending deployment/two-device acceptance.
+- Added implementation-status text to `docs/CODE_AUDIT.md` explaining that the report records the `v0.1.21` baseline while the working tree contains the `0.1.22` remediation slice. Preserved the original severity-ranked findings instead of rewriting history.
+- Added Gate 1-3 repository-side checklist entries for the diagnostics budget, reconnect capabilities, room admission/lifetime guards, and reviewed media identity query-key redaction.
+- Updated the diagnostics-budget test fixture from extension version `0.1.21` to `0.1.22`.
+- Ran `npm audit --omit=dev --audit-level=high`; it passed with 0 vulnerabilities.
+- Ran `npm_config_cache=/tmp/npm-cache-syj npm audit signatures`; it passed with 159 verified registry signatures and 85 verified attestations.
+- Ran `npm run check` after the documentation and test-fixture changes; typechecking, all 22 test files and 113 tests, the room-service build, and the extension build passed.
+- Packaged a final production-configured `0.1.22` ZIP at `/tmp/syj-final-package/sync-your-joy-extension.zip` using `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. ZIP integrity passed, the manifest reported version `0.1.22`, the effective CSP contained the production WSS endpoint, no source maps were present, and the final SHA-256 was `17e0e9c9851c69547240818d0d1ebc9825f9474c303d7155965fc0adbad377c0`.
+- Ran `npm run smoke:edge -- wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. The currently deployed coordinator passed the existing production smoke: room create/join, diagnostics relay, navigation, readiness, play, seek barrier, timeout-safe pause, rapid controls, and buffering protection. This smoke validated the deployed baseline, not the new un-deployed session-token/lifetime code.
+- Checked Cloudflare credentials. `CLOUDFLARE_API_TOKEN` is not set. `npx wrangler whoami` also confirmed the saved Wrangler auth is expired/not logged in; the command additionally hit a macOS Wrangler log-file `EPERM` but clearly reported that deployment requires `wrangler login` or a token.
+- Reviewed packaging/workflow scripts and confirmed release workflow now verifies browser packages before packaging, package creation removes source maps, and browser verification restores canonical Chrome output after Firefox validation.
+- Final local test run `npm test` passed again with 22 test files and 113 tests. No commit, push, Worker deployment, GitHub tag, or release publication was performed.
+
+### Confirmed Successful Results
+- Generated test guide and documentation artifacts are refreshed for `0.1.22`.
+- Audit and Gate 1-3 docs distinguish the historical baseline from the unpublished candidate.
+- Dependency vulnerability and signature/attestation checks passed.
+- Full check passed: typecheck, 113 tests, server build, and extension build.
+- Final production-configured ZIP is valid, has the correct version and WSS CSP, contains no source maps, and has a recorded checksum.
+- Existing production coordinator smoke is healthy, with the explicit limitation that it is still the old deployment.
+
+### Failed, Incomplete, or Unresolved Work
+- Cloudflare Worker deployment is blocked until the user authenticates Wrangler (`npx wrangler login`) or supplies a repository/local `CLOUDFLARE_API_TOKEN` with the required Worker deployment permission.
+- GitHub commit/push/tag/release publication was intentionally not performed in this implementation turn.
+- New session-token authentication, cross-browser origin policy, room maximum lifetime, and pending-connection behavior are not yet active in production until the updated Worker is deployed.
+- Real two-device provider testing and observed frame-progress verification remain required before claiming bug-free or instant synchronization.
+
+### Decisions and Rationale
+- Kept deployment and Git publication separate from local implementation because the required Cloudflare authentication is absent and those actions mutate external services.
+- Treated the successful production smoke as a health check for the currently deployed baseline, not as evidence that the new source changes are live.
+- Kept the audit's historical findings intact and added status notes rather than rewriting the evidence collected against `v0.1.21`.
+
+### Files and Artifacts
+- Session history: `context-checkpoint.md`.
+- Audit report: `docs/CODE_AUDIT.md`.
+- Gate closeout: `docs/GATE_1_3_CLOSEOUT.md`.
+- Test guide source/output: `docs/TEST_GUIDE.md`, `docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx`, and the corresponding PDF artifact.
+- Final local package: `/tmp/syj-final-package/sync-your-joy-extension.zip` and `.sha256`.
+
+### Open Questions, Blockers, and Dependencies
+- Which Cloudflare account should be used for the Worker deployment is established by the existing Worker ownership, but the local authentication session has expired.
+- After deployment, production smoke must be rerun and the two-device test guide must be executed before creating the public release tag.
+
+### Next Steps
+1. Authenticate Wrangler or configure the GitHub `CLOUDFLARE_API_TOKEN` secret, then deploy the updated Worker from the verified source.
+2. Rerun the production smoke against the newly deployed Worker and verify the extension package points to that Worker.
+3. Commit and push the verified `0.1.22` source/docs changes, then tag and publish the release through the workflow.
+4. Run the two-device provider acceptance matrix and return detailed reports for any remaining runtime issue.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- Checkpoints 18-21 preserve the audit, remediation implementation, generated artifacts, verification evidence, and external deployment blocker in chronological order.

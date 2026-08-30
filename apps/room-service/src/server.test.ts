@@ -73,14 +73,17 @@ describe('room service', () => {
     original.send(JSON.stringify({
       type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'REJOIN12', media,
     }))
-    await nextMessage(original)
+    const originalJoined = await nextMessage(original)
+    expect(originalJoined.type).toBe('room_joined')
+    if (originalJoined.type !== 'room_joined')
+      throw new Error('Expected room_joined')
     original.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
     await nextMessage(original)
 
     const originalClosed = new Promise<void>((resolve) => original.once('close', () => resolve()))
     const replacement = await connect(service.url)
     replacement.send(JSON.stringify({
-      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'REJOIN12', media,
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'REJOIN12', media, sessionToken: originalJoined.sessionToken,
     }))
     const joined = await nextMessage(replacement)
     expect(joined).toMatchObject({
@@ -95,6 +98,27 @@ describe('room service', () => {
       expect.objectContaining({ id: 'participant_host', connected: true, ready: true, mediaMatches: true }),
     ])
     replacement.close()
+  })
+
+  it('rejects duplicate participant replacement without the issued session token', async () => {
+    service = await createRoomService({ port: 0 })
+    const original = await connect(service.url)
+    original.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'AUTH1234', media: null,
+    }))
+    const joined = await nextMessage(original)
+    expect(joined.type).toBe('room_joined')
+    if (joined.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+
+    const replacement = await connect(service.url)
+    replacement.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Impostor', code: 'AUTH1234', media: null,
+    }))
+    await expect(nextMessage(replacement)).resolves.toMatchObject({ type: 'command_rejected', code: 'session_invalid' })
+    expect(original.readyState).toBe(WebSocket.OPEN)
+    replacement.close()
+    original.close()
   })
 
   it('collects sanitized diagnostic reports from every participant for the controller', async () => {

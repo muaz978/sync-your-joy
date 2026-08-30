@@ -83,7 +83,7 @@ Commercial streaming sites change their page structure and playback behavior reg
 - Versioned public-beta ZIPs are published through GitHub Releases and installed with Chrome's **Load unpacked** flow. Chrome Web Store submission and automatic updates are not implemented yet.
 - There is no account system, chat, voice, video calling, or room history.
 - Episode transitions still require participants to confirm the new media state; the host can coordinate them with **Open link for everyone**, but automatic next-episode detection is not implemented.
-- There is no production abuse prevention beyond message validation, room size limits, per-connection rate limiting, expiring empty rooms, and unguessable internal room tokens.
+- Production abuse controls include message validation, room size limits, pending-connection limits, per-connection rate limiting, expiring empty rooms, maximum occupied-room lifetime, and per-participant reconnect capabilities. Deployment-level creation and join throttling remains recommended before broad distribution.
 - Automated two-browser compatibility tests on live Netflix, Disney+, and Crunchyroll players are still required.
 
 ## Verification

@@ -126,6 +126,7 @@ export type ClientMessage =
       name: string
       code: string
       media: MediaFingerprint | null
+      sessionToken?: string
     }
   | {
       type: 'set_ready'
@@ -186,6 +187,7 @@ export type ServerMessage =
       type: 'room_joined'
       participantId: string
       inviteToken: string
+      sessionToken: string
       snapshot: RoomSnapshot
     }
   | {
@@ -227,6 +229,7 @@ export interface ClientRoomState {
   connection: ConnectionStatus
   participantId: string
   inviteToken: string | null
+  sessionToken: string | null
   snapshot: RoomSnapshot | null
   serverOffsetMs: number
   clockUncertaintyMs: number
@@ -237,7 +240,7 @@ export function mediaMatches(expected: MediaFingerprint | null, actual: MediaFin
   if (!expected || !actual)
     return false
 
-  if (expected.pageUrl && actual.pageUrl && normalizePageUrl(expected.pageUrl) === normalizePageUrl(actual.pageUrl))
+  if (expected.pageUrl && actual.pageUrl && normalizeMediaPageUrl(expected.pageUrl) === normalizeMediaPageUrl(actual.pageUrl))
     return true
 
   if (expected.service !== actual.service)
@@ -277,6 +280,31 @@ export function normalizePageUrl(value: string): string | null {
     url.searchParams.sort()
     if (url.pathname.length > 1)
       url.pathname = url.pathname.replace(/\/+$/, '')
+    return url.toString()
+  }
+  catch {
+    return null
+  }
+}
+
+/** Normalize a media identity URL while removing unknown query parameters. */
+export function normalizeMediaPageUrl(value: string): string | null {
+  const normalized = normalizePageUrl(value)
+  if (!normalized)
+    return null
+  try {
+    const url = new URL(normalized)
+    const host = url.hostname.toLowerCase()
+    const allowedKeys = host === 'qfilm.tv' || host.endsWith('.qfilm.tv')
+      ? /^vid$/i
+      : host.includes('youtube')
+        ? /^v$/i
+        : /^(id|v|vid|video|videoid|episode|movie|media)$/i
+    for (const key of [...url.searchParams.keys()]) {
+      if (!allowedKeys.test(key))
+        url.searchParams.delete(key)
+    }
+    url.searchParams.sort()
     return url.toString()
   }
   catch {
@@ -327,7 +355,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return { ...value, code: value.code.toUpperCase() } as unknown as ClientMessage
 
     case 'join_room':
-      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media))
+      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media) || (value.sessionToken !== undefined && !validSessionToken(value.sessionToken)))
         return null
       return { ...value, code: value.code.toUpperCase() } as unknown as ClientMessage
 
@@ -476,6 +504,10 @@ function isControlKind(value: unknown): value is ControlKind {
 
 function validId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9_-]{6,80}$/.test(value)
+}
+
+function validSessionToken(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-zA-Z0-9_-]{20,80}$/.test(value)
 }
 
 function validName(value: unknown): value is string {

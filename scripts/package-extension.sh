@@ -20,6 +20,9 @@ mkdir -p "$output_dir" "$package_dir"
 
 SYNCYOURJOY_ROOM_SERVER_URL="$room_server_url" node "$script_dir/build-extension.mjs"
 cp -R "$project_root/apps/extension/dist/." "$package_dir/"
+# Source maps are useful for local debugging but unnecessarily disclose the
+# complete readable extension source in the public download.
+find "$package_dir" -type f -name '*.js.map' -delete
 
 rm -f -- "$archive_path" "$checksum_path"
 (

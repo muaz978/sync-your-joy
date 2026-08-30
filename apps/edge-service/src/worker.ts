@@ -9,6 +9,8 @@ import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 const MAX_MESSAGE_BYTES = 16_384
 const CONTROLLER_GRACE_MS = 10_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
+const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
+const MAX_PENDING_CONNECTIONS_PER_ROOM = 20
 
 interface Env {
   ROOMS: DurableObjectNamespace<RoomDurableObject>
@@ -28,6 +30,7 @@ interface StoredRoom {
     recoverAtMs: number
   } | null
   emptySinceMs: number | null
+  createdAtMs: number
 }
 
 export default {
@@ -66,6 +69,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   private coordinator: RoomCoordinator | null = null
   private pendingController: StoredRoom['pendingController'] = null
   private emptySinceMs: number | null = null
+  private createdAtMs = Date.now()
   private readonly initialized: Promise<void>
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -76,6 +80,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         this.coordinator = RoomCoordinator.fromState(stored.coordinator)
         this.pendingController = stored.pendingController
         this.emptySinceMs = stored.emptySinceMs
+        this.createdAtMs = stored.createdAtMs ?? Date.now()
       }
     })
   }
@@ -88,6 +93,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     const roomCode = new URL(request.url).searchParams.get('code')?.toUpperCase()
     if (!roomCode || !/^[A-Z0-9]{8}$/.test(roomCode))
       return new Response('Invalid room code', { status: 400 })
+
+    const pendingConnections = this.ctx.getWebSockets().filter((candidate) => {
+      const attachment = candidate.deserializeAttachment() as SocketAttachment | null
+      return attachment?.participantId === null
+    }).length
+    if (pendingConnections >= MAX_PENDING_CONNECTIONS_PER_ROOM)
+      return new Response('Too many pending room connections', { status: 429 })
 
     const pair = new WebSocketPair()
     const client = pair[0]
@@ -192,6 +204,16 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.pendingController = null
     }
 
+    if (nowMs - this.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
+      for (const socket of this.ctx.getWebSockets())
+        socket.close(1000, 'room_expired')
+      await this.ctx.storage.deleteAll()
+      this.coordinator = null
+      this.pendingController = null
+      this.emptySinceMs = null
+      return
+    }
+
     if (this.emptySinceMs !== null && nowMs - this.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
       await this.ctx.storage.deleteAll()
       this.coordinator = null
@@ -223,8 +245,10 @@ export class RoomDurableObject extends DurableObject<Env> {
           code: message.code,
           inviteToken: randomToken(),
         },
-        { id: message.participantId, name: message.name, media: message.media },
+        { id: message.participantId, name: message.name, media: message.media, sessionToken: randomToken() },
       )
+      this.createdAtMs = Date.now()
+      const sessionToken = this.coordinator.exportState().participants.find(item => item.id === message.participantId)?.sessionToken
       attachment.participantId = message.participantId
       socket.serializeAttachment(attachment)
       this.emptySinceMs = null
@@ -232,6 +256,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         type: 'room_joined',
         participantId: message.participantId,
         inviteToken: this.coordinator.inviteToken,
+        sessionToken: sessionToken ?? '',
         snapshot: this.coordinator.snapshot(),
       })
       await this.persistAndSchedule()
@@ -248,7 +273,15 @@ export class RoomDurableObject extends DurableObject<Env> {
         return
       }
 
-      const result = this.coordinator.join({ id: message.participantId, name: message.name, media: message.media })
+      const existing = this.coordinator.exportState().participants.find(item => item.id === message.participantId)
+      const sessionToken = existing
+        ? existing.sessionToken ? message.sessionToken : randomToken()
+        : randomToken()
+      if (!sessionToken) {
+        this.send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: this.coordinator.snapshot() })
+        return
+      }
+      const result = this.coordinator.join({ id: message.participantId, name: message.name, media: message.media, sessionToken })
       if (!result.ok) {
         this.sendResult(socket, null, result)
         return
@@ -264,6 +297,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         type: 'room_joined',
         participantId: message.participantId,
         inviteToken: this.coordinator.inviteToken,
+        sessionToken,
         snapshot: result.snapshot,
       })
       this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot }, socket)
@@ -359,6 +393,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       coordinator: this.coordinator.exportState(),
       pendingController: this.pendingController,
       emptySinceMs: this.emptySinceMs,
+      createdAtMs: this.createdAtMs,
     })
 
     const alarmCandidates: number[] = []
@@ -427,6 +462,9 @@ function originAllowed(request: Request): boolean {
   const origin = request.headers.get('Origin')
   return origin === null
     || origin.startsWith('chrome-extension://')
+    || origin.startsWith('moz-extension://')
+    || origin.startsWith('safari-web-extension://')
+    || origin.startsWith('safari-extension://')
     || origin.startsWith('http://127.0.0.1')
     || origin.startsWith('http://localhost')
 }

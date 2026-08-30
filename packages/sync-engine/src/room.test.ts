@@ -328,6 +328,17 @@ describe('RoomCoordinator', () => {
     })
   })
 
+  it('rejects a duplicate participant identity without the reconnect session token', () => {
+    const secured = new RoomCoordinator(
+      { roomId: 'room_secured1', code: 'SECURE12', inviteToken: 'invite-secure' },
+      { id: 'participant_host', name: 'Muaz', media, sessionToken: 'host-session-token-123456' },
+    )
+    const rejected = secured.join({ id: 'participant_host', name: 'Impostor', media, sessionToken: 'wrong-session-token-123456' })
+    expect(rejected).toMatchObject({ ok: false, code: 'session_invalid' })
+    const accepted = secured.join({ id: 'participant_host', name: 'Muaz', media, sessionToken: 'host-session-token-123456' })
+    expect(accepted).toMatchObject({ ok: true, reason: 'participant_reconnected' })
+  })
+
   it('does not restore readiness when a participant reconnects on different media', () => {
     const room = createRoom()
     room.join({ id: 'participant_friend', name: 'Rana', media })

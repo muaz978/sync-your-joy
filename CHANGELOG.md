@@ -2,6 +2,16 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.1.22] - 2026-08-30
+
+### Fixed
+
+- Keep diagnostics responses below the room WebSocket message budget by trimming the oldest events first.
+- Protect participant reconnects with issued session capabilities and allow Firefox/Safari WebExtension origins.
+- Remove unknown query parameters from media identity URLs while preserving reviewed video identifiers.
+- Add pending-connection and maximum-room-lifetime safeguards.
+- Verify browser packages during tagged releases, restore Chrome output after browser smoke, omit source maps from public ZIPs, and update GitHub Actions to Node 24-compatible action majors.
+
 ## [0.1.21] - 2026-08-30
 
 ### Fixed
@@ -131,3 +141,4 @@ All notable user-facing changes are recorded here. This project follows semantic
 [0.1.19]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.19
 [0.1.20]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.20
 [0.1.21]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.21
+[0.1.22]: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.22

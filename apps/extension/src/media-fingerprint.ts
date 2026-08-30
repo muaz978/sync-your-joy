@@ -1,5 +1,5 @@
 import type { MediaFingerprint } from '@syncyourjoy/protocol'
-import { normalizePageUrl as normalizeProtocolPageUrl } from '@syncyourjoy/protocol'
+import { normalizeMediaPageUrl, normalizePageUrl as normalizeProtocolPageUrl } from '@syncyourjoy/protocol'
 
 export function serviceName(hostname: string): string {
   const normalized = hostname.toLowerCase()
@@ -47,7 +47,7 @@ export function canonicalMediaId(service: string, url: URL): string {
       return `qfilm:${videoId.toLowerCase()}`
   }
 
-  const normalized = normalizePageUrl(url)
+  const normalized = normalizeMediaPageUrl(url.toString())
   return normalized ? `page:${normalized}` : `${url.hostname.toLowerCase()}${url.pathname}`
 }
 
@@ -64,7 +64,7 @@ export function cleanMediaTitle(title: string): string {
 export function bindMediaToSharedPage(media: MediaFingerprint, navigationUrl: string | undefined): MediaFingerprint {
   if (!navigationUrl)
     return media
-  const pageUrl = normalizeProtocolPageUrl(navigationUrl)
+  const pageUrl = normalizeMediaPageUrl(navigationUrl)
   if (!pageUrl)
     return media
   const identityUrl = new URL(pageUrl)

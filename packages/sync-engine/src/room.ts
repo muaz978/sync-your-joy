@@ -15,6 +15,8 @@ import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
   joinedAtMs: number
+  /** Random capability used only to resume this participant session. */
+  sessionToken?: string
   media: MediaFingerprint | null
   lastSample: PlayerSample | null
   lastSampleReceivedAtMs?: number
@@ -77,7 +79,7 @@ export class RoomCoordinator {
 
   constructor(
     identity: RoomIdentity,
-    controller: { id: string; name: string; media: MediaFingerprint | null },
+    controller: { id: string; name: string; media: MediaFingerprint | null; sessionToken?: string },
     now: () => number = Date.now,
     restoredState?: RoomCoordinatorState,
   ) {
@@ -119,6 +121,7 @@ export class RoomCoordinator {
       latencyMs: null,
       joinedAtMs: this.now(),
       media: controller.media,
+      ...(controller.sessionToken ? { sessionToken: controller.sessionToken } : {}),
       lastSample: null,
       lastSampleReceivedAtMs: this.now(),
       lastProgressAtServerMs: this.now(),
@@ -153,14 +156,18 @@ export class RoomCoordinator {
     }
   }
 
-  join(participant: { id: string; name: string; media: MediaFingerprint | null }): RoomResult {
+  join(participant: { id: string; name: string; media: MediaFingerprint | null; sessionToken?: string }): RoomResult {
     const existing = this.participants.get(participant.id)
     if (existing) {
+      if (existing.sessionToken && existing.sessionToken !== participant.sessionToken)
+        return this.failure('session_invalid', 'This participant session is no longer valid. Join again with a new room identity.')
       const wasReady = existing.ready
       existing.connected = true
       existing.name = participant.name
       existing.media = participant.media
       existing.mediaMatches = mediaMatches(this.media, participant.media)
+      if (participant.sessionToken)
+        existing.sessionToken = participant.sessionToken
       existing.ready = wasReady && existing.mediaMatches
       this.pauseForMembershipChange()
       this.revision += 1
@@ -182,6 +189,7 @@ export class RoomCoordinator {
       latencyMs: null,
       joinedAtMs: this.now(),
       media: participant.media,
+      ...(participant.sessionToken ? { sessionToken: participant.sessionToken } : {}),
       lastSample: null,
       lastSampleReceivedAtMs: this.now(),
       lastProgressAtServerMs: this.now(),
@@ -496,7 +504,7 @@ export class RoomCoordinator {
       navigation: this.navigation ? { ...this.navigation } : null,
       participants: [...this.participants.values()]
         .sort((a, b) => a.joinedAtMs - b.joinedAtMs)
-        .map(({ joinedAtMs: _joinedAtMs, media: _media, lastSample: _lastSample, ...participant }) => ({ ...participant })),
+        .map(({ joinedAtMs: _joinedAtMs, sessionToken: _sessionToken, media: _media, lastSample: _lastSample, ...participant }) => ({ ...participant })),
       policy: { buffering: 'pause-all' },
     }
   }

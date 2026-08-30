@@ -1,6 +1,6 @@
 # Gate 1-3 Closeout and Gate 4 Entry Criteria
 
-**Current release:** `0.1.21`
+**Current candidate:** `0.1.22` (not yet published from this working tree)
 **Purpose:** record what can be completed by the repository and what requires two real people, real provider accounts, or marketplace accounts.
 
 ## Verified in the repository and production workflow
@@ -12,7 +12,7 @@
 - The Cloudflare room coordinator health endpoint responds successfully.
 - The production-connected protocol smoke covers room creation, joining, readiness, shared-link navigation, play, seek barriers, timeout-safe pause, diagnostics, reconnect-safe state, and startup/stale buffering protection.
 - The GitHub release workflow publishes a versioned ZIP and SHA-256 checksum.
-- The public `v0.1.19` and `v0.1.20` packages were published, downloaded independently, and checksum-verified. The `v0.1.21` patch candidate makes the controller confirmation consistent across native and side-panel seek paths before the next friend test.
+- The public `v0.1.19`, `v0.1.20`, and `v0.1.21` packages were published, downloaded independently, and checksum-verified. The `v0.1.22` candidate adds bounded diagnostics, reconnect capabilities, reviewed media URL identity, cross-browser origin handling, room-lifetime/admission guards, and release-package hardening. It is still pending Worker deployment, GitHub publication, and two-device acceptance.
 - Release page for the prior beta: https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.19
 
 ## Gate 1: synchronization proof
@@ -44,8 +44,11 @@
 - [x] RTT, clock uncertainty, and connection-quality state.
 - [x] Heartbeat watchdog and bounded reconnect.
 - [x] Sanitized participant diagnostic reports.
+- [x] Diagnostics response budget below the 16 KB room-message ceiling.
 - [x] Production deployment workflow with source/test checks.
 - [x] Room message-size and rate-limit protections.
+- [x] Per-participant reconnect capabilities and duplicate-identity protection.
+- [x] Pending-connection and maximum occupied-room lifetime guards.
 - [x] Room expiration and controller-recovery behavior.
 
 ### User-side acceptance still required
@@ -64,6 +67,7 @@
 - [x] Firefox metadata and build path.
 - [x] Generic native-video, MSE/blob, MediaStream, open Shadow DOM, nested-frame, and SPA coverage.
 - [x] Provider identity normalization for nested and signed player URLs.
+- [x] Reviewed media-identity query-key redaction for temporary provider parameters.
 - [x] Player diagnostics, Redetect player, and selected-player lock controls.
 - [x] Generic fixture page and regression tests.
 - [x] Privacy policy draft, store submission pack, reviewer instructions, and in-extension disclosure.
