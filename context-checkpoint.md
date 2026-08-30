@@ -2280,3 +2280,79 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
 - Checkpoints 18-21 preserve the audit, remediation implementation, generated artifacts, verification evidence, and external deployment blocker in chronological order.
+
+## Checkpoint 22 - Commit, push, tag, and GitHub release publication
+
+### Session Metadata
+- Task or project: Publish the verified SyncYourJoy `0.1.22` candidate for friend testing.
+- Checkpoint number: 22.
+- Date: 2026-08-30.
+- Coverage period: User-authorized commit/push/release activity after Checkpoint 21.
+- Current context status: Source commit and tag are pushed. GitHub CI and the release workflow succeeded. The Cloudflare Worker deployment is still a separate pending action.
+
+### Complete Chronological Activity Log
+- User explicitly requested that everything be committed and pushed so friends could download the latest extension and use the testing guide.
+- Read the repository Git workflow/versioning skill before taking Git actions. It required pre-commit diff checks, secret hygiene, descriptive commit messages, version/tag consistency, and release tagging.
+- Confirmed the repository was on `main`, with `origin` pointing to `https://github.com/muaz978/sync-your-joy.git`, and the working tree contained the intended `0.1.22` implementation, tests, docs, workflow, and generated guide changes.
+- The first staging attempt was blocked because the managed filesystem allowed reading `.git` but not writing its index. Requested and received the required elevated Git permission.
+- Staged all intended repository changes. The broad secret-pattern scan matched documentation terms and test placeholder session tokens, not credentials; no real secrets were present in the staged content.
+- The first commit attempt stopped at `git diff --check` because new audit-report metadata used trailing Markdown hard-break spaces. Removed those formatting-only trailing spaces with a targeted patch, restaged the audit report, and confirmed `git diff --cached --check` passed.
+- Created commit `ee78bcd` with message `fix: harden synchronization and release packaging`. The commit contains 34 files, including the diagnostics fitter/test, protocol/coordinator/session changes, edge/local service hardening, package/workflow changes, audit report, and updated docs.
+- Verified the commit had a clean working tree and pushed `main` successfully: `0e7772e..ee78bcd main -> main`.
+- Created annotated tag `v0.1.22` pointing at `ee78bcd` and pushed it successfully to `origin`.
+- GitHub Actions started both main CI run `33303684485` and release run `33303692825` for the new commit/tag.
+- Watched release run `33303692825`. It passed checkout, Node setup, semantic-version validation, locked install, full check, browser-package verification, production dependency audit, production packaging, checksum verification, and GitHub Release publication.
+- Verified main CI run `33303684485` completed successfully.
+- Queried the published release. GitHub reports `SyncYourJoy v0.1.22`, published at `2026-08-30T09:18:11Z`, not draft, not prerelease, with both assets uploaded.
+- Confirmed the downloadable assets and GitHub digests:
+  - `sync-your-joy-extension.zip`, 52,096 bytes, digest `sha256:d78c4ea7fa42025027c199206034d129d5cc874f6d00d0423ab8c51da784ebdc`.
+  - `sync-your-joy-extension.zip.sha256`, 94 bytes, digest `sha256:72f024a450403a204accc51205f2776f226e2715055ebdb831d0dd14f943149a`.
+- User then reported running `npx wrangler login`, `npm run deploy:edge`, and the smoke command from `~`. Wrangler login succeeded, but the npm commands failed with `ENOENT` because `/Users/muazsabbagh/package.json` was not found in the home directory. Explained that the commands must be run after changing to `/Users/muazsabbagh/Codex/Projects/SyncYourJoy`. The login itself succeeded, but Worker deployment has not yet been rerun from the repository directory in this turn.
+
+### Confirmed Successful Results
+- Commit `ee78bcd` exists on `main` and is pushed to GitHub.
+- Annotated tag `v0.1.22` points to the verified commit and is pushed.
+- Main CI run `33303684485` passed.
+- Release workflow run `33303692825` passed.
+- GitHub Release `v0.1.22` is published with the extension ZIP and checksum assets.
+- Direct extension download: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/sync-your-joy-extension.zip`.
+- Release page: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.22`.
+- Friends can download, extract, and load the unpacked extension through `chrome://extensions` using Developer mode.
+
+### Failed, Incomplete, or Unresolved Work
+- The updated Cloudflare Worker has not been deployed from the new `ee78bcd` source yet. The user's Wrangler OAuth login succeeded, but the deployment command was run from the home directory and failed before invoking Wrangler deployment.
+- The production smoke command in the user's pasted terminal output also failed from the home directory and therefore did not test the new Worker.
+- The published extension package points to the production WSS endpoint, but the new session-token and room-lifetime server behavior becomes active only after Worker deployment.
+- Real two-device/provider validation remains pending and must use the updated published extension after the Worker deployment is confirmed.
+
+### Decisions and Rationale
+- Committed all current source, tests, docs, workflow, audit, and generated-guide changes in one release-focused commit because the user explicitly requested everything be committed and pushed for friend testing.
+- Tagged `v0.1.22` only after the local check, package assertions, security audits, browser verification, and version consistency checks had passed.
+- Did not create a second release or alter the published asset after successful workflow publication.
+- Kept Cloudflare deployment separate from GitHub publication. GitHub release success proves the extension artifact and workflow, not that the new server code is live.
+
+### Files and Artifacts
+- Commit: `ee78bcd`.
+- Tag: `v0.1.22`.
+- Published extension ZIP: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/sync-your-joy-extension.zip`.
+- Published checksum: `https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/sync-your-joy-extension.zip.sha256`.
+- Release page: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.1.22`.
+- GitHub Actions release run: `https://github.com/muaz978/sync-your-joy/actions/runs/33303692825`.
+- GitHub Actions main CI run: `https://github.com/muaz978/sync-your-joy/actions/runs/33303684485`.
+- Test guide remains at `docs/TEST_GUIDE.md` and the generated DOCX/PDF artifacts under `docs/artifacts/`.
+
+### Open Questions, Blockers, and Dependencies
+- The updated Worker still needs to be deployed from the repository directory using the now-successful Wrangler login.
+- After deployment, production smoke must be rerun against `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`.
+- Friends should install the same `v0.1.22` ZIP and follow the test guide. Any failure should include the downloaded detailed report and the exact test step.
+
+### Next Steps
+1. In a terminal, run `cd /Users/muazsabbagh/Codex/Projects/SyncYourJoy`.
+2. Run `npm run deploy:edge` using the authenticated Wrangler session.
+3. Run `npm run smoke:edge -- wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms` and record the output.
+4. Have friends download the published `v0.1.22` ZIP, extract it, load the folder through Chrome Developer mode, and complete the two-device guide.
+5. Collect detailed reports for any remaining play, pause, seek, buffering, reconnect, or actual-frame-progress issue.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- The published release is confirmed; the Worker deployment remains a distinct external state transition.
