@@ -221,6 +221,26 @@ describe('room service', () => {
     })
     expect(outcome).toBe('rejected')
   })
+
+  it('rate-limits repeated upgrade attempts from one IP over a rolling window, independent of concurrent connections', async () => {
+    service = await createRoomService({ port: 0 })
+
+    // Close each socket before opening the next so the concurrent-pending-
+    // connections cap never trips; only the rolling-window attempt counter
+    // should be responsible for eventually rejecting this IP.
+    for (let i = 0; i < 30; i += 1) {
+      const socket = await connect(service.url)
+      socket.close()
+    }
+
+    const limited = new WebSocket(service.url, undefined, { origin: 'chrome-extension://test-extension' })
+    const outcome = await new Promise<'open' | 'rejected'>((resolve) => {
+      limited.once('open', () => resolve('open'))
+      limited.once('error', () => resolve('rejected'))
+      limited.once('unexpected-response', () => resolve('rejected'))
+    })
+    expect(outcome).toBe('rejected')
+  })
 })
 
 function diagnosticReport() {

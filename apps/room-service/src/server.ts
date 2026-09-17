@@ -18,6 +18,8 @@ const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
 // told us which room it wants, so this is the earliest point we can bound
 // abuse without letting one source exhaust the cap for every other client.
 const MAX_PENDING_CONNECTIONS_PER_IP = 20
+const MAX_UPGRADE_ATTEMPTS_PER_IP = 30
+const UPGRADE_ATTEMPT_WINDOW_MS = 60_000
 const testPlayerHtml = await readFile(new URL('../static/test-player.html', import.meta.url), 'utf8')
 
 interface ConnectedClient {
@@ -48,6 +50,30 @@ export async function createRoomService(options: { port?: number; host?: string 
   const clients = new Map<WebSocket, ConnectedClient>()
   const recoveryTimers = new Map<string, NodeJS.Timeout>()
   const socketRemoteAddresses = new WeakMap<WebSocket, string>()
+  // MAX_PENDING_CONNECTIONS_PER_IP only bounds how many *concurrently open*
+  // unauthenticated sockets one IP can hold; a client that opens and closes
+  // sockets quickly to enumerate/brute-force room codes never accumulates
+  // pending connections. This tracks upgrade attempts per IP over a rolling
+  // window regardless of how briefly each socket stays open. Scoped to this
+  // service instance, not module-level, so separate createRoomService()
+  // instances (e.g. in tests) never share attempt counts.
+  const upgradeAttemptsByIp = new Map<string, { windowStartedAt: number; count: number }>()
+
+  function isUpgradeRateLimited(ip: string): boolean {
+    const nowMs = Date.now()
+    for (const [key, entry] of upgradeAttemptsByIp) {
+      if (nowMs - entry.windowStartedAt > UPGRADE_ATTEMPT_WINDOW_MS)
+        upgradeAttemptsByIp.delete(key)
+    }
+    const entry = upgradeAttemptsByIp.get(ip)
+    if (!entry) {
+      upgradeAttemptsByIp.set(ip, { windowStartedAt: nowMs, count: 1 })
+      return false
+    }
+    entry.count += 1
+    return entry.count > MAX_UPGRADE_ATTEMPTS_PER_IP
+  }
+
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES })
 
   const httpServer = createServer((request, response) => {
@@ -79,6 +105,12 @@ export async function createRoomService(options: { port?: number; host?: string 
     }
 
     const remoteAddress = request.socket.remoteAddress ?? 'unknown'
+    if (isUpgradeRateLimited(remoteAddress)) {
+      socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
     const pendingConnections = [...webSocketServer.clients].filter((candidate) =>
       !clients.has(candidate) && socketRemoteAddresses.get(candidate) === remoteAddress).length
     if (pendingConnections >= MAX_PENDING_CONNECTIONS_PER_IP) {

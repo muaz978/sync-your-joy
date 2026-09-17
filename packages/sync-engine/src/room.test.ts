@@ -339,6 +339,17 @@ describe('RoomCoordinator', () => {
     expect(accepted).toMatchObject({ ok: true, reason: 'participant_reconnected' })
   })
 
+  it('rejects impersonation of a participant whose record was never assigned a session token', () => {
+    const room = createRoom()
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+
+    const hijacked = room.join({ id: 'participant_friend', name: 'Attacker', media, sessionToken: 'attacker-chosen-token' })
+    expect(hijacked).toMatchObject({ ok: false, code: 'session_invalid' })
+
+    const reconnected = room.join({ id: 'participant_friend', name: 'Rana', media })
+    expect(reconnected).toMatchObject({ ok: true, reason: 'participant_reconnected' })
+  })
+
   it('does not restore readiness when a participant reconnects on different media', () => {
     const room = createRoom()
     room.join({ id: 'participant_friend', name: 'Rana', media })
