@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      dev-dependencies:
+        dependency-type: development
+    # Wait before proposing a freshly published version: a brand-new release
+    # is more likely to be unstable or, rarely, a compromised/malicious
+    # publish that hasn't been caught yet. Security-fix updates are exempt
+    # from cooldown regardless of this setting.
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: ci
+      include: scope
+    cooldown:
+      default-days: 7
