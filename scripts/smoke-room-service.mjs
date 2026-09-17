@@ -5,8 +5,16 @@ if (!baseUrl)
   throw new Error('Provide a WebSocket URL, for example: npm run smoke:edge -- wss://worker.example.workers.dev/rooms')
 
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-const randomBytes = crypto.getRandomValues(new Uint8Array(8))
-const code = [...randomBytes].map(byte => alphabet[byte % alphabet.length]).join('')
+// Largest byte value below a multiple of alphabet.length: rejecting any draw
+// at or above it keeps `byte % alphabet.length` uniform even if the
+// alphabet's length ever stops evenly dividing 256.
+const maxUnbiasedByte = Math.floor(256 / alphabet.length) * alphabet.length
+let code = ''
+while (code.length < 8) {
+  const [byte] = crypto.getRandomValues(new Uint8Array(1))
+  if (byte < maxUnbiasedByte)
+    code += alphabet[byte % alphabet.length]
+}
 const hostMedia = {
   service: 'crunchyroll',
   canonicalId: 'www.crunchyroll.com/ar/watch/GE00345558JAJP/from-now-on',

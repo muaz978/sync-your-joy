@@ -1167,6 +1167,15 @@ function requestDiagnosticResponses(reportId: string): boolean {
 
 function createRoomCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  const bytes = crypto.getRandomValues(new Uint8Array(8))
-  return [...bytes].map(byte => alphabet[byte % alphabet.length]).join('')
+  // Largest byte value below a multiple of alphabet.length: rejecting any
+  // draw at or above it keeps `byte % alphabet.length` uniform even if the
+  // alphabet's length ever stops evenly dividing 256.
+  const maxUnbiasedByte = Math.floor(256 / alphabet.length) * alphabet.length
+  let code = ''
+  while (code.length < 8) {
+    const byte = crypto.getRandomValues(new Uint8Array(1))[0]!
+    if (byte < maxUnbiasedByte)
+      code += alphabet[byte % alphabet.length]!
+  }
+  return code
 }
