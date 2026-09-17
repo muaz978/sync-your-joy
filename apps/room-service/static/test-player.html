@@ -49,6 +49,12 @@
           return
         if (activeUrl)
           URL.revokeObjectURL(activeUrl)
+        // `file` is the same local person's own choice from this page's own
+        // <input type="file">, never remote/attacker-controlled data, and
+        // URL.createObjectURL() returns an opaque blob: reference that
+        // cannot execute injected script as a media src. Reviewed and
+        // dismissed as a false positive for CodeQL alert #4 -- see
+        // https://github.com/muaz978/sync-your-joy/issues/9.
         activeUrl = URL.createObjectURL(file)
         video.src = activeUrl
         document.title = file.name
