@@ -38,7 +38,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.1.22` includes:
+Version `0.1.23` includes:
 
 - automatic room-wide play, pause, forward seek, and backward seek;
 - a transactional seek barrier that aligns real players before playback resumes;
