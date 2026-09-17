@@ -159,7 +159,11 @@ export class RoomCoordinator {
   join(participant: { id: string; name: string; media: MediaFingerprint | null; sessionToken?: string }): RoomResult {
     const existing = this.participants.get(participant.id)
     if (existing) {
-      if (existing.sessionToken && existing.sessionToken !== participant.sessionToken)
+      // Unconditional equality, not "only reject when existing already had a
+      // token": a participant record created without one must never be
+      // reconnectable by anyone presenting an arbitrary token, or worse, by
+      // silently trusting undefined-vs-defined as a match.
+      if (existing.sessionToken !== participant.sessionToken)
         return this.failure('session_invalid', 'This participant session is no longer valid. Join again with a new room identity.')
       const wasReady = existing.ready
       existing.connected = true
