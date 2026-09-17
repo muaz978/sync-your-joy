@@ -59,6 +59,8 @@ Version `0.1.22` includes:
 
 Version `0.1.22` bounds diagnostics below the room transport limit, protects reconnecting participant identities with session capabilities, sanitizes media identity query parameters, supports WebExtension origins across target browsers, and enforces occupied-room lifetime limits.
 
+Version `0.1.23` closes a deep-audit pass across the sync engine, protocol, and both realtime backends: it fixes a seek-barrier deadlock, an unbounded participant cap, unbounded seek targets, and a stall-detection bypass; scopes connection rate limiting per IP over time instead of just per concurrent connection on both backends; rejects a missing WebSocket `Origin` header; verifies diagnostic responses against an outstanding request; closes a reconnect-session-token gap; generates room codes with rejection sampling instead of a plain modulo; and adds CodeQL code scanning, Dependabot version updates, and a security policy.
+
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
 ## Platform compatibility

@@ -4,6 +4,10 @@
 
 M0 through the local M2 vertical slice are implemented. The repository now contains the protocol, room state machine, synchronization engine, localhost WebSocket service, Manifest V3 extension, side panel, in-page pill, generic player adapter, local test player, and automated checks. M3 reliability hardening and production deployment remain in progress.
 
+As of v0.1.23, M3's abuse-limit and reliability goals have made real progress: a deep audit closed a seek-barrier deadlock, an unbounded participant cap, unbounded seek targets, a stall-detection bypass, per-IP rate limiting on connection attempts over time (not just concurrently open ones) on both backends, missing-`Origin` rejection, unverified diagnostics responses, a reconnect-session-token gap, and biased room-code generation. CodeQL code scanning and Dependabot version updates now run on every change, and `SECURITY.md` documents how to report a vulnerability privately.
+
+The next concrete security item for M3/M5: room join still has no invite- or session-capability check for a brand-new participant — anyone who has the 8-character room code can join as any new participant ID (reconnecting an *existing* identity is already protected). This needs a real design decision (host-approval join vs. requiring the invite token via a shareable link), not a bolt-on patch, and should land before this leaves a tightly controlled private beta.
+
 ## 1. Product promise
 
 SyncYourJoy lets two or more people watch the same title together while each person streams from their own account and device. One authoritative controller drives playback for the room, and the system continuously detects and corrects drift.

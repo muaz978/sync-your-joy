@@ -2,6 +2,32 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.1.23] - 2026-09-18
+
+### Fixed
+
+- `acknowledgeSeek()` no longer permanently deadlocks a pending seek when an unrelated readiness/handoff event bumps the room revision mid-barrier.
+- The 10-participant room cap now counts currently-connected participants instead of every participant ID ever seen, so a churny room can't get permanently stuck at capacity.
+- Seek/play targets and drift-derived positions are now clamped to the known media duration.
+- Stale, out-of-order player-status samples no longer reset stall detection and mask a real freeze.
+- Room snapshots no longer leak two internal-only timing fields to every room member.
+- The per-provider page-URL allowlist is now actually applied to the media fingerprint that gets stored and broadcast, closing the last part of the query-string privacy gap.
+- `room-service`'s pending-connection cap is now scoped per remote IP instead of globally per process; both `room-service` and `edge-service` now reject a missing WebSocket `Origin` header and rate-limit repeated connection attempts from one IP over time, not just concurrently open ones.
+- `diagnostics_response` is now checked against an outstanding `request_diagnostics`, so a connected member can no longer flood the controller with fabricated reports.
+- `room-service` now always mints its own random room code instead of trusting a client-supplied one.
+- The service worker's reconnect backoff now has a `chrome.alarms` fallback so it survives being suspended, and a stale socket's `close` handler can no longer kill a newer socket's heartbeat.
+- Shared-navigation state is no longer marked "handled" before its deferred side effect runs, and the `OPEN_LINK` path now uses the same page-URL allowlist as the rest of the protocol.
+- A late native `seeked` event after a local-seek timeout is no longer misclassified as a fresh seek and re-broadcast to the room.
+- The shared-link draft in the side panel can no longer be overwritten by server state while the field is focused, and a pointer-down inside the panel released outside it no longer permanently blocks re-renders.
+- A participant record created without a session token can no longer be impersonated on reconnect.
+- Room codes are now generated with rejection sampling instead of a plain modulo, so uniformity no longer silently depends on the alphabet length dividing 256 evenly.
+- `apps/extension/dist` is now restored to the Chrome build even when the Firefox verification step fails.
+- Patched dependency vulnerabilities in `sharp` (via `wrangler`/`miniflare`) and `vitest`/`@vitest/mocker`.
+
+### Added
+
+- CodeQL code scanning and Dependabot version-update PRs, plus a security policy for reporting vulnerabilities privately.
+
 ## [0.1.22] - 2026-08-30
 
 ### Fixed
