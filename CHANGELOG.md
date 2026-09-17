@@ -27,6 +27,18 @@ All notable user-facing changes are recorded here. This project follows semantic
 ### Added
 
 - CodeQL code scanning and Dependabot version-update PRs, plus a security policy for reporting vulnerabilities privately.
+- DevSkim as a second, free code scanner alongside CodeQL.
+- A branch-protection ruleset on `main`: no force-push or deletion, and typecheck/test/build plus CodeQL must pass before merging.
+
+### Changed
+
+- `vitest` 4 -> 5, `unocss`/`@unocss/preset-wind4`, `@types/node`, `@types/chrome`, `tsx`, and `actions/checkout`/`actions/setup-node`/`github/codeql-action` (CI-only) updated via Dependabot; re-verified with a clean install and the full test suite afterward.
+
+### Fixed (continued)
+
+- CodeQL's biased-random-number rule on room-code generation (3 locations): switched from a plain modulo to rejection sampling so uniformity no longer silently depends on the alphabet length dividing 256 evenly.
+- Reviewed and dismissed one CodeQL DOM-XSS alert as a false positive (a local file-input selection turned into a `blob:` URL, never remote data), with the reasoning documented at the source.
+- Reviewed and dismissed 30 DevSkim alerts as false positives: `setTimeout` calls that only ever receive a function (DevSkim's rule can't distinguish that from the legacy string-eval form), and intentional, already-documented local-development `localhost`/`http://` references.
 
 ## [0.1.22] - 2026-08-30
 
