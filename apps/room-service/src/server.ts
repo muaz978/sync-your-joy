@@ -415,12 +415,24 @@ export async function createRoomService(options: { port?: number; host?: string 
   }
 }
 
+// Largest byte value below a multiple of ROOM_ALPHABET.length: rejecting any
+// draw at or above it keeps `byte % ROOM_ALPHABET.length` uniform even if the
+// alphabet's length ever stops evenly dividing 256.
+const ROOM_CODE_MAX_UNBIASED_BYTE = Math.floor(256 / ROOM_ALPHABET.length) * ROOM_ALPHABET.length
+
+function randomRoomCodeChar(): string {
+  for (;;) {
+    const byte = randomBytes(1)[0]!
+    if (byte < ROOM_CODE_MAX_UNBIASED_BYTE)
+      return ROOM_ALPHABET[byte % ROOM_ALPHABET.length]!
+  }
+}
+
 function createUniqueCode(rooms: Map<string, unknown>): string {
   for (;;) {
-    const bytes = randomBytes(8)
     let code = ''
-    for (const byte of bytes)
-      code += ROOM_ALPHABET[byte % ROOM_ALPHABET.length]
+    for (let i = 0; i < 8; i += 1)
+      code += randomRoomCodeChar()
     if (!rooms.has(code))
       return code
   }
