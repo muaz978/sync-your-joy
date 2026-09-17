@@ -57,12 +57,13 @@ export type DriftCorrection =
   | { kind: 'rate'; driftSeconds: number; playbackRate: number }
   | { kind: 'seek'; driftSeconds: number; positionSeconds: number }
 
-export function expectedPosition(playback: PlaybackState, estimatedServerNowMs: number): number {
+export function expectedPosition(playback: PlaybackState, estimatedServerNowMs: number, durationSeconds?: number | null): number {
   if (playback.status === 'paused')
     return playback.positionSeconds
 
   const elapsedSeconds = Math.max(0, estimatedServerNowMs - playback.effectiveAtServerMs) / 1000
-  return Math.max(0, playback.positionSeconds + elapsedSeconds * playback.playbackRate)
+  const positionSeconds = Math.max(0, playback.positionSeconds + elapsedSeconds * playback.playbackRate)
+  return typeof durationSeconds === 'number' ? Math.min(positionSeconds, durationSeconds) : positionSeconds
 }
 
 export function chooseDriftCorrection(

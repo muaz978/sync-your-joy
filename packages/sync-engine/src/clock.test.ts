@@ -36,6 +36,17 @@ describe('expectedPosition', () => {
     }
     expect(expectedPosition(playback, 99_000)).toBe(18)
   })
+
+  it('clamps a playing timeline to the known media duration', () => {
+    const playback: PlaybackState = {
+      status: 'playing',
+      positionSeconds: 595,
+      effectiveAtServerMs: 5_000,
+      playbackRate: 1,
+    }
+    expect(expectedPosition(playback, 25_000, 600)).toBe(600)
+    expect(expectedPosition(playback, 25_000)).toBeGreaterThan(600)
+  })
 })
 
 describe('chooseDriftCorrection', () => {

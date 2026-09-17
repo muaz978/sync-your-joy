@@ -175,7 +175,8 @@ export class RoomCoordinator {
       return this.success('participant_reconnected')
     }
 
-    if (this.participants.size >= 10)
+    const connectedCount = [...this.participants.values()].filter(item => item.connected).length
+    if (connectedCount >= 10)
       return this.failure('room_full', 'This room already has 10 participants.')
 
     const matches = mediaMatches(this.media, participant.media)
@@ -240,7 +241,7 @@ export class RoomCoordinator {
     this.rememberAction(intent.actionId)
 
     const nowMs = this.now()
-    const positionSeconds = Math.max(0, intent.positionSeconds)
+    const positionSeconds = this.clampToMediaDuration(Math.max(0, intent.positionSeconds))
     const leadMs = this.commandLeadMs()
 
     if (intent.kind === 'pause') {
@@ -296,7 +297,7 @@ export class RoomCoordinator {
   acknowledgeSeek(participantId: string, revision: number, positionSeconds: number): RoomResult | null {
     const pending = this.pendingSeek
     const participant = this.participants.get(participantId)
-    if (!pending || revision !== pending.revision || revision !== this.revision || !participant)
+    if (!pending || revision !== pending.revision || !participant)
       return null
     if (!participant.connected || !participant.ready || !participant.mediaMatches)
       return null
@@ -408,8 +409,11 @@ export class RoomCoordinator {
     if (!participant)
       return null
 
-    const nowMs = this.now()
     const priorSample = participant.lastSample
+    if (priorSample !== null && sample.sampledAtLocalMs < priorSample.sampledAtLocalMs)
+      return null
+
+    const nowMs = this.now()
     const progressed = sample.progressed === true || (priorSample !== null
       && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= 0.12)
     participant.lastSample = sample
@@ -504,7 +508,7 @@ export class RoomCoordinator {
       navigation: this.navigation ? { ...this.navigation } : null,
       participants: [...this.participants.values()]
         .sort((a, b) => a.joinedAtMs - b.joinedAtMs)
-        .map(({ joinedAtMs: _joinedAtMs, sessionToken: _sessionToken, media: _media, lastSample: _lastSample, ...participant }) => ({ ...participant })),
+        .map(({ joinedAtMs: _joinedAtMs, sessionToken: _sessionToken, media: _media, lastSample: _lastSample, lastSampleReceivedAtMs: _lastSampleReceivedAtMs, lastProgressAtServerMs: _lastProgressAtServerMs, ...participant }) => ({ ...participant })),
       policy: { buffering: 'pause-all' },
     }
   }
@@ -530,10 +534,15 @@ export class RoomCoordinator {
     const nowMs = this.now()
     this.playback = {
       status: 'paused',
-      positionSeconds: expectedPosition(this.playback, nowMs),
+      positionSeconds: expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null),
       effectiveAtServerMs: nowMs,
       playbackRate: 1,
     }
+  }
+
+  private clampToMediaDuration(positionSeconds: number): number {
+    const durationSeconds = this.media?.durationSeconds
+    return typeof durationSeconds === 'number' ? Math.min(positionSeconds, durationSeconds) : positionSeconds
   }
 
   private markStateBarrier(): void {

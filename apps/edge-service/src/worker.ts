@@ -11,6 +11,31 @@ const CONTROLLER_GRACE_MS = 10_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
 const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
 const MAX_PENDING_CONNECTIONS_PER_ROOM = 20
+const MAX_UPGRADE_ATTEMPTS_PER_IP = 30
+const UPGRADE_ATTEMPT_WINDOW_MS = 60_000
+
+// Scoped to this Worker isolate: MAX_PENDING_CONNECTIONS_PER_ROOM only throttles
+// repeated attempts against one already-targeted room (it lives inside a single
+// Durable Object). This tracks upgrade attempts per client IP across every room
+// code routed through this isolate, so enumerating/brute-forcing room codes or
+// mass-creating rooms from one IP is throttled before it ever reaches a Durable
+// Object.
+const upgradeAttemptsByIp = new Map<string, { windowStartedAt: number; count: number }>()
+
+function isUpgradeRateLimited(ip: string): boolean {
+  const nowMs = Date.now()
+  for (const [key, entry] of upgradeAttemptsByIp) {
+    if (nowMs - entry.windowStartedAt > UPGRADE_ATTEMPT_WINDOW_MS)
+      upgradeAttemptsByIp.delete(key)
+  }
+  const entry = upgradeAttemptsByIp.get(ip)
+  if (!entry) {
+    upgradeAttemptsByIp.set(ip, { windowStartedAt: nowMs, count: 1 })
+    return false
+  }
+  entry.count += 1
+  return entry.count > MAX_UPGRADE_ATTEMPTS_PER_IP
+}
 
 interface Env {
   ROOMS: DurableObjectNamespace<RoomDurableObject>
@@ -56,6 +81,17 @@ export default {
     if (url.pathname !== '/rooms' || request.headers.get('Upgrade')?.toLowerCase() !== 'websocket')
       return Response.json({ error: 'not_found' }, { status: 404 })
 
+    // Reject a disallowed origin here, before routing to the Durable Object:
+    // env.ROOMS.get(id).fetch() wakes/instantiates that DO (including a
+    // storage read on cold start), so checking origin only inside the DO's
+    // own fetch() still pays that cost for traffic we are about to reject.
+    if (!originAllowed(request))
+      return new Response('Forbidden', { status: 403 })
+
+    const clientIp = request.headers.get('CF-Connecting-IP') ?? 'unknown'
+    if (isUpgradeRateLimited(clientIp))
+      return Response.json({ error: 'rate_limited' }, { status: 429 })
+
     const code = url.searchParams.get('code')?.toUpperCase()
     if (!code || !/^[A-Z0-9]{8}$/.test(code))
       return Response.json({ error: 'invalid_room_code' }, { status: 400 })
@@ -70,6 +106,11 @@ export class RoomDurableObject extends DurableObject<Env> {
   private pendingController: StoredRoom['pendingController'] = null
   private emptySinceMs: number | null = null
   private createdAtMs = Date.now()
+  // reportId -> participant ids that have already sent a diagnostics_response
+  // for it. Bounds diagnostics_response to reports the controller actually
+  // requested, and to at most one response per participant per report. Not
+  // persisted: a cold start simply forgets any in-flight diagnostics round.
+  private pendingDiagnosticsRequests = new Map<string, Set<string>>()
   private readonly initialized: Promise<void>
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -325,15 +366,21 @@ export class RoomDurableObject extends DurableObject<Env> {
         this.send(socket, { type: 'error', code: 'controller_only', message: 'Only the room controller can request detailed reports.' })
         return
       }
+      this.pendingDiagnosticsRequests.set(message.reportId, new Set())
       this.broadcast({ type: 'diagnostics_requested', reportId: message.reportId })
       return
     }
 
     if (message.type === 'diagnostics_response') {
+      const respondedParticipantIds = this.pendingDiagnosticsRequests.get(message.reportId)
+      if (!respondedParticipantIds || respondedParticipantIds.has(attachment.participantId))
+        return
+
       const snapshot = this.coordinator.snapshot()
       const participant = snapshot.participants.find(item => item.id === attachment.participantId)
       if (!participant)
         return
+      respondedParticipantIds.add(attachment.participantId)
       this.sendToParticipant(snapshot.controller.participantId, {
         type: 'diagnostics_response',
         reportId: message.reportId,
@@ -460,13 +507,16 @@ export class RoomDurableObject extends DurableObject<Env> {
 
 function originAllowed(request: Request): boolean {
   const origin = request.headers.get('Origin')
-  return origin === null
-    || origin.startsWith('chrome-extension://')
-    || origin.startsWith('moz-extension://')
-    || origin.startsWith('safari-web-extension://')
-    || origin.startsWith('safari-extension://')
-    || origin.startsWith('http://127.0.0.1')
-    || origin.startsWith('http://localhost')
+  // A real browser (including the extension's own WebSocket handshake)
+  // always sends Origin; only a non-browser scripted client omits it, so a
+  // missing header must be rejected rather than treated as trusted.
+  return origin !== null
+    && (origin.startsWith('chrome-extension://')
+      || origin.startsWith('moz-extension://')
+      || origin.startsWith('safari-web-extension://')
+      || origin.startsWith('safari-extension://')
+      || origin.startsWith('http://127.0.0.1')
+      || origin.startsWith('http://localhost'))
 }
 
 function randomToken(): string {

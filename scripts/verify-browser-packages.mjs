@@ -23,18 +23,24 @@ try {
   assertChromeManifest(chromeManifest)
   result.chrome = { ok: true, manifestVersion: chromeManifest.version, serviceWorker: chromeManifest.background?.service_worker }
 
-  await run(process.execPath, ['scripts/build-extension.mjs'], {
-    cwd: root,
-    env: { ...buildEnvironment, SYNCYOURJOY_BROWSER: 'firefox' },
-  })
-  await cp(resolve(root, 'apps/extension/dist'), join(staging, 'firefox'), { recursive: true })
-  const firefoxManifest = await readManifest(join(staging, 'firefox'))
-  assertFirefoxManifest(firefoxManifest)
-  result.firefox = { ok: true, manifestVersion: firefoxManifest.version, sidebar: firefoxManifest.sidebar_action?.default_panel }
-
-  // Leave the canonical dist directory in its default Chrome form. The
-  // Firefox build above is copied to staging for verification only.
-  await run(process.execPath, ['scripts/build-extension.mjs'], { cwd: root, env: buildEnvironment })
+  try {
+    await run(process.execPath, ['scripts/build-extension.mjs'], {
+      cwd: root,
+      env: { ...buildEnvironment, SYNCYOURJOY_BROWSER: 'firefox' },
+    })
+    await cp(resolve(root, 'apps/extension/dist'), join(staging, 'firefox'), { recursive: true })
+    const firefoxManifest = await readManifest(join(staging, 'firefox'))
+    assertFirefoxManifest(firefoxManifest)
+    result.firefox = { ok: true, manifestVersion: firefoxManifest.version, sidebar: firefoxManifest.sidebar_action?.default_panel }
+  }
+  finally {
+    // Always restore the canonical dist directory to its default Chrome form,
+    // even if the Firefox build or manifest verification above failed. This
+    // is the fix for SYJ-AUD-007 reappearing on the error path: without this
+    // finally block, a failure here left apps/extension/dist containing the
+    // Firefox sidebar_action manifest with no sidePanel permission.
+    await run(process.execPath, ['scripts/build-extension.mjs'], { cwd: root, env: buildEnvironment })
+  }
 
   if (await commandExists('xcrun')) {
     const safariProject = join(staging, 'safari-project')

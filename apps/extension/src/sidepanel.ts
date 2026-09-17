@@ -32,6 +32,7 @@ app.addEventListener('pointerdown', () => {
 }, true)
 window.addEventListener('pointerup', releasePanelPointer, true)
 window.addEventListener('pointercancel', releasePanelPointer, true)
+window.addEventListener('pointerleave', releasePanelPointer, true)
 
 void initializeTheme()
 void initializePrivacy()
@@ -708,6 +709,11 @@ function reconcilePendingActions(nextState: ExtensionState): void {
 }
 
 function syncSharedLinkDraft(nextState: ExtensionState): void {
+  const sharedUrlInput = document.querySelector<HTMLInputElement>('#shared-video-url')
+  if (sharedUrlInput && document.activeElement === sharedUrlInput) {
+    draftSharedUrl = sharedUrlInput.value
+    return
+  }
   const roomCode = nextState.snapshot?.code ?? null
   const navigationRevision = nextState.snapshot?.navigation?.revision ?? 0
   if (roomCode === draftRoomCode && navigationRevision === draftNavigationRevision)

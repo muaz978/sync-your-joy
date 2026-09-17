@@ -34,7 +34,8 @@
     "sidePanel",
     "storage",
     "tabs",
-    "downloads"
+    "downloads",
+    "alarms"
   ],
   "content_scripts": [
     {
