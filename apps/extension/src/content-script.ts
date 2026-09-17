@@ -1230,7 +1230,10 @@ function scheduleSeekCompletionProbe(): void {
     }
     if (performance.now() - pending.since >= LOCAL_SEEK_MAX_WAIT_MS) {
       pendingSeek = null
-      expectedSeek = null
+      // Leave expectedSeek in place (it has its own, longer expiry): a native
+      // 'seeked' event that finally arrives after this give-up is still the
+      // tail of the programmatic seek we issued, not a fresh local seek, and
+      // must not be re-broadcast to the room. See handleSeeked/consumeExpectedSeek.
       clearSeekCompletionTimer()
       showNotice('This player could not finish aligning. The room is pausing so Sync can retry without a refresh.')
       void reportPlayerStatus(true)

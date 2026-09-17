@@ -34,7 +34,7 @@ describe('extension manifest privacy boundary', () => {
       background?: { service_worker?: string }
       content_security_policy?: { extension_pages?: string }
     }
-    expect(manifest.permissions).toEqual(['sidePanel', 'storage', 'tabs', 'downloads'])
+    expect(manifest.permissions).toEqual(['sidePanel', 'storage', 'tabs', 'downloads', 'alarms'])
     expect(manifest.background?.service_worker).toBe('service-worker.js')
     expect(manifest.content_security_policy?.extension_pages).toContain("script-src 'self'")
     expect(manifest.content_security_policy?.extension_pages).not.toContain('http://')

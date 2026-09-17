@@ -82,6 +82,29 @@ describe('media identity matching', () => {
     expect(normalizeMediaPageUrl('https://a.qfilm.tv/play.php?vid=A0821A41C&token=temporary')).toBe('https://a.qfilm.tv/play.php?vid=A0821A41C')
   })
 
+  it('strips temporary media pageUrl parameters from create_room, join_room and set_ready before they can be stored or broadcast', () => {
+    const media = {
+      service: 'html5',
+      canonicalId: 'page:https://eta.animerco.org/jwplayer/',
+      title: 'Episode 4',
+      durationSeconds: 1_200,
+      pageUrl: 'https://eta.animerco.org/jwplayer/?pnonce=temporary-client-token',
+    }
+
+    const create = parseClientMessage({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'ABCDEFGH', media,
+    })
+    expect(create).toMatchObject({ media: { pageUrl: 'https://eta.animerco.org/jwplayer' } })
+
+    const join = parseClientMessage({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: 'ABCDEFGH', media,
+    })
+    expect(join).toMatchObject({ media: { pageUrl: 'https://eta.animerco.org/jwplayer' } })
+
+    const setReady = parseClientMessage({ type: 'set_ready', ready: true, media })
+    expect(setReady).toMatchObject({ media: { pageUrl: 'https://eta.animerco.org/jwplayer' } })
+  })
+
   it('requires player-health reports to identify the room revision they observed', () => {
     const sample = {
       positionSeconds: 7,

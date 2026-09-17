@@ -83,7 +83,7 @@ describe('room service', () => {
     const originalClosed = new Promise<void>((resolve) => original.once('close', () => resolve()))
     const replacement = await connect(service.url)
     replacement.send(JSON.stringify({
-      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'REJOIN12', media, sessionToken: originalJoined.sessionToken,
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: originalJoined.snapshot.code, media, sessionToken: originalJoined.sessionToken,
     }))
     const joined = await nextMessage(replacement)
     expect(joined).toMatchObject({
@@ -113,7 +113,7 @@ describe('room service', () => {
 
     const replacement = await connect(service.url)
     replacement.send(JSON.stringify({
-      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Impostor', code: 'AUTH1234', media: null,
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Impostor', code: joined.snapshot.code, media: null,
     }))
     await expect(nextMessage(replacement)).resolves.toMatchObject({ type: 'command_rejected', code: 'session_invalid' })
     expect(original.readyState).toBe(WebSocket.OPEN)
@@ -128,10 +128,13 @@ describe('room service', () => {
     host.send(JSON.stringify({
       type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'LOGS1234', media: null,
     }))
-    await nextMessage(host)
+    const hostCreated = await nextMessage(host)
+    expect(hostCreated.type).toBe('room_joined')
+    if (hostCreated.type !== 'room_joined')
+      throw new Error('Expected room_joined')
     const hostJoinNotice = nextMessage(host)
     friend.send(JSON.stringify({
-      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: 'LOGS1234', media: null,
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: hostCreated.snapshot.code, media: null,
     }))
     await Promise.all([nextMessage(friend), hostJoinNotice])
 
@@ -155,6 +158,69 @@ describe('room service', () => {
     host.close()
     friend.close()
   })
+
+  it('ignores a diagnostics_response with an unrequested reportId, and only forwards one response per participant per request', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const friend = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'FAKE1234', media: null,
+    }))
+    const hostCreated = await nextMessage(host)
+    expect(hostCreated.type).toBe('room_joined')
+    if (hostCreated.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    const hostJoinNotice = nextMessage(host)
+    friend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: hostCreated.snapshot.code, media: null,
+    }))
+    await Promise.all([nextMessage(friend), hostJoinNotice])
+
+    // A fabricated reportId the controller never asked for must not reach it.
+    friend.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_never_requested', report: diagnosticReport() }))
+
+    const hostRequest = nextMessage(host)
+    host.send(JSON.stringify({ type: 'request_diagnostics', reportId: 'report_real12' }))
+    await expect(hostRequest).resolves.toMatchObject({ type: 'diagnostics_requested', reportId: 'report_real12' })
+
+    const firstResponse = nextMessage(host)
+    friend.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_real12', report: diagnosticReport() }))
+    await expect(firstResponse).resolves.toMatchObject({ type: 'diagnostics_response', participantId: 'participant_friend' })
+
+    // A second response from the same participant for the same reportId is dropped, so the
+    // fabricated report above -- and any replay -- never arrives at the controller.
+    friend.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_real12', report: diagnosticReport() }))
+    host.send(JSON.stringify({ type: 'ping', id: 'ping_after_flood', sentAtLocalMs: 0 }))
+    await expect(nextMessage(host)).resolves.toMatchObject({ type: 'pong', id: 'ping_after_flood' })
+
+    host.close()
+    friend.close()
+  })
+
+  it('mints the room code server-side instead of trusting the client-supplied value', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'AAAAAAAA', media: null,
+    }))
+    const created = await nextMessage(host)
+    expect(created.type).toBe('room_joined')
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    expect(created.snapshot.code).not.toBe('AAAAAAAA')
+    host.close()
+  })
+
+  it('rejects a websocket upgrade with no Origin header', async () => {
+    service = await createRoomService({ port: 0 })
+    const socket = new WebSocket(service.url)
+    const outcome = await new Promise<'open' | 'rejected'>((resolve) => {
+      socket.once('open', () => resolve('open'))
+      socket.once('error', () => resolve('rejected'))
+      socket.once('unexpected-response', () => resolve('rejected'))
+    })
+    expect(outcome).toBe('rejected')
+  })
 })
 
 function diagnosticReport() {
@@ -167,7 +233,10 @@ function diagnosticReport() {
 }
 
 async function connect(url: string): Promise<WebSocket> {
-  const socket = new WebSocket(url)
+  // A real browser (including the extension) always sends Origin on a
+  // WebSocket handshake; originAllowed() now rejects a missing one, so the
+  // test client must set an allowed origin explicitly like `ws` does not by default.
+  const socket = new WebSocket(url, undefined, { origin: 'chrome-extension://test-extension' })
   await new Promise<void>((resolve, reject) => {
     socket.once('open', resolve)
     socket.once('error', reject)

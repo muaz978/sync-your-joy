@@ -672,4 +672,126 @@ describe('RoomCoordinator', () => {
     })
     expect(paused).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
   })
+
+  it('lets a pending seek resolve after an unrelated readiness change bumps the room revision without clearing it', () => {
+    const room = createRoom()
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    room.join({ id: 'participant_extra', name: 'Sam', media: null })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+
+    const sought = room.control('participant_host', {
+      actionId: 'action_seek_during_join',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 100,
+    })
+    const seekRevision = sought.snapshot.revision
+
+    // 'extra' catching up to matching, ready media bumps the room revision
+    // without clearing the pending seek, since it was not ready before.
+    room.setReady('participant_extra', true, media)
+    expect(room.snapshot().revision).toBeGreaterThan(seekRevision)
+    expect(room.snapshot().seek).toMatchObject({ revision: seekRevision })
+
+    const friendAck = room.acknowledgeSeek('participant_friend', seekRevision, 100)
+    expect(friendAck).toMatchObject({ ok: true, reason: 'seek_participant_aligned' })
+
+    const extraAck = room.acknowledgeSeek('participant_extra', seekRevision, 100)
+    expect(extraAck).toMatchObject({
+      ok: true,
+      reason: 'seek_aligned_paused',
+      snapshot: { seek: null, playback: { status: 'paused', positionSeconds: 100 } },
+    })
+  })
+
+  it('admits a new participant once previous participants disconnect, even after the room previously filled up', () => {
+    const room = createRoom()
+    const memberIds = Array.from({ length: 9 }, (_, index) => `participant_member_${index}`)
+    for (const id of memberIds)
+      room.join({ id, name: id, media })
+    expect(room.snapshot().participants).toHaveLength(10)
+
+    for (const id of memberIds)
+      room.disconnect(id)
+
+    const rejoined = room.join({ id: 'participant_newcomer', name: 'Newcomer', media })
+    expect(rejoined).toMatchObject({ ok: true, reason: 'participant_joined' })
+  })
+
+  it('clamps a seek target to the known media duration', () => {
+    const room = createRoom()
+    room.setReady('participant_host', true, media)
+    const result = room.control('participant_host', {
+      actionId: 'action_seek_beyond_duration',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 999_999,
+    })
+    expect(result).toMatchObject({ ok: true, snapshot: { seek: { positionSeconds: 600 } } })
+  })
+
+  it('ignores an out-of-order stale sample that would otherwise mask a real freeze', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_stale_sample',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    const playRevision = room.snapshot().revision
+    const startedAtMs = room.snapshot().playback.effectiveAtServerMs
+
+    nowMs = startedAtMs + 200
+    room.updatePlayerStatus('participant_host', playRevision, {
+      positionSeconds: 20.1,
+      durationSeconds: 600,
+      paused: false,
+      buffering: false,
+      sampledAtLocalMs: nowMs,
+    })
+
+    // A reconnect race delivers a stale, out-of-order sample: an older local
+    // timestamp reporting a lower position than the one already recorded.
+    nowMs = startedAtMs + 900
+    const staleResult = room.updatePlayerStatus('participant_host', playRevision, {
+      positionSeconds: 19.0,
+      durationSeconds: 600,
+      paused: false,
+      buffering: false,
+      sampledAtLocalMs: startedAtMs + 100,
+    })
+    expect(staleResult).toBeNull()
+
+    nowMs = startedAtMs + 2_000
+    const result = room.updatePlayerStatus('participant_host', playRevision, {
+      positionSeconds: 20.1,
+      durationSeconds: 600,
+      paused: false,
+      buffering: false,
+      sampledAtLocalMs: nowMs,
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      reason: 'participant_playback_stalled',
+      snapshot: { playback: { status: 'paused' } },
+    })
+  })
+
+  it('does not leak internal timing bookkeeping fields in the snapshot', () => {
+    const room = createRoom()
+    const participant = room.snapshot().participants.find(item => item.id === 'participant_host')
+
+    expect(participant).not.toHaveProperty('lastSampleReceivedAtMs')
+    expect(participant).not.toHaveProperty('lastProgressAtServerMs')
+    expect(Object.keys(participant ?? {}).sort()).toEqual(
+      ['connected', 'id', 'latencyMs', 'mediaMatches', 'name', 'ready', 'role'].sort(),
+    )
+  })
 })

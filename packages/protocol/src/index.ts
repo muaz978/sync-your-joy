@@ -352,17 +352,17 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
     case 'create_room':
       if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media))
         return null
-      return { ...value, code: value.code.toUpperCase() } as unknown as ClientMessage
+      return { ...value, code: value.code.toUpperCase(), media: sanitizeMedia(value.media) } as unknown as ClientMessage
 
     case 'join_room':
       if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media) || (value.sessionToken !== undefined && !validSessionToken(value.sessionToken)))
         return null
-      return { ...value, code: value.code.toUpperCase() } as unknown as ClientMessage
+      return { ...value, code: value.code.toUpperCase(), media: sanitizeMedia(value.media) } as unknown as ClientMessage
 
     case 'set_ready':
       if (typeof value.ready !== 'boolean' || !validMedia(value.media))
         return null
-      return value as unknown as ClientMessage
+      return { ...value, media: sanitizeMedia(value.media) } as unknown as ClientMessage
 
     case 'control':
       if (!validId(value.actionId) || !isNonNegativeInteger(value.basedOnRevision) || !isNonNegativeInteger(value.leaseEpoch) || !isControlKind(value.kind) || !isFiniteNonNegative(value.positionSeconds))
@@ -438,6 +438,23 @@ function validMedia(value: unknown): value is MediaFingerprint | null {
     && validShortText(value.title, 300)
     && (value.durationSeconds === null || isFiniteNonNegative(value.durationSeconds))
     && (value.pageUrl === undefined || validPageUrl(value.pageUrl))
+}
+
+/**
+ * Applies the per-provider pageUrl allowlist (normalizeMediaPageUrl) to an
+ * already-validated MediaFingerprint before it is stored or broadcast, so
+ * temporary/signed query parameters (session tokens, nonces) never leave the
+ * room's trust boundary. `value` must already have passed `validMedia`.
+ */
+function sanitizeMedia(value: MediaFingerprint | null): MediaFingerprint | null {
+  if (!value || value.pageUrl === undefined)
+    return value
+  const sanitizedPageUrl = normalizeMediaPageUrl(value.pageUrl)
+  if (!sanitizedPageUrl) {
+    const { pageUrl: _pageUrl, ...rest } = value
+    return rest
+  }
+  return { ...value, pageUrl: sanitizedPageUrl }
 }
 
 function validPageUrl(value: unknown): value is string {

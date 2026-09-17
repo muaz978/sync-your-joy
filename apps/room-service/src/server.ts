@@ -14,7 +14,10 @@ const MAX_MESSAGE_BYTES = 16_384
 const CONTROLLER_GRACE_MS = 10_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
 const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
-const MAX_PENDING_CONNECTIONS_PER_ROOM = 20
+// Scoped per remote IP, not per room: an unauthenticated socket has not yet
+// told us which room it wants, so this is the earliest point we can bound
+// abuse without letting one source exhaust the cap for every other client.
+const MAX_PENDING_CONNECTIONS_PER_IP = 20
 const testPlayerHtml = await readFile(new URL('../static/test-player.html', import.meta.url), 'utf8')
 
 interface ConnectedClient {
@@ -28,6 +31,10 @@ interface RoomEntry {
   sockets: Set<WebSocket>
   emptySinceMs: number | null
   createdAtMs: number
+  // reportId -> participant ids that have already sent a diagnostics_response
+  // for it. Bounds diagnostics_response to reports the controller actually
+  // requested, and to at most one response per participant per report.
+  pendingDiagnosticsRequests: Map<string, Set<string>>
 }
 
 export interface RoomService {
@@ -40,6 +47,7 @@ export async function createRoomService(options: { port?: number; host?: string 
   const rooms = new Map<string, RoomEntry>()
   const clients = new Map<WebSocket, ConnectedClient>()
   const recoveryTimers = new Map<string, NodeJS.Timeout>()
+  const socketRemoteAddresses = new WeakMap<WebSocket, string>()
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES })
 
   const httpServer = createServer((request, response) => {
@@ -70,8 +78,10 @@ export async function createRoomService(options: { port?: number; host?: string 
       return
     }
 
-    const pendingConnections = [...webSocketServer.clients].filter((candidate) => !clients.has(candidate)).length
-    if (pendingConnections >= MAX_PENDING_CONNECTIONS_PER_ROOM) {
+    const remoteAddress = request.socket.remoteAddress ?? 'unknown'
+    const pendingConnections = [...webSocketServer.clients].filter((candidate) =>
+      !clients.has(candidate) && socketRemoteAddresses.get(candidate) === remoteAddress).length
+    if (pendingConnections >= MAX_PENDING_CONNECTIONS_PER_IP) {
       socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
       socket.destroy()
       return
@@ -82,7 +92,8 @@ export async function createRoomService(options: { port?: number; host?: string 
     })
   })
 
-  webSocketServer.on('connection', (socket) => {
+  webSocketServer.on('connection', (socket, request) => {
+    socketRemoteAddresses.set(socket, request.socket.remoteAddress ?? 'unknown')
     let messageWindowStartedAt = Date.now()
     let messageCount = 0
 
@@ -162,12 +173,16 @@ export async function createRoomService(options: { port?: number; host?: string 
         return
       }
 
-      const code = rooms.has(message.code) ? createUniqueCode(rooms) : message.code
+      // The room code is the bearer secret that protects the room (join_room
+      // trusts it alone for a brand-new participant), so it must always come
+      // from the server's own CSPRNG rather than the client-supplied value --
+      // otherwise a direct WebSocket client could mint a low-entropy code.
+      const code = createUniqueCode(rooms)
       const coordinator = new RoomCoordinator(
         { roomId: randomUUID(), code, inviteToken: randomBytes(16).toString('base64url') },
         { id: message.participantId, name: message.name, media: message.media, sessionToken: randomBytes(16).toString('base64url') },
       )
-      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), emptySinceMs: null, createdAtMs: Date.now() }
+      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), emptySinceMs: null, createdAtMs: Date.now(), pendingDiagnosticsRequests: new Map() }
       rooms.set(code, entry)
       clients.set(socket, { socket, participantId: message.participantId, roomCode: code })
       const sessionToken = coordinator.exportState().participants.find(item => item.id === message.participantId)?.sessionToken
@@ -261,15 +276,21 @@ export async function createRoomService(options: { port?: number; host?: string 
         send(socket, { type: 'error', code: 'controller_only', message: 'Only the room controller can request detailed reports.' })
         return
       }
+      room.pendingDiagnosticsRequests.set(message.reportId, new Set())
       broadcast(room, { type: 'diagnostics_requested', reportId: message.reportId })
       return
     }
 
     if (message.type === 'diagnostics_response') {
+      const respondedParticipantIds = room.pendingDiagnosticsRequests.get(message.reportId)
+      if (!respondedParticipantIds || respondedParticipantIds.has(client.participantId))
+        return
+
       const snapshot = room.coordinator.snapshot()
       const participant = snapshot.participants.find(item => item.id === client.participantId)
       const controllerClient = [...clients.values()].find(item => item.roomCode === client.roomCode && item.participantId === snapshot.controller.participantId)
       if (participant && controllerClient) {
+        respondedParticipantIds.add(client.participantId)
         send(controllerClient.socket, {
           type: 'diagnostics_response',
           reportId: message.reportId,
@@ -375,13 +396,16 @@ function createUniqueCode(rooms: Map<string, unknown>): string {
 
 function originAllowed(request: IncomingMessage): boolean {
   const origin = request.headers.origin
-  return origin === undefined
-    || origin.startsWith('chrome-extension://')
-    || origin.startsWith('moz-extension://')
-    || origin.startsWith('safari-web-extension://')
-    || origin.startsWith('safari-extension://')
-    || origin.startsWith('http://127.0.0.1')
-    || origin.startsWith('http://localhost')
+  // A real browser (including the extension's own WebSocket handshake)
+  // always sends Origin; only a non-browser scripted client omits it, so a
+  // missing header must be rejected rather than treated as trusted.
+  return origin !== undefined
+    && (origin.startsWith('chrome-extension://')
+      || origin.startsWith('moz-extension://')
+      || origin.startsWith('safari-web-extension://')
+      || origin.startsWith('safari-extension://')
+      || origin.startsWith('http://127.0.0.1')
+      || origin.startsWith('http://localhost'))
 }
 
 function send(socket: WebSocket, message: ServerMessage): void {

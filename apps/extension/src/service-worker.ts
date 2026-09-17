@@ -1,6 +1,6 @@
 import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticValue, MediaFingerprint, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { mediaMatches, normalizePageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
+import { mediaMatches, normalizeMediaPageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
 import { PLAYER_CONTEXT_STALE_MS, shouldAcceptPlayerContext, shouldReusePlayerTabForNavigation } from './player-tab.ts'
 import { isLikelyAdvertisingUrl } from './site-adapter.ts'
@@ -21,6 +21,10 @@ const DIAGNOSTIC_EVENT_LIMIT = 100
 // Give the room-wide report enough time to collect every response without
 // making the normal playback path wait for diagnostics.
 const DIAGNOSTIC_COLLECTION_TIMEOUT_MS = 8_000
+// A bare setTimeout does not survive MV3 service-worker suspension. This
+// alarm is a fallback that wakes the service worker to retry a reconnect
+// even if it was suspended while the setTimeout backoff was pending.
+const RECONNECT_ALARM_NAME = 'syncYourJoyReconnect'
 
 interface DiagnosticCollection {
   reportId: string
@@ -66,6 +70,13 @@ const diagnosticEvents: DiagnosticEvent[] = []
 let diagnosticCollection: DiagnosticCollection | null = null
 let pendingMediaMismatchKey: string | null = null
 let pendingMediaMismatchObservedAtMs: number | null = null
+// In-memory only: tracks a navigation revision whose deferred tab-open/reuse
+// side effect is currently scheduled but has not completed yet. This must
+// NOT be persisted -- state.lastOpenedNavigationRevision is the durable
+// "handled" marker, and it is only advanced once the side effect actually
+// runs, so a service-worker restart during the deferred delay causes the
+// navigation to be retried rather than silently dropped.
+let pendingNavigationRevision: number | null = null
 
 const initialized = initialize()
 
@@ -76,6 +87,11 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
   void initialized.then(() => reconnectIfNeeded())
+})
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === RECONNECT_ALARM_NAME)
+    void initialized.then(() => reconnectIfNeeded())
 })
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -403,7 +419,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         return failure('Join a room before opening a link.')
       if (!isController())
         return failure('Only the controller can open a link for everyone.')
-      const normalizedUrl = normalizePageUrl(request.url)
+      const normalizedUrl = normalizeMediaPageUrl(request.url)
       if (!normalizedUrl)
         return failure('Enter a valid video page link.')
       if (!sendToServer({
@@ -492,6 +508,7 @@ async function startFreshConnection(roomCode: string): Promise<void> {
   if (reconnectTimer)
     clearTimeout(reconnectTimer)
   reconnectTimer = null
+  void chrome.alarms.clear(RECONNECT_ALARM_NAME)
   socket?.close(1000, 'new_room')
   socket = null
   connectionPromise = null
@@ -519,6 +536,7 @@ async function connect(roomCode: string): Promise<void> {
     nextSocket.addEventListener('open', () => {
       connectionPromise = null
       reconnectAttempts = 0
+      void chrome.alarms.clear(RECONNECT_ALARM_NAME)
       state.connectionQuality = 'unknown'
       state.roundTripMs = null
       state.lastPongAtMs = Date.now()
@@ -537,16 +555,20 @@ async function connect(roomCode: string): Promise<void> {
     }, { once: true })
 
     nextSocket.addEventListener('close', () => {
-      stopPingLoop()
-      connectionPromise = null
-      if (socket === nextSocket)
+      // A stale socket (already replaced by a newer connection, e.g. via
+      // startFreshConnection) must not tear down the new socket's ping loop
+      // or flip connection state away from whatever the new socket set.
+      if (socket === nextSocket) {
         socket = null
+        connectionPromise = null
+        stopPingLoop()
 
-      if (!intentionallyClosed && state.snapshot) {
-        state.connection = 'reconnecting'
-        state.connectionQuality = 'offline'
-        void publishState()
-        scheduleReconnect()
+        if (!intentionallyClosed && state.snapshot) {
+          state.connection = 'reconnecting'
+          state.connectionQuality = 'offline'
+          void publishState()
+          scheduleReconnect()
+        }
       }
       recordDiagnostic('connection', 'socket_closed', { intentional: intentionallyClosed })
     })
@@ -585,6 +607,10 @@ function scheduleReconnect(): void {
     reconnectTimer = null
     void reconnectIfNeeded()
   }, delayMs)
+  // Fallback for when the service worker is suspended before the setTimeout
+  // above can fire: chrome.alarms wakes the service worker independently of
+  // any in-memory timer, so the reconnect is retried even after suspension.
+  void chrome.alarms.create(RECONNECT_ALARM_NAME, { delayInMinutes: delayMs / 60_000 })
 }
 
 function handleServerMessage(raw: string): void {
@@ -722,6 +748,7 @@ function leaveRoom(): void {
   if (reconnectTimer)
     clearTimeout(reconnectTimer)
   reconnectTimer = null
+  void chrome.alarms.clear(RECONNECT_ALARM_NAME)
   stopPingLoop()
   socket?.close(1000, 'left_room')
   socket = null
@@ -841,20 +868,30 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
 
 async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snapshot']>): Promise<void> {
   const navigation = snapshot.navigation
-  if (!navigation || navigation.revision <= state.lastOpenedNavigationRevision)
+  if (!navigation || navigation.revision <= state.lastOpenedNavigationRevision || navigation.revision === pendingNavigationRevision)
     return
 
-  state.lastOpenedNavigationRevision = navigation.revision
-  await persistState()
+  pendingNavigationRevision = navigation.revision
   const estimatedServerNowMs = Date.now() + state.serverOffsetMs
   const delayMs = Math.max(0, navigation.effectiveAtServerMs - estimatedServerNowMs)
   setTimeout(() => {
-    if (state.snapshot?.navigation?.revision !== navigation.revision)
+    const clearPending = () => {
+      if (pendingNavigationRevision === navigation.revision)
+        pendingNavigationRevision = null
+    }
+    if (state.snapshot?.navigation?.revision !== navigation.revision) {
+      clearPending()
       return
+    }
     if (shouldReusePlayerTabForNavigation(state.playerTabId, state.currentMedia?.pageUrl, navigation.url)) {
       if (state.currentMedia)
         state.currentMedia = bindMediaToSharedPage(state.currentMedia, navigation.url)
       state.lastError = null
+      // Only mark this revision as durably "handled" once its side effect
+      // has actually run, so a service-worker restart during the delay
+      // above causes a retry instead of a silently dropped navigation.
+      state.lastOpenedNavigationRevision = navigation.revision
+      clearPending()
       void publishState()
       return
     }
@@ -866,9 +903,12 @@ async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snaps
       state.playerDiagnostics = null
       state.lastPlayerSample = null
       state.lastError = null
+      state.lastOpenedNavigationRevision = navigation.revision
+      clearPending()
       void publishState()
     }).catch(() => {
       state.lastError = 'Chrome could not open the shared video link.'
+      clearPending()
       void publishState()
     })
   }, Math.min(delayMs, 2_000))
