@@ -454,6 +454,19 @@ export class RoomCoordinator {
       durationSeconds: null,
       pageUrl: url,
     }
+    // pauseForMembershipChange() just extrapolated the PREVIOUS media's
+    // position forward in time -- correct for a membership change mid-video,
+    // but wrong here: a newly shared link is an unrelated video, never a
+    // continuation of whatever the room was previously watching. Left as-is,
+    // an episode transition would authoritatively "pause" the brand-new
+    // episode wherever the old one happened to be (a real bug a friend hit:
+    // switching episodes started the new one seconds from its own end).
+    this.playback = {
+      status: 'paused',
+      positionSeconds: 0,
+      effectiveAtServerMs: this.now(),
+      playbackRate: 1,
+    }
     this.revision += 1
     this.markStateBarrier()
     this.navigation = {

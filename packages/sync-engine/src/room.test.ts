@@ -458,6 +458,37 @@ describe('RoomCoordinator', () => {
     expect(opened.snapshot.participants.every(participant => !participant.ready && !participant.mediaMatches)).toBe(true)
   })
 
+  it('starts a freshly shared link at position zero instead of carrying over the previous video\'s position', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_previous_episode',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 1_200,
+    })
+
+    // The previous episode plays for a while before the host switches to a
+    // new one -- long enough that, without the fix, expectedPosition() would
+    // extrapolate well past where a brand-new video should ever start.
+    nowMs += 60_000
+
+    const opened = room.openLink('participant_host', {
+      actionId: 'action_next_episode_link',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      url: 'https://video.example/watch/next-episode',
+    })
+    expect(opened).toMatchObject({
+      ok: true,
+      snapshot: { playback: { status: 'paused', positionSeconds: 0 } },
+    })
+  })
+
   it('rejects member controls and stale controller leases', () => {
     const room = createRoom()
     joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
