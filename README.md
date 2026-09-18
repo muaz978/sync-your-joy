@@ -67,6 +67,8 @@ Version `0.2.0` requires the controller's approval before a new join request bec
 
 Version `0.2.1` fixes a side panel crash against a room coordinator whose snapshot predates `pendingJoinRequests` (an un-upgraded backend), and corrects the deployment smoke test to join using the room's real, server-assigned code.
 
+Version `0.2.2` fixes a real cause of inconsistent syncing across participants: a browser that rejects a remote play command (an autoplay-policy block) no longer stays marked "ready" forever, which previously let the controller instantly re-trigger the identical rejection and produced a starts-then-stops loop; the side panel's participant list also always shows each person's status icon now, even next to the controller's "Pass" button.
+
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
 ## Platform compatibility

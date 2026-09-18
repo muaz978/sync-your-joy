@@ -2,6 +2,13 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.2.2] - 2026-09-18
+
+### Fixed
+
+- The room now clears a participant's readiness when their browser explicitly rejects a synchronized `play()` call (an autoplay-policy block), instead of leaving them marked "ready" forever. Previously, a controller pressing play again immediately re-triggered the identical rejection every time -- the browser restriction hadn't changed -- producing a starts-then-immediately-stops loop that looked exactly like unreliable syncing, with the "People" list incorrectly showing the blocked participant as ready the whole time.
+- The side panel's participant list now always shows a participant's status icon (ready, not ready, wrong video, disconnected) alongside the controller's "Pass" control button instead of hiding it, so the controller -- the person most likely to need to diagnose why the room isn't syncing -- can actually see what's wrong with someone else's connection.
+
 ## [0.2.1] - 2026-09-18
 
 ### Fixed
