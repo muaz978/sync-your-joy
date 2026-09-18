@@ -502,6 +502,16 @@ export class RoomCoordinator {
       }
       this.revision += 1
       this.markStateBarrier()
+      // A rejected play() call means this participant's browser won't start
+      // without a fresh user gesture -- nothing else in the room state
+      // reflects that. Without clearing readiness here, everyoneReady()
+      // still reports true, so a controller who immediately presses play
+      // again re-triggers the identical rejection, and the room now has no
+      // record of who caused the pause or why it keeps recurring. Buffering
+      // and stall reports are left alone: those usually resolve on their
+      // own without a click.
+      if (explicitPlaybackFailure)
+        participant.ready = false
       return this.success(explicitPlaybackFailure
         ? 'participant_playback_blocked'
         : stalled ? 'participant_playback_stalled' : 'participant_buffering')

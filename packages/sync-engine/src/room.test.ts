@@ -647,6 +647,52 @@ describe('RoomCoordinator', () => {
     })
   })
 
+  it('un-readies the participant a rejected play() blocked, so pressing play again cannot re-trigger the same rejection instantly', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    room.setReady('participant_host', true, media)
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_blocks_friend',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    const playRevision = room.snapshot().revision
+    nowMs += 100
+    const blocked = room.updatePlayerStatus('participant_friend', playRevision, {
+      positionSeconds: 20,
+      durationSeconds: 600,
+      paused: true,
+      buffering: false,
+      sampledAtLocalMs: nowMs,
+      playbackStartFailed: true,
+    })
+
+    expect(blocked?.snapshot.participants.find(participant => participant.id === 'participant_friend')?.ready).toBe(false)
+
+    const replayedTooSoon = room.control('participant_host', {
+      actionId: 'action_play_again_before_friend_recovers',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    expect(replayedTooSoon).toMatchObject({ ok: false, code: 'participants_not_ready' })
+
+    room.setReady('participant_friend', true, media)
+    const replayedAfterRecovery = room.control('participant_host', {
+      actionId: 'action_play_after_friend_recovers',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 20,
+    })
+    expect(replayedAfterRecovery).toMatchObject({ ok: true, reason: 'control_play' })
+  })
+
   it('stops the room clock when a ready participant reports no real progress', () => {
     let nowMs = 10_000
     const room = createRoom(() => nowMs)
