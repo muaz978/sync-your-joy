@@ -2,6 +2,14 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.2.4] - 2026-09-18
+
+### Fixed
+
+- Opening a new video link now starts it at position zero. `openLink()` was carrying the previous video's extrapolated position forward across a media change, so an episode transition could authoritatively "pause" the brand-new episode wherever the last one happened to be -- a real friend hit this as a fresh episode starting seconds from its own end.
+- The extension no longer sends routine messages (readiness, player status, seek acknowledgement) on a socket that has reopened but not yet finished rejoining its room. That race could surface a live "Create or join a room first" error while the panel still showed a fully connected room.
+- The stall detector now also recognizes a video stuck at a low `readyState` as a real problem, not just one that's `paused` when it shouldn't be. A provider stream that never receives enough data to actually play could previously go unreported indefinitely, since this content script's own play() retries could make the `paused` flag flicker and mask the stall.
+
 ## [0.2.3] - 2026-09-18
 
 ### Fixed
