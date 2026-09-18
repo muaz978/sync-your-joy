@@ -41,6 +41,7 @@ export type RuntimeRequest =
   | { type: 'DOWNLOAD_DIAGNOSTICS' }
   | { type: 'CONTROL'; kind: ControlKind; positionSeconds?: number }
   | { type: 'TRANSFER_CONTROL'; participantId: string }
+  | { type: 'RESPOND_TO_JOIN'; participantId: string; approve: boolean }
   | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number; diagnostics?: PlayerDiagnostics }
   | { type: 'MEDIA_LOST' }
   | { type: 'PLAYER_STATUS'; basedOnRevision: number; sample: PlayerSample }

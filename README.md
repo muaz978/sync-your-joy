@@ -29,10 +29,11 @@ Unpacked extensions do not update automatically. Normal one-click installation a
 
 1. Everyone signs in to the selected service with their own account.
 2. One person opens SyncYourJoy and creates a room.
-3. Friends open SyncYourJoy and join with the eight-character room code. They do not need to paste or open a video link first.
-4. The controller opens the intended video page, or pastes its page URL under **Video page link** and selects **Open link for everyone**.
-5. Everyone waits for **Video matches**, then selects **I'm ready**.
-6. The controller uses the streaming player's normal play, pause, and progress-bar controls. SyncYourJoy sends those actions to the room automatically.
+3. Friends open SyncYourJoy and request to join with the eight-character room code. They do not need to paste or open a video link first.
+4. The controller approves each pending join request from the **Waiting to join** list before that person can see or use the room.
+5. The controller opens the intended video page, or pastes its page URL under **Video page link** and selects **Open link for everyone**.
+6. Everyone waits for **Video matches**, then selects **I'm ready**.
+7. The controller uses the streaming player's normal play, pause, and progress-bar controls. SyncYourJoy sends those actions to the room automatically.
 
 If a provider blocks autoplay, click its video once. Use **Sync me now** for one participant or **Sync everyone** for the whole room if a player drifts. No refresh should be required.
 

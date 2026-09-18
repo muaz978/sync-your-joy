@@ -2,6 +2,12 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [Unreleased]
+
+### Changed
+
+- Joining a room now requires host approval: a brand-new participant's `join_room` becomes a pending request the controller must explicitly approve or deny (a new `respond_to_join` message) before that identity becomes a real room member. Reconnecting an already-known participant identity is unaffected and stays instant. This closes the last open gap in `docs/CODE_AUDIT.md` SYJ-AUD-003.
+
 ## [0.1.23] - 2026-09-18
 
 ### Fixed

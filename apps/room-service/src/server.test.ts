@@ -11,7 +11,7 @@ afterEach(async () => {
 })
 
 describe('room service', () => {
-  it('creates a room and lets a second client join it', async () => {
+  it('creates a room and a second client\'s join_room becomes a pending request, not immediate membership', async () => {
     service = await createRoomService({ port: 0 })
     const host = await connect(service.url)
     const friend = await connect(service.url)
@@ -34,6 +34,7 @@ describe('room service', () => {
     if (created.type !== 'room_joined')
       throw new Error('Expected room_joined')
 
+    const hostPendingNotice = nextMessage(host)
     friend.send(JSON.stringify({
       type: 'join_room',
       protocolVersion: 1,
@@ -44,11 +45,91 @@ describe('room service', () => {
     }))
     const joined = await nextMessage(friend)
     expect(joined.type).toBe('room_joined')
-    if (joined.type === 'room_joined')
-      expect(joined.snapshot.participants).toHaveLength(2)
+    if (joined.type === 'room_joined') {
+      expect(joined.snapshot.participants).toHaveLength(1)
+      expect(joined.snapshot.pendingJoinRequests).toEqual([
+        expect.objectContaining({ id: 'participant_friend', name: 'Rana' }),
+      ])
+    }
+    await expect(hostPendingNotice).resolves.toMatchObject({
+      type: 'room_snapshot',
+      reason: 'join_pending',
+      snapshot: { pendingJoinRequests: [expect.objectContaining({ id: 'participant_friend' })] },
+    })
 
     host.close()
     friend.close()
+  })
+
+  it('lets the controller approve a pending join request, admitting the requester on both sides', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const friend = await connect(service.url)
+    const media = {
+      service: 'youtube',
+      canonicalId: 'youtube:abc123',
+      title: 'A useful test video',
+      durationSeconds: 600,
+    }
+
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'APPRV123', media,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+
+    await joinAndApprove(host, friend, created.snapshot.code, 'participant_friend', 'Rana', media)
+
+    host.send(JSON.stringify({ type: 'ping', id: 'ping_after_approve', sentAtLocalMs: 0 }))
+    const afterApprove = await nextMessage(host)
+    expect(afterApprove).toMatchObject({ type: 'pong', id: 'ping_after_approve' })
+
+    host.close()
+    friend.close()
+  })
+
+  it('lets the controller deny a pending join request; the denied socket is told and dropped from the room', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const friend = await connect(service.url)
+    const media = {
+      service: 'youtube',
+      canonicalId: 'youtube:abc123',
+      title: 'A useful test video',
+      durationSeconds: 600,
+    }
+
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'DENY1234', media,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+
+    const hostPendingNotice = nextMessage(host)
+    friend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: created.snapshot.code, media,
+    }))
+    await nextMessage(friend)
+    await hostPendingNotice
+
+    const hostDenyBroadcast = nextMessage(host)
+    const friendDenied = nextMessage(friend)
+    const friendClosed = new Promise<void>((resolve) => friend.once('close', () => resolve()))
+    host.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_friend', approve: false, actionId: 'action_deny_friend', basedOnRevision: 0, leaseEpoch: 1,
+    }))
+
+    await expect(hostDenyBroadcast).resolves.toMatchObject({
+      type: 'room_snapshot',
+      reason: 'join_denied',
+      snapshot: { participants: [expect.objectContaining({ id: 'participant_host' })], pendingJoinRequests: [] },
+    })
+    await expect(friendDenied).resolves.toMatchObject({ type: 'command_rejected', code: 'join_denied' })
+    await friendClosed
+
+    host.close()
   })
 
   it('rejects malformed messages without crashing the connection', async () => {
@@ -132,11 +213,7 @@ describe('room service', () => {
     expect(hostCreated.type).toBe('room_joined')
     if (hostCreated.type !== 'room_joined')
       throw new Error('Expected room_joined')
-    const hostJoinNotice = nextMessage(host)
-    friend.send(JSON.stringify({
-      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: hostCreated.snapshot.code, media: null,
-    }))
-    await Promise.all([nextMessage(friend), hostJoinNotice])
+    await joinAndApprove(host, friend, hostCreated.snapshot.code, 'participant_friend', 'Rana', null)
 
     const hostRequest = nextMessage(host)
     const friendRequest = nextMessage(friend)
@@ -170,11 +247,7 @@ describe('room service', () => {
     expect(hostCreated.type).toBe('room_joined')
     if (hostCreated.type !== 'room_joined')
       throw new Error('Expected room_joined')
-    const hostJoinNotice = nextMessage(host)
-    friend.send(JSON.stringify({
-      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: hostCreated.snapshot.code, media: null,
-    }))
-    await Promise.all([nextMessage(friend), hostJoinNotice])
+    await joinAndApprove(host, friend, hostCreated.snapshot.code, 'participant_friend', 'Rana', null)
 
     // A fabricated reportId the controller never asked for must not reach it.
     friend.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_never_requested', report: diagnosticReport() }))
@@ -250,6 +323,43 @@ function diagnosticReport() {
     mediaService: null, mediaCanonicalId: null, mediaPageUrl: null, sample: null,
     events: [{ atLocalMs: 9_900, category: 'room', message: 'room_joined', details: { revision: 1 } }],
   }
+}
+
+/**
+ * Sends join_room from `friend`, waits for the controller (`host`) to see it
+ * as a pending request, then has the controller approve it and waits for
+ * both sides to see the resulting broadcast -- the same two-step flow a real
+ * host-approval join (docs/CODE_AUDIT.md SYJ-AUD-003) now requires before a
+ * brand-new participant is a genuine room member.
+ */
+async function joinAndApprove(
+  host: WebSocket,
+  friend: WebSocket,
+  roomCode: string,
+  friendParticipantId: string,
+  friendName: string,
+  media: unknown,
+): Promise<void> {
+  const hostPendingNotice = nextMessage(host)
+  friend.send(JSON.stringify({
+    type: 'join_room', protocolVersion: 1, participantId: friendParticipantId, name: friendName, code: roomCode, media,
+  }))
+  const friendJoined = await nextMessage(friend)
+  if (friendJoined.type !== 'room_joined')
+    throw new Error('Expected room_joined')
+  await hostPendingNotice
+
+  const hostApproved = nextMessage(host)
+  const friendApproved = nextMessage(friend)
+  host.send(JSON.stringify({
+    type: 'respond_to_join',
+    participantId: friendParticipantId,
+    approve: true,
+    actionId: `action_approve_${friendParticipantId}`,
+    basedOnRevision: 0,
+    leaseEpoch: 1,
+  }))
+  await Promise.all([hostApproved, friendApproved])
 }
 
 async function connect(url: string): Promise<WebSocket> {

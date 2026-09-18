@@ -1,4 +1,4 @@
-import { normalizePageUrl, type ParticipantState, type SharedSeek } from '@syncyourjoy/protocol'
+import { normalizePageUrl, type ParticipantState, type PendingJoinRequest, type SharedSeek } from '@syncyourjoy/protocol'
 import type { ExtensionState, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { expectedPosition } from '@syncyourjoy/sync-engine'
 import { retainedPanelScrollTop } from './panel-scroll.ts'
@@ -76,11 +76,28 @@ function releasePanelPointer(): void {
   }, 0)
 }
 
+/**
+ * A brand-new join is now pending until the host approves it (host-approval
+ * join, docs/CODE_AUDIT.md SYJ-AUD-003): the local participant's own id can
+ * appear in the snapshot's `pendingJoinRequests` while it is not yet in
+ * `participants`. That distinct state gets its own view instead of the
+ * normal room UI.
+ */
+function isAwaitingApproval(current: ExtensionState): boolean {
+  const snapshot = current.snapshot
+  if (!snapshot)
+    return false
+  const isParticipant = snapshot.participants.some(participant => participant.id === current.participantId)
+  const isPending = snapshot.pendingJoinRequests.some(request => request.id === current.participantId)
+  return isPending && !isParticipant
+}
+
 function render(): void {
   if (!state)
     return
 
-  const nextViewKey = state.snapshot ? `room:${state.snapshot.code}` : 'welcome'
+  const awaitingApproval = state.snapshot ? isAwaitingApproval(state) : false
+  const nextViewKey = state.snapshot ? `${awaitingApproval ? 'pending' : 'room'}:${state.snapshot.code}` : 'welcome'
   const previousScroller = app.querySelector<HTMLElement>('#panel-scroll')
   const restoredScrollTop = retainedPanelScrollTop(renderedViewKey, nextViewKey, previousScroller?.scrollTop ?? 0)
 
@@ -103,7 +120,7 @@ function render(): void {
       </header>
 
       <main id="panel-scroll" class="z-panel-content min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        ${state.snapshot ? roomView(state) : welcomeView(state)}
+        ${state.snapshot ? (awaitingApproval ? pendingApprovalView(state) : roomView(state)) : welcomeView(state)}
       </main>
 
       <footer class="shrink-0 border-t border-base px-4 py-2.5 text-center text-[0.625rem] leading-[0.875rem] color-fade">
@@ -128,6 +145,29 @@ function render(): void {
   if (nextScroller)
     nextScroller.scrollTop = restoredScrollTop
   renderedViewKey = nextViewKey
+}
+
+function pendingApprovalView(current: ExtensionState): string {
+  const snapshot = current.snapshot
+  if (!snapshot)
+    return ''
+  return `
+    <section class="flex flex-col gap-4">
+      ${privacyDisclosure()}
+      <div class="soft-panel p-4 text-center">
+        <span class="mx-auto grid h-12 w-12 place-items-center rounded-full bg-secondary color-active" aria-hidden="true">
+          ${waitingIcon('h-6 w-6')}
+        </span>
+        <h2 class="mt-3 mb-0 text-sm font-700">Waiting for the host to let you in</h2>
+        <p class="mt-1 mb-0 text-xs leading-5 color-fade">Room ${escapeHtml(snapshot.code)} — you will join automatically once the host approves your request.</p>
+      </div>
+      ${current.lastError ? errorPanel(current.lastError) : ''}
+      <button id="leave-room" class="btn-action w-full text-rose-700 dark:text-rose-300" type="button">
+        ${leaveIcon('h-4 w-4')}
+        Cancel request
+      </button>
+    </section>
+  `
 }
 
 function welcomeView(current: ExtensionState): string {
@@ -174,14 +214,14 @@ function welcomeView(current: ExtensionState): string {
         <input id="room-code" class="field-base font-mono tracking-[0.18em] uppercase tabular-nums" name="code" maxlength="8" autocomplete="off" spellcheck="false" data-draft-input value="${escapeAttribute(draftCode)}" placeholder="A7K9P2QX">
         <button class="btn-action mt-3 w-full tap-scale" type="submit">
           ${enterIcon('h-4 w-4')}
-          Join room
+          Request to join
         </button>
       </form>
 
       ${current.lastError ? errorPanel(current.lastError) : ''}
 
       <div class="px-2 text-xs leading-5 color-fade">
-        Join immediately—even without a video open. The host can then open the same page for everyone before readiness begins.
+        Request to join anytime—even without a video open. The host must approve your request before you can see or use the room, and can then open the same page for everyone before readiness begins.
       </div>
     </section>
   `
@@ -246,6 +286,7 @@ function roomView(current: ExtensionState): string {
         </div>
       </div>
 
+      ${isController && snapshot.pendingJoinRequests.length > 0 ? pendingJoinRequestsCard(snapshot.pendingJoinRequests) : ''}
       ${readinessControls(me, isController, controller, snapshot.media !== null, current.currentMedia !== null, pendingReadyValue !== null)}
       ${isController ? sharedLinkControls(current.currentMedia?.pageUrl ?? null, pendingOpenLinkUrl !== null) : ''}
       ${localSyncControls(current.currentMedia !== null, snapshot.media !== null)}
@@ -289,6 +330,26 @@ function diagnosticControls(): string {
         Download detailed report
       </button>
       <p class="mt-2 mb-0 text-[0.6875rem] leading-4 color-fade">No video, audio, cookies, passwords, or signed URL parameters are included.</p>
+    </div>
+  `
+}
+
+function pendingJoinRequestsCard(requests: PendingJoinRequest[]): string {
+  return `
+    <div class="soft-panel p-4">
+      <p class="section-label m-0">Waiting to join</p>
+      <p class="mt-1 mb-3 text-xs leading-5 color-fade">Only people you approve can join this room.</p>
+      <div class="flex flex-col gap-2">
+        ${requests.map(request => `
+          <div class="soft-inset flex items-center justify-between gap-3 px-3 py-2">
+            <span class="min-w-0 truncate text-sm font-700" title="${escapeAttribute(request.name)}">${escapeHtml(request.name)}</span>
+            <div class="flex shrink-0 gap-2">
+              <button class="btn-primary min-h-9 px-3 text-xs tap-scale" type="button" data-approve-join="${escapeAttribute(request.id)}">Approve</button>
+              <button class="btn-action min-h-9 px-3 text-xs tap-scale" type="button" data-deny-join="${escapeAttribute(request.id)}">Deny</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
     </div>
   `
 }
@@ -625,6 +686,22 @@ function bindRoomActions(): void {
       const participantId = button.dataset.transfer
       if (participantId)
         void perform({ type: 'TRANSFER_CONTROL', participantId })
+    })
+  })
+
+  document.querySelectorAll<HTMLElement>('[data-approve-join]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const participantId = button.dataset.approveJoin
+      if (participantId)
+        void perform({ type: 'RESPOND_TO_JOIN', participantId, approve: true })
+    })
+  })
+
+  document.querySelectorAll<HTMLElement>('[data-deny-join]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const participantId = button.dataset.denyJoin
+      if (participantId)
+        void perform({ type: 'RESPOND_TO_JOIN', participantId, approve: false })
     })
   })
 

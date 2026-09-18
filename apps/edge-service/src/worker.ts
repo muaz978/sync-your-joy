@@ -415,6 +415,43 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
+    if (message.type === 'respond_to_join') {
+      // The controller's identity comes from the sender's own tracked
+      // socket attachment (attachment.participantId), never from a
+      // client-asserted field -- the same pattern transfer_control and
+      // open_link already use.
+      const result = this.coordinator.respondToJoin(attachment.participantId, message.leaseEpoch, message.participantId, message.approve)
+      if (!result.ok) {
+        this.sendResult(socket, message.actionId, result)
+        return
+      }
+
+      if (!message.approve) {
+        // Tell the denied participant's own socket, and only that socket,
+        // then stop tracking it as part of the room -- before broadcasting
+        // the updated snapshot to everyone who remains, so the denied
+        // client never also receives a snapshot for a room it is being
+        // removed from.
+        for (const deniedSocket of this.ctx.getWebSockets()) {
+          const deniedAttachment = deniedSocket.deserializeAttachment() as SocketAttachment | null
+          if (deniedAttachment?.participantId !== message.participantId)
+            continue
+          this.send(deniedSocket, {
+            type: 'command_rejected',
+            actionId: message.actionId,
+            code: 'join_denied',
+            message: 'The host declined to let you join this room.',
+            snapshot: null,
+          })
+          deniedSocket.close(1000, 'join_denied')
+        }
+      }
+
+      this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+      await this.persistAndSchedule()
+      return
+    }
+
     const result = message.type === 'set_ready'
       ? this.coordinator.setReady(attachment.participantId, message.ready, message.media)
       : message.type === 'transfer_control'

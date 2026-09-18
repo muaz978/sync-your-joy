@@ -69,9 +69,15 @@ test.describe('two-profile playback synchronization', () => {
     expect(roomCode).toMatch(/^[A-Z0-9]{8}$/)
 
     // --- Join it from profile B with the room code -------------------------
+    // Host-approval join (docs/CODE_AUDIT.md SYJ-AUD-003): profile B's join
+    // request is now pending until profile A, the room's controller,
+    // approves it, so profile B's panel shows the "waiting for the host"
+    // state instead of the normal room UI until that happens.
     await profileB.panel.fill('#display-name', 'Profile B')
     await profileB.panel.fill('#room-code', roomCode!)
     await profileB.panel.click('#join-form button[type=submit]')
+    await profileA.panel.waitForSelector('[data-approve-join]', { timeout: 15_000 })
+    await profileA.panel.click('[data-approve-join]')
     await profileB.panel.waitForSelector('#copy-code')
     await expect(profileB.panel.locator('#copy-code .font-mono').first()).toHaveText(roomCode!)
 
@@ -166,8 +172,9 @@ async function assertPositionsConverge(pageA: import('@playwright/test').Page, p
 // apps/extension/src/sidepanel.ts) has no dependency on being docked into
 // Chrome's side-panel UI region: it only uses chrome.storage, chrome.runtime
 // messaging, and ordinary DOM APIs. Every button this test clicks
-// (#create-form, #join-form, #ready-button, #shared-video-url,
-// #open-shared-link, #primary-control, [data-seek], #sync-everyone) runs the
+// (#create-form, #join-form, [data-approve-join], #ready-button,
+// #shared-video-url, #open-shared-link, #primary-control, [data-seek],
+// #sync-everyone) runs the
 // exact same real event listener and the exact same real
 // chrome.runtime.sendMessage call whether the page is docked in the side
 // panel or open in an ordinary tab.
