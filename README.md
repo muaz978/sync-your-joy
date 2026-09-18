@@ -71,6 +71,8 @@ Version `0.2.2` fixes a real cause of inconsistent syncing across participants: 
 
 Version `0.2.3` caps how many rooms one IP or the whole process can have open at once on `room-service`'s local dev server, and removes the `inviteToken` that was generated and returned on every join but never actually validated by anything.
 
+Version `0.2.4` fixes three real bugs found during live friend testing: opening a new video link now always starts at position zero instead of carrying over the previous video's position; the extension no longer sends routine messages on a socket that has reconnected but not yet finished rejoining its room; and the stall detector now recognizes a video stuck at a low `readyState` as a real problem even when its own `play()` retries make the `paused` flag flicker.
+
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
 ## Platform compatibility
