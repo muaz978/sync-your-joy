@@ -39,8 +39,9 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.1.23` includes:
+Version `0.2.0` includes:
 
+- host-approval join: a new join request waits for the controller to approve it before that person can see or use the room;
 - automatic room-wide play, pause, forward seek, and backward seek;
 - a transactional seek barrier that aligns real players before playback resumes;
 - readiness for every participant, retained through brief reconnects and protected against temporary player replacement or media loss;
@@ -61,6 +62,8 @@ Version `0.1.23` includes:
 Version `0.1.22` bounds diagnostics below the room transport limit, protects reconnecting participant identities with session capabilities, sanitizes media identity query parameters, supports WebExtension origins across target browsers, and enforces occupied-room lifetime limits.
 
 Version `0.1.23` closes a deep-audit pass across the sync engine, protocol, and both realtime backends: it fixes a seek-barrier deadlock, an unbounded participant cap, unbounded seek targets, and a stall-detection bypass; scopes connection rate limiting per IP over time instead of just per concurrent connection on both backends; rejects a missing WebSocket `Origin` header; verifies diagnostic responses against an outstanding request; closes a reconnect-session-token gap; generates room codes with rejection sampling instead of a plain modulo; and adds CodeQL and DevSkim code scanning, Dependabot version updates, a security policy, and a protected `main` branch requiring CI and code scanning to pass before merge.
+
+Version `0.2.0` requires the controller's approval before a new join request becomes a real room member, the last open item from that audit; adds a seeded property-based fuzz-testing harness for the room state machine (which found and fixed two real bugs); adds the project's first real two-browser-profile end-to-end test; and unifies room-code generation and the origin allowlist into a single shared implementation instead of three separate copies.
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
