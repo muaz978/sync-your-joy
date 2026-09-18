@@ -2594,3 +2594,51 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
 - The guide assets were uploaded to the immutable release without changing the extension ZIP.
+
+## Checkpoint 28 - Deep audit, three releases, and a real sync-engine fix from live friend testing
+
+### Session Metadata
+- Task or project: A full-repository deep audit and bug sweep, followed by real friend-testing feedback that surfaced and led to fixing an actual playback-desync bug, plus repository governance hardening.
+- Checkpoint number: 28.
+- Date: 2026-09-18.
+- Coverage period: A single long session covering a full audit pass, three tagged releases (`v0.2.0`, `v0.2.1`, `v0.2.2`), two production Worker redeployments, and a branch-protection change.
+- Current context status: `main` is at commit `c590e40` (`.github/CODEOWNERS` added). Production and the latest release are both verified working end-to-end against each other.
+
+### Complete Chronological Activity Log
+- Ran a deep audit across the sync engine, protocol, and both realtime backends (`room-service`, `edge-service`), closing a seek-barrier deadlock, an unbounded participant cap, unbounded seek targets, a stall-detection bypass, a reconnect session-token bypass, and biased room-code generation; unified room-code generation and the origin allowlist into `@syncyourjoy/protocol`.
+- Added CodeQL and DevSkim code scanning, tuned Dependabot, added `SECURITY.md`, and put a GitHub ruleset ("Protection") on `main` requiring CI and code scanning before merge.
+- Discovered and fixed a stray, overly broad ruleset that had appeared mid-session requiring a nonexistent check and scoped to all refs; rescoped it to `refs/heads/main` only after the user chose to keep real protection rather than disable it.
+- Ran a 5-item improvement program in parallel: participant/action dedup, a seeded property-based fuzz-testing harness for the room state machine (`room.fuzz.test.ts`, found 2 real bugs), host-approval join (a new join is a pending request the controller must approve), a service-worker persistence audit (fixed `PLAYER_STATUS` blocking on a `chrome.storage.session` write), and the project's first real two-Chrome-profile Playwright E2E test.
+- Released `v0.2.0` with all of the above.
+- A real friend ("Shu") reported "Cannot reach the SyncYourJoy room service" while testing `v0.2.0`. Root-caused it: the production Cloudflare Worker had not been redeployed since 2026-08-29, so it predated host-approval join and everything else in `v0.2.0` -- confirmed by connecting directly and seeing an old-shaped snapshot with no `pendingJoinRequests` field.
+- Fixed the side panel to default `pendingJoinRequests` to `[]` so an old-shaped snapshot from an un-upgraded backend can't crash the render; fixed `scripts/smoke-room-service.mjs` to join using the room's real server-assigned code instead of its own placeholder, and fixed a stale hardcoded revision in its `open_link` step. Released `v0.2.1` and redeployed the production Worker for the first time this session.
+- User then asked for a screenshot-driven investigation of the extension apparently "controlling the player without creating a room." Root-caused it as a different, known Chrome MV3 limitation: reloading the extension does not re-inject content scripts into already-open tabs, so a stale tab keeps a frozen ghost content script with no way to tell the user anything is wrong. Fixed `sendRuntime()` to detect an invalidated `chrome.runtime` context and show a persistent "refresh this page" notice instead of failing silently.
+- User asked for a tightly scoped (no large agent fan-out) investigation specifically into the sync engine, describing a month-long complaint of asymmetric play/pause across participants ("one device plays, the other doesn't, or the opposite"). Traced the full playback-command pipeline directly (clock sync, drift correction, buffering/readiness policy) and found the real bug: `RoomCoordinator.updatePlayerStatus()` already paused the room when a participant's browser explicitly rejected a synchronized `play()` call (an autoplay-policy block), but never cleared that participant's `ready` flag, so `everyoneReady()` kept reporting true and a controller pressing play again immediately re-triggered the identical rejection -- a starts-then-stops loop indistinguishable from broken syncing.
+- Fixed it by clearing readiness on a confirmed play() rejection only (not on transient buffering/stall, which usually self-resolves), added a dedicated regression test, and verified visually (by rendering the real built `sidepanel.js` against a mocked `chrome.runtime`/`chrome.storage`) that the existing "Not ready" / "I'm ready" UI automatically and correctly surfaces this with no protocol change needed.
+- The same visual pass found a second real bug: `participantRow()` showed the "Pass" (transfer control) button *instead of* the participant's status icon (ready/wrong-video/disconnected) for every other connected participant, so the controller -- the person most likely to need to diagnose the room -- had the least visual information about everyone else. Fixed to show both together.
+- Released `v0.2.2` with both fixes and redeployed the production Worker a second time; re-verified with a full end-to-end smoke test against production afterward.
+- Added `.github/CODEOWNERS` (`* @muaz978`) and a new, separate "Require code owner review" ruleset (id `23670565`) requiring an approving review from a code owner before any PR can merge into `main`, with an "always" bypass for the Admin repository role so the existing solo/agent-assisted merge workflow is unaffected. Verified the original "Protection" ruleset was untouched (identical `updated_at`) before and after.
+
+### Confirmed Successful Results
+- `v0.2.0`, `v0.2.1`, and `v0.2.2` all published as verified GitHub Releases (checksum matched, extracted ZIP's `manifest.json` version confirmed, and for `v0.2.1`/`v0.2.2` the actual fix code confirmed present in the built JS).
+- Production Worker (`wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`) redeployed twice this session and smoke-tested clean each time: create room, host-approval join, seek barrier, diagnostics, shared link, ready/play/seek/timeout, buffering guards all passing.
+- Full test suite (149 tests as of `v0.2.2`), typecheck, and both builds green after every change; `npm audit --omit=dev --audit-level=high` clean throughout.
+- Repository hygiene at end of session: zero open PRs, zero open Dependabot alerts, zero open code-scanning alerts.
+
+### Failed, Incomplete, or Unresolved Work
+- A GitHub-platform "Copilot Advanced Security" autonomous review check (`github-advanced-security`, not defined by any workflow file in this repo) failed repeatedly across several PRs this session with `CAPIError: 400 The requested model is not supported`. It is not a required status check and does not block merging, and nothing in this repository's own code or workflows controls it -- it would need attention in the repo/org's GitHub Advanced Security settings, not a commit, if it needs to be resolved.
+- `docs/PRODUCT_PLAN.md`'s next-items list (extend real E2E coverage to a commercial provider, `room-service`'s local-dev-only rate-limiter gap, and the still-unused `inviteToken`) remains open, alongside the older `tasks/plan.md` / `tasks/todo.md` Gate 1-3 items (real multi-device/provider playback tests, real network-chaos tests, headed Firefox/Safari runs) -- all of these require manual, real-device/real-provider testing that cannot be done from this environment.
+
+### Files and Artifacts
+- Latest release: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.2.2`.
+- Production coordinator: `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`, health at `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
+- New ruleset: `https://github.com/muaz978/sync-your-joy/rules/23670565` ("Require code owner review").
+
+### Next Steps
+1. Have friends redownload the latest release ZIP (the stable "latest" link always points to the newest one) and refresh any already-open streaming tabs before testing.
+2. Decide whether to convert the remaining real-device/manual-testing backlog (from `tasks/` and `docs/PRODUCT_PLAN.md`) into tracked GitHub Issues/a milestone.
+3. If the `github-advanced-security` check keeps failing on future PRs, investigate the repository's GitHub Advanced Security / Copilot configuration rather than the code.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- An unrelated checkpoint entry about Arabic/Turkish/English subtitle-alignment tooling was found appended to this file's *working copy* (never committed) at the start of this session, evidently written here by mistake from a different, unrelated task. It was discarded before writing this entry; it never touched git history.
