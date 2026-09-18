@@ -93,7 +93,7 @@ describe('deterministic network-chaos simulation', () => {
 
 function readyRoom(now: () => number): RoomCoordinator {
   const room = new RoomCoordinator(
-    { roomId: 'room-chaos', code: 'CHAOS123', inviteToken: 'invite-chaos' },
+    { roomId: 'room-chaos', code: 'CHAOS123' },
     { id: 'host', name: 'Host', media },
     now,
   )

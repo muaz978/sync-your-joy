@@ -38,7 +38,6 @@ interface DiagnosticCollection {
 let state: ExtensionState = {
   connection: 'disconnected',
   participantId: createId('participant'),
-  inviteToken: null,
   sessionToken: null,
   snapshot: null,
   serverOffsetMs: 0,
@@ -536,7 +535,6 @@ async function startFreshConnection(roomCode: string): Promise<void> {
   socket = null
   connectionPromise = null
   state.snapshot = null
-  state.inviteToken = null
   state.lastOpenedNavigationRevision = 0
   state.lastError = null
   intentionallyClosed = false
@@ -644,7 +642,6 @@ function handleServerMessage(raw: string): void {
   if (message.type === 'room_joined') {
     state.connection = 'connected'
     state.participantId = message.participantId
-    state.inviteToken = message.inviteToken
     state.sessionToken = message.sessionToken ?? null
     state.snapshot = message.snapshot
     state.lastError = null
@@ -792,7 +789,6 @@ function leaveRoom(): void {
   state.roundTripMs = null
   state.lastPongAtMs = 0
   state.snapshot = null
-  state.inviteToken = null
   clearPlayerTab()
   state.lastError = null
   state.lastOpenedNavigationRevision = 0

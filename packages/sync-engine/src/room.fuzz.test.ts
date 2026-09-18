@@ -567,7 +567,7 @@ function createFuzzRoom(seed: number, rng: Rng): { room: RoomCoordinator, model:
   }
 
   const room = new RoomCoordinator(
-    { roomId: `room_fuzz_${seed}`, code: `FZ${String(seed).padStart(6, '0')}`, inviteToken: `invite_fuzz_${seed}` },
+    { roomId: `room_fuzz_${seed}`, code: `FZ${String(seed).padStart(6, '0')}` },
     { id: 'host', name: 'Host', media: initialMedia, ...(hostToken !== undefined ? { sessionToken: hostToken } : {}) },
     now,
   )
@@ -668,7 +668,7 @@ describe('bugs discovered by the fuzz harness (fixed in room.ts)', () => {
   it('does not let a reconnecting participant push a full room past the 10-connected cap', () => {
     const media: MediaFingerprint = { service: 'youtube', canonicalId: 'youtube:cap', title: 'Cap test', durationSeconds: 100 }
     const room = new RoomCoordinator(
-      { roomId: 'room_cap', code: 'CAPCAPCA', inviteToken: 'invite_cap' },
+      { roomId: 'room_cap', code: 'CAPCAPCA' },
       { id: 'host', name: 'Host', media, sessionToken: 'host-session-token-000000' },
       () => 1_000,
     )
@@ -707,7 +707,7 @@ describe('bugs discovered by the fuzz harness (fixed in room.ts)', () => {
   it('clamps an adversarial player-reported position to the media duration when pausing on failure', () => {
     const media: MediaFingerprint = { service: 'youtube', canonicalId: 'youtube:dur', title: 'Duration test', durationSeconds: 120 }
     const room = new RoomCoordinator(
-      { roomId: 'room_dur', code: 'DURDURDU', inviteToken: 'invite_dur' },
+      { roomId: 'room_dur', code: 'DURDURDU' },
       { id: 'host', name: 'Host', media },
       () => 10_000,
     )

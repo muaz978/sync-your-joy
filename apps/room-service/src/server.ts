@@ -210,7 +210,7 @@ export async function createRoomService(options: { port?: number; host?: string 
       // otherwise a direct WebSocket client could mint a low-entropy code.
       const code = createUniqueCode(rooms)
       const coordinator = new RoomCoordinator(
-        { roomId: randomUUID(), code, inviteToken: randomBytes(16).toString('base64url') },
+        { roomId: randomUUID(), code },
         { id: message.participantId, name: message.name, media: message.media, sessionToken: randomBytes(16).toString('base64url') },
       )
       const entry: RoomEntry = { coordinator, sockets: new Set([socket]), emptySinceMs: null, createdAtMs: Date.now(), pendingDiagnosticsRequests: new Map() }
@@ -220,7 +220,6 @@ export async function createRoomService(options: { port?: number; host?: string 
       send(socket, {
         type: 'room_joined',
         participantId: message.participantId,
-        inviteToken: coordinator.inviteToken,
         sessionToken: sessionToken ?? '',
         snapshot: coordinator.snapshot(),
       })
@@ -272,7 +271,6 @@ export async function createRoomService(options: { port?: number; host?: string 
       send(socket, {
         type: 'room_joined',
         participantId: message.participantId,
-        inviteToken: entry.coordinator.inviteToken,
         sessionToken,
         snapshot: result.snapshot,
       })

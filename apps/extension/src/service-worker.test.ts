@@ -183,7 +183,6 @@ describe('service worker restart resume', () => {
       sessionState: {
         connection: 'connected',
         participantId: 'participant_resumed',
-        inviteToken: 'invite_resumed',
         sessionToken: 'session_resumed',
         snapshot: persistedSnapshot,
         serverOffsetMs: 0,
@@ -243,7 +242,6 @@ describe('service worker restart resume', () => {
     socket.simulateMessage({
       type: 'room_joined',
       participantId: 'participant_resumed',
-      inviteToken: 'invite_resumed',
       sessionToken: 'session_resumed',
       snapshot: buildRoomSnapshot({ revision: 6 }),
     })

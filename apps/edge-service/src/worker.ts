@@ -284,7 +284,6 @@ export class RoomDurableObject extends DurableObject<Env> {
         {
           roomId: crypto.randomUUID(),
           code: message.code,
-          inviteToken: randomToken(),
         },
         { id: message.participantId, name: message.name, media: message.media, sessionToken: randomToken() },
       )
@@ -296,7 +295,6 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.send(socket, {
         type: 'room_joined',
         participantId: message.participantId,
-        inviteToken: this.coordinator.inviteToken,
         sessionToken: sessionToken ?? '',
         snapshot: this.coordinator.snapshot(),
       })
@@ -337,7 +335,6 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.send(socket, {
         type: 'room_joined',
         participantId: message.participantId,
-        inviteToken: this.coordinator.inviteToken,
         sessionToken,
         snapshot: result.snapshot,
       })

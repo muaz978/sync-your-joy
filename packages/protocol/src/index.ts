@@ -255,7 +255,6 @@ export type ServerMessage =
   | {
       type: 'room_joined'
       participantId: string
-      inviteToken: string
       sessionToken: string
       snapshot: RoomSnapshot
     }
@@ -297,7 +296,6 @@ export type ServerMessage =
 export interface ClientRoomState {
   connection: ConnectionStatus
   participantId: string
-  inviteToken: string | null
   sessionToken: string | null
   snapshot: RoomSnapshot | null
   serverOffsetMs: number
