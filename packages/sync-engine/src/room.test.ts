@@ -1,6 +1,7 @@
 import type { MediaFingerprint, PlayerSample } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
 import { RoomCoordinator } from './room.ts'
+import type { RoomResult } from './room.ts'
 
 const media: MediaFingerprint = {
   service: 'youtube',
@@ -17,6 +18,22 @@ function createRoom(now: () => number = () => 10_000): RoomCoordinator {
   )
 }
 
+/**
+ * Host-approval join (docs/CODE_AUDIT.md SYJ-AUD-003) means a brand-new
+ * participant identity no longer becomes a real member the moment it calls
+ * join() -- it lands in `pendingJoinRequests` until the controller approves
+ * it. Most existing scenarios in this file only care about exercising room
+ * behavior *after* someone has become a genuine participant, so this helper
+ * performs both steps (join, then the controller's approval) and returns
+ * the final RoomResult, exactly as if a brand-new participant had been
+ * admitted in one step under the pre-approval design.
+ */
+function joinApproved(room: RoomCoordinator, participant: { id: string; name: string; media: MediaFingerprint | null }): RoomResult {
+  room.join(participant)
+  const snapshot = room.snapshot()
+  return room.respondToJoin(snapshot.controller.participantId, snapshot.controller.leaseEpoch, participant.id, true)
+}
+
 describe('RoomCoordinator', () => {
   it('lets participants gather before the host chooses a video page', () => {
     const room = new RoomCoordinator(
@@ -25,15 +42,20 @@ describe('RoomCoordinator', () => {
       () => 10_000,
     )
     const joined = room.join({ id: 'participant_friend', name: 'Rana', media: null })
-
-    expect(joined.ok).toBe(true)
+    expect(joined).toMatchObject({ ok: true, reason: 'join_pending' })
     expect(joined.snapshot.media).toBeNull()
-    expect(joined.snapshot.participants.every(participant => !participant.ready && !participant.mediaMatches)).toBe(true)
+    expect(joined.snapshot.participants).toHaveLength(1)
+    expect(joined.snapshot.pendingJoinRequests).toEqual([
+      { id: 'participant_friend', name: 'Rana', requestedAtMs: expect.any(Number) },
+    ])
+
+    const approved = room.respondToJoin('participant_host', joined.snapshot.controller.leaseEpoch, 'participant_friend', true)
+    expect(approved.snapshot.participants.every(participant => !participant.ready && !participant.mediaMatches)).toBe(true)
 
     const opened = room.openLink('participant_host', {
       actionId: 'action_empty_room_link',
-      basedOnRevision: joined.snapshot.revision,
-      leaseEpoch: joined.snapshot.controller.leaseEpoch,
+      basedOnRevision: approved.snapshot.revision,
+      leaseEpoch: approved.snapshot.controller.leaseEpoch,
       url: 'https://video.example/watch/42',
     })
     expect(opened).toMatchObject({ ok: true, snapshot: { navigation: { url: 'https://video.example/watch/42' } } })
@@ -41,7 +63,7 @@ describe('RoomCoordinator', () => {
 
   it('requires every connected participant to be ready before play', () => {
     const room = createRoom()
-    const joined = room.join({ id: 'participant_friend', name: 'Rana', media })
+    const joined = joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     expect(joined.ok).toBe(true)
     expect(room.snapshot().participants).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'participant_host', ready: false }),
@@ -137,7 +159,7 @@ describe('RoomCoordinator', () => {
   it('holds a playing seek until every ready participant confirms completion', () => {
     let nowMs = 10_000
     const room = createRoom(() => nowMs)
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
     room.control('participant_host', {
@@ -175,7 +197,7 @@ describe('RoomCoordinator', () => {
 
   it('uses the latest target when seeks overlap and ignores obsolete acknowledgements', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
     room.control('participant_host', {
@@ -202,7 +224,7 @@ describe('RoomCoordinator', () => {
 
   it('keeps an originally paused room paused after everyone applies a seek', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
     const sought = room.control('participant_host', {
@@ -221,7 +243,7 @@ describe('RoomCoordinator', () => {
   it('keeps a fixed paused target when a provider never acknowledges a seek', () => {
     let nowMs = 10_000
     const room = createRoom(() => nowMs)
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
     room.control('participant_host', {
@@ -273,8 +295,13 @@ describe('RoomCoordinator', () => {
     })
 
     nowMs = 12_000
-    const joined = room.join({ id: 'participant_friend', name: 'Rana', media })
-    expect(joined).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+    // A brand-new join request is merely pending until approved, so it must
+    // not disrupt playback by itself -- only the controller's approval,
+    // which actually admits a new member into the readiness set, does.
+    const pending = room.join({ id: 'participant_friend', name: 'Rana', media })
+    expect(pending).toMatchObject({ ok: true, reason: 'join_pending', snapshot: { playback: { status: 'playing' } } })
+    const approved = room.respondToJoin('participant_host', pending.snapshot.controller.leaseEpoch, 'participant_friend', true)
+    expect(approved).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
 
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
@@ -291,7 +318,7 @@ describe('RoomCoordinator', () => {
 
   it('pauses when any participant disconnects during playback', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
     room.control('participant_host', {
@@ -308,7 +335,7 @@ describe('RoomCoordinator', () => {
 
   it('restores readiness after a brief reconnect with the same matching media', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_friend', true, media)
 
     const disconnected = room.disconnect('participant_friend')
@@ -341,7 +368,7 @@ describe('RoomCoordinator', () => {
 
   it('rejects impersonation of a participant whose record was never assigned a session token', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
 
     const hijacked = room.join({ id: 'participant_friend', name: 'Attacker', media, sessionToken: 'attacker-chosen-token' })
     expect(hijacked).toMatchObject({ ok: false, code: 'session_invalid' })
@@ -352,7 +379,7 @@ describe('RoomCoordinator', () => {
 
   it('does not restore readiness when a participant reconnects on different media', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_friend', true, media)
     room.disconnect('participant_friend')
 
@@ -379,7 +406,7 @@ describe('RoomCoordinator', () => {
       kind: 'play',
       positionSeconds: 20,
     })
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
     room.control('participant_host', {
@@ -403,7 +430,7 @@ describe('RoomCoordinator', () => {
 
   it('lets only the controller schedule a safe shared link and resets readiness', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
 
@@ -433,7 +460,7 @@ describe('RoomCoordinator', () => {
 
   it('rejects member controls and stale controller leases', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
 
     const memberResult = room.control('participant_friend', {
       actionId: 'action_member1',
@@ -458,7 +485,7 @@ describe('RoomCoordinator', () => {
   it('blocks readiness when media does not match', () => {
     const room = createRoom()
     const otherMedia = { ...media, canonicalId: 'youtube:different' }
-    room.join({ id: 'participant_friend', name: 'Rana', media: otherMedia })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media: otherMedia })
     const result = room.setReady('participant_friend', true, otherMedia)
     const friend = result.snapshot.participants.find(participant => participant.id === 'participant_friend')
 
@@ -660,7 +687,7 @@ describe('RoomCoordinator', () => {
 
   it('restores the authoritative state after hibernation', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
     room.control('participant_host', {
@@ -686,8 +713,8 @@ describe('RoomCoordinator', () => {
 
   it('lets a pending seek resolve after an unrelated readiness change bumps the room revision without clearing it', () => {
     const room = createRoom()
-    room.join({ id: 'participant_friend', name: 'Rana', media })
-    room.join({ id: 'participant_extra', name: 'Sam', media: null })
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
+    joinApproved(room, { id: 'participant_extra', name: 'Sam', media: null })
     room.setReady('participant_host', true, media)
     room.setReady('participant_friend', true, media)
 
@@ -721,14 +748,14 @@ describe('RoomCoordinator', () => {
     const room = createRoom()
     const memberIds = Array.from({ length: 9 }, (_, index) => `participant_member_${index}`)
     for (const id of memberIds)
-      room.join({ id, name: id, media })
+      joinApproved(room, { id, name: id, media })
     expect(room.snapshot().participants).toHaveLength(10)
 
     for (const id of memberIds)
       room.disconnect(id)
 
     const rejoined = room.join({ id: 'participant_newcomer', name: 'Newcomer', media })
-    expect(rejoined).toMatchObject({ ok: true, reason: 'participant_joined' })
+    expect(rejoined).toMatchObject({ ok: true, reason: 'join_pending' })
   })
 
   it('clamps a seek target to the known media duration', () => {
@@ -804,5 +831,115 @@ describe('RoomCoordinator', () => {
     expect(Object.keys(participant ?? {}).sort()).toEqual(
       ['connected', 'id', 'latencyMs', 'mediaMatches', 'name', 'ready', 'role'].sort(),
     )
+  })
+
+  describe('host-approval join (SYJ-AUD-003)', () => {
+    it('places a new join request in pendingJoinRequests, not participants', () => {
+      const room = createRoom()
+      const joined = room.join({ id: 'participant_friend', name: 'Rana', media })
+
+      expect(joined).toMatchObject({ ok: true, reason: 'join_pending' })
+      expect(joined.snapshot.participants.map(p => p.id)).toEqual(['participant_host'])
+      expect(joined.snapshot.pendingJoinRequests).toEqual([
+        { id: 'participant_friend', name: 'Rana', requestedAtMs: expect.any(Number) },
+      ])
+    })
+
+    it('never exposes media or a session token on a pending join request', () => {
+      const room = createRoom()
+      const joined = room.join({ id: 'participant_friend', name: 'Rana', media, sessionToken: 'friend-session-token-000000' })
+      const request = joined.snapshot.pendingJoinRequests[0]
+
+      expect(request).not.toHaveProperty('media')
+      expect(request).not.toHaveProperty('sessionToken')
+      expect(Object.keys(request ?? {}).sort()).toEqual(['id', 'name', 'requestedAtMs'].sort())
+    })
+
+    it('approving a pending request moves it into participants with the standard new-member defaults', () => {
+      const room = createRoom()
+      const joined = room.join({ id: 'participant_friend', name: 'Rana', media })
+      const approved = room.respondToJoin('participant_host', joined.snapshot.controller.leaseEpoch, 'participant_friend', true)
+
+      expect(approved).toMatchObject({ ok: true, reason: 'join_approved' })
+      expect(approved.snapshot.pendingJoinRequests).toEqual([])
+      expect(approved.snapshot.participants).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: 'participant_friend',
+          name: 'Rana',
+          role: 'member',
+          ready: false,
+          connected: true,
+          mediaMatches: true,
+          latencyMs: null,
+        }),
+      ]))
+    })
+
+    it('denying a pending request removes it without touching other participants or the revision-based invariants', () => {
+      const room = createRoom()
+      const joined = room.join({ id: 'participant_friend', name: 'Rana', media })
+      const revisionBeforeDeny = joined.snapshot.revision
+
+      const denied = room.respondToJoin('participant_host', joined.snapshot.controller.leaseEpoch, 'participant_friend', false)
+
+      expect(denied).toMatchObject({ ok: true, reason: 'join_denied' })
+      expect(denied.snapshot.pendingJoinRequests).toEqual([])
+      expect(denied.snapshot.participants.map(p => p.id)).toEqual(['participant_host'])
+      expect(denied.snapshot.revision).toBeGreaterThan(revisionBeforeDeny)
+
+      // The identity is gone from pendingJoinRequests entirely -- it can only
+      // come back by submitting a brand-new join request.
+      const secondResponse = room.respondToJoin('participant_host', denied.snapshot.controller.leaseEpoch, 'participant_friend', true)
+      expect(secondResponse).toMatchObject({ ok: false, code: 'not_found' })
+    })
+
+    it('rejects respondToJoin from a non-controller or with a stale lease epoch', () => {
+      const room = createRoom()
+      const joined = room.join({ id: 'participant_friend', name: 'Rana', media })
+
+      const fromNonController = room.respondToJoin('participant_someone_else', joined.snapshot.controller.leaseEpoch, 'participant_friend', true)
+      expect(fromNonController).toMatchObject({ ok: false, code: 'controller_only' })
+      expect(fromNonController.snapshot.pendingJoinRequests).toHaveLength(1)
+
+      const withStaleLease = room.respondToJoin('participant_host', joined.snapshot.controller.leaseEpoch + 1, 'participant_friend', true)
+      expect(withStaleLease).toMatchObject({ ok: false, code: 'controller_only' })
+      expect(withStaleLease.snapshot.pendingJoinRequests).toHaveLength(1)
+    })
+
+    it('caps pending requests plus connected participants combined at 10, the same as the connected-only cap', () => {
+      const room = createRoom()
+      const memberIds = Array.from({ length: 9 }, (_, index) => `participant_member_${index}`)
+      for (const id of memberIds)
+        joinApproved(room, { id, name: id, media })
+      expect(room.snapshot().participants).toHaveLength(10)
+
+      const overflow = room.join({ id: 'participant_overflow', name: 'Overflow', media })
+      expect(overflow).toMatchObject({ ok: false, code: 'room_full' })
+      expect(overflow.snapshot.pendingJoinRequests).toEqual([])
+
+      // Freeing one connected slot without approving anyone lets exactly one
+      // new request become pending -- and no more, since 9 connected + 1
+      // pending is already back at the cap of 10.
+      room.disconnect(memberIds[0]!)
+      const admitted = room.join({ id: 'participant_pending_1', name: 'Pending One', media })
+      expect(admitted).toMatchObject({ ok: true, reason: 'join_pending' })
+
+      const secondOverflow = room.join({ id: 'participant_pending_2', name: 'Pending Two', media })
+      expect(secondOverflow).toMatchObject({ ok: false, code: 'room_full' })
+    })
+
+    it('leaves reconnecting an existing participant identity completely unaffected -- still instant, still the untouched reconnect branch', () => {
+      const room = createRoom()
+      joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
+      // An unrelated pending request for a different identity must not
+      // change how an existing participant's reconnect is handled.
+      room.join({ id: 'participant_stranger', name: 'Stranger', media })
+
+      room.disconnect('participant_friend')
+      const reconnected = room.join({ id: 'participant_friend', name: 'Rana', media })
+
+      expect(reconnected).toMatchObject({ ok: true, reason: 'participant_reconnected' })
+      expect(reconnected.snapshot.pendingJoinRequests.map(request => request.id)).toEqual(['participant_stranger'])
+    })
   })
 })

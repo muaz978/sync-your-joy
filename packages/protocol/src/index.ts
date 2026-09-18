@@ -94,6 +94,19 @@ export interface RoomPolicy {
   buffering: 'pause-all' | 'catch-up'
 }
 
+/**
+ * A brand-new (non-reconnecting) join request awaiting the controller's
+ * approve/deny decision, as it appears in a room snapshot. Deliberately
+ * excludes `media` and `sessionToken`: the same minimal-exposure discipline
+ * `ParticipantState` follows for internal-only or sensitive fields never
+ * meant to leave the room's trust boundary.
+ */
+export interface PendingJoinRequest {
+  id: string
+  name: string
+  requestedAtMs: number
+}
+
 export interface RoomSnapshot {
   roomId: string
   code: string
@@ -107,6 +120,7 @@ export interface RoomSnapshot {
   seek: SharedSeek | null
   navigation: SharedNavigation | null
   participants: ParticipantState[]
+  pendingJoinRequests: PendingJoinRequest[]
   policy: RoomPolicy
 }
 
@@ -199,6 +213,14 @@ export type ClientMessage =
       basedOnRevision: number
       leaseEpoch: number
       url: string
+    }
+  | {
+      type: 'respond_to_join'
+      participantId: string
+      approve: boolean
+      actionId: string
+      basedOnRevision: number
+      leaseEpoch: number
     }
   | {
       type: 'player_status'
@@ -425,6 +447,11 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       if (!validId(value.actionId) || !isNonNegativeInteger(value.basedOnRevision) || !isNonNegativeInteger(value.leaseEpoch) || !validPageUrl(value.url))
         return null
       return { ...value, url: normalizePageUrl(value.url) } as unknown as ClientMessage
+
+    case 'respond_to_join':
+      if (!validId(value.participantId) || typeof value.approve !== 'boolean' || !validId(value.actionId) || !isNonNegativeInteger(value.basedOnRevision) || !isNonNegativeInteger(value.leaseEpoch))
+        return null
+      return value as unknown as ClientMessage
 
     case 'player_status':
       if (!isNonNegativeInteger(value.basedOnRevision) || !validPlayerSample(value.sample))

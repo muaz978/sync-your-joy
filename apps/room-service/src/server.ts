@@ -352,6 +352,43 @@ export async function createRoomService(options: { port?: number; host?: string 
       return
     }
 
+    if (message.type === 'respond_to_join') {
+      // The controller's identity comes from the sender's own tracked
+      // socket (client.participantId), never from a client-asserted field
+      // -- the same pattern transfer_control and open_link already use.
+      const result = room.coordinator.respondToJoin(client.participantId, message.leaseEpoch, message.participantId, message.approve)
+      if (!result.ok) {
+        sendResult(socket, message.actionId, result)
+        return
+      }
+
+      if (!message.approve) {
+        // Tell the denied participant's own socket, and only that socket,
+        // then stop tracking it as part of the room -- before broadcasting
+        // the updated snapshot to everyone who remains, so the denied
+        // client never also receives a snapshot for a room it is being
+        // removed from.
+        for (const deniedSocket of [...room.sockets]) {
+          const deniedClient = clients.get(deniedSocket)
+          if (deniedClient?.participantId !== message.participantId)
+            continue
+          send(deniedSocket, {
+            type: 'command_rejected',
+            actionId: message.actionId,
+            code: 'join_denied',
+            message: 'The host declined to let you join this room.',
+            snapshot: null,
+          })
+          room.sockets.delete(deniedSocket)
+          clients.delete(deniedSocket)
+          deniedSocket.close(1000, 'join_denied')
+        }
+      }
+
+      broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+      return
+    }
+
     const result = message.type === 'set_ready'
       ? room.coordinator.setReady(client.participantId, message.ready, message.media)
       : message.type === 'transfer_control'

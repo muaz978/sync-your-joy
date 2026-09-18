@@ -29,6 +29,15 @@ export interface RoomIdentity {
   inviteToken: string
 }
 
+export interface InternalPendingJoinRequest {
+  id: string
+  name: string
+  media: MediaFingerprint | null
+  /** Random capability the eventual approved participant record will carry. */
+  sessionToken?: string
+  requestedAtMs: number
+}
+
 export interface RoomCoordinatorState {
   identity: RoomIdentity
   revision: number
@@ -41,6 +50,7 @@ export interface RoomCoordinatorState {
   navigation?: SharedNavigation | null
   controlRevisionFloor?: number
   pendingSeek?: SharedSeek | null
+  pendingJoinRequests?: InternalPendingJoinRequest[]
 }
 
 export interface ControlIntent {
@@ -72,6 +82,7 @@ export class RoomCoordinator {
   private media: MediaFingerprint | null
   private playback: PlaybackState
   private readonly participants = new Map<string, InternalParticipant>()
+  private readonly pendingJoinRequests = new Map<string, InternalPendingJoinRequest>()
   private readonly actionIds = new Set<string>()
   private navigation: SharedNavigation | null = null
   private controlRevisionFloor = 0
@@ -100,6 +111,8 @@ export class RoomCoordinator {
       this.navigation = restoredState.navigation ?? null
       this.controlRevisionFloor = restoredState.controlRevisionFloor ?? restoredState.revision
       this.pendingSeek = restoredState.pendingSeek ? structuredClone(restoredState.pendingSeek) : null
+      for (const request of restoredState.pendingJoinRequests ?? [])
+        this.pendingJoinRequests.set(request.id, structuredClone(request))
       return
     }
 
@@ -153,6 +166,7 @@ export class RoomCoordinator {
       navigation: this.navigation ? { ...this.navigation } : null,
       controlRevisionFloor: this.controlRevisionFloor,
       pendingSeek: this.pendingSeek ? structuredClone(this.pendingSeek) : null,
+      pendingJoinRequests: [...this.pendingJoinRequests.values()].map(request => structuredClone(request)),
     }
   }
 
@@ -188,22 +202,58 @@ export class RoomCoordinator {
       return this.success('participant_reconnected')
     }
 
+    // Count both currently-connected participants and requests already
+    // pending approval against the same cap of 10, so a flood of brand-new
+    // join requests can't bypass it by staying "merely pending" forever.
     const connectedCount = [...this.participants.values()].filter(item => item.connected).length
-    if (connectedCount >= 10)
+    if (connectedCount + this.pendingJoinRequests.size >= 10)
       return this.failure('room_full', 'This room already has 10 participants.')
 
-    const matches = mediaMatches(this.media, participant.media)
-    this.participants.set(participant.id, {
+    // A brand-new participant identity no longer joins immediately (see
+    // docs/CODE_AUDIT.md SYJ-AUD-003): it becomes a pending request the
+    // controller must explicitly approve or deny via respondToJoin(). This
+    // has no effect on anyone's readiness/membership set yet, so unlike an
+    // approved join it does not pause an in-progress playback.
+    this.pendingJoinRequests.set(participant.id, {
       id: participant.id,
       name: participant.name,
+      media: participant.media,
+      ...(participant.sessionToken ? { sessionToken: participant.sessionToken } : {}),
+      requestedAtMs: this.now(),
+    })
+    this.revision += 1
+    this.markStateBarrier()
+    return this.success('join_pending')
+  }
+
+  respondToJoin(controllerId: string, leaseEpoch: number, participantId: string, approve: boolean): RoomResult {
+    if (controllerId !== this.controllerId || leaseEpoch !== this.leaseEpoch)
+      return this.failure('controller_only', 'Only the current controller can respond to join requests.')
+
+    const pending = this.pendingJoinRequests.get(participantId)
+    if (!pending)
+      return this.failure('not_found', 'That join request is no longer pending.')
+
+    this.pendingJoinRequests.delete(participantId)
+
+    if (!approve) {
+      this.revision += 1
+      this.markStateBarrier()
+      return this.success('join_denied')
+    }
+
+    const matches = mediaMatches(this.media, pending.media)
+    this.participants.set(pending.id, {
+      id: pending.id,
+      name: pending.name,
       role: 'member',
       ready: false,
       connected: true,
       mediaMatches: matches,
       latencyMs: null,
       joinedAtMs: this.now(),
-      media: participant.media,
-      ...(participant.sessionToken ? { sessionToken: participant.sessionToken } : {}),
+      media: pending.media,
+      ...(pending.sessionToken ? { sessionToken: pending.sessionToken } : {}),
       lastSample: null,
       lastSampleReceivedAtMs: this.now(),
       lastProgressAtServerMs: this.now(),
@@ -211,7 +261,7 @@ export class RoomCoordinator {
     this.pauseForMembershipChange()
     this.revision += 1
     this.markStateBarrier()
-    return this.success('participant_joined')
+    return this.success('join_approved')
   }
 
   setReady(participantId: string, ready: boolean, media: MediaFingerprint | null): RoomResult {
@@ -522,6 +572,13 @@ export class RoomCoordinator {
       participants: [...this.participants.values()]
         .sort((a, b) => a.joinedAtMs - b.joinedAtMs)
         .map(({ joinedAtMs: _joinedAtMs, sessionToken: _sessionToken, media: _media, lastSample: _lastSample, lastSampleReceivedAtMs: _lastSampleReceivedAtMs, lastProgressAtServerMs: _lastProgressAtServerMs, ...participant }) => ({ ...participant })),
+      // Deliberately excludes `media` and `sessionToken`, matching the same
+      // minimal-exposure discipline as the participants mapping above.
+      pendingJoinRequests: [...this.pendingJoinRequests.values()].map(request => ({
+        id: request.id,
+        name: request.name,
+        requestedAtMs: request.requestedAtMs,
+      })),
       policy: { buffering: 'pause-all' },
     }
   }

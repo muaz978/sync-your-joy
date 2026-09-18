@@ -167,6 +167,39 @@ describe('media identity matching', () => {
     })).toBeNull()
   })
 
+  it('accepts a valid respond_to_join controller message and rejects a malformed one', () => {
+    expect(parseClientMessage({
+      type: 'respond_to_join',
+      participantId: 'participant_friend',
+      approve: true,
+      actionId: 'action_respond1',
+      basedOnRevision: 4,
+      leaseEpoch: 1,
+    })).toMatchObject({
+      type: 'respond_to_join',
+      participantId: 'participant_friend',
+      approve: true,
+    })
+
+    expect(parseClientMessage({
+      type: 'respond_to_join',
+      participantId: 'participant_friend',
+      approve: 'yes',
+      actionId: 'action_respond2',
+      basedOnRevision: 4,
+      leaseEpoch: 1,
+    })).toBeNull()
+
+    expect(parseClientMessage({
+      type: 'respond_to_join',
+      participantId: 'participant_friend',
+      approve: false,
+      actionId: 'action_respond3',
+      basedOnRevision: -1,
+      leaseEpoch: 1,
+    })).toBeNull()
+  })
+
   it('accepts an optional reconnect session token only in join messages', () => {
     expect(parseClientMessage({
       type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: 'ABCDEFGH', media: null,

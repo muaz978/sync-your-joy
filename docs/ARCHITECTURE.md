@@ -76,9 +76,12 @@ type RoomSnapshot = {
     playbackRate: number;
   };
   participants: ParticipantState[];
+  pendingJoinRequests: { id: string; name: string; requestedAtMs: number }[];
   policy: { buffering: "pause-all" | "catch-up" };
 };
 ```
+
+A brand-new (non-reconnecting) join is not membership: it lands in `pendingJoinRequests` until the controller approves or denies it (see section 7). Only a `respond_to_join` from the controller moves a request into `participants`, or removes it on denial. Reconnecting an already-known participant identity, by contrast, is instant and unaffected by this: it presents the per-participant session capability it was issued and is admitted directly.
 
 Every control intent includes a unique action ID, the caller's participant ID and lease epoch, the room revision it was based on, and the latest local playback sample. The coordinator validates authority, assigns the next revision, computes an effective server time, stores the new snapshot, and broadcasts one canonical event.
 
@@ -146,6 +149,7 @@ Never rely only on the visible title or duration. The coordinator blocks readine
 
 - WSS/HTTPS only.
 - Random room and participant session capabilities; human room codes are still required and should be treated as private beta bearer secrets.
+- Knowing a room code only lets a client submit a join request; the controller must explicitly approve it (`respond_to_join`) before that identity becomes a real participant, closing the "no host approval step" gap from `docs/CODE_AUDIT.md` SYJ-AUD-003. Pending requests count against the same 10-participant cap as connected members. Reconnecting an already-known participant identity remains instant and untouched by this, since it is already protected by its own per-participant session capability.
 - Ephemeral rooms, default expiration after the party, with an explicit maximum lifetime.
 - No streaming-service tokens, cookies, passwords, media bytes, screenshots, decoded frames, full DOM, or full browsing history.
 - Strip fragments and unknown URL query strings before media identity transmission; retain only provider or generic identifier keys that have been reviewed for matching.

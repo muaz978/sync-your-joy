@@ -97,7 +97,11 @@ function readyRoom(now: () => number): RoomCoordinator {
     { id: 'host', name: 'Host', media },
     now,
   )
-  room.join({ id: 'friend', name: 'Friend', media })
+  // Host-approval join (docs/CODE_AUDIT.md SYJ-AUD-003): a brand-new
+  // participant identity is merely pending until the controller approves
+  // it, so this fixture must approve "friend" before it can become ready.
+  const joined = room.join({ id: 'friend', name: 'Friend', media })
+  room.respondToJoin('host', joined.snapshot.controller.leaseEpoch, 'friend', true)
   room.setReady('host', true, media)
   room.setReady('friend', true, media)
   return room

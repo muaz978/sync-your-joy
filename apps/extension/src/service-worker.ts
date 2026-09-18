@@ -464,6 +464,24 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return success()
     }
 
+    case 'RESPOND_TO_JOIN': {
+      const snapshot = state.snapshot
+      if (!snapshot)
+        return failure('Join a room first.')
+      if (!isController())
+        return failure('Only the controller can approve or deny join requests.')
+      if (!sendToServer({
+        type: 'respond_to_join',
+        participantId: request.participantId,
+        approve: request.approve,
+        actionId: createId('action'),
+        basedOnRevision: snapshot.revision,
+        leaseEpoch: snapshot.controller.leaseEpoch,
+      }))
+        return failure('The room connection was interrupted. Reconnecting now.')
+      return success()
+    }
+
     case 'OPEN_PANEL':
       return success()
   }
@@ -648,6 +666,18 @@ function handleServerMessage(raw: string): void {
   }
 
   if (message.type === 'command_rejected') {
+    if (message.code === 'join_denied') {
+      // The host declined this join request and the server is about to
+      // close this socket -- leave the room the same way LEAVE_ROOM does,
+      // so the pending-close handler below does not treat this as a
+      // dropped connection worth auto-reconnecting back into.
+      recordDiagnostic('error', 'join_denied', { message: message.message })
+      leaveRoom()
+      state.lastError = message.message
+      void publishState()
+      void sendToPlayerTab({ type: 'SHOW_NOTICE', message: message.message })
+      return
+    }
     if (message.snapshot)
       state.snapshot = message.snapshot
     state.lastError = message.message

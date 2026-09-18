@@ -87,6 +87,7 @@ interface AcknowledgeSeekOp { kind: 'acknowledgeSeek', participantId: string, re
 interface UpdatePlayerStatusOp { kind: 'updatePlayerStatus', participantId: string, basedOnRevision: number, sample: PlayerSample }
 interface OpenLinkOp { kind: 'openLink', participantId: string, intent: OpenLinkIntent, reusedActionId: boolean }
 interface TransferControlOp { kind: 'transferControl', fromParticipantId: string, toParticipantId: string, leaseEpoch: number }
+interface RespondToJoinOp { kind: 'respondToJoin', controllerId: string, leaseEpoch: number, participantId: string, approve: boolean }
 
 type FuzzOp =
   | JoinOp
@@ -97,9 +98,16 @@ type FuzzOp =
   | UpdatePlayerStatusOp
   | OpenLinkOp
   | TransferControlOp
+  | RespondToJoinOp
 
 interface FuzzModel {
-  participantIds: string[]
+  // Real, confirmed room members (host-approval join, SYJ-AUD-003, means a
+  // brand-new join no longer lands here immediately -- see pendingIds).
+  confirmedParticipantIds: string[]
+  // Brand-new join requests that are pending the controller's approve/deny
+  // decision. A reconnect targets confirmedParticipantIds only, since a
+  // pending request has no real participant record to reconnect into.
+  pendingParticipantIds: string[]
   sessionTokens: Map<string, string | undefined>
   actionIdPool: string[]
   nextIdCounter: number
@@ -135,9 +143,15 @@ function mediaVariant(rng: Rng, base: MediaFingerprint | null): MediaFingerprint
 }
 
 function pickParticipantId(rng: Rng, model: FuzzModel, ghostProbability: number): string {
-  if (model.participantIds.length === 0 || chance(rng, ghostProbability))
+  if (model.confirmedParticipantIds.length === 0 || chance(rng, ghostProbability))
     return `ghost_${randomAlnum(rng, 10)}`
-  return pick(rng, model.participantIds)
+  return pick(rng, model.confirmedParticipantIds)
+}
+
+function pickPendingParticipantId(rng: Rng, model: FuzzModel, ghostProbability: number): string {
+  if (model.pendingParticipantIds.length === 0 || chance(rng, ghostProbability))
+    return `ghost_${randomAlnum(rng, 10)}`
+  return pick(rng, model.pendingParticipantIds)
 }
 
 function pickRevision(rng: Rng, snap: RoomSnapshot): number {
@@ -187,7 +201,7 @@ function randomPageUrl(rng: Rng): string {
 // -----------------------------------------------------------------------
 
 function generateJoinOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): JoinOp {
-  const wantsReconnect = model.participantIds.length > 0 && chance(rng, 0.35)
+  const wantsReconnect = model.confirmedParticipantIds.length > 0 && chance(rng, 0.35)
 
   if (!wantsReconnect) {
     model.nextIdCounter += 1
@@ -203,7 +217,7 @@ function generateJoinOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): JoinOp 
     }
   }
 
-  const id = pick(rng, model.participantIds)
+  const id = pick(rng, model.confirmedParticipantIds)
   const knownToken = model.sessionTokens.get(id)
   const wantsWrongToken = chance(rng, 0.25)
   const sessionToken = wantsWrongToken
@@ -336,6 +350,16 @@ function generateTransferControlOp(rng: Rng, model: FuzzModel, snap: RoomSnapsho
   }
 }
 
+function generateRespondToJoinOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): RespondToJoinOp {
+  return {
+    kind: 'respondToJoin',
+    controllerId: chance(rng, 0.75) ? snap.controller.participantId : pickParticipantId(rng, model, 0.2),
+    leaseEpoch: pickLeaseEpoch(rng, snap),
+    participantId: pickPendingParticipantId(rng, model, 0.15),
+    approve: chance(rng, 0.6),
+  }
+}
+
 function generateOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): FuzzOp {
   const kind = weightedPick<FuzzOp['kind']>(rng, [
     { weight: 25, value: 'join' },
@@ -346,6 +370,7 @@ function generateOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): FuzzOp {
     { weight: 12, value: 'updatePlayerStatus' },
     { weight: 3, value: 'openLink' },
     { weight: 2, value: 'transferControl' },
+    { weight: 12, value: 'respondToJoin' },
   ])
 
   switch (kind) {
@@ -357,6 +382,7 @@ function generateOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): FuzzOp {
     case 'updatePlayerStatus': return generateUpdatePlayerStatusOp(rng, model, snap)
     case 'openLink': return generateOpenLinkOp(rng, model, snap)
     case 'transferControl': return generateTransferControlOp(rng, model, snap)
+    case 'respondToJoin': return generateRespondToJoinOp(rng, model, snap)
   }
 }
 
@@ -383,16 +409,34 @@ function applyOp(room: RoomCoordinator, op: FuzzOp): RoomResult | null {
       return room.openLink(op.participantId, op.intent)
     case 'transferControl':
       return room.transferControl(op.fromParticipantId, op.toParticipantId, op.leaseEpoch)
+    case 'respondToJoin':
+      return room.respondToJoin(op.controllerId, op.leaseEpoch, op.participantId, op.approve)
   }
 }
 
 function updateModel(model: FuzzModel, op: FuzzOp, result: RoomResult | null): void {
   if (op.kind === 'join') {
     if (result?.ok) {
-      if (!model.participantIds.includes(op.id))
-        model.participantIds.push(op.id)
-      if (op.mode === 'new')
+      if (op.mode === 'reconnect') {
+        // The reconnect branch is untouched by host-approval join: success
+        // here means the identity was, and remains, a real participant.
+        if (!model.confirmedParticipantIds.includes(op.id))
+          model.confirmedParticipantIds.push(op.id)
+      }
+      else if (result.reason === 'join_pending') {
+        if (!model.pendingParticipantIds.includes(op.id))
+          model.pendingParticipantIds.push(op.id)
         model.sessionTokens.set(op.id, op.sessionToken)
+      }
+    }
+    return
+  }
+
+  if (op.kind === 'respondToJoin') {
+    if (result?.ok) {
+      model.pendingParticipantIds = model.pendingParticipantIds.filter(id => id !== op.participantId)
+      if (result.reason === 'join_approved' && !model.confirmedParticipantIds.includes(op.participantId))
+        model.confirmedParticipantIds.push(op.participantId)
     }
     return
   }
@@ -411,6 +455,7 @@ function updateModel(model: FuzzModel, op: FuzzOp, result: RoomResult | null): v
 // -----------------------------------------------------------------------
 
 const FORBIDDEN_PARTICIPANT_KEYS = ['sessionToken', 'media', 'lastSample', 'lastSampleReceivedAtMs', 'lastProgressAtServerMs'] as const
+const FORBIDDEN_PENDING_JOIN_KEYS = ['sessionToken', 'media'] as const
 
 function renderContext(seed: number, step: number, op: FuzzOp, history: readonly string[]): string {
   return `seed=${seed} step=${step} op=${JSON.stringify(op)}\nrecent ops:\n${history.slice(-15).join('\n')}`
@@ -445,11 +490,47 @@ function checkInvariants(options: {
   if (connectedCount > 10)
     throw new Error(`Invariant violated: connected participant count ${connectedCount} > 10.\n${context()}`)
 
+  // 3b. A pending join request never exposes media or a session token --
+  // the same minimal-exposure discipline as the participants mapping.
+  for (const request of after.pendingJoinRequests) {
+    for (const key of FORBIDDEN_PENDING_JOIN_KEYS) {
+      if (key in request)
+        throw new Error(`Invariant violated: pending join request "${request.id}" leaked internal field "${key}".\n${context()}`)
+    }
+  }
+
   // 4. Playback position never runs past a known media duration, including
   // via updatePlayerStatus()'s pause-on-failure/stall/buffering branch (see
   // the "unclamped status position" regression test below, fixed in room.ts).
   if (after.media && typeof after.media.durationSeconds === 'number' && after.playback.positionSeconds > after.media.durationSeconds)
     throw new Error(`Invariant violated: playback position ${after.playback.positionSeconds} exceeds media duration ${after.media.durationSeconds}.\n${context()}`)
+}
+
+/**
+ * Invariant (SYJ-AUD-003): a brand-new (non-reconnecting) join request is
+ * never accepted as pending while connected participants plus requests
+ * already pending were already at the 10-participant cap. This is scoped to
+ * `mode: 'new'` join operations specifically -- it is not a standing global
+ * invariant, because the untouched reconnect branch enforces its own,
+ * independent `connectedCount`-only cap and can transiently coexist with
+ * pending requests that push the *combined* total above 10; that is
+ * accepted, pre-existing behavior this task does not change.
+ */
+function checkJoinCapacityInvariant(options: {
+  seed: number
+  step: number
+  op: JoinOp
+  before: RoomSnapshot
+  result: RoomResult | null
+  history: readonly string[]
+}): void {
+  const { seed, step, op, before, result, history } = options
+  const context = () => renderContext(seed, step, op, history)
+  const combinedBefore = before.participants.filter(p => p.connected).length + before.pendingJoinRequests.length
+
+  if (combinedBefore >= 10 && result?.ok) {
+    throw new Error(`Capacity invariant violated: a brand-new join request was accepted as pending while connected+pending was already at the cap (${combinedBefore}).\n${context()}`)
+  }
 }
 
 /** Invariant: resubmitting an already-accepted actionId is a total no-op. */
@@ -492,7 +573,8 @@ function createFuzzRoom(seed: number, rng: Rng): { room: RoomCoordinator, model:
   )
 
   const model: FuzzModel = {
-    participantIds: ['host'],
+    confirmedParticipantIds: ['host'],
+    pendingParticipantIds: [],
     sessionTokens: new Map([['host', hostToken]]),
     actionIdPool: [],
     nextIdCounter: 0,
@@ -542,6 +624,9 @@ function runFuzzSeed(seed: number, opsPerSeed: number): void {
     if ((op.kind === 'control' || op.kind === 'openLink') && op.reusedActionId)
       checkDuplicateActionIdempotency({ seed, step, op, before, result, history })
 
+    if (op.kind === 'join' && op.mode === 'new')
+      checkJoinCapacityInvariant({ seed, step, op, before, result, history })
+
     updateModel(model, op, result)
 
     const resultSummary = result === null ? 'null' : { ok: result.ok, reason: result.ok ? result.reason : result.code }
@@ -588,9 +673,13 @@ describe('bugs discovered by the fuzz harness (fixed in room.ts)', () => {
       () => 1_000,
     )
 
-    // Fill the room to the cap: host + 9 members = 10 connected.
-    for (let i = 0; i < 9; i++)
+    // Fill the room to the cap: host + 9 members = 10 connected. Host-approval
+    // join (SYJ-AUD-003) means each brand-new member must be approved before
+    // it becomes a real, connected participant.
+    for (let i = 0; i < 9; i++) {
       room.join({ id: `member_${i}`, name: `Member ${i}`, media, sessionToken: `member-${i}-session-token-0000` })
+      room.respondToJoin('host', room.snapshot().controller.leaseEpoch, `member_${i}`, true)
+    }
     expect(room.snapshot().participants.filter(p => p.connected)).toHaveLength(10)
 
     // member_0 drops, freeing a slot; a brand-new tenth member takes it, so
@@ -598,6 +687,7 @@ describe('bugs discovered by the fuzz harness (fixed in room.ts)', () => {
     // disconnected participant holding a still-valid session token.
     room.disconnect('member_0')
     room.join({ id: 'member_9', name: 'Member 9', media, sessionToken: 'member-9-session-token-0000' })
+    room.respondToJoin('host', room.snapshot().controller.leaseEpoch, 'member_9', true)
     expect(room.snapshot().participants.filter(p => p.connected)).toHaveLength(10)
 
     // member_0 reconnects with that valid token while the room shows 10/10.
