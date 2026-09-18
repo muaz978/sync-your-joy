@@ -412,20 +412,6 @@ function updateModel(model: FuzzModel, op: FuzzOp, result: RoomResult | null): v
 
 const FORBIDDEN_PARTICIPANT_KEYS = ['sessionToken', 'media', 'lastSample', 'lastSampleReceivedAtMs', 'lastProgressAtServerMs'] as const
 
-type KnownBugId = 'reconnect_capacity_bypass' | 'unclamped_status_position'
-interface KnownBugHit { bug: KnownBugId, seed: number, step: number }
-
-/**
- * Both known bugs below corrupt persistent room state (connected count,
- * playback position) rather than just misbehaving for a single call: once
- * triggered, the illegal state can keep failing the same invariant on every
- * later step regardless of which operation runs next. This tracks, per
- * seed run, whether we are still inside a stretch of steps explained by an
- * already-recorded hit, so we don't throw for its lingering aftermath while
- * still throwing hard if the same invariant breaks for an unrelated reason.
- */
-interface PoisonState { capacity: boolean, duration: boolean }
-
 function renderContext(seed: number, step: number, op: FuzzOp, history: readonly string[]): string {
   return `seed=${seed} step=${step} op=${JSON.stringify(op)}\nrecent ops:\n${history.slice(-15).join('\n')}`
 }
@@ -437,10 +423,8 @@ function checkInvariants(options: {
   before: RoomSnapshot
   after: RoomSnapshot
   history: readonly string[]
-  knownBugHits: KnownBugHit[]
-  poison: PoisonState
 }): void {
-  const { seed, step, op, before, after, history, knownBugHits, poison } = options
+  const { seed, step, op, before, after, history } = options
   const context = () => renderContext(seed, step, op, history)
 
   // 1. Revision never decreases.
@@ -455,44 +439,17 @@ function checkInvariants(options: {
     }
   }
 
-  // 3. At most 10 connected participants.
+  // 3. At most 10 connected participants (including on reconnect -- see the
+  // "reconnect capacity bypass" regression test below, fixed in room.ts).
   const connectedCount = after.participants.filter(p => p.connected).length
-  if (connectedCount > 10) {
-    if (poison.capacity || (op.kind === 'join' && op.mode === 'reconnect')) {
-      // Known bug: RoomCoordinator.join()'s reconnect branch never re-checks
-      // the capacity guard the brand-new-participant branch enforces. Once
-      // tripped, the room can stay over-capacity for many later steps.
-      if (!poison.capacity)
-        knownBugHits.push({ bug: 'reconnect_capacity_bypass', seed, step })
-      poison.capacity = true
-    }
-    else {
-      throw new Error(`Invariant violated: connected participant count ${connectedCount} > 10.\n${context()}`)
-    }
-  }
-  else {
-    poison.capacity = false
-  }
+  if (connectedCount > 10)
+    throw new Error(`Invariant violated: connected participant count ${connectedCount} > 10.\n${context()}`)
 
-  // 4. Playback position never runs past a known media duration.
-  if (after.media && typeof after.media.durationSeconds === 'number' && after.playback.positionSeconds > after.media.durationSeconds) {
-    if (poison.duration || op.kind === 'updatePlayerStatus') {
-      // Known bug: updatePlayerStatus()'s pause-on-failure/stall/buffering
-      // branch does not clamp the client-reported position the way
-      // control() does via clampToMediaDuration(). The illegal position
-      // then sits in playback state until some other control() call
-      // reclamps it, so this can also persist across later steps.
-      if (!poison.duration)
-        knownBugHits.push({ bug: 'unclamped_status_position', seed, step })
-      poison.duration = true
-    }
-    else {
-      throw new Error(`Invariant violated: playback position ${after.playback.positionSeconds} exceeds media duration ${after.media.durationSeconds}.\n${context()}`)
-    }
-  }
-  else {
-    poison.duration = false
-  }
+  // 4. Playback position never runs past a known media duration, including
+  // via updatePlayerStatus()'s pause-on-failure/stall/buffering branch (see
+  // the "unclamped status position" regression test below, fixed in room.ts).
+  if (after.media && typeof after.media.durationSeconds === 'number' && after.playback.positionSeconds > after.media.durationSeconds)
+    throw new Error(`Invariant violated: playback position ${after.playback.positionSeconds} exceeds media duration ${after.media.durationSeconds}.\n${context()}`)
 }
 
 /** Invariant: resubmitting an already-accepted actionId is a total no-op. */
@@ -547,11 +504,10 @@ function createFuzzRoom(seed: number, rng: Rng): { room: RoomCoordinator, model:
   return { room, model }
 }
 
-function runFuzzSeed(seed: number, opsPerSeed: number, knownBugHits: KnownBugHit[]): void {
+function runFuzzSeed(seed: number, opsPerSeed: number): void {
   const rng = mulberry32(seed)
   const { room, model } = createFuzzRoom(seed, rng)
   const history: string[] = []
-  const poison: PoisonState = { capacity: false, duration: false }
 
   let currentSnap: RoomSnapshot
   try {
@@ -581,7 +537,7 @@ function runFuzzSeed(seed: number, opsPerSeed: number, knownBugHits: KnownBugHit
       throw new Error(`Crash-resistance invariant violated: snapshot() threw after an operation.\n${renderContext(seed, step, op, history)}\nerror=${String(error)}`)
     }
 
-    checkInvariants({ seed, step, op, before, after, history, knownBugHits, poison })
+    checkInvariants({ seed, step, op, before, after, history })
 
     if ((op.kind === 'control' || op.kind === 'openLink') && op.reusedActionId)
       checkDuplicateActionIdempotency({ seed, step, op, before, result, history })
@@ -606,29 +562,8 @@ const OPS_PER_SEED = 55
 
 describe('RoomCoordinator property-based fuzz harness', () => {
   it(`holds core invariants across ${SEED_COUNT} random seeds x ${OPS_PER_SEED} operations each`, () => {
-    const knownBugHits: KnownBugHit[] = []
-
     for (let seed = 0; seed < SEED_COUNT; seed++)
-      runFuzzSeed(seed, OPS_PER_SEED, knownBugHits)
-
-    const reconnectCapacityHits = knownBugHits.filter(hit => hit.bug === 'reconnect_capacity_bypass')
-    const unclampedPositionHits = knownBugHits.filter(hit => hit.bug === 'unclamped_status_position')
-
-    // These two known, currently-unfixed bugs are deliberately *not* thrown
-    // as failures inside checkInvariants (see there) so this test documents
-    // and tracks them instead of blocking `npm run check`. Each has its own
-    // minimal, deterministic `it.fails` reproduction below; if either count
-    // ever drops to zero, either the generator's odds need retuning or (more
-    // likely) the underlying bug in room.ts has been fixed and this
-    // carve-out plus the matching `it.fails` test should be deleted.
-    expect(
-      reconnectCapacityHits.length,
-      'expected the fuzzer to reproduce the known reconnect-bypasses-capacity bug at least once',
-    ).toBeGreaterThan(0)
-    expect(
-      unclampedPositionHits.length,
-      'expected the fuzzer to reproduce the known unclamped-position-on-status-failure bug at least once',
-    ).toBeGreaterThan(0)
+      runFuzzSeed(seed, OPS_PER_SEED)
   })
 })
 
@@ -639,15 +574,13 @@ describe('RoomCoordinator property-based fuzz harness', () => {
 // suite (as a signal to remove the `.fails`) once room.ts is actually fixed.
 // -----------------------------------------------------------------------
 
-describe('known bugs discovered by the fuzz harness (not fixed here)', () => {
-  // TODO(room.ts): RoomCoordinator.join()'s reconnect branch (the
-  // `if (existing) { ... }` path, ~line 160-180) never re-checks the
-  // `connectedCount >= 10` cap that the brand-new-participant branch
-  // enforces a few lines below it. A participant who previously joined and
-  // still holds a valid session token can reconnect into an already-full
-  // (10/10 connected) room and push the connected count to 11+. Fix
-  // candidate: run the same capacity check before `existing.connected = true`.
-  it.fails('does not let a reconnecting participant push a full room past the 10-connected cap', () => {
+describe('bugs discovered by the fuzz harness (fixed in room.ts)', () => {
+  // Was: RoomCoordinator.join()'s reconnect branch never re-checked the
+  // connectedCount >= 10 cap the new-participant branch enforces, so a
+  // participant who still held a valid session token could reconnect into
+  // an already-full room and push the connected count past 10. Fixed by
+  // running the same capacity check before `existing.connected = true`.
+  it('does not let a reconnecting participant push a full room past the 10-connected cap', () => {
     const media: MediaFingerprint = { service: 'youtube', canonicalId: 'youtube:cap', title: 'Cap test', durationSeconds: 100 }
     const room = new RoomCoordinator(
       { roomId: 'room_cap', code: 'CAPCAPCA', inviteToken: 'invite_cap' },
@@ -673,16 +606,15 @@ describe('known bugs discovered by the fuzz harness (not fixed here)', () => {
     expect(reconnected.snapshot.participants.filter(p => p.connected).length).toBeLessThanOrEqual(10)
   })
 
-  // TODO(room.ts): RoomCoordinator.updatePlayerStatus()'s pause-on-failure
-  // branch (~line 438-443) sets `positionSeconds: Math.max(0, sample.positionSeconds)`
-  // straight from the client-reported sample. Unlike control(), which always
-  // routes its target through `clampToMediaDuration()`, this assignment has
-  // no upper bound. A player that reports (or a hostile client that sends) a
-  // position past the media's own duration, combined with
-  // `playbackStartFailed: true` (or sustained buffering/stall), leaves
-  // `playback.positionSeconds` greater than `media.durationSeconds`. Fix
-  // candidate: route this assignment through `clampToMediaDuration()` too.
-  it.fails('clamps an adversarial player-reported position to the media duration when pausing on failure', () => {
+  // Was: RoomCoordinator.updatePlayerStatus()'s pause-on-failure branch set
+  // `positionSeconds: Math.max(0, sample.positionSeconds)` straight from the
+  // client-reported sample, with no upper bound -- unlike control(), which
+  // always routes its target through clampToMediaDuration(). A player (or a
+  // hostile client) reporting a position past the media's own duration,
+  // combined with playbackStartFailed: true (or sustained buffering/stall),
+  // left playback.positionSeconds greater than media.durationSeconds. Fixed
+  // by routing this assignment through clampToMediaDuration() too.
+  it('clamps an adversarial player-reported position to the media duration when pausing on failure', () => {
     const media: MediaFingerprint = { service: 'youtube', canonicalId: 'youtube:dur', title: 'Duration test', durationSeconds: 120 }
     const room = new RoomCoordinator(
       { roomId: 'room_dur', code: 'DURDURDU', inviteToken: 'invite_dur' },

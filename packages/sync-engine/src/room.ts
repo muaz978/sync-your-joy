@@ -165,6 +165,15 @@ export class RoomCoordinator {
       // silently trusting undefined-vs-defined as a match.
       if (existing.sessionToken !== participant.sessionToken)
         return this.failure('session_invalid', 'This participant session is no longer valid. Join again with a new room identity.')
+      // Only a currently-disconnected participant reconnecting increases the
+      // connected count; re-check the same cap the new-participant branch
+      // below enforces, or a full room could be pushed past 10 connected by
+      // reconnecting someone who still holds a valid session token.
+      if (!existing.connected) {
+        const connectedCount = [...this.participants.values()].filter(item => item.connected).length
+        if (connectedCount >= 10)
+          return this.failure('room_full', 'This room already has 10 participants.')
+      }
       const wasReady = existing.ready
       existing.connected = true
       existing.name = participant.name
@@ -437,7 +446,7 @@ export class RoomCoordinator {
         || stalled)) {
       this.playback = {
         status: 'paused',
-        positionSeconds: Math.max(0, sample.positionSeconds),
+        positionSeconds: this.clampToMediaDuration(Math.max(0, sample.positionSeconds)),
         effectiveAtServerMs: nowMs,
         playbackRate: 1,
       }
