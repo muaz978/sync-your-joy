@@ -19,6 +19,13 @@ const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
 const MAX_PENDING_CONNECTIONS_PER_IP = 20
 const MAX_UPGRADE_ATTEMPTS_PER_IP = 30
 const UPGRADE_ATTEMPT_WINDOW_MS = 60_000
+// This process holds every room in memory for up to MAX_ROOM_LIFETIME_MS, so
+// unlike the edge Worker (one isolated Durable Object per room, with no
+// shared in-memory structure to exhaust), an unbounded create_room rate from
+// one IP -- or in aggregate -- can grow this process's memory without limit
+// even though each individual room is otherwise well-behaved.
+const MAX_ROOMS_PER_IP = 20
+const MAX_TOTAL_ROOMS = 1_000
 const testPlayerHtml = await readFile(new URL('../static/test-player.html', import.meta.url), 'utf8')
 
 interface ConnectedClient {
@@ -32,6 +39,9 @@ interface RoomEntry {
   sockets: Set<WebSocket>
   emptySinceMs: number | null
   createdAtMs: number
+  // The IP that created this room, so its slot in roomCountByIp can be
+  // released when the room is cleaned up.
+  creatorIp: string
   // reportId -> participant ids that have already sent a diagnostics_response
   // for it. Bounds diagnostics_response to reports the controller actually
   // requested, and to at most one response per participant per report.
@@ -49,6 +59,18 @@ export async function createRoomService(options: { port?: number; host?: string 
   const clients = new Map<WebSocket, ConnectedClient>()
   const recoveryTimers = new Map<string, NodeJS.Timeout>()
   const socketRemoteAddresses = new WeakMap<WebSocket, string>()
+  const roomCountByIp = new Map<string, number>()
+
+  function releaseRoomIpSlot(ip: string): void {
+    const count = roomCountByIp.get(ip)
+    if (count === undefined)
+      return
+    if (count <= 1)
+      roomCountByIp.delete(ip)
+    else
+      roomCountByIp.set(ip, count - 1)
+  }
+
   // MAX_PENDING_CONNECTIONS_PER_IP only bounds how many *concurrently open*
   // unauthenticated sockets one IP can hold; a client that opens and closes
   // sockets quickly to enumerate/brute-force room codes never accumulates
@@ -204,6 +226,17 @@ export async function createRoomService(options: { port?: number; host?: string 
         return
       }
 
+      if (rooms.size >= MAX_TOTAL_ROOMS) {
+        send(socket, { type: 'error', code: 'rate_limited', message: 'This server is at capacity. Try again shortly.' })
+        return
+      }
+
+      const remoteAddress = socketRemoteAddresses.get(socket) ?? 'unknown'
+      if ((roomCountByIp.get(remoteAddress) ?? 0) >= MAX_ROOMS_PER_IP) {
+        send(socket, { type: 'error', code: 'rate_limited', message: 'Too many rooms created from this connection. Close an existing room first.' })
+        return
+      }
+
       // The room code is the bearer secret that protects the room (join_room
       // trusts it alone for a brand-new participant), so it must always come
       // from the server's own CSPRNG rather than the client-supplied value --
@@ -213,8 +246,9 @@ export async function createRoomService(options: { port?: number; host?: string 
         { roomId: randomUUID(), code, inviteToken: randomBytes(16).toString('base64url') },
         { id: message.participantId, name: message.name, media: message.media, sessionToken: randomBytes(16).toString('base64url') },
       )
-      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), emptySinceMs: null, createdAtMs: Date.now(), pendingDiagnosticsRequests: new Map() }
+      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), emptySinceMs: null, createdAtMs: Date.now(), creatorIp: remoteAddress, pendingDiagnosticsRequests: new Map() }
       rooms.set(code, entry)
+      roomCountByIp.set(remoteAddress, (roomCountByIp.get(remoteAddress) ?? 0) + 1)
       clients.set(socket, { socket, participantId: message.participantId, roomCode: code })
       const sessionToken = coordinator.exportState().participants.find(item => item.id === message.participantId)?.sessionToken
       send(socket, {
@@ -411,12 +445,15 @@ export async function createRoomService(options: { port?: number; host?: string 
       const expiredSeek = room.coordinator.releaseExpiredSeek(nowMs)
       if (expiredSeek?.ok)
         broadcast(room, { type: 'room_snapshot', reason: expiredSeek.reason, snapshot: expiredSeek.snapshot })
-      if (room.emptySinceMs !== null && nowMs - room.emptySinceMs >= EMPTY_ROOM_TTL_MS)
+      if (room.emptySinceMs !== null && nowMs - room.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
         rooms.delete(code)
+        releaseRoomIpSlot(room.creatorIp)
+      }
       else if (nowMs - room.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
         for (const socket of room.sockets)
           socket.close(1000, 'room_expired')
         rooms.delete(code)
+        releaseRoomIpSlot(room.creatorIp)
       }
     }
   }, 100)
