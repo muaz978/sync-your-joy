@@ -3,7 +3,7 @@
 import type { ClientMessage, ServerMessage } from '@syncyourjoy/protocol'
 import type { RoomCoordinatorState, RoomResult } from '@syncyourjoy/sync-engine'
 import { DurableObject } from 'cloudflare:workers'
-import { parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
+import { isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 
 const MAX_MESSAGE_BYTES = 16_384
@@ -506,17 +506,7 @@ export class RoomDurableObject extends DurableObject<Env> {
 }
 
 function originAllowed(request: Request): boolean {
-  const origin = request.headers.get('Origin')
-  // A real browser (including the extension's own WebSocket handshake)
-  // always sends Origin; only a non-browser scripted client omits it, so a
-  // missing header must be rejected rather than treated as trusted.
-  return origin !== null
-    && (origin.startsWith('chrome-extension://')
-      || origin.startsWith('moz-extension://')
-      || origin.startsWith('safari-web-extension://')
-      || origin.startsWith('safari-extension://')
-      || origin.startsWith('http://127.0.0.1')
-      || origin.startsWith('http://localhost'))
+  return isAllowedOrigin(request.headers.get('Origin'))
 }
 
 function randomToken(): string {

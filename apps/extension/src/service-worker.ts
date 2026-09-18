@@ -1,6 +1,6 @@
 import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticValue, MediaFingerprint, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { mediaMatches, normalizeMediaPageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
+import { generateRoomCode, mediaMatches, normalizeMediaPageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
 import { PLAYER_CONTEXT_STALE_MS, shouldAcceptPlayerContext, shouldReusePlayerTabForNavigation } from './player-tab.ts'
 import { isLikelyAdvertisingUrl } from './site-adapter.ts'
@@ -287,7 +287,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return success()
 
     case 'CREATE_ROOM':
-      const newRoomCode = createRoomCode()
+      const newRoomCode = generateRoomCode()
       state.sessionToken = null
       await startFreshConnection(newRoomCode)
       sendToServer({
@@ -1163,19 +1163,4 @@ function requestDiagnosticResponses(reportId: string): boolean {
     receivedParticipants: collection.responses.size,
   })
   return sendToServer({ type: 'request_diagnostics', reportId })
-}
-
-function createRoomCode(): string {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  // Largest byte value below a multiple of alphabet.length: rejecting any
-  // draw at or above it keeps `byte % alphabet.length` uniform even if the
-  // alphabet's length ever stops evenly dividing 256.
-  const maxUnbiasedByte = Math.floor(256 / alphabet.length) * alphabet.length
-  let code = ''
-  while (code.length < 8) {
-    const byte = crypto.getRandomValues(new Uint8Array(1))[0]!
-    if (byte < maxUnbiasedByte)
-      code += alphabet[byte % alphabet.length]!
-  }
-  return code
 }
