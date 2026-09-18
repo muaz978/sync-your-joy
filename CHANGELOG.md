@@ -2,6 +2,13 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.2.1] - 2026-09-18
+
+### Fixed
+
+- The side panel no longer crashes when a room snapshot from a room coordinator that predates `pendingJoinRequests` omits that field entirely, which happens against a room coordinator that has not yet been upgraded to host-approval join.
+- `scripts/smoke-room-service.mjs` now joins the friend using the room's actual server-assigned code instead of the client-generated code it originally proposed, since `room-service` mints its own code and ignores the client's suggestion; it also no longer sends a stale, hardcoded revision for the shared-link `open_link` step.
+
 ## [0.2.0] - 2026-09-18
 
 ### Added
