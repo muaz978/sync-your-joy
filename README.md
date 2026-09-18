@@ -65,6 +65,8 @@ Version `0.1.23` closes a deep-audit pass across the sync engine, protocol, and 
 
 Version `0.2.0` requires the controller's approval before a new join request becomes a real room member, the last open item from that audit; adds a seeded property-based fuzz-testing harness for the room state machine (which found and fixed two real bugs); adds the project's first real two-browser-profile end-to-end test; and unifies room-code generation and the origin allowlist into a single shared implementation instead of three separate copies.
 
+Version `0.2.1` fixes a side panel crash against a room coordinator whose snapshot predates `pendingJoinRequests` (an un-upgraded backend), and corrects the deployment smoke test to join using the room's real, server-assigned code.
+
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
 ## Platform compatibility
