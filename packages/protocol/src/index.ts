@@ -1,5 +1,52 @@
 export const PROTOCOL_VERSION = 1 as const
 
+export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const ROOM_CODE_LENGTH = 8
+
+/**
+ * Generates a room code using rejection sampling against the Web Crypto API,
+ * so the result is uniformly distributed over `alphabet` with no modulo
+ * bias. `crypto.getRandomValues` is available both in browsers (the
+ * extension's service worker) and in Node 19+ (via `globalThis.crypto`), so
+ * this single implementation is shared by every environment that needs a
+ * room code instead of being duplicated per crypto API.
+ */
+export function generateRoomCode(alphabet: string = ROOM_CODE_ALPHABET): string {
+  // Largest byte value below a multiple of alphabet.length: rejecting any
+  // draw at or above it keeps `byte % alphabet.length` uniform even if the
+  // alphabet's length ever stops evenly dividing 256.
+  const maxUnbiasedByte = Math.floor(256 / alphabet.length) * alphabet.length
+  let code = ''
+  while (code.length < ROOM_CODE_LENGTH) {
+    const byte = crypto.getRandomValues(new Uint8Array(1))[0]!
+    if (byte < maxUnbiasedByte)
+      code += alphabet[byte % alphabet.length]!
+  }
+  return code
+}
+
+const ALLOWED_ORIGIN_PREFIXES = [
+  'chrome-extension://',
+  'moz-extension://',
+  'safari-web-extension://',
+  'safari-extension://',
+  'http://127.0.0.1',
+  'http://localhost',
+]
+
+/**
+ * Checks a WebSocket handshake's Origin header against the allowlist shared
+ * by both backends. A real browser (including the extension's own WebSocket
+ * handshake) always sends Origin; only a non-browser scripted client omits
+ * it, so a missing origin must be rejected rather than treated as trusted.
+ * Callers extract the origin string from their own request type (Node's
+ * IncomingMessage vs the Workers/Fetch API Request) and pass it here so the
+ * allowlist itself can never silently diverge between the two backends.
+ */
+export function isAllowedOrigin(origin: string | null | undefined): boolean {
+  return origin != null && ALLOWED_ORIGIN_PREFIXES.some(prefix => origin.startsWith(prefix))
+}
+
 export type PlaybackStatus = 'paused' | 'playing'
 export type ParticipantRole = 'controller' | 'member'
 export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected'

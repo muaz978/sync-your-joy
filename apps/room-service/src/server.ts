@@ -5,11 +5,10 @@ import { createServer, type IncomingMessage, type Server as HttpServer } from 'n
 import { randomBytes, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
-import { parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
+import { generateRoomCode, isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 import { WebSocket, WebSocketServer } from 'ws'
 
-const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const MAX_MESSAGE_BYTES = 16_384
 const CONTROLLER_GRACE_MS = 10_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
@@ -415,41 +414,16 @@ export async function createRoomService(options: { port?: number; host?: string 
   }
 }
 
-// Largest byte value below a multiple of ROOM_ALPHABET.length: rejecting any
-// draw at or above it keeps `byte % ROOM_ALPHABET.length` uniform even if the
-// alphabet's length ever stops evenly dividing 256.
-const ROOM_CODE_MAX_UNBIASED_BYTE = Math.floor(256 / ROOM_ALPHABET.length) * ROOM_ALPHABET.length
-
-function randomRoomCodeChar(): string {
-  for (;;) {
-    const byte = randomBytes(1)[0]!
-    if (byte < ROOM_CODE_MAX_UNBIASED_BYTE)
-      return ROOM_ALPHABET[byte % ROOM_ALPHABET.length]!
-  }
-}
-
 function createUniqueCode(rooms: Map<string, unknown>): string {
   for (;;) {
-    let code = ''
-    for (let i = 0; i < 8; i += 1)
-      code += randomRoomCodeChar()
+    const code = generateRoomCode()
     if (!rooms.has(code))
       return code
   }
 }
 
 function originAllowed(request: IncomingMessage): boolean {
-  const origin = request.headers.origin
-  // A real browser (including the extension's own WebSocket handshake)
-  // always sends Origin; only a non-browser scripted client omits it, so a
-  // missing header must be rejected rather than treated as trusted.
-  return origin !== undefined
-    && (origin.startsWith('chrome-extension://')
-      || origin.startsWith('moz-extension://')
-      || origin.startsWith('safari-web-extension://')
-      || origin.startsWith('safari-extension://')
-      || origin.startsWith('http://127.0.0.1')
-      || origin.startsWith('http://localhost'))
+  return isAllowedOrigin(request.headers.origin)
 }
 
 function send(socket: WebSocket, message: ServerMessage): void {
