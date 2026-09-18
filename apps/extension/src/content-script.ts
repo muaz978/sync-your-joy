@@ -1025,6 +1025,18 @@ function detectPlaybackStall(target: HTMLVideoElement, explicitlyBuffering: bool
   const estimatedServerNowMs = Date.now() + (activeState?.serverOffsetMs ?? 0)
   const playShouldHaveStarted = playback !== undefined
     && isPlaybackPastStartupGrace(playback, estimatedServerNowMs)
+  // A provider's player can keep re-issuing play() (this content script does
+  // exactly that, once a second, whenever it still sees target.paused) while
+  // the element never actually accumulates enough data to play -- each call
+  // sets .paused = false per spec the instant it's invoked, so a HAVE_METADATA
+  // player that keeps failing to progress can make target.paused flicker
+  // false and back to true within a single sampling window. Relying on
+  // target.paused alone let that flicker reset unexpectedPauseSince every
+  // time, so this never accumulated the 1.5s needed to report buffering: true
+  // -- a real friend's session got stuck this way for its entire runtime,
+  // through three separate play commands, with the room never told anything
+  // was wrong because every sample kept reporting buffering: false.
+  const lacksPlayableData = target.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
 
   if (roomIsPlaying && !playShouldHaveStarted) {
     unexpectedPauseSince = 0
@@ -1033,7 +1045,7 @@ function detectPlaybackStall(target: HTMLVideoElement, explicitlyBuffering: bool
     return false
   }
 
-  if (playShouldHaveStarted && target.paused && !(isLocalController() && now < localIntentHoldUntil)) {
+  if (playShouldHaveStarted && (target.paused || lacksPlayableData) && !(isLocalController() && now < localIntentHoldUntil)) {
     if (unexpectedPauseSince === 0)
       unexpectedPauseSince = now
     const stalled = explicitlyBuffering || now - unexpectedPauseSince >= 1_500
