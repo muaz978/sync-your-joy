@@ -17,6 +17,7 @@ const MINI_CONTROLLER_HIDDEN_KEY = 'syncYourJoyMiniControllerHidden'
 
 let video: HTMLVideoElement | null = null
 let activeState: ExtensionState | null = null
+let runtimeInvalidated = false
 let scheduledPlayTimer: ReturnType<typeof setTimeout> | null = null
 let bufferingTimer: ReturnType<typeof setTimeout> | null = null
 let rateResetTimer: ReturnType<typeof setTimeout> | null = null
@@ -306,12 +307,12 @@ void sendRuntime({ type: 'GET_STATE' }).then((response) => {
 })
 
 scanForPlayer()
-setInterval(scanForPlayer, PLAYER_SCAN_INTERVAL_MS)
-setInterval(observePageIdentity, 500)
+const playerScanIntervalId = setInterval(scanForPlayer, PLAYER_SCAN_INTERVAL_MS)
+const pageIdentityIntervalId = setInterval(observePageIdentity, 500)
 window.addEventListener('popstate', observePageIdentity)
 window.addEventListener('hashchange', observePageIdentity)
 refreshPlayerObservers()
-setInterval(() => {
+const sampleIntervalId = setInterval(() => {
   if (!video)
     return
   observePageIdentity()
@@ -1278,10 +1279,12 @@ function consumeExpectedSeek(): boolean {
   return expected
 }
 
-function showNotice(message: string): void {
+function showNotice(message: string, sticky = false): void {
   if (!noticeElement)
     return
   noticeElement.textContent = message
+  if (sticky)
+    return
   setTimeout(() => {
     if (noticeElement.textContent === message)
       noticeElement.textContent = ''
@@ -1324,5 +1327,34 @@ function formatPillTime(value: number): string {
 }
 
 async function sendRuntime(request: RuntimeRequest): Promise<RuntimeResponse> {
-  return chrome.runtime.sendMessage(request) as Promise<RuntimeResponse>
+  if (!chrome.runtime?.id) {
+    handleRuntimeInvalidated()
+    throw new Error('SyncYourJoy extension context is gone.')
+  }
+  try {
+    return await chrome.runtime.sendMessage(request) as RuntimeResponse
+  }
+  catch (error) {
+    handleRuntimeInvalidated()
+    throw error
+  }
+}
+
+/**
+ * Reloading or updating the extension does not re-inject content scripts
+ * into tabs that were already open (a documented Chrome MV3 limitation), so
+ * this instance can be a ghost: frozen with whatever room state it last
+ * received, unable to reach the new service worker, and unable to learn
+ * that the room it displays may no longer be accurate. Without this, the
+ * pill silently keeps showing stale "Controller"/room state forever with no
+ * indication anything is wrong.
+ */
+function handleRuntimeInvalidated(): void {
+  if (runtimeInvalidated)
+    return
+  runtimeInvalidated = true
+  clearInterval(playerScanIntervalId)
+  clearInterval(pageIdentityIntervalId)
+  clearInterval(sampleIntervalId)
+  showNotice('SyncYourJoy was updated. Refresh this page to reconnect.', true)
 }
