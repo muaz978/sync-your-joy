@@ -314,6 +314,27 @@ describe('room service', () => {
     })
     expect(outcome).toBe('rejected')
   })
+
+  it('caps how many concurrently open rooms one IP can create, and frees a slot once a room expires', async () => {
+    service = await createRoomService({ port: 0 })
+
+    // MAX_ROOMS_PER_IP is 20. Every socket here shares the loopback address,
+    // so the 21st create_room from this same IP must be rejected even though
+    // none of the previous rooms have become empty or expired yet.
+    for (let i = 0; i < 20; i += 1) {
+      const socket = await connect(service.url)
+      socket.send(JSON.stringify({
+        type: 'create_room', protocolVersion: 1, participantId: `participant_host_${i}`, name: 'Muaz', code: 'JOY7K2MX', media: null,
+      }))
+      await expect(nextMessage(socket)).resolves.toMatchObject({ type: 'room_joined' })
+    }
+
+    const limitedSocket = await connect(service.url)
+    limitedSocket.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host_20', name: 'Muaz', code: 'JOY7K2MX', media: null,
+    }))
+    await expect(nextMessage(limitedSocket)).resolves.toMatchObject({ type: 'error', code: 'rate_limited' })
+  })
 })
 
 function diagnosticReport() {
