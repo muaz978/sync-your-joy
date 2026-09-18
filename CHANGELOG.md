@@ -2,11 +2,23 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
-## [Unreleased]
+## [0.2.0] - 2026-09-18
+
+### Added
+
+- Host-approval join: a brand-new participant's `join_room` becomes a pending request the controller must explicitly approve or deny (a new `respond_to_join` message) before that identity becomes a real room member. Reconnecting an already-known participant identity is unaffected and stays instant. This closes the last open gap in `docs/CODE_AUDIT.md` SYJ-AUD-003.
+- The project's first real two-browser-profile end-to-end test (`npm run test:e2e`): two isolated Chrome profiles with the actual unpacked extension, the real room-service, and the local generic-fixture test player, driving a real create/request-to-join/approve/play/seek/pause flow.
+- A seeded property-based fuzz-testing harness for the room state machine: 240 random operation sequences x 55 steps each, checking 6 invariants after every single step.
+
+### Fixed
+
+- Two real bugs the fuzz harness found: a reconnecting participant could push a full room past the 10-connected cap, and an adversarial or buggy player-status report could leave the room's playback position past the media's known duration.
+- The extension's player-status handler no longer blocks its response on a `chrome.storage.session` write, found during an audit of the service worker's restart-persistence behavior (which otherwise confirmed the existing whole-state persist/restore pattern already correctly survives a Manifest V3 service-worker restart).
 
 ### Changed
 
-- Joining a room now requires host approval: a brand-new participant's `join_room` becomes a pending request the controller must explicitly approve or deny (a new `respond_to_join` message) before that identity becomes a real room member. Reconnecting an already-known participant identity is unaffected and stays instant. This closes the last open gap in `docs/CODE_AUDIT.md` SYJ-AUD-003.
+- Room-code generation and the WebSocket origin allowlist are now single shared implementations in `@syncyourjoy/protocol` instead of being duplicated across the extension, room-service, and the smoke-test script.
+- Routine dependency updates: `vitest` 5, `unocss`, `@types/node`, `@types/chrome`, `tsx`, and the CI-only `actions/checkout`, `actions/setup-node`, and `github/codeql-action`.
 
 ## [0.1.23] - 2026-09-18
 
