@@ -1,6 +1,6 @@
 import type { MediaFingerprint } from './index.ts'
 import { describe, expect, it } from 'vitest'
-import { mediaMatches, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, parseClientMessage } from './index.ts'
+import { generateRoomCode, isAllowedOrigin, mediaMatches, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, parseClientMessage, ROOM_CODE_ALPHABET } from './index.ts'
 
 describe('media identity matching', () => {
   it('does not treat two missing players as a video match', () => {
@@ -176,5 +176,48 @@ describe('media identity matching', () => {
       type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: 'ABCDEFGH', media: null,
       sessionToken: 'short',
     })).toBeNull()
+  })
+})
+
+describe('room code generation', () => {
+  it('generates an 8-character code', () => {
+    expect(generateRoomCode()).toHaveLength(8)
+  })
+
+  it('only uses characters from the given alphabet', () => {
+    const code = generateRoomCode()
+    for (const character of code)
+      expect(ROOM_CODE_ALPHABET.includes(character)).toBe(true)
+  })
+
+  it('respects a custom alphabet', () => {
+    const code = generateRoomCode('AB')
+    for (const character of code)
+      expect(character === 'A' || character === 'B').toBe(true)
+  })
+
+  it('is not deterministic or hardcoded', () => {
+    const codes = new Set(Array.from({ length: 20 }, () => generateRoomCode()))
+    expect(codes.size).toBeGreaterThan(1)
+  })
+})
+
+describe('origin allowlist', () => {
+  it('accepts every allowed origin prefix', () => {
+    expect(isAllowedOrigin('chrome-extension://abcdefghijklmnop')).toBe(true)
+    expect(isAllowedOrigin('moz-extension://abcdefgh-ijkl-mnop')).toBe(true)
+    expect(isAllowedOrigin('safari-web-extension://abcdefgh-ijkl')).toBe(true)
+    expect(isAllowedOrigin('safari-extension://abcdefgh-ijkl')).toBe(true)
+    expect(isAllowedOrigin('http://127.0.0.1:5173')).toBe(true)
+    expect(isAllowedOrigin('http://localhost:5173')).toBe(true)
+  })
+
+  it('rejects a missing origin', () => {
+    expect(isAllowedOrigin(null)).toBe(false)
+    expect(isAllowedOrigin(undefined)).toBe(false)
+  })
+
+  it('rejects a disallowed origin', () => {
+    expect(isAllowedOrigin('https://evil.example')).toBe(false)
   })
 })
