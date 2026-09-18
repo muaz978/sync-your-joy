@@ -12,7 +12,7 @@ const media: MediaFingerprint = {
 
 function createRoom(now: () => number = () => 10_000): RoomCoordinator {
   return new RoomCoordinator(
-    { roomId: 'room_123456', code: 'ABCDEFGH', inviteToken: 'token_123456' },
+    { roomId: 'room_123456', code: 'ABCDEFGH' },
     { id: 'participant_host', name: 'Muaz', media },
     now,
   )
@@ -37,7 +37,7 @@ function joinApproved(room: RoomCoordinator, participant: { id: string; name: st
 describe('RoomCoordinator', () => {
   it('lets participants gather before the host chooses a video page', () => {
     const room = new RoomCoordinator(
-      { roomId: 'room_empty12', code: 'EMPTY123', inviteToken: 'token_empty12' },
+      { roomId: 'room_empty12', code: 'EMPTY123' },
       { id: 'participant_host', name: 'Muaz', media: null },
       () => 10_000,
     )
@@ -357,7 +357,7 @@ describe('RoomCoordinator', () => {
 
   it('rejects a duplicate participant identity without the reconnect session token', () => {
     const secured = new RoomCoordinator(
-      { roomId: 'room_secured1', code: 'SECURE12', inviteToken: 'invite-secure' },
+      { roomId: 'room_secured1', code: 'SECURE12' },
       { id: 'participant_host', name: 'Muaz', media, sessionToken: 'host-session-token-123456' },
     )
     const rejected = secured.join({ id: 'participant_host', name: 'Impostor', media, sessionToken: 'wrong-session-token-123456' })

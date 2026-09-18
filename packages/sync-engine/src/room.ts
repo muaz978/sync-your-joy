@@ -26,7 +26,6 @@ export interface InternalParticipant extends ParticipantState {
 export interface RoomIdentity {
   roomId: string
   code: string
-  inviteToken: string
 }
 
 export interface InternalPendingJoinRequest {
@@ -73,7 +72,6 @@ export type RoomResult =
   | { ok: false; code: string; message: string; snapshot: RoomSnapshot }
 
 export class RoomCoordinator {
-  readonly inviteToken: string
   private readonly identity: RoomIdentity
   private readonly now: () => number
   private revision = 0
@@ -96,7 +94,6 @@ export class RoomCoordinator {
   ) {
     this.identity = identity
     this.now = now
-    this.inviteToken = identity.inviteToken
 
     if (restoredState) {
       this.revision = restoredState.revision
