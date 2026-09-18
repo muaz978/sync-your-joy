@@ -1,20 +1,11 @@
+import { generateRoomCode } from '@syncyourjoy/protocol'
 import WebSocket from 'ws'
 
 const baseUrl = process.argv[2] ?? process.env.SYNCYOURJOY_ROOM_SERVER_URL
 if (!baseUrl)
   throw new Error('Provide a WebSocket URL, for example: npm run smoke:edge -- wss://worker.example.workers.dev/rooms')
 
-const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-// Largest byte value below a multiple of alphabet.length: rejecting any draw
-// at or above it keeps `byte % alphabet.length` uniform even if the
-// alphabet's length ever stops evenly dividing 256.
-const maxUnbiasedByte = Math.floor(256 / alphabet.length) * alphabet.length
-let code = ''
-while (code.length < 8) {
-  const [byte] = crypto.getRandomValues(new Uint8Array(1))
-  if (byte < maxUnbiasedByte)
-    code += alphabet[byte % alphabet.length]
-}
+const code = generateRoomCode()
 const hostMedia = {
   service: 'crunchyroll',
   canonicalId: 'www.crunchyroll.com/ar/watch/GE00345558JAJP/from-now-on',
