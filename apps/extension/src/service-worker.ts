@@ -765,12 +765,26 @@ function stopPingLoop(): void {
   state.connectionQuality = 'offline'
 }
 
+// create_room/join_room are how a socket becomes a room member in the first
+// place, and ping has its own server-side exemption for exactly this reason.
+// Every other message type requires state.connection === 'connected': the
+// socket can reach OPEN well before the server has processed and confirmed
+// join_room (a real network round trip), and anything else queued to go out
+// in that window -- the content script's ~1s player_status tick, a stray
+// "I'm ready" click -- would otherwise reach the server on an open-but-not-
+// yet-registered socket and come back rejected as not_joined, while the
+// panel still shows the last good snapshot from before the reconnect. This
+// was a real, reported bug: a friend saw "Create or join a room first" while
+// still visibly connected with a live participant list.
+const CONNECTION_BOOTSTRAP_MESSAGE_TYPES = new Set<ClientMessage['type']>(['create_room', 'join_room', 'ping'])
+
 function sendToServer(message: ClientMessage): boolean {
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(message))
-    return true
-  }
-  return false
+  if (socket?.readyState !== WebSocket.OPEN)
+    return false
+  if (state.connection !== 'connected' && !CONNECTION_BOOTSTRAP_MESSAGE_TYPES.has(message.type))
+    return false
+  socket.send(JSON.stringify(message))
+  return true
 }
 
 function leaveRoom(): void {
