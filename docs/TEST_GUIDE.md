@@ -220,3 +220,29 @@ Report these as release blockers until reproduced and fixed:
 - A participant receives controls for an unrelated player or advertisement.
 - A controller that lost its lease can still control the room.
 - A report includes credentials, cookies, video, audio, or other unexpected sensitive data.
+
+## Automated two-profile E2E test (for contributors)
+
+This section is for people working on the code, not for friend-test sessions above. It runs `tests/e2e/two-profile-sync.spec.ts`, the repository's first automated two-browser-profile test (see `docs/CODE_AUDIT.md`, `SYJ-AUD-009`). It launches two separate, isolated Chrome profiles with the real unpacked extension loaded in each, has one create a room and the other join it with the real room code, opens the project's own local `apps/room-service/static/test-player.html` fixture page in both, loads the same tiny local `fixtures/sync-test-clip.mp4` file into each through its file picker, and drives play, pause, and a forward seek from the first profile's real side panel while asserting the second profile's real `<video>` element converges to the same position and play state. It uses the real room-service and the real extension end to end; nothing here is mocked.
+
+Run it with:
+
+```bash
+npm run test:e2e
+```
+
+This needs a Chromium build Playwright controls, installed once with:
+
+```bash
+npx playwright install chromium
+```
+
+The test:
+
+1. Starts the room-service in-process on an ephemeral port (the same `createRoomService` helper `apps/room-service/src/server.test.ts` uses), so it never collides with a `npm run dev:server` you already have running or with another `test:e2e` run.
+2. Builds `apps/extension/dist` against that exact port and reuses it on a later run only if it is already built for the same port.
+3. Launches two persistent Chrome profiles in Chrome's `--headless=new` mode (set `SYNCYOURJOY_E2E_HEADED=1` to watch it run in a visible window instead) with `--load-extension` pointed at `apps/extension/dist`.
+
+This test is separate from `npm test` (Vitest) on purpose: it drives real browsers and a real extension, so it is slower and needs its own timeouts. It is not part of `.github/workflows/ci.yml` yet — wiring a dedicated, separately-tuned CI job for it is a deliberate follow-up, not an oversight.
+
+It drives the side panel's own HTML and JavaScript by opening `sidepanel.html` as an ordinary tab at its `chrome-extension://` URL rather than through Chrome's docked side-panel UI region, which Playwright cannot click into (that requires a real click on the browser's own toolbar icon). The panel's code has no dependency on being docked to run, so every button the test clicks runs the same real code path either way; see the comment at the bottom of `tests/e2e/two-profile-sync.spec.ts` for the full investigation, including why driving the extension purely through `chrome.runtime` messages to its service worker was not needed here.

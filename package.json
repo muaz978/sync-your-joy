@@ -24,6 +24,7 @@
     "release:package": "bash scripts/package-extension.sh",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
     "typecheck": "tsc --noEmit && tsc -p apps/edge-service/tsconfig.json",
     "check": "npm run typecheck && npm test && npm run build"
   },
@@ -32,11 +33,13 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260809.1",
+    "@playwright/test": "^1.63.0",
     "@types/chrome": "^0.2.9",
     "@types/node": "^26.5.1",
     "@types/ws": "^8.18.1",
     "@unocss/preset-wind4": "^66.10.1",
     "esbuild": "^0.28.2",
+    "playwright": "^1.63.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "unocss": "^66.10.1",

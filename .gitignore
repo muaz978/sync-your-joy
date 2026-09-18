@@ -5,6 +5,10 @@ coverage/
 release/
 .wrangler/
 .browser-package-smoke-*/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 .env
 .env.*
 !.env.example
