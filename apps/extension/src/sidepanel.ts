@@ -536,9 +536,12 @@ function participantRow(participant: ParticipantState, current: ExtensionState, 
               : participant.ready ? 'Ready' : 'Not ready'}${participant.latencyMs !== null ? `, ${participant.latencyMs} ms` : ''}
         </p>
       </div>
-      ${canTransfer && !isMe && participant.connected
-        ? `<button class="btn-action min-h-10 px-3 text-xs" type="button" data-transfer="${escapeAttribute(participant.id)}">Pass</button>`
-        : statusIcon(participant)}
+      <div class="flex shrink-0 items-center gap-2">
+        ${statusIcon(participant)}
+        ${canTransfer && !isMe && participant.connected
+          ? `<button class="btn-action min-h-10 px-3 text-xs" type="button" data-transfer="${escapeAttribute(participant.id)}">Pass</button>`
+          : ''}
+      </div>
     </div>
   `
 }
