@@ -1,6 +1,6 @@
 # SyncYourJoy Store Submission Pack
 
-This document is the store-facing preparation checklist for Gate 4. It is intentionally separate from the engineering closeout in [tasks/plan.md](../tasks/plan.md). A checked item here means that the material is prepared in the repository. It does not mean that a marketplace has accepted the extension.
+This document is the store-facing preparation checklist for Gate 4. It is intentionally separate from the engineering closeout tracked in the [M3/M5: reliability and real-device validation](https://github.com/muaz978/sync-your-joy/milestone/1) milestone. A checked item here means that the material is prepared in the repository. It does not mean that a marketplace has accepted the extension.
 
 ## Product identity
 
