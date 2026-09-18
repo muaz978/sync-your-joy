@@ -22,7 +22,7 @@ const friendMedia = {
 }
 
 const host = await connect(baseUrl, code)
-const friend = await connect(baseUrl, code)
+let friend
 
 try {
   host.socket.send(JSON.stringify({
@@ -33,18 +33,39 @@ try {
     code,
     media: null,
   }))
-  await host.waitFor(message => message.type === 'room_joined')
+  const created = await host.waitFor(message => message.type === 'room_joined')
 
+  // room-service mints its own server-side code and ignores the client's
+  // suggestion (the room code is a bearer secret, so it must come from the
+  // server's own CSPRNG); edge-service uses the client-supplied code as-is.
+  // Either way, the friend must join using the code the room actually has,
+  // not the one this script originally generated.
+  const roomCode = created.snapshot.code
+  friend = await connect(baseUrl, roomCode)
+
+  // Host-approval join (docs/CODE_AUDIT.md SYJ-AUD-003): the friend's
+  // join_room becomes a pending request, not immediate membership, so the
+  // host must approve it before either side sees 2 participants.
   friend.socket.send(JSON.stringify({
     type: 'join_room',
     protocolVersion: 1,
     participantId: 'participant_smoke_friend',
     name: 'Deployment friend',
-    code,
+    code: roomCode,
     media: null,
   }))
   await friend.waitFor(message => message.type === 'room_joined')
-  await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.length === 2)
+  const pendingNotice = await host.waitFor(message => message.type === 'room_snapshot' && message.reason === 'join_pending')
+  host.socket.send(JSON.stringify({
+    type: 'respond_to_join',
+    participantId: 'participant_smoke_friend',
+    approve: true,
+    actionId: 'action_smoke_approve_friend',
+    basedOnRevision: pendingNotice.snapshot.revision,
+    leaseEpoch: pendingNotice.snapshot.controller.leaseEpoch,
+  }))
+  const approved = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.length === 2)
+  await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.participants.length === 2)
 
   const diagnosticsReportId = 'report_smoke_diagnostics'
   host.socket.send(JSON.stringify({ type: 'request_diagnostics', reportId: diagnosticsReportId }))
@@ -61,8 +82,8 @@ try {
   host.socket.send(JSON.stringify({
     type: 'open_link',
     actionId: 'action_smoke_open_link',
-    basedOnRevision: 1,
-    leaseEpoch: 1,
+    basedOnRevision: approved.snapshot.revision,
+    leaseEpoch: approved.snapshot.controller.leaseEpoch,
     url: 'https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on#player',
   }))
   const navigated = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.navigation?.url === 'https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on')
@@ -190,7 +211,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    code,
+    code: roomCode,
     roundTripMs,
     revision: rapidPlaying.snapshot.revision,
     seekPositionSeconds: sought.snapshot.playback.positionSeconds,
@@ -205,7 +226,7 @@ try {
 }
 finally {
   host.socket.close()
-  friend.socket.close()
+  friend?.socket.close()
 }
 
 function diagnosticReport(label) {
@@ -230,7 +251,11 @@ function diagnosticReport(label) {
 async function connect(url, code) {
   const target = new URL(url)
   target.searchParams.set('code', code)
-  const socket = new WebSocket(target)
+  // A real browser (including the extension) always sends Origin, and
+  // originAllowed()/isAllowedOrigin() now rejects a missing one -- this CLI
+  // tool must present one of the allowed prefixes explicitly, the same way
+  // apps/room-service/src/server.test.ts's own test client does.
+  const socket = new WebSocket(target, undefined, { origin: 'http://localhost' })
   const queue = []
   const waiters = []
 
