@@ -271,7 +271,12 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         buffering: request.sample.buffering,
       })
       sendToServer({ type: 'player_status', basedOnRevision: request.basedOnRevision, sample: request.sample })
-      await persistState()
+      // Fire-and-forget, matching the 'pong' handler below: this fires on a
+      // ~1s timer while media plays, so awaiting the storage write here
+      // would add a needless round-trip to every heartbeat response instead
+      // of just letting persistence catch up once state has already been
+      // updated and the caller already answered.
+      void persistState()
       notifyExtensionViews()
       return success()
 
