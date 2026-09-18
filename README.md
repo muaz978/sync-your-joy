@@ -69,6 +69,8 @@ Version `0.2.1` fixes a side panel crash against a room coordinator whose snapsh
 
 Version `0.2.2` fixes a real cause of inconsistent syncing across participants: a browser that rejects a remote play command (an autoplay-policy block) no longer stays marked "ready" forever, which previously let the controller instantly re-trigger the identical rejection and produced a starts-then-stops loop; the side panel's participant list also always shows each person's status icon now, even next to the controller's "Pass" button.
 
+Version `0.2.3` caps how many rooms one IP or the whole process can have open at once on `room-service`'s local dev server, and removes the `inviteToken` that was generated and returned on every join but never actually validated by anything.
+
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
 ## Platform compatibility

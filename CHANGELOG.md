@@ -2,6 +2,16 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.2.3] - 2026-09-18
+
+### Fixed
+
+- `room-service`'s local dev WebSocket server now caps how many rooms one IP (20) or the whole process (1,000) can have open at once, matching the protection the deployed edge Worker already had through its per-room Durable Object isolation. Room-service holds every room in one process's memory, so an unbounded `create_room` rate could previously grow its memory without limit.
+
+### Removed
+
+- The unused `inviteToken`: every room generated one and returned it in `room_joined`, but no client message ever carried it back and neither backend validated it. Host-approval join already covers the access-control gap it was originally meant to close.
+
 ## [0.2.2] - 2026-09-18
 
 ### Fixed
