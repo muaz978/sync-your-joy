@@ -18,6 +18,7 @@
 // service-worker-restart simulation is impractical (see the note at the
 // bottom of this file for why that path was not taken).
 import type { RoomSnapshot } from '@syncyourjoy/protocol'
+import type { RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const SESSION_STATE_KEY = 'syncYourJoySessionState'
@@ -331,6 +332,131 @@ describe('service worker player-status persistence', () => {
       if (!sessionSetMock.mock.results.at(-1))
         throw new Error('missing result')
     })
+  })
+})
+
+describe('service worker observed episode identity', () => {
+  const sharedUrl = 'https://www.crunchyroll.com/watch/GE00365016JAJP/extreme-level-3-situation'
+  const nextUrl = 'https://www.crunchyroll.com/watch/GE00365017JAJP/next-episode'
+  const oldMedia = {
+    service: 'crunchyroll',
+    canonicalId: 'crunchyroll:GE00365016JAJP',
+    pageUrl: sharedUrl,
+    title: 'Episode',
+    durationSeconds: 1440,
+  }
+  const nextMedia = { ...oldMedia, canonicalId: 'crunchyroll:GE00365017JAJP', pageUrl: nextUrl }
+
+  async function resumeAtPage(currentUrl: string) {
+    const snapshot = buildRoomSnapshot({
+      media: oldMedia,
+      navigation: { revision: 5, url: sharedUrl, effectiveAtServerMs: 0 },
+    })
+    const fake = buildFakeChrome({ sessionState: {
+      participantId: 'participant_resumed',
+      sessionToken: 'session_resumed',
+      snapshot,
+      playerTabId: 42,
+      playerFrameId: 0,
+      playerAreaPixels: 500_000,
+      currentMedia: oldMedia,
+      lastOpenedNavigationRevision: 5,
+    } })
+    ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      media: currentUrl === nextUrl ? nextMedia : oldMedia,
+      diagnostics: null,
+      sample: null,
+    })
+    ;(fake.chrome.tabs.get as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 42, url: currentUrl })
+    vi.stubGlobal('chrome', fake.chrome)
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    await import('./service-worker.ts')
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+    FakeWebSocket.instances[0]!.simulateOpen()
+    const request = (message: RuntimeRequest, sender: chrome.runtime.MessageSender = {}) =>
+      new Promise<RuntimeResponse>((resolve) => {
+        fake.messageListener(message, sender, response => resolve(response as RuntimeResponse))
+      })
+    await request({ type: 'GET_STATE' })
+    FakeWebSocket.instances[0]!.simulateMessage({
+      type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot,
+    })
+    await request({ type: 'GET_STATE' })
+    return { fake, request }
+  }
+
+  it('keeps the observed episode when resuming a worker after native next-episode navigation', async () => {
+    const { request } = await resumeAtPage(nextUrl)
+    const response = await request({ type: 'GET_STATE' })
+    expect(response.state.currentMedia).toMatchObject(nextMedia)
+    expect(response.state.snapshot?.media).toMatchObject(oldMedia)
+  })
+
+  it('does not relabel a new episode report as the previous shared navigation target', async () => {
+    const { request } = await resumeAtPage(sharedUrl)
+    const response = await request({ type: 'MEDIA_DETECTED', media: nextMedia, areaPixels: 500_000 }, {
+      tab: { id: 42, active: true, url: nextUrl }, frameId: 0, url: nextUrl,
+    } as chrome.runtime.MessageSender)
+    expect(response.state.currentMedia).toMatchObject(nextMedia)
+    expect(response.state.snapshot?.media).toMatchObject(oldMedia)
+  })
+
+  it('clears unreachable player state and tells the room that the player is no longer ready', async () => {
+    const { fake, request } = await resumeAtPage(sharedUrl)
+    ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('The frame was removed.'))
+    const response = await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000 }, {
+      tab: { id: 42, active: true, url: sharedUrl }, frameId: 0, url: sharedUrl,
+    } as chrome.runtime.MessageSender)
+    expect(response.state.playerFrameId).toBeNull()
+    expect(response.state.currentMedia).toBeNull()
+    expect(response.state.playerTabId).toBe(42)
+    expect(FakeWebSocket.instances[0]!.sentMessages).toContainEqual({ type: 'set_ready', ready: false, media: null })
+  })
+
+  it('ignores an old document delivery failure after a replacement binds the same tab and frame', async () => {
+    const { fake, request } = await resumeAtPage(sharedUrl)
+    const sendToTab = fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>
+    sendToTab.mockClear()
+    let rejectOldDelivery: (error: Error) => void = () => {}
+    sendToTab.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectOldDelivery = reject
+    }))
+    const sender = { tab: { id: 42, active: true, url: sharedUrl }, frameId: 0, url: sharedUrl } as chrome.runtime.MessageSender
+    const report: RuntimeRequest = { type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000 }
+    const oldReport = request(report, sender)
+    await vi.waitFor(() => expect(sendToTab).toHaveBeenCalledTimes(1))
+
+    // Main-frame navigations reuse frameId 0. A fresh content script can
+    // report itself before Chrome rejects the old document's message port.
+    await request(report, sender)
+    const sentBeforeRejection = FakeWebSocket.instances[0]!.sentMessages.length
+    rejectOldDelivery(new Error('The old document was removed.'))
+    const response = await oldReport
+    expect(response.state.playerFrameId).toBe(0)
+    expect(response.state.currentMedia).toMatchObject(oldMedia)
+    expect(FakeWebSocket.instances[0]!.sentMessages.slice(sentBeforeRejection))
+      .not.toContainEqual({ type: 'set_ready', ready: false, media: null })
+  })
+
+  it('includes playback progress and start evidence in validated diagnostic events', async () => {
+    const { request } = await resumeAtPage(sharedUrl)
+    vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+    const sender = { tab: { id: 42 }, frameId: 0 } as chrome.runtime.MessageSender
+    const sample = { positionSeconds: 12, durationSeconds: 1440, paused: false, buffering: false, sampledAtLocalMs: Date.now() }
+    await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { ...sample, progressed: false, playbackStarted: true, playbackStartFailed: false } }, sender)
+    await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample }, sender)
+    const socket = FakeWebSocket.instances[0]!
+    socket.simulateMessage({ type: 'diagnostics_requested', reportId: 'report_player_health' })
+    expect(socket.sentMessages).toContainEqual(expect.objectContaining({
+      type: 'diagnostics_response',
+      reportId: 'report_player_health',
+      report: expect.objectContaining({
+        events: expect.arrayContaining([
+          expect.objectContaining({ message: 'player_status', details: expect.objectContaining({ progressed: false, playbackStarted: true, playbackStartFailed: false }) }),
+          expect.objectContaining({ message: 'player_status', details: expect.objectContaining({ progressed: null, playbackStarted: null, playbackStartFailed: null }) }),
+        ]),
+      }),
+    }))
   })
 })
 
