@@ -10,7 +10,7 @@ import type {
 } from '@syncyourjoy/protocol'
 import { mediaMatches, normalizePageUrl } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { hasPlaybackProgressStalled, isPlaybackPastStartupGrace } from './playback-health.ts'
+import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
@@ -297,6 +297,8 @@ export class RoomCoordinator {
 
     if (intent.kind === 'play' && !this.everyoneReady())
       return this.failure('participants_not_ready', 'Everyone must be ready before playback starts.')
+    if (intent.kind === 'play' && this.pendingSeek)
+      return this.failure('seek_in_progress', 'Wait for every player to finish the current seek before starting playback.')
 
     this.rememberAction(intent.actionId)
 
@@ -339,13 +341,10 @@ export class RoomCoordinator {
         positionSeconds,
         resumeWhenReady,
         deadlineAtServerMs: nowMs + SEEK_BARRIER_MAX_WAIT_MS,
-        // A controller seek request is emitted after the controller has chosen
-        // the target in its own player, so the controller is already the
-        // source of truth for this side of the barrier. Every guest still
-        // has to acknowledge independently before playback can resume.
-        acknowledgedParticipantIds: participantId === this.controllerId
-          ? [participantId]
-          : [],
+        // A scrub or skip button can report its target before the controller
+        // finishes fetching and decoding the target segment. Every player,
+        // including the controller, must confirm that its seek completed.
+        acknowledgedParticipantIds: [],
       }
       return this.success('control_seek_pending')
     }
@@ -479,7 +478,9 @@ export class RoomCoordinator {
 
   updatePlayerStatus(participantId: string, basedOnRevision: number, sample: PlayerSample): RoomResult | null {
     const participant = this.participants.get(participantId)
-    if (!participant)
+    // A queued report from a superseded command must not overwrite the
+    // current sample or reset the progress deadline before it is rejected.
+    if (!participant || basedOnRevision !== this.revision)
       return null
 
     const priorSample = participant.lastSample
@@ -487,7 +488,10 @@ export class RoomCoordinator {
       return null
 
     const nowMs = this.now()
-    const progressed = sample.progressed === true || (priorSample !== null
+    // Explicit progress evidence is authoritative. currentTime can advance
+    // due to correction seeks even when an adaptive player decodes no frames.
+    // Keep the positional fallback only for clients that omit this field.
+    const progressed = sample.progressed ?? (priorSample !== null
       && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= 0.12)
     participant.lastSample = sample
     participant.lastSampleReceivedAtMs = nowMs
@@ -495,7 +499,11 @@ export class RoomCoordinator {
       participant.lastProgressAtServerMs = nowMs
     const stalled = !sample.paused
       && !sample.buffering
+      && sample.playbackStarted !== false
       && hasPlaybackProgressStalled(this.playback, participant.lastProgressAtServerMs, nowMs)
+    const startupTimedOut = !progressed
+      && hasPlaybackStartupTimedOut(this.playback, sample.playbackStarted, nowMs)
+      && nowMs - participant.lastProgressAtServerMs >= PLAYBACK_STARTUP_TIMEOUT_MS
     const explicitPlaybackFailure = sample.playbackStartFailed === true
     if (basedOnRevision === this.revision
       && participant.connected
@@ -503,7 +511,8 @@ export class RoomCoordinator {
       && participant.mediaMatches
       && (explicitPlaybackFailure
         || (sample.buffering && sample.playbackStarted !== false && isPlaybackPastStartupGrace(this.playback, nowMs))
-        || stalled)) {
+        || stalled
+        || startupTimedOut)) {
       this.playback = {
         status: 'paused',
         positionSeconds: this.clampToMediaDuration(Math.max(0, sample.positionSeconds)),
@@ -524,7 +533,8 @@ export class RoomCoordinator {
         participant.ready = false
       return this.success(explicitPlaybackFailure
         ? 'participant_playback_blocked'
-        : stalled ? 'participant_playback_stalled' : 'participant_buffering')
+        : startupTimedOut ? 'participant_playback_startup_timeout'
+          : stalled ? 'participant_playback_stalled' : 'participant_buffering')
     }
 
     return null

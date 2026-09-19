@@ -58,6 +58,7 @@ describe('deterministic network-chaos simulation', () => {
       throw new Error('Expected the seek barrier to be created.')
 
     nowMs += 85
+    room.acknowledgeSeek('host', seek.snapshot.revision, 240)
     const friendAck = room.acknowledgeSeek('friend', seek.snapshot.revision, 240.08)
     expect(friendAck).toMatchObject({
       ok: true,
