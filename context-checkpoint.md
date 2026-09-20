@@ -4050,6 +4050,77 @@
 - Checkpoints 1-52 remain intact. This checkpoint supersedes only the incorrect next-issue statement in Checkpoint 52.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes, account names or viewing-history details were recorded.
 
+## Checkpoint 54
+
+### Session Metadata
+- Task or project: SyncYourJoy CR-A03 implementation for issue #50.
+- Checkpoint number: 54.
+- Date and time: 2026-09-20 16:50 +03 (Europe/Istanbul).
+- Coverage period: issue #50 source inspection, operation ownership implementation, deterministic regressions, acceptance documentation, issue metadata and public-project tracking.
+- Current context status: implementation is complete in the working tree and all local verification gates pass. The changes are not yet committed, pushed or opened as a pull request. Release remains `0.2.4`.
+
+### Complete Chronological Activity Log
+- Created branch `codex/issue-50-operation-ownership` from verified `origin/main` and carried forward the durable Checkpoints 52 and 53 without carrying unmerged CR-A02 source changes.
+- Re-read issue #50 and its existing partial-evidence comment. Confirmed that PR #70 already covered selected late-seek and source-generation cases but left the complete operation ownership matrix open.
+- Inspected `apps/extension/src/content-script.ts`, its focused tests, `player-intent.ts`, `player-identity.ts`, and related room/service-worker behavior. Found local seek and play generations, timeout retention, expected-event windows and debounced controller intent, but no shared operation token/generation owner across seek, play, source replacement, controller/lease change and room detach.
+- Added `apps/extension/src/player-operations.ts`. The module now owns operation tokens, command and source generations, one active seek and play owner, bounded retired-seek attribution, same-target reuse, timeout marking, late-event classification, stale play settlement and generation snapshots for intent timers.
+- Integrated the operation owner into `content-script.ts`. Room command replacement, controller/lease change, room detach, local pause, source/media lifecycle and page identity changes now retire old operations. Programmatic play promises validate token, player element and source. Debounced controller seek intents validate the captured generation before sending.
+- Changed native seek handling so an active or recently retired operation completion cannot become a new controller seek. A genuine different-target scrub or Skip Intro retires the old owner and still sends one debounced intent.
+- Kept timed-out seeks owned for read-only completion. Added readiness-event completion through `canplay`, `loadeddata`, `loadedmetadata`, `durationchange` and `progress` paths, while preserving the no-repeat same-target write rule and bounded probe behavior.
+- Added `apps/extension/src/player-operations.test.ts` with five focused ownership tests: same-target single owner, timed-out attribution, cancelled late completion, stale play callback retirement and source-generation invalidation.
+- Added three content-script regressions: late readiness after timeout without another native write, cancellation of a debounced controller seek by a newer room command, and late seek completion after `PAUSE_LOCAL` without a new controller intent.
+- The first focused run after the module integration passed 2 files and 43 tests. After the three integration regressions, the focused run passed 2 files and 46 tests.
+- Added `docs/CR_A03_OPERATION_OWNERSHIP_ACCEPTANCE_REPORT_TEMPLATE.md`, covering privacy boundaries, exact candidate identity, token/generation contract, lifecycle transition matrix, deterministic evidence, headed/provider gates, sanitized failures and release boundary.
+- Updated `docs/TEST_GUIDE.md` with the CR-A03 operation ownership workflow and the distinction between deterministic evidence and headed/provider acceptance.
+- Assigned issue #50 to `muaz978`, added the existing `area: testing` label and preserved its bug, initiative, extension-area labels and M3/M5 milestone.
+- Updated the public project item for issue #50 to `In Progress`, `P1 High`, `Bug`, `Partial`, Unit tests plus Integration tests plus Browser test plus User acceptance, High risk and verification owner `muaz978`. No blocker reason was assigned because no external prerequisite currently blocks the deterministic implementation.
+- Ran `git diff --check`, `npm run check` and `npm audit --omit=dev --audit-level=high`. The full check passed 28 test files and 225 tests, root and edge typechecks, room-service build and extension build. The production dependency audit reported zero vulnerabilities.
+- No live-provider or headed-browser run was claimed for issue #50. The current browser account verification remains a separate prerequisite correction and does not substitute for operation-lifecycle acceptance.
+
+### Confirmed Successful Results
+- CR-A03 operation ownership implementation exists in the working tree and is covered by isolated and content-script regressions.
+- Full local verification passed: 28 test files, 225 tests, typechecks, both builds, `git diff --check` and zero production dependency vulnerabilities.
+- Detailed CR-A03 acceptance documentation is present and linked from the test guide.
+- Issue #50 has contributor-visible owner, labels, milestone and project evidence fields, and remains open.
+
+### Failed, Incomplete, or Unresolved Work
+- The CR-A03 source and documentation changes are not yet committed, pushed or reviewed in a PR.
+- GitHub self-approval is expected to be unavailable, based on the earlier PR workflow; a formal review comment will be used if GitHub rejects approval again.
+- Headed browser, live provider, deployment and user-acceptance evidence remain unrun and are not claimed.
+- No issue was closed and no release version was bumped.
+
+### Decisions and Rationale
+- Use a separate operation-owner module so seek, play and intent timers share the same explicit generation contract instead of accumulating independent booleans and timestamps.
+- Keep cancelled seek targets in a bounded retired-attribution window. This prevents a late native event from becoming controller intent while avoiding unbounded historical state.
+- Treat account availability, live-provider acceptance, physical-device evidence, deployment identity and user acceptance as separate claims. The verified signed-in browser account does not automatically satisfy later two-profile or two-device acceptance.
+- Keep issue #50 open and the release at `0.2.4` until review, remote checks and all applicable acceptance gates are complete. A compatible interim release can only follow a verified coherent issue group; `1.0.0` remains the end-of-milestone gate.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-operations.ts` - operation token and generation owner.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-operations.test.ts` - isolated ownership tests.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts` - integrated lifecycle and stale-event protection.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts` - late readiness and cancellation regressions.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A03_OPERATION_OWNERSHIP_ACCEPTANCE_REPORT_TEMPLATE.md` - detailed acceptance report template.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` - CR-A03 contributor workflow.
+- Public issue: `https://github.com/muaz978/sync-your-joy/issues/50`.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+
+### Open Questions, Blockers, and Dependencies
+- Does remote CI reproduce the complete check and all security workflows for the new operation-owner module?
+- Which headed browser fixture should be used for the optional provider lifecycle evidence, and what exact environment is available when the issue reaches that gate?
+- The implementation depends on the merged CR-A01 and CR-A02 changes, both of which remain open for their separate external acceptance gates.
+
+### Next Steps
+1. Commit and push the CR-A03 implementation, tests, documentation and checkpoint.
+2. Open a detailed non-closing PR with labels, assignee, milestone and public-project fields.
+3. Wait for all remote checks, inspect the exact PR diff, review it and merge only after the evidence is recorded.
+4. Post the merge evidence on issue #50 without closing it unless every applicable gate is complete.
+5. Continue to issue #51 in oldest-first order. Do not bump a release from this single partial acceptance item.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-53 remain intact. This checkpoint records only the CR-A03 working-tree milestone after the account correction.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes, account names or viewing-history details were recorded.
+
 ## Checkpoint 48
 
 ### Session Metadata

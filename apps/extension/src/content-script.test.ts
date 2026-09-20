@@ -375,6 +375,19 @@ describe('adaptive player lifecycle', () => {
     expect(video.writes).toEqual([120])
   })
 
+  it('finishes a timed-out seek from late readiness without another native write', async () => {
+    apply('paused', 120)
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(video.writes).toEqual([120])
+
+    video.seeking = false
+    video.dispatchEvent(new Event('canplay'))
+    expect(video.writes).toEqual([120])
+
+    apply('playing', 120)
+    expect(video.play).toHaveBeenCalledOnce()
+  })
+
   it('supersedes a pending seek when a newer room target arrives', () => {
     apply('paused', 120)
     apply('paused', 400)
@@ -530,6 +543,31 @@ describe('adaptive player lifecycle', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(statuses().some(message => message.sample.playbackStartFailed)).toBe(false)
+  })
+
+  it('cancels a debounced controller seek when a newer room command arrives', async () => {
+    state.participantId = 'host'
+    video.position = 210
+    video.seeking = true
+    video.dispatchEvent(new Event('seeking'))
+
+    apply('playing', 0)
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(messages.some(message => message.type === 'PLAYER_INTENT' && message.kind === 'seek')).toBe(false)
+  })
+
+  it('does not turn a late seek completion into intent after local pause retires it', async () => {
+    state.participantId = 'host'
+    apply('paused', 120)
+    listener({ type: 'PAUSE_LOCAL' })
+    messages.length = 0
+
+    video.seeking = false
+    video.dispatchEvent(new Event('seeked'))
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(messages.some(message => message.type === 'PLAYER_INTENT' && message.kind === 'seek')).toBe(false)
   })
 
   it('releases a timed-out seek when a newer room play command arrives', () => {
