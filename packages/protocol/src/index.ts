@@ -92,6 +92,8 @@ export interface RoomOperation extends OperationIdentity {
   preparedParticipantIds: string[]
   startedParticipantIds: string[]
   targetPositionSeconds: number | null
+  /** Whether a seek transaction should schedule playback after preparation. */
+  resumeWhenReady?: boolean
   effectiveAtServerMs: number | null
   deadlineAtServerMs: number
   reason?: OperationReason
@@ -562,6 +564,8 @@ export function isRoomOperation(value: unknown): value is RoomOperation {
   if (!prepared.every(participantId => required.has(participantId))
     || !started.every(participantId => required.has(participantId)))
     return false
+  if (value.resumeWhenReady !== undefined && typeof value.resumeWhenReady !== 'boolean')
+    return false
 
   const allPrepared = prepared.length === required.size && [...required].every(participantId => prepared.includes(participantId))
   const allStarted = started.length === required.size && [...required].every(participantId => started.includes(participantId))
@@ -571,7 +575,7 @@ export function isRoomOperation(value: unknown): value is RoomOperation {
   if (value.reason !== undefined)
     return false
   if (value.phase === 'preparing')
-    return prepared.length === 0 && started.length === 0 && value.effectiveAtServerMs === null
+    return started.length === 0 && value.effectiveAtServerMs === null
   if (value.phase === 'prepared')
     return allPrepared && started.length === 0 && value.effectiveAtServerMs === null
   if (value.phase === 'committed')

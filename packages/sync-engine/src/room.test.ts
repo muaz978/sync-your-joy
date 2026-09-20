@@ -1,4 +1,5 @@
-import type { MediaFingerprint, PlayerSample } from '@syncyourjoy/protocol'
+import type { MediaFingerprint, OperationAcknowledgement, PlayerSample } from '@syncyourjoy/protocol'
+import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
 import { RoomCoordinator } from './room.ts'
 import type { RoomResult } from './room.ts'
@@ -32,6 +33,47 @@ function joinApproved(room: RoomCoordinator, participant: { id: string; name: st
   room.join(participant)
   const snapshot = room.snapshot()
   return room.respondToJoin(snapshot.controller.participantId, snapshot.controller.leaseEpoch, participant.id, true)
+}
+
+function createTransactionalRoom(now: () => number): RoomCoordinator {
+  const room = new RoomCoordinator(
+    { roomId: 'transactional_room', code: 'TRANS123' },
+    { id: 'participant_host', name: 'Muaz', media, capabilities: CURRENT_CLIENT_CAPABILITIES },
+    now,
+  )
+  room.join({ id: 'participant_friend', name: 'Rana', media, capabilities: CURRENT_CLIENT_CAPABILITIES })
+  room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_friend', true)
+  room.setReady('participant_host', true, media)
+  room.setReady('participant_friend', true, media)
+  return room
+}
+
+function operationAcknowledgement(room: RoomCoordinator, participantId: string, phase: OperationAcknowledgement['phase'], positionSeconds: number, sampleSequence: number): OperationAcknowledgement {
+  const operation = room.snapshot().contract?.operation
+  if (!operation)
+    throw new Error('Expected an active transactional operation.')
+  return {
+    mediaEpoch: operation.mediaEpoch,
+    operationId: operation.operationId,
+    phase,
+    participantId,
+    bindingId: `binding_${participantId}`,
+    sourceGeneration: 1,
+    sampleSequence,
+    observedPositionSeconds: positionSeconds,
+    observedAtLocalMs: 10_000 + sampleSequence,
+  }
+}
+
+function controlTransactional(room: RoomCoordinator, kind: 'play' | 'pause' | 'seek', positionSeconds: number): RoomResult {
+  const snapshot = room.snapshot()
+  return room.control('participant_host', {
+    actionId: `transactional_${kind}_${snapshot.revision}`,
+    basedOnRevision: snapshot.revision,
+    leaseEpoch: snapshot.controller.leaseEpoch,
+    kind,
+    positionSeconds,
+  })
 }
 
 describe('RoomCoordinator', () => {
@@ -910,6 +952,150 @@ describe('RoomCoordinator', () => {
     expect(Object.keys(participant ?? {}).sort()).toEqual(
       ['connected', 'id', 'latencyMs', 'mediaMatches', 'name', 'ready', 'role'].sort(),
     )
+  })
+
+  describe('CR-B02 coordinator prepare and commit transactions', () => {
+    it('keeps play paused until the fixed participant set prepares, then requires observed starts', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+
+      expect(room.snapshot().contract).toMatchObject({ mode: 'transactional', sharedCapabilities: expect.arrayContaining(['prepare-start']) })
+      const pending = controlTransactional(room, 'play', 40)
+      expect(pending).toMatchObject({
+        ok: true,
+        reason: 'control_play_pending',
+        snapshot: {
+          playback: { status: 'paused', positionSeconds: 40 },
+          contract: { operation: { phase: 'preparing', requiredParticipantIds: ['participant_host', 'participant_friend'], preparedParticipantIds: [] } },
+        },
+      })
+
+      const hostPrepared = room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      expect(hostPrepared).toMatchObject({ ok: true, reason: 'operation_participant_prepared', snapshot: { playback: { status: 'paused' } } })
+      const benignSnapshotUpdate = room.setReady('participant_host', true, media)
+      expect(benignSnapshotUpdate).toMatchObject({ ok: true, reason: 'readiness_unchanged' })
+
+      const guestPrepared = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      expect(guestPrepared).toMatchObject({ ok: true, reason: 'operation_committed', snapshot: { playback: { status: 'playing' }, contract: { operation: { phase: 'committed' } } } })
+      if (!guestPrepared?.ok || !guestPrepared.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a scheduled transactional start.')
+
+      nowMs = guestPrepared.snapshot.contract.operation.effectiveAtServerMs
+      const hostStarted = room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40, 2))
+      expect(hostStarted).toMatchObject({ ok: true, reason: 'operation_participant_started' })
+      const guestStarted = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40, 2))
+      expect(guestStarted).toMatchObject({ ok: true, reason: 'operation_started', snapshot: { contract: { operation: { phase: 'started', startedParticipantIds: ['participant_host', 'participant_friend'] } } } })
+      expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40, 2))).toMatchObject({ ok: true, reason: 'operation_start_duplicate' })
+    })
+
+    it('keeps a paused seek committed at its fixed target and rejects stale or duplicate operation evidence', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      const sought = controlTransactional(room, 'seek', 180)
+      expect(sought).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 180 }, contract: { operation: { kind: 'seek', resumeWhenReady: false } } } })
+
+      const firstAck = operationAcknowledgement(room, 'participant_host', 'prepared', 180, 1)
+      expect(room.acknowledgeOperation('participant_host', firstAck)).toMatchObject({ ok: true, reason: 'operation_participant_prepared' })
+      expect(room.acknowledgeOperation('participant_host', firstAck)).toMatchObject({ ok: true, reason: 'operation_prepare_duplicate' })
+      expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 180, 1))).toMatchObject({
+        ok: true,
+        reason: 'operation_seek_committed_paused',
+        snapshot: { playback: { status: 'paused', positionSeconds: 180 }, contract: { operation: { phase: 'committed' } } },
+      })
+
+      const oldOperation = room.snapshot().contract!.operation!
+      const superseding = controlTransactional(room, 'play', 180)
+      expect(superseding).toMatchObject({ ok: true, reason: 'control_play_pending' })
+      expect(room.acknowledgeOperation('participant_host', {
+        ...firstAck,
+        operationId: oldOperation.operationId,
+        mediaEpoch: oldOperation.mediaEpoch,
+        sampleSequence: 2,
+      })).toBeNull()
+    })
+
+    it('cancels between prepare and start and preserves the requested target without shrinking the quorum', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 80)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 80, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 80, 1))
+      expect(committed).toMatchObject({ ok: true, snapshot: { contract: { operation: { phase: 'committed' } } } })
+
+      nowMs += 100
+      const failed = room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
+        positionSeconds: 80,
+        durationSeconds: 600,
+        paused: true,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        playbackStartFailed: true,
+      })
+      expect(failed).toMatchObject({
+        ok: true,
+        reason: 'participant_playback_blocked',
+        snapshot: {
+          playback: { status: 'paused', positionSeconds: 80 },
+          contract: { operation: { phase: 'cancelled', reason: 'start-rejected', requiredParticipantIds: ['participant_host', 'participant_friend'] } },
+        },
+      })
+      expect(room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 80, 2))).toBeNull()
+    })
+
+    it('uses the coordinator clock, not an arbitrary failed guest sample, for steady-play recovery', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 20)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 20, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 20, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed operation.')
+      nowMs = committed.snapshot.contract.operation.effectiveAtServerMs
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 20, 2))
+      room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 20, 2))
+
+      nowMs += 2_000
+      const recovered = room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
+        positionSeconds: 599,
+        durationSeconds: 600,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: false,
+        playbackStarted: true,
+      })
+      expect(recovered).toMatchObject({ ok: true, reason: 'participant_playback_stalled', snapshot: { playback: { status: 'paused' }, contract: { operation: { phase: 'cancelled', reason: 'manual-recovery' } } } })
+      expect(recovered?.snapshot.playback.positionSeconds).toBeLessThan(30)
+    })
+
+    it('cancels on lease transfer, fails closed on the deadline, and restores pending transactional state', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 55)
+      const pendingOperation = room.snapshot().contract!.operation!
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 55, 1))
+      const transferred = room.transferControl('participant_host', 'participant_friend', room.snapshot().controller.leaseEpoch)
+      expect(transferred).toMatchObject({ ok: true, snapshot: { contract: { operation: { phase: 'cancelled', reason: 'superseded' } } } })
+      expect(room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 55, 1))).toBeNull()
+
+      const secondRoom = createTransactionalRoom(() => nowMs)
+      controlTransactional(secondRoom, 'play', 55)
+      const restored = RoomCoordinator.fromState(secondRoom.exportState(), () => nowMs)
+      const deadline = restored.snapshot().contract!.operation!.deadlineAtServerMs
+      nowMs = deadline
+      expect(restored.releaseExpiredOperation()).toMatchObject({ ok: true, reason: 'operation_timeout_paused', snapshot: { playback: { status: 'paused', positionSeconds: 55 }, contract: { operation: { phase: 'failed', reason: 'deadline-expired' } } } })
+      expect(pendingOperation.mediaEpoch).toBe(restored.snapshot().contract!.operation!.mediaEpoch)
+
+      const navigatedRoom = createTransactionalRoom(() => nowMs)
+      controlTransactional(navigatedRoom, 'play', 55)
+      const navigation = navigatedRoom.openLink('participant_host', {
+        actionId: 'transactional_navigation',
+        basedOnRevision: navigatedRoom.snapshot().revision,
+        leaseEpoch: navigatedRoom.snapshot().controller.leaseEpoch,
+        url: 'https://video.example/watch/new-episode',
+      })
+      expect(navigation).toMatchObject({ ok: true, reason: 'link_opened', snapshot: { playback: { status: 'paused', positionSeconds: 0 }, contract: { mediaEpoch: 1, operation: null } } })
+    })
   })
 
   describe('host-approval join (SYJ-AUD-003)', () => {

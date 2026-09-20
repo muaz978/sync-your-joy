@@ -1,6 +1,11 @@
 import type {
+  ClientCapabilities,
   ControlKind,
   MediaFingerprint,
+  OperationAcknowledgement,
+  OperationObservationIdentity,
+  RoomContractSnapshot,
+  RoomOperation,
   ParticipantState,
   PlaybackState,
   PlayerSample,
@@ -8,7 +13,15 @@ import type {
   SharedSeek,
   SharedNavigation,
 } from '@syncyourjoy/protocol'
-import { mediaMatches, normalizePageUrl } from '@syncyourjoy/protocol'
+import {
+  isCurrentOperation,
+  mediaMatches,
+  negotiateRoomMode,
+  normalizeClientCapabilities,
+  normalizePageUrl,
+  normalizeRoomContractSnapshot,
+  supportsTransactionalOperations,
+} from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
 import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, PLAYBACK_REPORT_SILENCE_TIMEOUT_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
@@ -21,6 +34,9 @@ export interface InternalParticipant extends ParticipantState {
   lastSample: PlayerSample | null
   lastSampleReceivedAtMs?: number
   lastProgressAtServerMs?: number
+  /** Optional for migration: old persisted participants predate CR-B02. */
+  capabilities?: ClientCapabilities
+  lastOperationObservation?: OperationObservationIdentity
 }
 
 export interface RoomIdentity {
@@ -34,6 +50,7 @@ export interface InternalPendingJoinRequest {
   media: MediaFingerprint | null
   /** Random capability the eventual approved participant record will carry. */
   sessionToken?: string
+  capabilities?: ClientCapabilities
   requestedAtMs: number
 }
 
@@ -50,6 +67,7 @@ export interface RoomCoordinatorState {
   controlRevisionFloor?: number
   pendingSeek?: SharedSeek | null
   pendingJoinRequests?: InternalPendingJoinRequest[]
+  contract?: RoomContractSnapshot
 }
 
 export interface ControlIntent {
@@ -85,10 +103,11 @@ export class RoomCoordinator {
   private navigation: SharedNavigation | null = null
   private controlRevisionFloor = 0
   private pendingSeek: SharedSeek | null = null
+  private contract: RoomContractSnapshot
 
   constructor(
     identity: RoomIdentity,
-    controller: { id: string; name: string; media: MediaFingerprint | null; sessionToken?: string },
+    controller: { id: string; name: string; media: MediaFingerprint | null; sessionToken?: string; capabilities?: ClientCapabilities },
     now: () => number = Date.now,
     restoredState?: RoomCoordinatorState,
   ) {
@@ -110,6 +129,8 @@ export class RoomCoordinator {
       this.pendingSeek = restoredState.pendingSeek ? structuredClone(restoredState.pendingSeek) : null
       for (const request of restoredState.pendingJoinRequests ?? [])
         this.pendingJoinRequests.set(request.id, structuredClone(request))
+      this.contract = normalizeRoomContractSnapshot(restoredState.contract)
+      this.refreshNegotiation()
       return
     }
 
@@ -132,10 +153,13 @@ export class RoomCoordinator {
       joinedAtMs: this.now(),
       media: controller.media,
       ...(controller.sessionToken ? { sessionToken: controller.sessionToken } : {}),
+      capabilities: normalizeClientCapabilities(controller.capabilities),
       lastSample: null,
       lastSampleReceivedAtMs: this.now(),
       lastProgressAtServerMs: this.now(),
     })
+    this.contract = normalizeRoomContractSnapshot(undefined)
+    this.refreshNegotiation()
   }
 
   static fromState(state: RoomCoordinatorState, now: () => number = Date.now): RoomCoordinator {
@@ -144,7 +168,12 @@ export class RoomCoordinator {
       throw new Error('Stored room controller is missing.')
     return new RoomCoordinator(
       state.identity,
-      { id: controller.id, name: controller.name, media: controller.media },
+      {
+        id: controller.id,
+        name: controller.name,
+        media: controller.media,
+        ...(controller.capabilities ? { capabilities: controller.capabilities } : {}),
+      },
       now,
       state,
     )
@@ -164,10 +193,12 @@ export class RoomCoordinator {
       controlRevisionFloor: this.controlRevisionFloor,
       pendingSeek: this.pendingSeek ? structuredClone(this.pendingSeek) : null,
       pendingJoinRequests: [...this.pendingJoinRequests.values()].map(request => structuredClone(request)),
+      contract: structuredClone(this.contract),
     }
   }
 
-  join(participant: { id: string; name: string; media: MediaFingerprint | null; sessionToken?: string }): RoomResult {
+  join(participant: { id: string; name: string; media: MediaFingerprint | null; sessionToken?: string; capabilities?: ClientCapabilities }): RoomResult {
+    const capabilities = normalizeClientCapabilities(participant.capabilities)
     const existing = this.participants.get(participant.id)
     if (existing) {
       // Unconditional equality, not "only reject when existing already had a
@@ -190,10 +221,12 @@ export class RoomCoordinator {
       existing.name = participant.name
       existing.media = participant.media
       existing.mediaMatches = mediaMatches(this.media, participant.media)
+      existing.capabilities = capabilities
       if (participant.sessionToken)
         existing.sessionToken = participant.sessionToken
       existing.ready = wasReady && existing.mediaMatches
       this.pauseForMembershipChange()
+      this.refreshNegotiation()
       this.revision += 1
       this.markStateBarrier()
       return this.success('participant_reconnected')
@@ -216,6 +249,7 @@ export class RoomCoordinator {
       name: participant.name,
       media: participant.media,
       ...(participant.sessionToken ? { sessionToken: participant.sessionToken } : {}),
+      capabilities,
       requestedAtMs: this.now(),
     })
     this.revision += 1
@@ -251,11 +285,13 @@ export class RoomCoordinator {
       joinedAtMs: this.now(),
       media: pending.media,
       ...(pending.sessionToken ? { sessionToken: pending.sessionToken } : {}),
+      ...(pending.capabilities ? { capabilities: pending.capabilities } : {}),
       lastSample: null,
       lastSampleReceivedAtMs: this.now(),
       lastProgressAtServerMs: this.now(),
     })
     this.pauseForMembershipChange()
+    this.refreshNegotiation()
     this.revision += 1
     this.markStateBarrier()
     return this.success('join_approved')
@@ -274,7 +310,7 @@ export class RoomCoordinator {
     if (participant.ready === previousReady && participant.mediaMatches === previousMediaMatches)
       return this.success('readiness_unchanged')
     if (!participant.ready)
-      this.pauseForMembershipChange()
+      this.pauseForMembershipChange('participant-not-ready')
     this.revision += 1
     this.markStateBarrier()
     return this.success(participant.ready ? 'participant_ready' : 'participant_not_ready')
@@ -299,12 +335,17 @@ export class RoomCoordinator {
       return this.failure('participants_not_ready', 'Everyone must be ready before playback starts.')
     if (intent.kind === 'play' && this.pendingSeek)
       return this.failure('seek_in_progress', 'Wait for every player to finish the current seek before starting playback.')
+    if (this.contract.mode === 'transactional' && intent.kind !== 'pause' && !this.everyoneReady())
+      return this.failure('participants_not_ready', 'Everyone must be ready before a transactional operation starts.')
 
     this.rememberAction(intent.actionId)
 
     const nowMs = this.now()
     const positionSeconds = this.clampToMediaDuration(Math.max(0, intent.positionSeconds))
     const leadMs = this.commandLeadMs()
+
+    if (this.contract.mode === 'transactional')
+      return this.controlTransactional(intent.kind, positionSeconds, nowMs, leadMs)
 
     if (intent.kind === 'pause') {
       this.pendingSeek = null
@@ -349,6 +390,137 @@ export class RoomCoordinator {
 
     this.revision += 1
     return this.success(`control_${intent.kind}`)
+  }
+
+  /**
+   * Records a prepare or observed-start acknowledgement for the active
+   * transactional operation. The caller must already have authenticated the
+   * socket; the participant id in the payload is checked as an additional
+   * consistency guard and is never used as authorization by itself.
+   */
+  acknowledgeOperation(participantId: string, acknowledgement: OperationAcknowledgement): RoomResult | null {
+    const operation = this.contract.operation
+    if (this.contract.mode !== 'transactional' || !operation)
+      return null
+
+    const nowMs = this.now()
+    if (nowMs >= operation.deadlineAtServerMs)
+      return this.releaseExpiredOperation(nowMs)
+    if (acknowledgement.participantId !== participantId
+      || !isCurrentOperation(operation, acknowledgement)
+      || !supportsTransactionalOperations(this.participantCapabilities(participantId).capabilities))
+      return null
+    if (operation.phase === 'cancelled' || operation.phase === 'failed')
+      return null
+
+    const participant = this.participants.get(participantId)
+    if (!participant || !participant.connected || !participant.ready || !participant.mediaMatches
+      || !operation.requiredParticipantIds.includes(participantId))
+      return null
+
+    const priorObservation = participant.lastOperationObservation
+    if (priorObservation
+      && isCurrentOperation(priorObservation, acknowledgement)
+      && (priorObservation.bindingId !== acknowledgement.bindingId
+        || priorObservation.sourceGeneration !== acknowledgement.sourceGeneration)) {
+      this.cancelOperation('binding-changed', nowMs)
+      this.revision += 1
+      this.markStateBarrier()
+      return this.success('operation_binding_changed')
+    }
+    if (priorObservation
+      && isCurrentOperation(priorObservation, acknowledgement)
+      && (acknowledgement.sourceGeneration < priorObservation.sourceGeneration
+        || (acknowledgement.sourceGeneration === priorObservation.sourceGeneration
+          && acknowledgement.sampleSequence < priorObservation.sampleSequence)))
+      return null
+    participant.lastOperationObservation = {
+      mediaEpoch: acknowledgement.mediaEpoch,
+      operationId: acknowledgement.operationId,
+      bindingId: acknowledgement.bindingId,
+      sourceGeneration: acknowledgement.sourceGeneration,
+      sampleSequence: acknowledgement.sampleSequence,
+    }
+
+    if (acknowledgement.phase === 'prepared') {
+      if (operation.phase !== 'preparing' && operation.phase !== 'prepared')
+        return operation.preparedParticipantIds.includes(participantId)
+          ? this.success('operation_prepare_duplicate')
+          : null
+      if (!isSeekAligned(acknowledgement.observedPositionSeconds, operation.targetPositionSeconds ?? 0))
+        return null
+      if (operation.preparedParticipantIds.includes(participantId))
+        return this.success('operation_prepare_duplicate')
+      if (!operation.preparedParticipantIds.includes(participantId))
+        operation.preparedParticipantIds.push(participantId)
+      if (operation.preparedParticipantIds.length < operation.requiredParticipantIds.length)
+        return this.success('operation_participant_prepared')
+
+      operation.phase = 'prepared'
+      operation.effectiveAtServerMs = nowMs + this.commandLeadMs()
+      if (operation.kind === 'seek' && operation.resumeWhenReady === false) {
+        operation.phase = 'committed'
+        this.playback = {
+          status: 'paused',
+          positionSeconds: operation.targetPositionSeconds ?? 0,
+          effectiveAtServerMs: operation.effectiveAtServerMs,
+          playbackRate: 1,
+        }
+        this.revision += 1
+        return this.success('operation_seek_committed_paused')
+      }
+
+      this.playback = {
+        status: 'playing',
+        positionSeconds: operation.targetPositionSeconds ?? 0,
+        effectiveAtServerMs: operation.effectiveAtServerMs,
+        playbackRate: 1,
+      }
+      this.resetPlaybackHealth(operation.effectiveAtServerMs)
+      operation.phase = 'committed'
+      this.revision += 1
+      return this.success('operation_committed')
+    }
+
+    if (operation.phase !== 'committed' && operation.phase !== 'started')
+      return null
+    if (operation.startedParticipantIds.includes(participantId))
+      return this.success('operation_start_duplicate')
+    if (operation.effectiveAtServerMs === null || nowMs < operation.effectiveAtServerMs)
+      return null
+    if (!isSeekAligned(acknowledgement.observedPositionSeconds, this.expectedOperationPosition(operation, nowMs)))
+      return null
+
+    operation.startedParticipantIds.push(participantId)
+    if (operation.startedParticipantIds.length === operation.requiredParticipantIds.length)
+      operation.phase = 'started'
+    this.revision += 1
+    return this.success(operation.phase === 'started' ? 'operation_started' : 'operation_participant_started')
+  }
+
+  releaseExpiredOperation(nowMs: number = this.now()): RoomResult | null {
+    const operation = this.contract.operation
+    if (this.contract.mode !== 'transactional' || !operation || nowMs < operation.deadlineAtServerMs)
+      return null
+    if (operation.phase === 'cancelled' || operation.phase === 'failed')
+      return null
+    const previousPhase = operation.phase
+    operation.phase = 'failed'
+    operation.reason = previousPhase === 'committed' || previousPhase === 'started'
+      ? 'start-timeout'
+      : 'deadline-expired'
+    this.pauseAtOperationTarget(operation, nowMs)
+    this.revision += 1
+    this.markStateBarrier()
+    return this.success('operation_timeout_paused')
+  }
+
+  operationDeadlineMs(): number | null {
+    const operation = this.contract.operation
+    return this.contract.mode === 'transactional' && operation
+      && operation.phase !== 'cancelled' && operation.phase !== 'failed'
+      ? operation.deadlineAtServerMs
+      : null
   }
 
   acknowledgeSeek(participantId: string, revision: number, positionSeconds: number): RoomResult | null {
@@ -474,8 +646,8 @@ export class RoomCoordinator {
     // created a pending seek. Cancel that barrier before changing the lease,
     // otherwise its old revision could still collect acknowledgements and
     // resume playback after control has moved to another participant.
-    if (this.pendingSeek)
-      this.pauseForMembershipChange()
+    if (this.pendingSeek || this.hasActiveOperation())
+      this.pauseForMembershipChange('superseded')
 
     const current = this.participants.get(this.controllerId)
     if (current)
@@ -506,7 +678,9 @@ export class RoomCoordinator {
       return this.failure('invalid_url', 'Enter a valid HTTP or HTTPS video page link.')
 
     this.rememberAction(intent.actionId)
-    this.pauseForMembershipChange()
+    this.pauseForMembershipChange('media-changed')
+    this.contract.mediaEpoch += 1
+    this.contract.operation = null
     for (const participant of this.participants.values()) {
       participant.ready = false
       participant.mediaMatches = false
@@ -578,6 +752,12 @@ export class RoomCoordinator {
         || (sample.buffering && sample.playbackStarted !== false && isPlaybackPastStartupGrace(this.playback, nowMs))
         || stalled
         || startupTimedOut)) {
+      const activeOperation = this.contract.mode === 'transactional'
+        && this.contract.operation
+        && this.contract.operation.phase !== 'cancelled'
+        && this.contract.operation.phase !== 'failed'
+        ? this.contract.operation
+        : null
       const failedSeekTarget = this.pendingSeek?.revision === basedOnRevision
         ? this.pendingSeek.positionSeconds
         : null
@@ -587,9 +767,16 @@ export class RoomCoordinator {
       // restart the room with a smaller membership set.
       if (failedSeekTarget !== null)
         this.pendingSeek = null
+      const expectedRecoveryPosition = activeOperation
+        ? (activeOperation.phase === 'started'
+          ? expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
+          : activeOperation.targetPositionSeconds)
+        : null
+      if (activeOperation)
+        this.cancelOperation(explicitPlaybackFailure ? 'start-rejected' : startupTimedOut ? 'start-timeout' : 'manual-recovery', nowMs, false)
       this.playback = {
         status: 'paused',
-        positionSeconds: this.clampToMediaDuration(Math.max(0, failedSeekTarget ?? sample.positionSeconds)),
+        positionSeconds: this.clampToMediaDuration(Math.max(0, expectedRecoveryPosition ?? failedSeekTarget ?? sample.positionSeconds)),
         effectiveAtServerMs: nowMs,
         playbackRate: 1,
       }
@@ -627,7 +814,7 @@ export class RoomCoordinator {
 
     participant.connected = false
 
-    this.pauseForMembershipChange()
+    this.pauseForMembershipChange('participant-disconnected')
 
     this.revision += 1
     this.markStateBarrier()
@@ -646,6 +833,8 @@ export class RoomCoordinator {
     if (!next)
       return null
 
+    if (this.hasActiveOperation())
+      this.pauseForMembershipChange('participant-disconnected')
     if (current)
       current.role = 'member'
     next.role = 'controller'
@@ -675,21 +864,131 @@ export class RoomCoordinator {
       navigation: this.navigation ? { ...this.navigation } : null,
       participants: [...this.participants.values()]
         .sort((a, b) => a.joinedAtMs - b.joinedAtMs)
-        .map(({ joinedAtMs: _joinedAtMs, sessionToken: _sessionToken, media: _media, lastSample: _lastSample, lastSampleReceivedAtMs: _lastSampleReceivedAtMs, lastProgressAtServerMs: _lastProgressAtServerMs, ...participant }) => ({ ...participant })),
-      // Deliberately excludes `media` and `sessionToken`, matching the same
-      // minimal-exposure discipline as the participants mapping above.
+        .map(({ joinedAtMs: _joinedAtMs, sessionToken: _sessionToken, media: _media, lastSample: _lastSample, lastSampleReceivedAtMs: _lastSampleReceivedAtMs, lastProgressAtServerMs: _lastProgressAtServerMs, capabilities: _capabilities, lastOperationObservation: _lastOperationObservation, ...participant }) => ({ ...participant })),
+      // Deliberately excludes media, sessionToken, capability advertisements,
+      // and observation bookkeeping, matching the minimal-exposure discipline
+      // used by the rest of the room snapshot.
       pendingJoinRequests: [...this.pendingJoinRequests.values()].map(request => ({
         id: request.id,
         name: request.name,
         requestedAtMs: request.requestedAtMs,
       })),
       policy: { buffering: 'pause-all' },
+      contract: structuredClone(this.contract),
     }
   }
 
   private everyoneReady(): boolean {
     const connected = [...this.participants.values()].filter(participant => participant.connected)
     return connected.length > 0 && connected.every(participant => participant.ready && participant.mediaMatches)
+  }
+
+  private controlTransactional(kind: ControlKind, positionSeconds: number, nowMs: number, leadMs: number): RoomResult {
+    if (kind === 'pause') {
+      this.cancelOperation('controller-request', nowMs, false)
+      this.pendingSeek = null
+      this.playback = {
+        status: 'paused',
+        positionSeconds,
+        effectiveAtServerMs: nowMs,
+        playbackRate: 1,
+      }
+      this.revision += 1
+      return this.success('control_pause')
+    }
+
+    this.cancelOperation('superseded', nowMs)
+    this.pendingSeek = null
+    const operation: RoomOperation = {
+      mediaEpoch: this.contract.mediaEpoch,
+      operationId: `operation_${crypto.randomUUID().replaceAll('-', '')}`,
+      kind,
+      phase: 'preparing',
+      requiredParticipantIds: this.requiredParticipantIds(),
+      preparedParticipantIds: [],
+      startedParticipantIds: [],
+      targetPositionSeconds: positionSeconds,
+      ...(kind === 'seek' ? { resumeWhenReady: this.playback.status === 'playing' } : { resumeWhenReady: true }),
+      effectiveAtServerMs: null,
+      deadlineAtServerMs: nowMs + SEEK_BARRIER_MAX_WAIT_MS,
+    }
+    this.contract.operation = operation
+    this.playback = {
+      status: 'paused',
+      positionSeconds,
+      effectiveAtServerMs: nowMs + (kind === 'play' ? leadMs : 0),
+      playbackRate: 1,
+    }
+    this.revision += 1
+    return this.success(kind === 'seek' ? 'control_seek_pending' : 'control_play_pending')
+  }
+
+  private requiredParticipantIds(): string[] {
+    return [...this.participants.values()]
+      .filter(participant => participant.connected && participant.ready && participant.mediaMatches)
+      .sort((a, b) => a.joinedAtMs - b.joinedAtMs)
+      .map(participant => participant.id)
+  }
+
+  private hasActiveOperation(): boolean {
+    const operation = this.contract.operation
+    return operation !== null && operation.phase !== 'cancelled' && operation.phase !== 'failed'
+  }
+
+  private participantCapabilities(participantId: string): ClientCapabilities {
+    return normalizeClientCapabilities(this.participants.get(participantId)?.capabilities)
+  }
+
+  private expectedOperationPosition(operation: RoomOperation, nowMs: number): number {
+    if (operation.targetPositionSeconds !== null && (operation.phase === 'preparing' || operation.phase === 'prepared'))
+      return operation.targetPositionSeconds
+    return expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
+  }
+
+  private pauseAtOperationTarget(operation: RoomOperation, nowMs: number): void {
+    const positionSeconds = operation.targetPositionSeconds !== null
+      ? operation.targetPositionSeconds
+      : expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
+    this.playback = {
+      status: 'paused',
+      positionSeconds: this.clampToMediaDuration(Math.max(0, positionSeconds)),
+      effectiveAtServerMs: nowMs,
+      playbackRate: 1,
+    }
+  }
+
+  private cancelOperation(reason: NonNullable<RoomOperation['reason']>, nowMs: number, preserveTarget = true): void {
+    const operation = this.contract.operation
+    if (!operation || operation.phase === 'cancelled' || operation.phase === 'failed')
+      return
+    if (preserveTarget)
+      this.pauseAtOperationTarget(operation, nowMs)
+    operation.phase = 'cancelled'
+    operation.reason = reason
+    operation.effectiveAtServerMs = null
+  }
+
+  private refreshNegotiation(): void {
+    const advertisements = [...this.participants.values()]
+      .filter(participant => participant.connected)
+      .map(participant => ({
+        participantId: participant.id,
+        capabilities: normalizeClientCapabilities(participant.capabilities),
+      }))
+    const negotiation = negotiateRoomMode(advertisements)
+    const activeOperation = this.contract.operation
+    this.contract = {
+      mode: negotiation.mode,
+      mediaEpoch: this.contract.mediaEpoch,
+      sharedCapabilities: [...negotiation.sharedCapabilities],
+      operation: activeOperation,
+    }
+    if (negotiation.mode !== 'transactional' && activeOperation
+      && activeOperation.phase !== 'cancelled' && activeOperation.phase !== 'failed') {
+      this.cancelOperation('legacy-peer', this.now())
+      this.revision += 1
+      this.markStateBarrier()
+    }
   }
 
   private commandLeadMs(): number {
@@ -701,7 +1000,9 @@ export class RoomCoordinator {
     return Math.round(Math.max(140, Math.min(500, slowestRoundTripMs / 2 + 80)))
   }
 
-  private pauseForMembershipChange(): void {
+  private pauseForMembershipChange(reason: RoomOperation['reason'] = 'participant-disconnected'): void {
+    if (this.contract.mode === 'transactional')
+      this.cancelOperation(reason, this.now())
     this.pendingSeek = null
     if (this.playback.status !== 'playing')
       return

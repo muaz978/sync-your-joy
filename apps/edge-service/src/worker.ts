@@ -233,6 +233,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     const expiredSeek = this.coordinator.releaseExpiredSeek(nowMs)
     if (expiredSeek?.ok)
       this.broadcast({ type: 'room_snapshot', reason: expiredSeek.reason, snapshot: expiredSeek.snapshot })
+    const expiredOperation = this.coordinator.releaseExpiredOperation(nowMs)
+    if (expiredOperation?.ok)
+      this.broadcast({ type: 'room_snapshot', reason: expiredOperation.reason, snapshot: expiredOperation.snapshot })
     const health = this.coordinator.evaluateHealth(nowMs)
     if (health?.ok)
       this.broadcast({ type: 'room_snapshot', reason: health.reason, snapshot: health.snapshot })
@@ -288,7 +291,13 @@ export class RoomDurableObject extends DurableObject<Env> {
           roomId: crypto.randomUUID(),
           code: message.code,
         },
-        { id: message.participantId, name: message.name, media: message.media, sessionToken: randomToken() },
+        {
+          id: message.participantId,
+          name: message.name,
+          media: message.media,
+          sessionToken: randomToken(),
+          ...(message.capabilities ? { capabilities: message.capabilities } : {}),
+        },
       )
       this.createdAtMs = Date.now()
       const sessionToken = this.coordinator.exportState().participants.find(item => item.id === message.participantId)?.sessionToken
@@ -323,7 +332,13 @@ export class RoomDurableObject extends DurableObject<Env> {
         this.send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: this.coordinator.snapshot() })
         return
       }
-      const result = this.coordinator.join({ id: message.participantId, name: message.name, media: message.media, sessionToken })
+      const result = this.coordinator.join({
+        id: message.participantId,
+        name: message.name,
+        media: message.media,
+        sessionToken,
+        ...(message.capabilities ? { capabilities: message.capabilities } : {}),
+      })
       if (!result.ok) {
         this.sendResult(socket, null, result)
         return
@@ -488,6 +503,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     const seekDeadlineMs = this.coordinator.pendingSeekDeadlineMs()
     if (seekDeadlineMs !== null)
       alarmCandidates.push(seekDeadlineMs)
+    const operationDeadlineMs = this.coordinator.operationDeadlineMs()
+    if (operationDeadlineMs !== null)
+      alarmCandidates.push(operationDeadlineMs)
     const healthDeadlineMs = this.coordinator.nextHealthDeadlineMs()
     if (healthDeadlineMs !== null)
       alarmCandidates.push(healthDeadlineMs)

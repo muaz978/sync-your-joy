@@ -285,6 +285,9 @@ describe('operation identity and compatibility contract', () => {
       deadlineAtServerMs: 10_000,
     }
     expect(isRoomOperation(valid)).toBe(true)
+    expect(isRoomOperation({ ...valid, preparedParticipantIds: ['participant_host'] })).toBe(true)
+    expect(isRoomOperation({ ...valid, resumeWhenReady: false })).toBe(true)
+    expect(isRoomOperation({ ...valid, resumeWhenReady: 'yes' })).toBe(false)
     expect(isRoomOperation({ ...valid, preparedParticipantIds: ['participant_unknown'] })).toBe(false)
     expect(isRoomOperation({ ...valid, phase: 'cancelled' })).toBe(false)
     expect(isRoomOperation({ ...valid, phase: 'cancelled', reason: 'deadline-expired' })).toBe(true)
