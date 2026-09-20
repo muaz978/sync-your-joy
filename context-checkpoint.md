@@ -4351,3 +4351,54 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-44 remain intact. This checkpoint records the completed issue #33 documentation milestone and transitions the working queue to issue #34.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 49
+
+### Session Metadata
+- Task or project: SyncYourJoy issue #35 documentation PR review and acceptance preparation.
+- Checkpoint number: 49.
+- Date and time: 2026-09-20 15:55 +03 (Europe/Istanbul).
+- Coverage period: PR #75 creation, metadata, public-project classification, remote checks, exact diff review and review-record handling.
+- Current context status: PR #75 is open and all configured remote checks pass. The PR author cannot self-approve it through GitHub, so a formal review comment was posted and administrator merge remains pending.
+
+### Complete Chronological Activity Log
+- Committed issue #35 support as `d6e3785` with `docs/SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md`, the `docs/TEST_GUIDE.md` section and the full issue #35 checkpoint.
+- Pushed branch `codex/issue-35-cross-platform` and opened PR #75 at `https://github.com/muaz978/sync-your-joy/pull/75`.
+- Attached PR #75 to the Codex task.
+- Applied PR metadata: assignee `muaz978`; labels `documentation`, `initiative: crunchyroll-sync` and `area: testing`; milestone `M3/M5: reliability and real-device validation`.
+- Added the PR to the public project and set its item to In review, P1 High, Documentation, Partial, Browser test plus Deployment plus User acceptance, High risk and Missing device.
+- Confirmed the issue #35 project row remains Blocked, P1 High, Manual acceptance, Not started, with the same three issue gates, High risk, Missing device and verification owner `muaz978`.
+- Waited for the configured remote checks. Analyze (javascript-typescript), CodeQL, DevSkim, Typecheck/test/build and lowercase `devskim` all passed.
+- The first exact-diff inspection command attempted the unsupported `gh pr diff --stat` flag and failed without changing state. Re-ran with `gh pr diff --name-only --patch`, which succeeded and reviewed all three changed files.
+- The diff review confirmed the report template is documentation-only, enforces runtime-specific evidence and protects secrets and protected media. It also confirmed the PR body uses `Relates to #35` and leaves issue #35 open.
+- Attempted `gh pr review 75 --approve`. GitHub rejected it with `Review Can not approve your own pull request (addPullRequestReview)` because the current authenticated user is the PR author.
+- Re-ran the same complete review as `gh pr review 75 --comment`. The formal review comment was recorded on the PR with the exact diff scope, security review, five check results, project state and acceptance boundary.
+- Verified PR #75 through `gh pr view`: state OPEN, review decision REVIEW_REQUIRED, all five checks successful, and the review comment present under author `muaz978`.
+
+### Confirmed Successful Results
+- PR #75 exists with the required detailed body, attached artifact, assignee, labels and milestone.
+- The public project item has the required issue-specific tracking fields.
+- All five configured remote checks passed.
+- The exact PR diff was reviewed and the formal review comment was successfully recorded.
+- The review explicitly states that PR #75 does not complete issue #35 and that Firefox/Safari and headed runtime acceptance remain unverified.
+
+### Failed, Incomplete, or Unresolved Work
+- GitHub does not permit the PR author to self-approve, so there is no `APPROVED` review state from this account. The completed review is recorded as a formal comment and administrator merge is required.
+- PR #75 remains OPEN and has not yet been merged.
+- Issue #35 remains OPEN and Blocked. No browser/runtime acceptance has been claimed.
+
+### Decisions and Rationale
+- Treat the failed self-approval as a GitHub permission limitation, not as a code or documentation failure.
+- Preserve the review record as a comment because it contains the complete review evidence and no blocking finding remains.
+- Use the administrator merge path only after the exact diff and all checks are confirmed, while leaving issue #35 open.
+
+### Next Steps
+1. Accept PR #75 with administrator squash merge.
+2. Verify the remote merge commit and `origin/main`, noting any local fast-forward warning separately from the remote result.
+3. Add an issue #35 comment with the exact merge commit, documentation paths and remaining headed, Firefox and Safari gates.
+4. Verify the public project marks PR #75 Done while issue #35 remains Blocked and open.
+5. Continue to issue #49 only after this milestone is recorded.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-48 remain intact. This checkpoint records PR #75 review handling and supersedes no prior result.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
