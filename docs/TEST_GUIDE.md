@@ -305,3 +305,19 @@ Use [`docs/CR_A03_OPERATION_OWNERSHIP_ACCEPTANCE_REPORT_TEMPLATE.md`](CR_A03_OPE
 ### CR-A04 player binding and document replacement acceptance
 
 Issue [#51](https://github.com/muaz978/sync-your-joy/issues/51) tracks the remaining worker-side binding boundary after the partial protections in PR #70. Use [`docs/CR_A04_PLAYER_BINDING_ACCEPTANCE_REPORT_TEMPLATE.md`](CR_A04_PLAYER_BINDING_ACCEPTANCE_REPORT_TEMPLATE.md) for the evidence record. The worker must bind sender-bound messages to the selected tab, frame, Chromium document identity when available, or the worker-issued opaque fallback token when document identity is unavailable. `apps/extension/src/service-worker.test.ts` covers same-frame document replacement, stale old-document status, media-loss, seek acknowledgement and player-intent rejection, exact document-targeted delivery, fallback token stability and token rotation after loading. These deterministic tests establish worker-level identity protection only. They do not prove authenticated Crunchyroll playback, two-profile or two-account behavior, two-device behavior, deployment identity or user acceptance. Record those separately when the corresponding gate is actually run.
+
+### CR-A05 drift correction and convergence acceptance
+
+Issue [#52](https://github.com/muaz978/sync-your-joy/issues/52) tracks bounded correction after a player falls behind during a delayed seek or resets its playback rate. Use [`docs/CR_A05_DRIFT_CONVERGENCE_ACCEPTANCE_REPORT_TEMPLATE.md`](CR_A05_DRIFT_CONVERGENCE_ACCEPTANCE_REPORT_TEMPLATE.md) for every claimed run.
+
+The sync-engine policy allows a temporary `0.98` or `1.02` rate only when the player is playing, not buffering or seeking, has no pending native operation, and has recent progress evidence. The content script verifies that the player accepted the assigned rate, retires it on buffering, seeking, pause, source change or operation change, and does not reapply it indefinitely. An ignored or reset rate falls back to one hard correction and then an explicit paused recovery state if convergence still fails. A newer controller command resets the old correction budget and wins.
+
+Run the deterministic coverage with:
+
+```sh
+npx vitest run packages/sync-engine/src/clock.test.ts apps/extension/src/content-script.test.ts
+```
+
+The content-script cases include no-progress refusal, accepted-rate application, lifecycle termination, ignored/reset-rate fallback, 30-second delayed-seek observation and newer-command precedence. The 800 ms, 1,200 ms and 2,000 ms synthetic delays prove bounded local behavior only. They do not prove that Crunchyroll accepts playback-rate changes, that visible frames are moving, or that two accounts or devices remain synchronized.
+
+For a controlled headed observation, record the exact candidate package, room revision, player position, native state, playback-rate value, buffering and seek events, recent progress evidence, visible motion and recovery outcome. Use the active signed-in Crunchyroll browser only as an authorized visible observation. Do not copy daily-browser cookies into isolated test state, use private provider APIs, access protected media bytes or treat a changing media clock as visible-video proof.

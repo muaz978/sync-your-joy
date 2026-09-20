@@ -1,6 +1,6 @@
 import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
+import { canApplySoftDriftCorrection, canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isPlaybackRateAccepted, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
@@ -15,6 +15,7 @@ const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
 const MEDIA_HEARTBEAT_INTERVAL_MS = 1_000
 const SEEK_RECOVERY_GRACE_MS = 2_500
+const SOFT_CORRECTION_MAX_MS = 2_500
 const PLAYER_PILL_LAYER = '2147483600'
 const MINI_CONTROLLER_HIDDEN_KEY = 'syncYourJoyMiniControllerHidden'
 
@@ -39,6 +40,10 @@ let pendingSeek: { token: OperationToken; positionSeconds: number; since: number
 let seekRecoveryUntil = 0
 let hardCorrectionAttempted = false
 let playbackRecoveryRequested = false
+let softCorrectionAttempted = false
+let softCorrectionActive = false
+let softCorrectionStartedAt = 0
+let softCorrectionRate = 1
 let completedRoomSeekRevision = 0
 let seekAckInFlightRevision = 0
 let seekCompletionTimer: ReturnType<typeof setTimeout> | null = null
@@ -53,6 +58,7 @@ let lastReportedPosition: number | null = null
 let lastReportedAt = performance.now()
 let lastReportedFrames: number | null = null
 let lastProgressFrames: number | null = null
+let hasRealPlaybackProgress = false
 let lastSampleBuffering = false
 const playerOperations = new PlayerOperations()
 let playbackStarted = false
@@ -305,6 +311,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     }
     if (commandChanged) {
       invalidatePlayRequest()
+      restorePlaybackRate()
       resetCorrectionBudget()
       resetPlaybackHealthBaseline()
     }
@@ -652,11 +659,16 @@ function resetPlayerOperations(): void {
 function resetCorrectionBudget(): void {
   hardCorrectionAttempted = false
   playbackRecoveryRequested = false
+  softCorrectionAttempted = false
+  softCorrectionActive = false
+  softCorrectionStartedAt = 0
+  softCorrectionRate = 1
 }
 
 function requestBoundedPlaybackRecovery(): void {
   if (!video || playbackRecoveryRequested)
     return
+  restorePlaybackRate()
   playbackRecoveryRequested = true
   showNotice('Playback could not converge. Press Sync to retry without refreshing.')
   if (!video.paused) {
@@ -692,6 +704,7 @@ function handlePlay(): void {
 function handlePause(): void {
   if (!currentEpisodeMatchesRoom())
     return
+  restorePlaybackRate()
   if (consumeExpectedPause()) {
     // Programmatic pause already reflects the authoritative room state.
   }
@@ -706,6 +719,7 @@ function handlePause(): void {
 function handleSeeking(): void {
   if (!currentEpisodeMatchesRoom())
     return
+  restorePlaybackRate()
   if (bufferingTimer)
     clearTimeout(bufferingTimer)
   bufferingTimer = null
@@ -793,6 +807,7 @@ function handleEnded(): void {
 }
 
 function handleBuffering(): void {
+  restorePlaybackRate()
   if (bufferingTimer)
     clearTimeout(bufferingTimer)
   bufferingTimer = setTimeout(() => {
@@ -958,6 +973,7 @@ function applyAuthoritativeState(): void {
 
   const timeUntilPlayMs = snapshot.playback.effectiveAtServerMs - estimatedServerNowMs
   if (timeUntilPlayMs > 12) {
+    restorePlaybackRate()
     const controllerAlreadyPlaying = isLocalController() && !video.paused
     if (!video.paused && !controllerAlreadyPlaying) {
       expectPauseEvent()
@@ -970,9 +986,47 @@ function applyAuthoritativeState(): void {
   }
 
   let correction = chooseDriftCorrection(video.currentTime, expectedSeconds, true)
+  const inSeekRecoveryGrace = correction.kind === 'seek' && performance.now() < seekRecoveryUntil
+  if (inSeekRecoveryGrace && video.paused && !softCorrectionAttempted) {
+    restorePlaybackRate()
+    playVideo()
+    return
+  }
   if (correction.kind === 'seek' && performance.now() < seekRecoveryUntil) {
     correction = { kind: 'rate', driftSeconds: correction.driftSeconds, playbackRate: correction.driftSeconds > 0 ? 1.02 : 0.98 }
   }
+  if (correction.kind === 'rate') {
+    const activeSoftCorrectionHealthy = softCorrectionActive
+      && isPlaybackRateAccepted(softCorrectionRate, video.playbackRate)
+      && hasRecentPlaybackProgress()
+      && performance.now() - softCorrectionStartedAt < SOFT_CORRECTION_MAX_MS
+    const canUseSoftCorrection = !softCorrectionActive
+      && !softCorrectionAttempted
+      && canApplySoftDriftCorrection({
+          playing: !video.paused,
+          buffering: lastSampleBuffering,
+          seeking: video.seeking || localSeeking,
+          hasPendingOperation: pendingSeek !== null,
+          hasRecentProgress: hasRecentPlaybackProgress(),
+        })
+    if (softCorrectionActive && !activeSoftCorrectionHealthy) {
+      restorePlaybackRate()
+      correction = {
+        kind: 'seek',
+        driftSeconds: correction.driftSeconds,
+        positionSeconds: expectedSeconds,
+      }
+    }
+    else if (!softCorrectionActive && (!canUseSoftCorrection || !tryApplySoftCorrection(correction.playbackRate))) {
+      correction = {
+        kind: 'seek',
+        driftSeconds: correction.driftSeconds,
+        positionSeconds: expectedSeconds,
+      }
+    }
+  }
+  if (softCorrectionActive && correction.kind === 'seek')
+    restorePlaybackRate()
   if (correction.kind === 'seek') {
     if (hardCorrectionAttempted) {
       requestBoundedPlaybackRecovery()
@@ -991,10 +1045,8 @@ function applyAuthoritativeState(): void {
     hardCorrectionAttempted = true
   }
   else if (correction.kind === 'rate') {
-    video.playbackRate = correction.playbackRate
-    if (rateResetTimer)
-      clearTimeout(rateResetTimer)
-    rateResetTimer = setTimeout(restorePlaybackRate, 4_000)
+    // tryApplySoftCorrection() validated the assignment and installed the
+    // bounded expiry. Do not write the provider rate again on every heartbeat.
   }
   else {
     restorePlaybackRate()
@@ -1002,6 +1054,37 @@ function applyAuthoritativeState(): void {
 
   if (video.paused && !video.seeking && pendingSeek === null)
     playVideo()
+}
+
+function tryApplySoftCorrection(playbackRate: number): boolean {
+  if (!video)
+    return false
+  try {
+    video.playbackRate = playbackRate
+  }
+  catch {
+    softCorrectionAttempted = true
+    return false
+  }
+  if (!isPlaybackRateAccepted(playbackRate, video.playbackRate)) {
+    softCorrectionAttempted = true
+    restorePlaybackRate()
+    return false
+  }
+  softCorrectionAttempted = true
+  softCorrectionActive = true
+  softCorrectionStartedAt = performance.now()
+  softCorrectionRate = playbackRate
+  if (rateResetTimer)
+    clearTimeout(rateResetTimer)
+  rateResetTimer = setTimeout(() => {
+    rateResetTimer = null
+    if (!softCorrectionActive)
+      return
+    restorePlaybackRate()
+    applyAuthoritativeState()
+  }, SOFT_CORRECTION_MAX_MS)
+  return true
 }
 
 function schedulePlay(delayMs: number): void {
@@ -1101,6 +1184,7 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
 
   clearScheduledPlay()
   resetCorrectionBudget()
+  restorePlaybackRate()
   localIntentHoldUntil = 0
   localSeeking = false
   // An explicit Sync is the retry boundary for a timed-out operation.
@@ -1143,8 +1227,18 @@ function restorePlaybackRate(): void {
   if (rateResetTimer)
     clearTimeout(rateResetTimer)
   rateResetTimer = null
+  softCorrectionActive = false
+  softCorrectionStartedAt = 0
+  softCorrectionRate = 1
   if (video && video.playbackRate !== 1) {
-    video.playbackRate = 1
+    try {
+      video.playbackRate = 1
+    }
+    catch {
+      // A provider can expose a read-only or transient playback-rate setter.
+      // The correction is still retired locally and will not be retried in a
+      // loop during this operation.
+    }
   }
 }
 
@@ -1223,6 +1317,11 @@ function holdLocalControllerIntent(): void {
     localIntentHoldUntil = performance.now() + LOCAL_INTENT_HOLD_MS
 }
 
+function hasRecentPlaybackProgress(): boolean {
+  return hasRealPlaybackProgress
+    && performance.now() - lastProgressAt < SOFT_CORRECTION_MAX_MS
+}
+
 function detectPlaybackStall(target: HTMLVideoElement, explicitlyBuffering: boolean): boolean {
   const now = performance.now()
   const position = finiteOrZero(target.currentTime)
@@ -1277,6 +1376,7 @@ function detectPlaybackStall(target: HTMLVideoElement, explicitlyBuffering: bool
   if (advanced) {
     lastProgressPosition = position
     lastProgressAt = now
+    hasRealPlaybackProgress = true
     stallNoticeShown = false
   }
   lastProgressFrames = frames
@@ -1309,6 +1409,7 @@ function resetPlaybackHealthBaseline(): void {
   lastSampleBuffering = false
   lastProgressPosition = finiteOrZero(video?.currentTime ?? 0)
   lastProgressAt = performance.now()
+  hasRealPlaybackProgress = false
   lastProgressFrames = video ? presentedFrameCount(video) : null
   lastReportedFrames = lastProgressFrames
   lastReportedPosition = video ? finiteOrZero(video.currentTime) : null

@@ -3988,6 +3988,100 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+## Checkpoint 60
+
+### Session Metadata
+- Task or project: SyncYourJoy oldest-first issue processing, CR-A05 implementation and pre-PR verification.
+- Checkpoint number: 60.
+- Date and time: 2026-09-20 18:16 +03 (Europe/Istanbul).
+- Coverage period: CR-A05 branch creation through implementation, test fixes, full checks, E2E attempt, package candidate and release decision.
+- Current context status: CR-A05 source changes and documentation are complete locally and ready to commit. The issue remains open. No release version bump was made.
+
+### User Objective and Requirements
+- Continue the oldest-first issue queue, document every issue PR in detail, review before merge, preserve labels, assignee, milestone and public-project metadata, do not close an issue before all applicable gates pass, do not assume the signed-in Crunchyroll account is missing, and commit and push everything.
+- Keep version `0.2.4` for this single issue. A coherent verified group may receive a compatible release bump later, and `1.0.0` remains reserved for milestone completion.
+
+### Complete Chronological Activity Log
+
+#### 2026-09-20 17:55-18:00 +03 - Branch preparation
+- Committed the CR-A05 classification checkpoint on the existing merged CR-A04 branch as `b2c5376447511980e01bb7369b0164279b25f4fb`, subject `docs: record CR-A05 classification`.
+- The first commit attempt was rejected because the workspace permission profile could not create `.git/index.lock`. The retry with repository write authorization succeeded.
+- Pushed and verified `b2c5376447511980e01bb7369b0164279b25f4fb` on `origin/codex/issue-51-player-binding`.
+- Created `codex/issue-52-drift-convergence` from verified `origin/main` at the CR-A04 merge, then cherry-picked the checkpoint commit as `968014fb` so the issue branch contains the audit trail without duplicating the prior implementation diff.
+
+#### 2026-09-20 18:00-18:08 +03 - CR-A05 implementation
+- Inspected `packages/sync-engine/src/clock.ts`, `clock.test.ts`, `apps/extension/src/content-script.ts`, `content-script.test.ts`, `docs/TEST_GUIDE.md`, `docs/CRUNCHYROLL_REMEDIATION_PLAN.md` and the existing CR-A01 baseline.
+- Added `canApplySoftDriftCorrection` and `isPlaybackRateAccepted` to the sync-engine clock policy.
+- Added content-script state for real progress, one soft-correction attempt, accepted-rate observation, bounded expiry and recovery fallback.
+- Soft correction now requires playing state, no buffering, no seeking, no pending native operation and recent progress evidence. The assigned rate is read back and rejected if the player ignores or changes it.
+- The temporary rate is retired immediately on pause, native seek, buffering, source lifecycle, newer room command, explicit Sync or bounded recovery. It is not rewritten on every heartbeat.
+- If the rate cannot be applied or convergence remains invalid, the content script falls back to one hard correction, then the existing explicit paused recovery notice rather than a moving-target seek loop.
+- Preserved the existing slow-seek recovery grace so a completed first correction can start playback before a new hard correction is considered.
+- Extended the fake media harness with accepted, ignored and reset playback-rate behavior and added deterministic tests for policy eligibility, lifecycle termination, six 30-second ignored/reset simulations at 800/1,200/2,000 ms, and newer-command precedence.
+
+#### 2026-09-20 18:08-18:10 +03 - Test-driven corrections
+- The first focused run passed the new clock suite but failed nine content tests. One existing slow-correction test lost its play call because the new real-progress requirement incorrectly escalated a paused recovery grace; this was corrected by preserving the grace play path before soft-rate eligibility.
+- The new tests initially invoked `REPORT_PLAYER_CONTEXT` without the Chrome response callback. The test listener type and helper were corrected to supply the callback.
+- The ignored/reset-rate tests initially resumed after the fallback seek because they were treated as ordinary recovery grace. A failed rate assignment now consumes the soft-correction attempt, so residual drift after the one hard correction enters explicit recovery.
+- Focused result after these corrections: 2 test files passed, 63 tests passed.
+
+#### 2026-09-20 18:10-18:14 +03 - Documentation and full checks
+- Added `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A05_DRIFT_CONVERGENCE_ACCEPTANCE_REPORT_TEMPLATE.md`, covering change identity, source/unit/integration/browser/provider/device/deployment/user gates, sensitive-data boundaries, deterministic evidence, controlled headed observation, release impact and issue closure decisions.
+- Added the CR-A05 contributor workflow to `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`.
+- `npm run check` passed: typecheck, 28 test files, 242 tests, room build and extension build.
+- `npm audit --audit-level=high` passed with 0 vulnerabilities.
+- `git diff --check` passed.
+- `npm run release:check-version` printed `0.2.4`.
+- `npm run verify:browser-packages` passed for Chrome, Firefox and Safari macOS package smoke. A prior normal-sandbox Safari attempt failed only because Xcode temporary-path access was denied; the authorized rerun passed.
+
+#### 2026-09-20 18:14-18:16 +03 - E2E and candidate package
+- `npm run test:e2e` built the extension and started the room service. The authenticated Crunchyroll test was skipped because isolated provider storage state is not configured.
+- The generic two-profile test failed before scenario setup while launching the isolated Chromium extension profile. The browser process exited with `SIGABRT`; cleanup reported `EPERM` while trying to kill it. This is recorded as an environment limitation, not a source-test failure.
+- Built a non-published candidate with `RELEASE_OUTPUT_DIR=/private/tmp/syj-release-cr-a05 npm run release:package`.
+- ZIP integrity passed; manifest is MV3 version `0.2.4`, worker `service-worker.js`, side panel `sidepanel.html`, and no source maps. Candidate SHA-256 is `ee1ceda3856e9ba61822cf25ade4495097324610cb2e1fee6a27f7260e22e6c9`.
+
+### Confirmed Successful Results
+- CR-A05 source implementation, deterministic coverage and issue-specific documentation are complete on the branch locally.
+- Full local checks passed: 28 files, 242 tests, typecheck, builds, audit, diff check and browser-package smoke.
+- The candidate package is structurally valid and remains version `0.2.4`; no release was published or bumped.
+- The E2E result is accurately classified as one skipped authenticated provider gate and one pre-scenario isolated-browser environment failure. No live-provider pass is claimed.
+
+### Failed, Incomplete, or Unresolved Work
+- The CR-A05 branch has not yet been committed or pushed after implementation.
+- PR creation, metadata, formal review, remote checks and merge remain outstanding.
+- Controlled headed browser observation, accepted live Crunchyroll playback-rate behavior, two-profile/two-account, two-device, deployment and user-acceptance gates remain unverified.
+- Issue #52 must remain open after any deterministic merge unless all applicable remaining gates are separately evidenced.
+
+### Decisions and Rationale
+- Do not bump or publish a release for CR-A05 alone. The package in `/private/tmp/syj-release-cr-a05/` is a local candidate for later controlled testing only.
+- Do not mark the Crunchyroll account as missing. The signed-in Edge session remains available, but it is not copied into isolated Playwright state and does not substitute for other acceptance gates.
+- Open a non-closing PR using `Relates to #52`, include the detailed acceptance evidence and limitations, review the exact diff and checks, then merge only if remote checks pass.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/clock.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/clock.test.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A05_DRIFT_CONVERGENCE_ACCEPTANCE_REPORT_TEMPLATE.md`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- `/private/tmp/syj-release-cr-a05/sync-your-joy-extension.zip`
+- `/private/tmp/syj-release-cr-a05/sync-your-joy-extension.zip.sha256`
+
+### Open Questions, Blockers, and Dependencies
+- The source change is ready for commit and PR. The isolated Playwright launch failure is an environment blocker for that particular E2E gate, not for deterministic implementation.
+- A controlled headed run can use the active signed-in Edge session when the candidate is installed or loaded. Installation through the browser UI remains a separate action and is not implied by this local package build.
+
+### Next Steps
+1. Inspect the final staged diff and commit all CR-A05 source, tests and documentation.
+2. Push `codex/issue-52-drift-convergence` and verify the remote SHA.
+3. Open the detailed non-closing PR with labels, assignee, milestone and public-project metadata.
+4. Inspect all remote checks and the exact PR diff, post the formal review result, and merge only after the required checks pass.
+5. Keep issue #52 open in Verification if only deterministic evidence is complete; update the public project accordingly and continue to issue #53.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-59 remain intact. This checkpoint preserves the full transition from issue classification to implementation and pre-PR verification.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 ## Checkpoint 59
 
 ### Session Metadata

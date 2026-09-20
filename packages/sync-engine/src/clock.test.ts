@@ -1,6 +1,6 @@
 import type { PlaybackState } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
-import { ClockSynchronizer, chooseDriftCorrection, expectedPosition } from './clock.ts'
+import { canApplySoftDriftCorrection, ClockSynchronizer, chooseDriftCorrection, expectedPosition, isPlaybackRateAccepted } from './clock.ts'
 
 describe('ClockSynchronizer', () => {
   it('prefers low round-trip samples when estimating offset', () => {
@@ -62,5 +62,53 @@ describe('chooseDriftCorrection', () => {
   it('seeks for large drift or when rate control is unavailable', () => {
     expect(chooseDriftCorrection(10, 11, true)).toMatchObject({ kind: 'seek', positionSeconds: 11 })
     expect(chooseDriftCorrection(10, 10.3, false)).toMatchObject({ kind: 'seek', positionSeconds: 10.3 })
+  })
+})
+
+describe('soft drift correction policy', () => {
+  it('requires playback, healthy progress and no active operation', () => {
+    expect(canApplySoftDriftCorrection({
+      playing: true,
+      buffering: false,
+      seeking: false,
+      hasPendingOperation: false,
+      hasRecentProgress: true,
+    })).toBe(true)
+
+    expect(canApplySoftDriftCorrection({
+      playing: true,
+      buffering: true,
+      seeking: false,
+      hasPendingOperation: false,
+      hasRecentProgress: true,
+    })).toBe(false)
+    expect(canApplySoftDriftCorrection({
+      playing: true,
+      buffering: false,
+      seeking: true,
+      hasPendingOperation: false,
+      hasRecentProgress: true,
+    })).toBe(false)
+    expect(canApplySoftDriftCorrection({
+      playing: true,
+      buffering: false,
+      seeking: false,
+      hasPendingOperation: true,
+      hasRecentProgress: true,
+    })).toBe(false)
+    expect(canApplySoftDriftCorrection({
+      playing: true,
+      buffering: false,
+      seeking: false,
+      hasPendingOperation: false,
+      hasRecentProgress: false,
+    })).toBe(false)
+  })
+
+  it('accepts only a finite rate assignment within tolerance', () => {
+    expect(isPlaybackRateAccepted(1.02, 1.02)).toBe(true)
+    expect(isPlaybackRateAccepted(1.02, 1.023)).toBe(true)
+    expect(isPlaybackRateAccepted(1.02, 1)).toBe(false)
+    expect(isPlaybackRateAccepted(1.02, Number.NaN)).toBe(false)
   })
 })
