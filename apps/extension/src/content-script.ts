@@ -287,8 +287,16 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
         : commandChanged)
     activeState = message.state
     if (pendingSeekSuperseded) {
+      // The room may release a shared barrier before the browser finishes its
+      // native seek. Keep a short-lived attribution window for that target so
+      // the late `seeked` event cannot be mistaken for a fresh controller
+      // scrub. A genuinely different native target clears this expectation
+      // through handleSeeking() and is still propagated normally.
+      const retiredTarget = pendingSeek?.positionSeconds
       pendingSeek = null
-      expectedSeek = null
+      expectedSeek = retiredTarget === undefined
+        ? null
+        : { positionSeconds: retiredTarget, until: performance.now() + 4_000 }
       clearSeekCompletionTimer()
     }
     if (commandChanged) {

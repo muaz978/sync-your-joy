@@ -311,6 +311,30 @@ describe('adaptive player lifecycle', () => {
     expect(messages.some(message => message.type === 'PLAYER_INTENT' && message.kind === 'seek')).toBe(false)
   })
 
+  it('does not turn a late native completion into a new seek after the room barrier expires', async () => {
+    state.participantId = 'host'
+    state.snapshot!.seek = {
+      revision: 2,
+      positionSeconds: 120,
+      acknowledgedParticipantIds: [],
+      resumeWhenReady: true,
+      deadlineAtServerMs: Date.now() + 1_800,
+    }
+    apply('paused', 120)
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    // The coordinator has released the shared barrier while the browser's
+    // native seek is still finishing. The late event must retain its old
+    // operation attribution rather than becoming fresh controller intent.
+    state.snapshot!.seek = null
+    apply('paused', 120)
+    video.seeking = false
+    video.dispatchEvent(new Event('seeked'))
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(messages.some(message => message.type === 'PLAYER_INTENT' && message.kind === 'seek')).toBe(false)
+  })
+
   it('propagates a real Skip Intro that supersedes an expected correction', async () => {
     state.participantId = 'host'
     apply('paused', 120)
