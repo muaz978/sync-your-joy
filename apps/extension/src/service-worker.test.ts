@@ -18,7 +18,7 @@
 // service-worker-restart simulation is impractical (see the note at the
 // bottom of this file for why that path was not taken).
 import type { RoomSnapshot } from '@syncyourjoy/protocol'
-import type { RuntimeRequest, RuntimeResponse } from './internal.ts'
+import type { ContentRequest, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const SESSION_STATE_KEY = 'syncYourJoySessionState'
@@ -86,6 +86,7 @@ interface FakeChromeOptions {
 interface FakeChrome {
   chrome: typeof chrome
   messageListener: (request: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void) => boolean
+  updatedListener: (tabId: number, changeInfo: { status?: chrome.tabs.Tab['status'] }) => void
   sessionSetMock: ReturnType<typeof vi.fn>
   sendMessageMock: ReturnType<typeof vi.fn>
 }
@@ -94,6 +95,7 @@ interface FakeChrome {
  * touches at import time and during the scenarios below. */
 function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
   let messageListener: FakeChrome['messageListener'] = () => false
+  let updatedListener: FakeChrome['updatedListener'] = () => {}
   const sessionSetMock = vi.fn(async (values: Record<string, unknown>) => {
     await options.sessionSet?.(values)
   })
@@ -128,7 +130,7 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
     },
     tabs: {
       onRemoved: { addListener: vi.fn() },
-      onUpdated: { addListener: vi.fn() },
+      onUpdated: { addListener: vi.fn((listener: FakeChrome['updatedListener']) => { updatedListener = listener }) },
       sendMessage: vi.fn(async () => {
         throw new Error('no such tab in this test')
       }),
@@ -143,6 +145,9 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
     chrome: fakeChrome as unknown as typeof chrome,
     get messageListener() {
       return messageListener
+    },
+    get updatedListener() {
+      return updatedListener
     },
     sessionSetMock,
     sendMessageMock,
@@ -436,6 +441,44 @@ describe('service worker observed episode identity', () => {
     expect(response.state.currentMedia).toMatchObject(oldMedia)
     expect(FakeWebSocket.instances[0]!.sentMessages.slice(sentBeforeRejection))
       .not.toContainEqual({ type: 'set_ready', ready: false, media: null })
+  })
+
+  it('does not restore a delayed context after the bound tab starts a new navigation', async () => {
+    let resolveTab: (tab: unknown) => void = () => {}
+    const tabGate = new Promise<unknown>(resolve => { resolveTab = resolve })
+    const fake = buildFakeChrome({ sessionState: {
+      participantId: 'participant_resumed',
+      sessionToken: 'session_resumed',
+      snapshot: buildRoomSnapshot({ media: oldMedia }),
+      playerTabId: 42,
+      playerFrameId: 0,
+      playerAreaPixels: 500_000,
+      playerLastSeenAtMs: Date.now(),
+      currentMedia: oldMedia,
+      lastOpenedNavigationRevision: 5,
+    } })
+    ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(async (_tabId: number, message: RuntimeEvent | ContentRequest) => {
+      if (message.type === 'GET_PLAYER_CONTEXT')
+        return { media: oldMedia, diagnostics: null, sample: null }
+      return undefined
+    })
+    ;(fake.chrome.tabs.get as ReturnType<typeof vi.fn>).mockReturnValue(tabGate)
+    vi.stubGlobal('chrome', fake.chrome)
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    await import('./service-worker.ts')
+
+    await vi.waitFor(() => expect(fake.chrome.tabs.get).toHaveBeenCalledWith(42))
+    fake.updatedListener(42, { status: 'loading' })
+    resolveTab({ id: 42, url: nextUrl })
+
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+    FakeWebSocket.instances[0]!.simulateOpen()
+    const response = await new Promise<RuntimeResponse>((resolve) => {
+      fake.messageListener({ type: 'GET_STATE' }, {}, result => resolve(result as RuntimeResponse))
+    })
+
+    expect(response.state.playerFrameId).toBeNull()
+    expect(response.state.currentMedia).toBeNull()
   })
 
   it('includes playback progress and start evidence in validated diagnostic events', async () => {

@@ -898,17 +898,24 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
     clearPlayerTab()
     return false
   }
+  const tabId = state.playerTabId
+  const frameId = state.playerFrameId
+  const contextGeneration = playerContextGeneration
   try {
     const context = await chrome.tabs.sendMessage(
-      state.playerTabId,
+      tabId,
       { type: 'GET_PLAYER_CONTEXT' } satisfies ContentRequest,
-      { frameId: state.playerFrameId },
+      { frameId },
     ) as PlayerContext
     if (!context?.media) {
       clearPlayerTab()
       return false
     }
-    const tab = await chrome.tabs.get(state.playerTabId)
+    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
+      return false
+    const tab = await chrome.tabs.get(tabId)
+    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
+      return false
     playerContextGeneration += 1
     state.currentMedia = bindMediaToSharedPage(context.media, tab.url ?? state.snapshot?.navigation?.url)
     state.playerDiagnostics = context.diagnostics
