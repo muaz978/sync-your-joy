@@ -244,7 +244,13 @@ export async function createRoomService(options: { port?: number; host?: string 
       const code = createUniqueCode(rooms)
       const coordinator = new RoomCoordinator(
         { roomId: randomUUID(), code },
-        { id: message.participantId, name: message.name, media: message.media, sessionToken: randomBytes(16).toString('base64url') },
+        {
+          id: message.participantId,
+          name: message.name,
+          media: message.media,
+          sessionToken: randomBytes(16).toString('base64url'),
+          ...(message.capabilities ? { capabilities: message.capabilities } : {}),
+        },
       )
       const entry: RoomEntry = { coordinator, sockets: new Set([socket]), emptySinceMs: null, createdAtMs: Date.now(), creatorIp: remoteAddress, pendingDiagnosticsRequests: new Map() }
       rooms.set(code, entry)
@@ -280,7 +286,13 @@ export async function createRoomService(options: { port?: number; host?: string 
         send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: entry.coordinator.snapshot() })
         return
       }
-      const result = entry.coordinator.join({ id: message.participantId, name: message.name, media: message.media, sessionToken })
+      const result = entry.coordinator.join({
+        id: message.participantId,
+        name: message.name,
+        media: message.media,
+        sessionToken,
+        ...(message.capabilities ? { capabilities: message.capabilities } : {}),
+      })
       if (!result.ok) {
         sendResult(socket, null, result)
         return
@@ -443,6 +455,9 @@ export async function createRoomService(options: { port?: number; host?: string 
       const expiredSeek = room.coordinator.releaseExpiredSeek(nowMs)
       if (expiredSeek?.ok)
         broadcast(room, { type: 'room_snapshot', reason: expiredSeek.reason, snapshot: expiredSeek.snapshot })
+      const expiredOperation = room.coordinator.releaseExpiredOperation(nowMs)
+      if (expiredOperation?.ok)
+        broadcast(room, { type: 'room_snapshot', reason: expiredOperation.reason, snapshot: expiredOperation.snapshot })
       const health = room.coordinator.evaluateHealth(nowMs)
       if (health?.ok)
         broadcast(room, { type: 'room_snapshot', reason: health.reason, snapshot: health.snapshot })
