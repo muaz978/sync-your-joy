@@ -3287,6 +3287,84 @@
 - Checkpoints 1-35 remain intact and are not rewritten.
 - This checkpoint contains no credentials, access tokens, cookies, private keys, protected-media data, signed stream URLs or DRM material.
 
+## Checkpoint 38 - PR #70 verified and issue evidence comments recorded
+
+### Session Metadata
+- Task or project: Complete the documented CR-A01 PR review cycle and keep the dependent issue queue current.
+- Checkpoint number: 38.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: After Checkpoint 37's corrected count through fresh PR checks, final diff review and issue comments.
+- Current context status: Local and remote branch `codex/crunchyroll-sync-hardening` both point to `031f380`. PR #70 is open, mergeable and has all required checks green, but GitHub reports `REVIEW_REQUIRED` and `BLOCKED`. The worktree is clean before this checkpoint append.
+
+### Complete Chronological Activity Log
+
+1. Committed the corrected 204-test count and Checkpoint 37 as `031f380`, `docs: correct CR-A01 verification count`.
+
+2. Published the rebased branch with `git push --force-with-lease origin HEAD:codex/crunchyroll-sync-hardening`. GitHub accepted the forced update from the prior remote head `9ae9498` to `031f380`.
+
+3. Refreshed PR #70's body from `docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md`, so the issue-specific documentation now contains the corrected 204-test result and current rebased scope.
+
+4. Queried PR #70 after the force push. GitHub reported base `bfe0d88ad53f5ed51f960b5a90e5d9253c2616c2`, head `031f3803493f357edc2a14663c71af96f3010874`, `MERGEABLE`, and `BLOCKED` only because review is required.
+
+5. Watched the fresh checks for the rebased PR. All completed successfully: Typecheck, test, and build; DevSkim; CodeQL; lowercase devskim; and Analyze for JavaScript/TypeScript.
+
+6. Reviewed the PR file list and commit list. The PR includes the preserved candidate, the CR-A01 baseline and implementation record, the deterministic fixes and tests, the append-only session checkpoint, and the health deadline wiring. The PR body explicitly states that related evidence for #49, #50, #51, #52, #54 and #58 does not claim those issues closed.
+
+7. Attempted the normal GitHub approval action for PR #70 with a review body explaining that the implementation record, red baseline, rebased diff and checks were reviewed. GitHub did not create a review because the current account is the PR author. No administrator bypass or forced merge was used. `reviewDecision` remains `REVIEW_REQUIRED`.
+
+8. Added evidence comments to the issue tracker:
+   - #48: linked PR #70 and the detailed issue record, noted all fresh checks green and independent review pending.
+   - #49: recorded the three-way identity and nested wrapper evidence, with headed and cross-provider browser acceptance still open.
+   - #50: recorded late native attribution, timeout observation, source-generation protection and delayed readiness evidence, with the broader operation matrix still open.
+   - #51: recorded asynchronous worker context revalidation and reordered navigation coverage, with the full sender/detach/replacement matrix still open.
+   - #52: recorded bounded hard correction and the 0.8, 1.2 and 2 second 30-second synthetic runs, with accepted rate behavior and browser validation still open.
+   - #54: recorded exact deadline ACK and fixed-quorum failure coverage, with merge pending.
+   - #58: recorded the missing-report coordinator evaluator and local/edge timer wiring, while leaving the broader B04 contracts open.
+
+9. Verified local status and history. The branch and remote branch point to `031f380`, the worktree has no source or documentation changes beyond the pending checkpoint append, and PR #70 is the only issue-specific PR created in this turn.
+
+### Confirmed Successful Results
+- Rebased branch is published at `031f3803493f357edc2a14663c71af96f3010874`.
+- PR #70 is open, mergeable, correctly based on current main, and contains the detailed issue-specific implementation record.
+- All five fresh required checks for PR #70 passed.
+- Normal self-approval was attempted but correctly did not bypass GitHub's independent review requirement.
+- Seven issue evidence comments were published with explicit completion boundaries.
+- No issue was falsely closed, and no administrator merge or review bypass was used.
+
+### Failed, Incomplete, or Unresolved Work
+- PR #70 cannot be merged by the current account without an independent GitHub review. This is an external review gate, not a test failure.
+- CR-A01 is implemented and verified locally, but its GitHub closure is tied to PR #70 merging.
+- CR-A02 through CR-A07 and CR-B04 have partial evidence in PR #70, but several acceptance criteria remain open, particularly headed browser, real device, broader identity/lifecycle matrices and health-contract scope.
+- Older issues #30, #33, #34 and #35 still need authorized provider accounts, devices and headed runtimes.
+- The complete issue queue is not finished. The current stopping point is the independent review gate for the first issue-specific PR and the evidence-driven dependency boundary.
+
+### Decisions and Rationale
+- Did not use administrator merge or an artificial approval to bypass the repository's review requirement.
+- Did not close dependent issues based only on shared code evidence. Each comment distinguishes implemented local behavior from remaining acceptance.
+- Kept issue #48 and related issues open until the PR and their own acceptance gates are genuinely complete.
+- Continued to document the issue work in versioned Markdown, the PR body and the append-only checkpoint, satisfying the user's requirement for detailed documentation whenever an issue-specific PR is opened.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_BASELINE.md`.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md`.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`.
+- GitHub PR #70: `https://github.com/muaz978/sync-your-joy/pull/70`.
+- Issue comments: #48 `5749129345`, #49 `5749129347`, #50 `5749129349`, #51 `5749129385`, #52 `5749129335`, #54 `5749129346`, #58 `5749129350`.
+
+### Open Questions, Blockers, and Dependencies
+- An independent reviewer must review PR #70 before merge.
+- After merge, the next issue must be chosen from the oldest actionable open issue while honoring the CR dependency chain.
+- If the user wants the PR merged without independent review, that would require explicit authorization to bypass the repository's configured gate. No such authorization is assumed.
+
+### Next Steps
+1. Obtain or wait for an independent review of PR #70, then recheck its status and merge only if the review and checks remain valid.
+2. After merge, continue the oldest actionable issue and create a separate detailed implementation record before opening its issue-specific PR.
+3. Keep manual/live issues open until their required runtime evidence exists.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-37 remain intact. This checkpoint records the final PR check state and issue comments, not a merged result.
+- This checkpoint contains no credentials, access tokens, cookies, private keys, protected-media data, signed stream URLs or DRM material.
+
 ## Checkpoint 37 - PR base refresh and corrected verification count
 
 ### Session Metadata
