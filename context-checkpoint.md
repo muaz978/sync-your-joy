@@ -3896,3 +3896,94 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-42 remain intact. This checkpoint supersedes only the earlier statement that issue #30's project fields still needed to be populated.
 - No secrets, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 44 - PR #71 reviewed, merged, and issue #30 restored to incomplete state
+
+### Session Metadata
+- Task or project: Review and accept the issue #30 implementation while preserving the rule that incomplete live acceptance work must remain visible and open.
+- Checkpoint number: 44.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: PR #71 creation, metadata verification, remote review, merge, automatic issue-state correction and public project-state correction.
+- Current context status: PR #71 is merged on `origin/main`. Issue #30 is explicitly open again and its public project item is back to `In Progress`. The live provider acceptance gates remain unresolved.
+
+### User Objective and Requirements
+- Review every issue-specific PR before acceptance.
+- Apply labels, assignee, milestone and public project metadata.
+- Keep an issue open until all required acceptance gates are verified.
+- Document every implementation, verification result, failure, external limit and closure decision.
+
+### Complete Chronological Activity Log
+
+1. Created a detailed PR body in `/private/tmp/syncyourjoy-pr-30-body.md`. It recorded the baseline merge commit, the reproduction and coverage gap, root cause, all changed files, state-only security boundary, workflow secret handling, failed environment attempts, exact local results, remote limits, project metadata and an explicit `Relates to #30` relationship.
+
+2. Pushed branch `codex/issue-30-crunchyroll-e2e` and opened PR #71 at `https://github.com/muaz978/sync-your-joy/pull/71`. Attached the PR to the Codex task.
+
+3. Applied and verified PR metadata with GitHub: assignee `muaz978`, labels `documentation`, `security`, `initiative: crunchyroll-sync` and `area: testing`, and milestone `M3/M5: reliability and real-device validation`.
+
+4. Verified the configured public project auto-added the open PR. Set its project status to `In review`, priority `P1 High`, work type `Test coverage`, evidence state `Partial`, acceptance gates `Browser test` and `Live provider`, and risk `High`. The issue #30 row retained `In Progress`, the same classification and verification owner `muaz978`.
+
+5. Read the remote PR checks. Analyze (javascript-typescript), CodeQL, DevSkim, Typecheck/test/build and lowercase `devskim` all passed. The PR was mergeable but GitHub reported review required because the current account authored the PR.
+
+6. Inspected the exact inline Advanced Security comment at `tests/e2e/provider-playback.ts:68`. The comment was a generic DevSkim heuristic about untrusted values in `setTimeout`. The duration is a fixed local numeric literal, the callback uses local native media state and a fixed diagnostic string, and no untrusted value is included. The comment was therefore recorded as non-actionable, not silently ignored.
+
+7. Posted the formal review record on PR #71. It documented the no-blocker finding, files and security scope reviewed, the non-actionable DevSkim comment, all local and remote verification evidence, and the fact that accepting the harness would not complete issue #30.
+
+8. Accepted PR #71 with an administrator squash merge after the review record and all remote checks were complete. The resulting merge commit is `adc74cfe94217b17151a9d52caa7017cd34a1b1e`, and local `main` and `origin/main` both point to it. The GitHub PR state is `MERGED`.
+
+9. Post-merge verification revealed that GitHub had automatically set issue #30 to `CLOSED`. The original PR body contained the explanatory phrase `This PR does not close #30`; GitHub interpreted the `close #30` substring as an automatic closing reference despite the surrounding negation. This was a workflow failure, not a product acceptance result.
+
+10. Reopened issue #30 with GitHub. Confirmed the issue state is `OPEN` with state reason `REOPENED`, and its assignee, labels and milestone remain correct.
+
+11. Edited the merged PR description to remove the ambiguous issue-specific closing syntax. The description now says `Relates to #30`, `Issue #30 remains open after this PR`, and that completion is not allowed until the live and external gates are verified.
+
+12. Posted an issue comment at `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5749578458` documenting the merged commit, local and remote evidence, remaining authenticated two-account, two-device, deployment and user-acceptance gates, the automatic-close correction and the next controlled workflow run.
+
+13. Rechecked the public project after merge. GitHub project automation had set both the merged PR item and the linked issue item to `Done`. The PR item being `Done` is correct because the harness PR is merged. The issue item was corrected through the public project UI back to `In Progress`, while retaining `P1 High`, `Test coverage`, `Partial`, `Browser test`, `Live provider`, `High` risk and verification owner `muaz978`.
+
+### Confirmed Successful Results
+- PR #71 was reviewed, all five remote checks passed, and the PR was accepted by administrator squash merge.
+- Merge commit `adc74cfe94217b17151a9d52caa7017cd34a1b1e` is present on both local `main` and `origin/main`.
+- PR #71 has the required assignee, labels, milestone, detailed documentation and public project linkage.
+- The public project shows the merged PR item as `Done` and issue #30 as `In Progress` with the partial evidence and live-provider gates visible.
+- Issue #30 is `OPEN`, assigned to `muaz978`, labeled and milestoned correctly.
+- The original issue-closing ambiguity was identified, corrected in the merged PR description, and documented in the issue conversation.
+- No authenticated provider data was copied from the user's signed-in browser session.
+
+### Failed, Incomplete, or Unresolved Work
+- GitHub's automatic issue-closing parser temporarily closed #30 because of the phrase `does not close #30`. The issue was reopened immediately and verified open.
+- The merged PR establishes the test harness and evidence path, not the live Crunchyroll result.
+- No authenticated Crunchyroll run, two-account run, two-device run, deployment validation or user acceptance has occurred.
+- The public project cannot mark issue #30 Complete while those gates remain absent.
+- The issue's project status must be rechecked after future automation events because merging and reopening can change project status independently of issue state.
+
+### Decisions and Rationale
+- Accept PR #71 because the requested harness and documentation were reviewed, local evidence passed, all remote security and build checks passed, and the only inline security warning was verified as a non-actionable heuristic.
+- Keep issue #30 open and In Progress because the broader commercial-provider acceptance objective is not proven by the merged deterministic harness.
+- Treat the automatic-close event as a process defect and document the exact wording hazard so future PR bodies use `Relates to #N` plus non-triggering completion language.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this append-only checkpoint.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+- PR #71: `https://github.com/muaz978/sync-your-joy/pull/71`.
+- PR #71 merge commit: `adc74cfe94217b17151a9d52caa7017cd34a1b1e`.
+- Issue #30: `https://github.com/muaz978/sync-your-joy/issues/30`.
+- Issue status comment: `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5749578458`.
+
+### Assumptions and Uncertainties
+- GitHub's issue-closing parser may interpret a closing verb followed by an issue number even when a nearby negation is intended. Future PR descriptions must avoid that exact construction.
+- The project UI values are authoritative for this session because the local CLI token still lacks the required project scope.
+- The PR's merged test harness may reveal additional provider-specific lifecycle failures when the controlled live run is eventually executed.
+
+### Open Questions, Blockers, and Dependencies
+- Two dedicated authorized storage states, an HTTPS Crunchyroll `/watch/` URL and a permitted browser environment are required for the live run.
+- The next oldest actionable open issue must be selected only after verifying issue dates, existing evidence and dependencies.
+- The project status should be checked after each merge or reopen event for issues with incomplete external gates.
+
+### Next Steps
+1. Preserve the corrected issue and project state in the repository checkpoint and keep issue #30 open.
+2. Begin the next oldest open issue only after inventorying actual issue creation dates and current status.
+3. For a future controlled provider run, record its exact workflow identity and result before changing issue #30's evidence state or completion status.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
