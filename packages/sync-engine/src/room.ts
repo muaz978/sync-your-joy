@@ -23,7 +23,7 @@ import {
   supportsTransactionalOperations,
 } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, PLAYBACK_REPORT_SILENCE_TIMEOUT_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_REPORT_SILENCE_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
@@ -470,6 +470,13 @@ export class RoomCoordinator {
         return this.success('operation_seek_committed_paused')
       }
 
+      // Preparation uses the short seek barrier, but a browser needs a
+      // separate bounded window after the scheduled commit to load, start
+      // rendering and report real progress. Reusing the preparation deadline
+      // would fail a valid operation before CR-B03 can send `started`.
+      operation.deadlineAtServerMs = operation.effectiveAtServerMs
+        + PLAYBACK_STARTUP_GRACE_MS
+        + PLAYBACK_PROGRESS_TIMEOUT_MS
       this.playback = {
         status: 'playing',
         positionSeconds: operation.targetPositionSeconds ?? 0,
@@ -727,6 +734,14 @@ export class RoomCoordinator {
       return null
 
     const nowMs = this.now()
+    const activeTransactionalOperation = this.contract.mode === 'transactional'
+      && this.contract.operation
+      && this.contract.operation.phase !== 'cancelled'
+      && this.contract.operation.phase !== 'failed'
+      ? this.contract.operation
+      : null
+    const waitingForTransactionalStart = activeTransactionalOperation?.phase === 'committed'
+      && !activeTransactionalOperation.startedParticipantIds.includes(participantId)
     // Explicit progress evidence is authoritative. currentTime can advance
     // due to correction seeks even when an adaptive player decodes no frames.
     // Keep the positional fallback only for clients that omit this field.
@@ -736,7 +751,10 @@ export class RoomCoordinator {
     participant.lastSampleReceivedAtMs = nowMs
     if (progressed || participant.lastProgressAtServerMs === undefined)
       participant.lastProgressAtServerMs = nowMs
-    const stalled = !sample.paused
+    const stallWatchdogActive = !waitingForTransactionalStart
+      || isPlaybackPastStartupGrace(this.playback, nowMs)
+    const stalled = stallWatchdogActive
+      && !sample.paused
       && !sample.buffering
       && sample.playbackStarted !== false
       && hasPlaybackProgressStalled(this.playback, participant.lastProgressAtServerMs, nowMs)
@@ -752,12 +770,6 @@ export class RoomCoordinator {
         || (sample.buffering && sample.playbackStarted !== false && isPlaybackPastStartupGrace(this.playback, nowMs))
         || stalled
         || startupTimedOut)) {
-      const activeOperation = this.contract.mode === 'transactional'
-        && this.contract.operation
-        && this.contract.operation.phase !== 'cancelled'
-        && this.contract.operation.phase !== 'failed'
-        ? this.contract.operation
-        : null
       const failedSeekTarget = this.pendingSeek?.revision === basedOnRevision
         ? this.pendingSeek.positionSeconds
         : null
@@ -767,12 +779,12 @@ export class RoomCoordinator {
       // restart the room with a smaller membership set.
       if (failedSeekTarget !== null)
         this.pendingSeek = null
-      const expectedRecoveryPosition = activeOperation
-        ? (activeOperation.phase === 'started'
+      const expectedRecoveryPosition = activeTransactionalOperation
+        ? (activeTransactionalOperation.phase === 'started'
           ? expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
-          : activeOperation.targetPositionSeconds)
+          : activeTransactionalOperation.targetPositionSeconds)
         : null
-      if (activeOperation)
+      if (activeTransactionalOperation)
         this.cancelOperation(explicitPlaybackFailure ? 'start-rejected' : startupTimedOut ? 'start-timeout' : 'manual-recovery', nowMs, false)
       this.playback = {
         status: 'paused',
@@ -897,6 +909,7 @@ export class RoomCoordinator {
       return this.success('control_pause')
     }
 
+    const resumeWhenReady = kind === 'seek' && this.playback.status === 'playing'
     this.cancelOperation('superseded', nowMs)
     this.pendingSeek = null
     const operation: RoomOperation = {
@@ -908,7 +921,7 @@ export class RoomCoordinator {
       preparedParticipantIds: [],
       startedParticipantIds: [],
       targetPositionSeconds: positionSeconds,
-      ...(kind === 'seek' ? { resumeWhenReady: this.playback.status === 'playing' } : { resumeWhenReady: true }),
+      resumeWhenReady: kind === 'seek' ? resumeWhenReady : true,
       effectiveAtServerMs: null,
       deadlineAtServerMs: nowMs + SEEK_BARRIER_MAX_WAIT_MS,
     }

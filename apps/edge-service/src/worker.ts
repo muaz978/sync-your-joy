@@ -430,6 +430,15 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
+    if (message.type === 'operation_ack') {
+      const result = this.coordinator.acknowledgeOperation(attachment.participantId, message.acknowledgement)
+      if (result?.ok) {
+        this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+        await this.persistAndSchedule()
+      }
+      return
+    }
+
     if (message.type === 'respond_to_join') {
       // The controller's identity comes from the sender's own tracked
       // socket attachment (attachment.participantId), never from a

@@ -1,6 +1,6 @@
 import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticValue, MediaFingerprint, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { generateRoomCode, mediaMatches, normalizeMediaPageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
+import { CURRENT_CLIENT_CAPABILITIES, generateRoomCode, mediaMatches, normalizeMediaPageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
 import { PLAYER_CONTEXT_STALE_MS, shouldAcceptPlayerContext, shouldReusePlayerTabForNavigation } from './player-tab.ts'
 import { isLikelyAdvertisingUrl } from './site-adapter.ts'
@@ -316,6 +316,19 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       })
       return success()
 
+    case 'OPERATION_ACK':
+      if (!isBoundPlayerSender(sender, request.acknowledgement.bindingId))
+        return success()
+      if (!sendToServer({ type: 'operation_ack', acknowledgement: request.acknowledgement }))
+        return failure('The room connection was interrupted while confirming the operation.')
+      recordDiagnostic('playback', 'operation_ack', {
+        operationId: request.acknowledgement.operationId,
+        phase: request.acknowledgement.phase,
+        sourceGeneration: request.acknowledgement.sourceGeneration,
+        sampleSequence: request.acknowledgement.sampleSequence,
+      })
+      return success()
+
     case 'CREATE_ROOM':
       const newRoomCode = generateRoomCode()
       state.sessionToken = null
@@ -327,6 +340,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         name: state.displayName,
         code: newRoomCode,
         media: state.currentMedia,
+        capabilities: CURRENT_CLIENT_CAPABILITIES,
       })
       return success()
 
@@ -345,6 +359,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         name: state.displayName,
         code,
         media: state.currentMedia,
+        capabilities: CURRENT_CLIENT_CAPABILITIES,
         ...(resumeToken ? { sessionToken: resumeToken } : {}),
       })
       return success()
@@ -637,6 +652,7 @@ async function reconnectIfNeeded(): Promise<void> {
       name: state.displayName,
       code: state.snapshot.code,
       media: state.currentMedia,
+      capabilities: CURRENT_CLIENT_CAPABILITIES,
       ...(state.sessionToken ? { sessionToken: state.sessionToken } : {}),
     })
   }

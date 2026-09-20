@@ -144,6 +144,32 @@ describe('media identity matching', () => {
     expect(parseClientMessage({ type: 'seek_applied', revision: 7, positionSeconds: Number.NaN })).toBeNull()
   })
 
+  it('accepts only identity-bound transactional operation acknowledgements', () => {
+    const acknowledgement = {
+      mediaEpoch: 3,
+      operationId: 'operation_play_123456',
+      bindingId: 'binding_123456',
+      sourceGeneration: 2,
+      sampleSequence: 9,
+      phase: 'started',
+      participantId: 'participant_guest',
+      observedPositionSeconds: 120,
+      observedAtLocalMs: 50_000,
+    }
+    expect(parseClientMessage({ type: 'operation_ack', acknowledgement })).toMatchObject({
+      type: 'operation_ack',
+      acknowledgement: { phase: 'started', operationId: 'operation_play_123456' },
+    })
+    expect(parseClientMessage({
+      type: 'operation_ack',
+      acknowledgement: { ...acknowledgement, bindingId: 'wrong!' },
+    })).toBeNull()
+    expect(parseClientMessage({
+      type: 'operation_ack',
+      acknowledgement: { ...acknowledgement, phase: 'preparing' },
+    })).toBeNull()
+  })
+
   it('accepts bounded sanitized diagnostic reports and rejects oversized event lists', () => {
     const report = {
       extensionVersion: '0.1.11',

@@ -3,6 +3,7 @@ import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
 import { RoomCoordinator } from './room.ts'
 import type { RoomResult } from './room.ts'
+import { PLAYBACK_STARTUP_GRACE_MS } from './playback-health.ts'
 
 const media: MediaFingerprint = {
   service: 'youtube',
@@ -988,6 +989,66 @@ describe('RoomCoordinator', () => {
       expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40, 2))).toMatchObject({ ok: true, reason: 'operation_start_duplicate' })
     })
 
+    it('keeps a separate post-commit window for real started evidence', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      const pending = controlTransactional(room, 'play', 40)
+      if (!pending.ok || !pending.snapshot.contract?.operation)
+        throw new Error('Expected a pending transactional operation.')
+      const preparationDeadline = pending.snapshot.contract.operation.deadlineAtServerMs
+
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      nowMs = 10_500
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+      const startEvidenceDeadline = committed.snapshot.contract.operation.deadlineAtServerMs
+      expect(startEvidenceDeadline).toBeGreaterThan(preparationDeadline)
+
+      nowMs = startEvidenceDeadline - 1
+      expect(room.releaseExpiredOperation()).toBeNull()
+      nowMs = startEvidenceDeadline
+      expect(room.releaseExpiredOperation()).toMatchObject({
+        ok: true,
+        reason: 'operation_timeout_paused',
+        snapshot: { contract: { operation: { phase: 'failed', reason: 'start-timeout' } } },
+      })
+    })
+
+    it('does not classify a committed participant as stalled before transactional startup grace', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+
+      const effectiveAtServerMs = committed.snapshot.contract.operation.effectiveAtServerMs
+      nowMs = effectiveAtServerMs + 1_900
+      expect(room.updatePlayerStatus('participant_host', room.snapshot().revision, {
+        positionSeconds: 40,
+        durationSeconds: 600,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: false,
+        playbackStarted: true,
+      })).toBeNull()
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      nowMs = effectiveAtServerMs + PLAYBACK_STARTUP_GRACE_MS
+      expect(room.updatePlayerStatus('participant_host', room.snapshot().revision, {
+        positionSeconds: 40,
+        durationSeconds: 600,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: false,
+        playbackStarted: true,
+      })).toMatchObject({ reason: 'participant_playback_stalled', snapshot: { playback: { status: 'paused' } } })
+    })
+
     it('keeps a paused seek committed at its fixed target and rejects stale or duplicate operation evidence', () => {
       let nowMs = 10_000
       const room = createTransactionalRoom(() => nowMs)
@@ -1012,6 +1073,21 @@ describe('RoomCoordinator', () => {
         mediaEpoch: oldOperation.mediaEpoch,
         sampleSequence: 2,
       })).toBeNull()
+    })
+
+    it('preserves resume intent when a seek supersedes a currently playing operation', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      expect(committed).toMatchObject({ ok: true, snapshot: { playback: { status: 'playing' } } })
+
+      const sought = controlTransactional(room, 'seek', 80)
+      expect(sought).toMatchObject({
+        ok: true,
+        snapshot: { playback: { status: 'paused' }, contract: { operation: { kind: 'seek', resumeWhenReady: true } } },
+      })
     })
 
     it('cancels between prepare and start and preserves the requested target without shrinking the quorum', () => {

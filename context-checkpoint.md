@@ -3988,6 +3988,176 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 69 - CR-B03 implementation, integration debugging, and final pre-PR state
+
+## Session Metadata
+- Task or project: SyncYourJoy, systematic issue and pull-request completion
+- Checkpoint number: 69
+- Date and time: 2026-09-20, Europe/Istanbul
+- Coverage period: Continuation after Checkpoint 68, from the CR-B03 implementation start through the clean integrated playback rerun
+- Current context status: CR-B03 source, tests, coordinator corrections, and acceptance report are in the working tree. Final full verification, documentation finalization, commit, push, PR creation, review, merge, and issue project-state update remain.
+
+## User Objective and Requirements
+- Continue the recommended dependency-aware path, finishing the current issue before moving on.
+- Review every PR before accepting or merging it. If the authenticated GitHub account owns the PR and cannot self-approve, preserve a detailed comment review and merge only after the review, checks, and source inspection are complete.
+- For every issue-specific PR, document the root cause, baseline, implementation, files, tests, security and privacy boundaries, external limitations, release impact, and the exact reason an issue is or is not closed.
+- Always add labels, assignee, milestone, and public project fields to future PRs and issues.
+- Treat the signed-in Crunchyroll account as available. Do not label work as blocked because an account is presumed missing. Ask the user only for a genuinely required external action or missing account/device/profile.
+- Commit and push all work. Do not close an issue until every applicable acceptance gate has direct evidence. Keep `1.0.0` reserved for complete milestone acceptance.
+
+## Current State
+- Current branch: `codex/issue-57-extension-ack`
+- Branch base: verified `origin/main` at `f540b41bb9a3d88204c0a3005db395b409f92b35`, the merged CR-B02 PR #84 commit.
+- Last committed and pushed checkpoint before this work: `8c5af8e`, `docs: record CR-B02 merge and CR-B03 checkpoint`.
+- Issue #57 is `CR-B03: Apply preparation and start confirmation through the extension`. It remains OPEN.
+- Issue #57 project status before implementation was `In Progress`, with P1 High priority, Feature work type, Partial evidence, Source review/Typecheck/Unit tests/Integration tests/Browser test gates, High risk, blank blocked reason and verification owner `muaz978`.
+- Issue #57 has the intended labels `enhancement`, `initiative: crunchyroll-sync`, `area: extension`, and `area: testing`, assignee `muaz978`, milestone `M3/M5: reliability and real-device validation`, and the public project `SyncYourJoy Delivery and Reliability`.
+- The worktree currently contains only the CR-B03 implementation, tests, coordinator corrections, and `docs/CR_B03_EXTENSION_ACK_REPORT.md` as uncommitted changes. No unrelated file was observed in the status output.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20, after Checkpoint 68 - CR-B03 source implementation
+- User request or relevant context: Continue the recommended systematic path after CR-B02 was reviewed and merged, and work on the next dependent issue without skipping acceptance gates.
+- Action taken: Implemented CR-B03 across the shared protocol, extension internal state, service worker, content script, room service, edge service, and their corresponding tests.
+- Result: The implementation now carries validated transactional acknowledgements from the extension to the server, binds them to the current player binding and operation identity, and uses coordinator validation before changing room state.
+- Follow-up or change caused by this event: Kept the issue open pending full verification, PR review, merge, and direct acceptance evidence.
+
+### CR-B03 protocol and transport changes
+- Updated `packages/protocol/src/index.ts` with a `ClientMessage` variant for `operation_ack` and a parser branch using `parseOperationAcknowledgement`.
+- Added `packages/protocol/src/index.test.ts` coverage for a valid identity-bound transactional acknowledgement, invalid binding identity, and invalid operation phase.
+- Updated `apps/extension/src/internal.ts` so `RuntimeRequest` can carry an `OPERATION_ACK` containing the typed `OperationAcknowledgement`.
+- Updated `apps/extension/src/service-worker.ts` to accept only a player sender bound to the acknowledgement binding ID, forward the validated message to the room server, and emit diagnostics with operation ID, phase, source generation, and sample sequence. Added current capabilities to create-room, join-room, and reconnect join-room messages.
+- Updated `apps/room-service/src/server.ts` and `apps/edge-service/src/worker.ts` to dispatch operation acknowledgements through the existing coordinator participant identity, broadcast successful snapshots, and persist or schedule the resulting room state where applicable.
+- Security and privacy decision: The extension does not send credentials, media bytes, signed stream URLs, DRM data, or provider secrets. Acknowledgements contain state evidence only and are rejected when sender binding or operation identity does not match.
+
+### CR-B03 extension state-machine changes
+- Updated `apps/extension/src/content-script.ts` with transactional preparation and started-confirmation state, including operation keys, media epoch identity, play-attempt identity, prepared and started markers, in-flight acknowledgement tracking, and sample sequencing.
+- Changed the playback button path to use transactional activation for a current committed operation while preserving the existing direct `video.play()` behavior for legacy or non-transactional state.
+- Expanded invalidation to cancel both legacy and transactional scheduled work when an operation, media epoch, or room state is superseded.
+- Added direct in-page gesture recovery for the current committed operation. A play promise resolving by itself is not treated as started evidence. Started acknowledgement requires the current operation and attempt, no pause or pending seek, and `playerHealth.hasRealPlaybackProgress`.
+- Added preparation handling that waits for ready data and target alignment before sending `prepared`, and committed handling that waits for effective server time before requesting playback.
+- Added `onFailed` handling to the existing video-play helper so cancelled or failed current attempts do not leave stale transactional state.
+- Updated `apps/extension/src/content-script.test.ts` with an integrated transaction test. It obtains the binding from media detection, sends prepared evidence, confirms committed playback invokes `play`, confirms no started acknowledgement is emitted solely when the play promise resolves or before real frame progress, and confirms started acknowledgement after progress is observed.
+- Updated `apps/extension/src/service-worker.test.ts` to cover binding-aware recognition of `OPERATION_ACK`, rejection of an old binding, and forwarding from the current binding.
+
+### CR-B03 room-service integration tests and acceptance report
+- Updated `apps/room-service/src/server.test.ts` with a negotiated WebSocket transaction covering create/join capabilities, approval and readiness, pending control play, host and friend preparation acknowledgements, committed broadcast, host and friend started acknowledgements, and the final started snapshot.
+- Created and maintained `docs/CR_B03_EXTENSION_ACK_REPORT.md`. It records the issue interpretation, baseline gap, files, protocol and extension state machine, backend dispatch, security/privacy boundary, exact verification, intermediate failures, root causes found during debugging, external-environment limits, live-provider boundary, and the non-closure and release decisions.
+- The report explicitly distinguishes deterministic source, typecheck, unit, integration, browser-package, generic two-profile, controlled headed provider, deployment, and user-acceptance evidence. It does not infer Crunchyroll success from mocks or from the presence of a signed-in browser account.
+
+### Focused verification before integrated debugging
+- Ran `npm run typecheck`; it passed before the final coordinator corrections.
+- Ran `npm test -- --run apps/extension/src/content-script.test.ts`; 58 tests passed.
+- Ran `npm test -- --run apps/extension/src/service-worker.test.ts packages/protocol/src/index.test.ts`; 2 files and 39 tests passed.
+- Ran `npm test -- --run apps/room-service/src/server.test.ts`; 13 tests passed.
+- Ran `npm run check`; typecheck, 30 Vitest files with 271 tests, server bundle, and extension build passed at that stage.
+
+### Browser-package verification and environment boundary
+- Ran `npm run verify:browser-packages` in the restricted environment. Chrome and Firefox packaging could be inspected, but the macOS Safari converter failed because it could not access the temporary staging path and reported that it could not parse `manifest.json` due to the temporary filesystem permission boundary.
+- Reran the same browser-package command with the approved host-level filesystem path. Chrome MV3, Firefox sidebar, and Safari macOS package smoke passed. The observed package manifests reported version `0.2.4`.
+- This was recorded as an environment permission failure followed by a successful host-level package verification, not as a Safari source or manifest defect.
+
+### First integrated E2E failure
+- Ran the host-level two-profile integrated scenario with `npm run test:e2e -- --grep "profile A creates a room"`.
+- The first implementation failed after a superseding seek. The failure was `Playback did not advance`, with a sample similar to `currentTime: 11.012` and `paused: true`.
+- The initial investigation considered whether the transaction was not being applied, whether the sidepanel state was stale, and whether the coordinator had incorrectly expired or stalled the operation.
+- A temporary attempt to inspect state through a normal sidepanel tab returned `detachedState` with a null snapshot. This was identified as a misleading inspection path because the sidepanel tab was not the attached extension panel used by the test.
+- A temporary service-worker debug getter and temporary E2E logging wrappers were used only to inspect runtime state. They were not intended as product behavior and were removed before final verification.
+
+### Runtime evidence from temporary debugging
+- The direct runtime state showed the initial play operation was `committed`, both participants were prepared, `startedParticipantIds` was empty, and local samples were progressing around the beginning of playback. This separated the initial committed operation from the later failed seek.
+- The later seek operation was `failed` with reason `start-timeout`, both participants had prepared, `startedParticipantIds` was empty, and `resumeWhenReady` was false. This showed that the problem was an interaction between operation deadlines, startup watchdog timing, and resume intent after superseding the old operation, not absence of the signed-in Crunchyroll account.
+- All temporary debug additions were removed from `apps/extension/src/service-worker.ts` and `tests/e2e/two-profile-sync.spec.ts`. The final source has no debug getter or E2E debug wrappers.
+
+### Coordinator corrections identified and applied
+- Updated `packages/sync-engine/src/room.ts` imports to use the existing playback-health timing helpers and constants, including startup grace, progress timeout, startup timeout, and stall classification.
+- After all participants prepare and the operation becomes committed, assigned a separate post-commit deadline: effective server time plus startup grace plus progress timeout. This prevents the preparation deadline from being reused as the started-evidence deadline.
+- In `updatePlayerStatus`, suppressed the normal progress-stall watchdog for a committed participant until transactional startup grace has elapsed or that participant has supplied started evidence. This prevents a normal 1.8-second progress timeout from firing before the intended startup window.
+- Preserved play intent for a superseding seek by capturing `resumeWhenReady` from the prior playback status before `cancelOperation()` pauses the old operation, then passing that value into the new seek operation. This prevents an active playback session from losing its resume intent solely because cancellation is part of the supersession path.
+- Updated failure-recovery references to use the active transactional operation after the watchdog logic was split into startup and normal-stall cases.
+- Added `packages/sync-engine/src/room.test.ts` regressions for a separate post-commit deadline, no committed-participant stall classification before startup grace, and preservation of resume intent when a playing seek is superseded.
+
+### Targeted verification after coordinator corrections
+- Ran `npm run typecheck` after the coordinator changes; it passed.
+- Ran the targeted suite for sync-engine, room-service, and content-script. It passed 3 files and 120 tests.
+- Reran the clean host-level integrated scenario, with all temporary debug code removed: `npm run test:e2e -- --grep "profile A creates a room"` passed, 1 test in 16.7 seconds, with the test itself completing in 8.7 seconds.
+- The clean pass confirms the previously failing post-seek playback path now advances and reaches the expected transactional state under the generic two-profile environment.
+
+### Current checkpoint state
+- No commit or push has been made for CR-B03 implementation yet. The last branch commit remains `8c5af8e`.
+- The branch worktree contains the CR-B03 source, tests, coordinator regressions, and acceptance report listed above.
+- The temporary debug getter and wrappers have been removed. Final full check, browser-package rerun, diff review, report finalization, commit, push, PR metadata, formal review, merge, and issue verification-state update remain.
+
+## Confirmed Successful Results
+- CR-B03 implementation exists in the intended protocol, extension, service-worker, room-service, edge-service, and sync-engine files.
+- Focused extension, protocol, service-worker, room-service, and sync-engine tests passed at the counts recorded above.
+- `npm run typecheck` passed after the coordinator corrections.
+- The host-level browser package verification passed earlier with Chrome, Firefox, and Safari package smoke for version `0.2.4`; the restricted Safari failure was an environment permission limitation.
+- The clean host-level integrated scenario `profile A creates a room` passed after the three coordinator corrections, with temporary debugging removed.
+- A detailed issue-specific acceptance report exists at `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B03_EXTENSION_ACK_REPORT.md`.
+- Issue #57 remains open and is not yet presented as complete or releasable.
+
+## Failed, Incomplete, or Unresolved Work
+- The first integrated E2E attempt failed after a superseding seek. The failure was diagnosed and corrected, and the clean rerun passed. The initial failure remains part of the audit record and is not represented as a successful result.
+- The restricted browser-package run could not access the temporary Safari converter path. A host-level rerun passed, but the final CR-B03 report still needs the final post-correction command results added.
+- The final full `npm run check` after the coordinator corrections has not yet been run in this checkpoint.
+- `git diff --check`, final diff/source review, commit, push, PR creation, GitHub checks, formal review, merge, and issue-state transition are still outstanding.
+- Live authenticated Crunchyroll playback, a second account, two-device behavior, deployment, and user-acceptance evidence remain separate gates. The signed-in Edge session is available, but no live-provider result is inferred from the generic integrated test.
+- The issue must not be closed until all applicable acceptance gates are directly evidenced. No release bump is justified at this pre-merge stage, and `1.0.0` remains reserved for the completed milestone.
+
+## Decisions and Rationale
+- Continue with CR-B03 because it is the next dependent runtime consumer after the merged CR-B02 coordinator work and directly exercises the operation contract.
+- Treat the E2E failure as a real implementation defect, not as an account or environment blocker, because runtime evidence isolated deterministic deadline, watchdog, and resume-ordering defects.
+- Keep the preparation deadline and post-commit start-evidence deadline separate. They represent different phases and must not share a timeout merely because both are bounded.
+- Do not allow a progress-stall watchdog to classify a newly committed transactional participant before startup grace. The startup window is an explicit part of the contract.
+- Capture resume intent before cancelling a superseded operation. Cancellation changes playback state, so reading the state after cancellation loses evidence about the prior user-visible state.
+- Remove all temporary debug instrumentation before final verification and publication. The final PR must contain only durable product behavior, regression coverage, and documentation.
+- Keep issue #57 open through merge and later Verification status until the complete acceptance matrix is satisfied. A passing generic E2E is useful evidence, but it is not live Crunchyroll acceptance or release closure.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Protocol implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.ts`
+- Protocol tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.test.ts`
+- Extension runtime state: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/internal.ts`
+- Extension service worker: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.ts`
+- Extension service-worker tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.test.ts`
+- Extension content script: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- Extension content-script tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts`
+- Room service: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/room-service/src/server.ts`
+- Room service tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/room-service/src/server.test.ts`
+- Edge service: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/edge-service/src/worker.ts`
+- Coordinator: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`
+- Coordinator tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.test.ts`
+- Acceptance report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B03_EXTENSION_ACK_REPORT.md`
+- Issue: `https://github.com/muaz978/sync-your-joy/issues/57`
+- Planned PR relationship: `Refs #57`, with dependencies on #55 and #56 and no automatic closing keyword.
+
+## Assumptions and Uncertainties
+- The generic two-profile E2E uses the repository's controlled test setup and is not the same as authenticated Crunchyroll provider acceptance.
+- The exact final full-test count may increase from the earlier 271 count because CR-B03 added regression tests. It must be recorded only after the final command runs.
+- The current browser package version remains `0.2.4` until a release decision is made for a coherent verified group.
+- The user account and Edge Crunchyroll session are treated as available. The remaining live gate concerns the correct controlled headed extension installation and acceptance procedure, not account existence.
+
+## Open Questions, Blockers, and Dependencies
+- Final command evidence after the coordinator corrections is required before opening the PR.
+- GitHub project metadata must be applied to the CR-B03 PR exactly as it was for CR-B02: labels, assignee, milestone, public project, status `In review`, P1 High, Feature, Partial evidence, acceptance gates, High risk, blank blocked reason and target date, verification owner `muaz978`.
+- The PR must receive a source review before merge. Self-approval may be unavailable because the authenticated account owns the PR; if so, a detailed `COMMENTED` review and authorized administrator merge are required.
+- Issue #57 must be moved to `Verification` after merge, with a detailed merge and evidence comment, and must remain open.
+
+## Next Steps
+1. Run final `npm run check`, `npm run verify:browser-packages`, `git diff --check`, and inspect the full diff for unintended debug or unrelated changes.
+2. Update `docs/CR_B03_EXTENSION_ACK_REPORT.md` with the final exact counts and clean E2E result.
+3. Commit and push the CR-B03 source, tests, report, and this checkpoint.
+4. Create a detailed PR referencing #57 without closing it, then apply labels, assignee, milestone, and public project fields.
+5. Wait for all remote checks, perform and record the full review, and merge only after no blocking finding remains.
+6. Verify `origin/main`, attach the PR artifact, document the merge on issue #57, move the issue to Verification, and keep it open pending the remaining acceptance gates.
+7. Do not bump `1.0.0` or close the milestone from this issue alone.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-68 remain intact above. This checkpoint appends the full CR-B03 implementation and debugging history without deleting or rewriting prior records.
+- Temporary debug instrumentation was used only for diagnosis and was removed. It must not be included in the PR.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes, or DRM data were recorded.
+
 ---
 
 # Checkpoint 68

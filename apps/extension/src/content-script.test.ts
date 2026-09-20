@@ -1,3 +1,4 @@
+import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import type { MediaFingerprint } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, RuntimeEvent, RuntimeRequest } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -265,6 +266,81 @@ describe('adaptive player lifecycle', () => {
     await vi.advanceTimersByTimeAsync(1_000)
     const status = messages.find((message): message is Extract<RuntimeRequest, { type: 'PLAYER_STATUS' }> => message.type === 'PLAYER_STATUS')
     expect(status?.bindingId).toBe('binding_content_document')
+  })
+
+  it('prepares a transactional operation and confirms started only after real progress', async () => {
+    const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+    sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+      messages.push(request)
+      return request.type === 'MEDIA_DETECTED'
+        ? { ok: true, state, playerBindingId: 'binding_transactional' }
+        : { ok: true, state }
+    })
+    messages.length = 0
+    listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+    await Promise.resolve()
+    await Promise.resolve()
+
+    state.snapshot!.contract = {
+      mode: 'transactional',
+      mediaEpoch: 0,
+      sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+      operation: {
+        mediaEpoch: 0,
+        operationId: 'operation_play_123456',
+        kind: 'play',
+        phase: 'preparing',
+        requiredParticipantIds: ['guest'],
+        preparedParticipantIds: [],
+        startedParticipantIds: [],
+        targetPositionSeconds: 0,
+        resumeWhenReady: true,
+        effectiveAtServerMs: null,
+        deadlineAtServerMs: Date.now() + 1_800,
+      },
+    }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(messages).toContainEqual(expect.objectContaining({
+      type: 'OPERATION_ACK',
+      acknowledgement: expect.objectContaining({
+        phase: 'prepared',
+        bindingId: 'binding_transactional',
+        operationId: 'operation_play_123456',
+      }),
+    }))
+    expect(messages.some(message => message.type === 'OPERATION_ACK' && message.acknowledgement.phase === 'started')).toBe(false)
+
+    state = structuredClone(state)
+    state.snapshot!.revision++
+    state.snapshot!.contract!.operation = {
+      ...state.snapshot!.contract!.operation!,
+      phase: 'committed',
+      preparedParticipantIds: ['guest'],
+      effectiveAtServerMs: Date.now() - 100,
+    }
+    state.snapshot!.playback = { status: 'playing', positionSeconds: 0, effectiveAtServerMs: Date.now() - 100, playbackRate: 1 }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(video.play).toHaveBeenCalledOnce()
+    expect(messages.some(message => message.type === 'OPERATION_ACK' && message.acknowledgement.phase === 'started')).toBe(false)
+
+    video.position = 1
+    video.totalFrames += 1
+    await vi.advanceTimersByTimeAsync(3_000)
+    video.totalFrames += 1
+    listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+    await Promise.resolve()
+    await Promise.resolve()
+    listener({ type: 'APPLY_ROOM_STATE', state })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(messages).toContainEqual(expect.objectContaining({
+      type: 'OPERATION_ACK',
+      acknowledgement: expect.objectContaining({ phase: 'started', bindingId: 'binding_transactional' }),
+    }))
   })
 
   it.each(identityLayouts)('keeps playback commands and samples bound to the $name identity', async (layout) => {
