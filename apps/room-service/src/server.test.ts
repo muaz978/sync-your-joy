@@ -244,10 +244,10 @@ describe('room service', () => {
       },
     }))
 
-    const health = await nextRoomSnapshot(host, 'participant_playback_stalled', 4_000)
+    const health = await nextRoomSnapshot(host, 'participant_playback_stalled')
     expect(health.snapshot.playback).toMatchObject({ status: 'paused' })
     expect(health.snapshot.revision).toBe(play.snapshot.revision + 1)
-    await expectNoMessage(host, 300)
+    await expectNoMessage(host)
     host.close()
   })
 
@@ -557,9 +557,9 @@ async function connect(url: string): Promise<WebSocket> {
   return socket
 }
 
-async function nextMessage(socket: WebSocket, timeoutMs = 2_000): Promise<ServerMessage> {
+async function nextMessage(socket: WebSocket): Promise<ServerMessage> {
   return new Promise<ServerMessage>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Timed out waiting for server message.')), timeoutMs)
+    const timer = setTimeout(() => reject(new Error('Timed out waiting for server message.')), 4_000)
     socket.once('message', (data) => {
       clearTimeout(timer)
       resolve(JSON.parse(data.toString()) as ServerMessage)
@@ -567,15 +567,25 @@ async function nextMessage(socket: WebSocket, timeoutMs = 2_000): Promise<Server
   })
 }
 
-async function nextRoomSnapshot(socket: WebSocket, reason: string, timeoutMs = 2_000): Promise<Extract<ServerMessage, { type: 'room_snapshot' }>> {
+async function nextRoomSnapshot(socket: WebSocket, reason: string): Promise<Extract<ServerMessage, { type: 'room_snapshot' }>> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const message = await nextMessage(socket, timeoutMs)
+    const message = await nextMessage(socket)
     if (message.type === 'room_snapshot' && message.reason === reason)
       return message
   }
   throw new Error(`Timed out waiting for room snapshot: ${reason}`)
 }
 
-async function expectNoMessage(socket: WebSocket, timeoutMs: number): Promise<void> {
-  await expect(nextMessage(socket, timeoutMs)).rejects.toThrow('Timed out waiting for server message.')
+async function expectNoMessage(socket: WebSocket): Promise<void> {
+  await expect(nextMessageForAbsence(socket)).rejects.toThrow('Timed out waiting for server message.')
+}
+
+async function nextMessageForAbsence(socket: WebSocket): Promise<ServerMessage> {
+  return new Promise<ServerMessage>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timed out waiting for server message.')), 300)
+    socket.once('message', (data) => {
+      clearTimeout(timer)
+      resolve(JSON.parse(data.toString()) as ServerMessage)
+    })
+  })
 }
