@@ -291,6 +291,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         paused: request.sample.paused,
         buffering: request.sample.buffering,
         progressed: typeof request.sample.progressed === 'boolean' ? request.sample.progressed : null,
+        progressEvidence: request.sample.progressEvidence ?? null,
         playbackStarted: typeof request.sample.playbackStarted === 'boolean' ? request.sample.playbackStarted : null,
         playbackStartFailed: typeof request.sample.playbackStartFailed === 'boolean' ? request.sample.playbackStartFailed : null,
       })

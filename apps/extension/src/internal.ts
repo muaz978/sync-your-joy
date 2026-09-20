@@ -1,6 +1,13 @@
-import type { ClientRoomState, ControlKind, MediaFingerprint, PlayerSample } from '@syncyourjoy/protocol'
+import type { ClientRoomState, ControlKind, MediaFingerprint, PlayerSample, ProgressEvidenceQuality } from '@syncyourjoy/protocol'
 
 export type PlayerOrigin = 'light-dom' | 'open-shadow-dom'
+
+export interface PlayerHealthDiagnostics {
+  buffering: boolean
+  progressEvidence: ProgressEvidenceQuality
+  hasRealPlaybackProgress: boolean
+  playbackStartFailed: boolean
+}
 
 export interface PlayerDiagnostics {
   origin: PlayerOrigin
@@ -8,6 +15,7 @@ export interface PlayerDiagnostics {
   networkState: number
   currentSrcKind: 'none' | 'http' | 'https' | 'blob' | 'data' | 'other'
   hasSourceObject: boolean
+  health?: PlayerHealthDiagnostics
   locked?: boolean
 }
 
