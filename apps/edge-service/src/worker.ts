@@ -5,6 +5,7 @@ import type { RoomCoordinatorState, RoomResult } from '@syncyourjoy/sync-engine'
 import { DurableObject } from 'cloudflare:workers'
 import { isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { RoomCoordinator } from '@syncyourjoy/sync-engine'
+import { applyEarliestDueDeadline, persistRoomAndSchedule, persistThenObserve } from './alarm.ts'
 
 const MAX_MESSAGE_BYTES = 16_384
 const CONTROLLER_GRACE_MS = 10_000
@@ -206,7 +207,6 @@ export class RoomDurableObject extends DurableObject<Env> {
     const result = this.coordinator.disconnect(attachment.participantId)
     if (!result?.ok)
       return
-    this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
 
     if (this.coordinator.snapshot().controller.participantId === attachment.participantId) {
       this.pendingController = {
@@ -217,7 +217,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!this.coordinator.hasConnectedParticipants())
       this.emptySinceMs = Date.now()
 
-    await this.persistAndSchedule()
+    await this.persistAndObserve(() => {
+      this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+    })
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {
@@ -230,27 +232,6 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
 
     const nowMs = Date.now()
-    const expiredSeek = this.coordinator.releaseExpiredSeek(nowMs)
-    if (expiredSeek?.ok)
-      this.broadcast({ type: 'room_snapshot', reason: expiredSeek.reason, snapshot: expiredSeek.snapshot })
-    const expiredOperation = this.coordinator.releaseExpiredOperation(nowMs)
-    if (expiredOperation?.ok)
-      this.broadcast({ type: 'room_snapshot', reason: expiredOperation.reason, snapshot: expiredOperation.snapshot })
-    const health = this.coordinator.evaluateHealth(nowMs)
-    if (health?.ok)
-      this.broadcast({ type: 'room_snapshot', reason: health.reason, snapshot: health.snapshot })
-    if (this.pendingController && nowMs >= this.pendingController.recoverAtMs) {
-      const controller = this.coordinator.snapshot().participants.find(
-        participant => participant.id === this.pendingController?.participantId,
-      )
-      if (!controller?.connected) {
-        const recovery = this.coordinator.transferDisconnectedController()
-        if (recovery?.ok)
-          this.broadcast({ type: 'room_snapshot', reason: recovery.reason, snapshot: recovery.snapshot })
-      }
-      this.pendingController = null
-    }
-
     if (nowMs - this.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
       for (const socket of this.ctx.getWebSockets())
         socket.close(1000, 'room_expired')
@@ -264,11 +245,30 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (this.emptySinceMs !== null && nowMs - this.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
       await this.ctx.storage.deleteAll()
       this.coordinator = null
+      this.pendingController = null
       this.emptySinceMs = null
       return
     }
 
+    const broadcasts: Array<{ type: 'room_snapshot'; reason: string; snapshot: ReturnType<RoomCoordinator['snapshot']> }> = []
+    const deadline = applyEarliestDueDeadline(this.coordinator, nowMs)
+    if (deadline?.result.ok)
+      broadcasts.push({ type: 'room_snapshot', reason: deadline.result.reason, snapshot: deadline.result.snapshot })
+    else if (this.pendingController && nowMs >= this.pendingController.recoverAtMs) {
+      const controller = this.coordinator.snapshot().participants.find(
+        participant => participant.id === this.pendingController?.participantId,
+      )
+      if (!controller?.connected) {
+        const recovery = this.coordinator.transferDisconnectedController()
+        if (recovery?.ok)
+          broadcasts.push({ type: 'room_snapshot', reason: recovery.reason, snapshot: recovery.snapshot })
+      }
+      this.pendingController = null
+    }
+
     await this.persistAndSchedule()
+    for (const message of broadcasts)
+      this.broadcast(message)
   }
 
   private async handleMessage(socket: WebSocket, attachment: SocketAttachment, message: ClientMessage): Promise<void> {
@@ -304,13 +304,15 @@ export class RoomDurableObject extends DurableObject<Env> {
       attachment.participantId = message.participantId
       socket.serializeAttachment(attachment)
       this.emptySinceMs = null
-      this.send(socket, {
-        type: 'room_joined',
-        participantId: message.participantId,
-        sessionToken: sessionToken ?? '',
-        snapshot: this.coordinator.snapshot(),
+      const snapshot = this.coordinator.snapshot()
+      await this.persistAndObserve(() => {
+        this.send(socket, {
+          type: 'room_joined',
+          participantId: message.participantId,
+          sessionToken: sessionToken ?? '',
+          snapshot,
+        })
       })
-      await this.persistAndSchedule()
       return
     }
 
@@ -350,14 +352,15 @@ export class RoomDurableObject extends DurableObject<Env> {
       if (this.pendingController?.participantId === message.participantId)
         this.pendingController = null
       this.emptySinceMs = null
-      this.send(socket, {
-        type: 'room_joined',
-        participantId: message.participantId,
-        sessionToken,
-        snapshot: result.snapshot,
+      await this.persistAndObserve(() => {
+        this.send(socket, {
+          type: 'room_joined',
+          participantId: message.participantId,
+          sessionToken,
+          snapshot: result.snapshot,
+        })
+        this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot }, socket)
       })
-      this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot }, socket)
-      await this.persistAndSchedule()
       return
     }
 
@@ -415,8 +418,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (message.type === 'player_status') {
       const result = this.coordinator.updatePlayerStatus(attachment.participantId, message.basedOnRevision, message.sample)
       if (result?.ok) {
-        this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
-        await this.persistAndSchedule()
+        await this.persistAndObserve(() => {
+          this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+        })
       }
       return
     }
@@ -424,8 +428,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (message.type === 'seek_applied') {
       const result = this.coordinator.acknowledgeSeek(attachment.participantId, message.revision, message.positionSeconds)
       if (result?.ok) {
-        this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
-        await this.persistAndSchedule()
+        await this.persistAndObserve(() => {
+          this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+        })
       }
       return
     }
@@ -433,8 +438,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (message.type === 'operation_ack') {
       const result = this.coordinator.acknowledgeOperation(attachment.participantId, message.acknowledgement)
       if (result?.ok) {
-        this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
-        await this.persistAndSchedule()
+        await this.persistAndObserve(() => {
+          this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+        })
       }
       return
     }
@@ -450,29 +456,27 @@ export class RoomDurableObject extends DurableObject<Env> {
         return
       }
 
-      if (!message.approve) {
-        // Tell the denied participant's own socket, and only that socket,
-        // then stop tracking it as part of the room -- before broadcasting
-        // the updated snapshot to everyone who remains, so the denied
-        // client never also receives a snapshot for a room it is being
-        // removed from.
-        for (const deniedSocket of this.ctx.getWebSockets()) {
-          const deniedAttachment = deniedSocket.deserializeAttachment() as SocketAttachment | null
-          if (deniedAttachment?.participantId !== message.participantId)
-            continue
-          this.send(deniedSocket, {
-            type: 'command_rejected',
-            actionId: message.actionId,
-            code: 'join_denied',
-            message: 'The host declined to let you join this room.',
-            snapshot: null,
-          })
-          deniedSocket.close(1000, 'join_denied')
+      await this.persistAndObserve(() => {
+        if (!message.approve) {
+          // Tell the denied participant's own socket, and only that socket,
+          // after the denial has been persisted. The denied client never also
+          // receives a snapshot for a room it is being removed from.
+          for (const deniedSocket of this.ctx.getWebSockets()) {
+            const deniedAttachment = deniedSocket.deserializeAttachment() as SocketAttachment | null
+            if (deniedAttachment?.participantId !== message.participantId)
+              continue
+            this.send(deniedSocket, {
+              type: 'command_rejected',
+              actionId: message.actionId,
+              code: 'join_denied',
+              message: 'The host declined to let you join this room.',
+              snapshot: null,
+            })
+            deniedSocket.close(1000, 'join_denied')
+          }
         }
-      }
-
-      this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
-      await this.persistAndSchedule()
+        this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+      })
       return
     }
 
@@ -489,22 +493,23 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
-    this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
-    await this.persistAndSchedule()
+    await this.persistAndObserve(() => {
+      this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+    })
   }
 
   private async persistAndSchedule(): Promise<void> {
     if (!this.coordinator)
       return
 
-    await this.ctx.storage.put<StoredRoom>('room', {
+    const storedRoom: StoredRoom = {
       coordinator: this.coordinator.exportState(),
       pendingController: this.pendingController,
       emptySinceMs: this.emptySinceMs,
       createdAtMs: this.createdAtMs,
-    })
+    }
 
-    const alarmCandidates: number[] = []
+    const alarmCandidates: Array<number | null | undefined> = []
     if (this.pendingController)
       alarmCandidates.push(this.pendingController.recoverAtMs)
     if (this.emptySinceMs !== null)
@@ -519,8 +524,11 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (healthDeadlineMs !== null)
       alarmCandidates.push(healthDeadlineMs)
 
-    if (alarmCandidates.length > 0)
-      await this.ctx.storage.setAlarm(Math.min(...alarmCandidates))
+    await persistRoomAndSchedule(this.ctx.storage, storedRoom, alarmCandidates)
+  }
+
+  private async persistAndObserve(observe: () => void): Promise<void> {
+    await persistThenObserve(() => this.persistAndSchedule(), observe)
   }
 
   private send(socket: WebSocket, message: ServerMessage): void {
