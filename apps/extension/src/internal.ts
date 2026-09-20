@@ -1,4 +1,4 @@
-import type { ClientCapabilities, ClientRoomState, ControlKind, MediaFingerprint, OperationIdentity, PlayerSample, ProgressEvidenceQuality, RoomMode } from '@syncyourjoy/protocol'
+import type { ClientCapabilities, ClientRoomState, ControlKind, MediaFingerprint, OperationAcknowledgement, OperationIdentity, PlayerSample, ProgressEvidenceQuality, RoomMode } from '@syncyourjoy/protocol'
 import { LEGACY_CLIENT_CAPABILITIES, OPERATION_CONTRACT_VERSION, normalizeRoomContractSnapshot } from '@syncyourjoy/protocol'
 
 export type PlayerOrigin = 'light-dom' | 'open-shadow-dom'
@@ -135,6 +135,7 @@ export type RuntimeRequest =
   | { type: 'MEDIA_LOST'; bindingId?: string | undefined }
   | { type: 'PLAYER_STATUS'; basedOnRevision: number; sample: PlayerSample; bindingId?: string | undefined }
   | { type: 'SEEK_APPLIED'; revision: number; positionSeconds: number; bindingId?: string | undefined }
+  | { type: 'OPERATION_ACK'; acknowledgement: OperationAcknowledgement }
   | { type: 'PLAYER_INTENT'; kind: ControlKind; positionSeconds: number; bindingId?: string | undefined }
   | { type: 'OPEN_PANEL' }
 

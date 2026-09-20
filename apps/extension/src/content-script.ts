@@ -1,4 +1,4 @@
-import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
+import type { MediaFingerprint, OperationAcknowledgement, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { canApplySoftDriftCorrection, canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isPlaybackRateAccepted, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
@@ -64,6 +64,14 @@ let miniControllerHidden = false
 let lockedVideo: HTMLVideoElement | null = null
 let lastObservedPageIdentity = normalizePageUrl(new URL(location.href))
 const playerObservers = new Map<Node, MutationObserver>()
+let transactionalStartTimer: ReturnType<typeof setTimeout> | null = null
+let transactionalActiveKey: string | null = null
+let transactionalPlayAttemptKey: string | null = null
+let transactionalPlayResolvedKey: string | null = null
+let transactionalPreparedKey: string | null = null
+let transactionalStartedKey: string | null = null
+let transactionalAckInFlightKey: string | null = null
+let transactionalSampleSequence = 0
 
 const pillHost = document.createElement('div')
 pillHost.id = 'sync-your-joy-root'
@@ -228,10 +236,15 @@ playbackButton?.addEventListener('click', () => {
   if (!video || !activeState?.snapshot)
     return
   if (video.paused) {
-    void video.play().catch(() => {
-      renderPill()
-      showNotice('Press Sync once so Chrome can allow synchronized play.')
-    })
+    const operation = currentTransactionalOperation()
+    if (operation?.phase === 'committed' && operation.resumeWhenReady !== false)
+      activateSynchronizedPlayback()
+    else {
+      void video.play().catch(() => {
+        renderPill()
+        showNotice('Press Sync once so Chrome can allow synchronized play.')
+      })
+    }
   }
   else {
     video.pause()
@@ -611,9 +624,14 @@ function invalidateRoomOperations(sourceChanged = false): void {
     clearTimeout(seekIntentTimer)
   seekIntentTimer = null
   pendingControllerSeekTarget = null
+  clearScheduledPlay()
+  clearTransactionalStartTimer()
   expectedSeek = retiredTarget === undefined
     ? null
     : { positionSeconds: retiredTarget, until: performance.now() + 4_000 }
+  transactionalPlayAttemptKey = null
+  transactionalPlayResolvedKey = null
+  transactionalAckInFlightKey = null
   invalidatePlayRequest()
 }
 
@@ -671,6 +689,16 @@ function handlePlay(): void {
   playbackStarted = false
   playerHealth = clearPlaybackStartFailed(playerHealth)
   const expected = consumeExpectedPlay()
+  const transactionalOperation = currentTransactionalOperation()
+  if (!expected && transactionalOperation?.phase === 'committed' && transactionalOperation.resumeWhenReady !== false) {
+    // A direct player gesture can recover an autoplay rejection without a
+    // second extension-side play() call. Treat this native play event as the
+    // current transaction attempt, but still wait for real progress before
+    // acknowledging started.
+    const key = transactionalOperationKey(transactionalOperation)
+    transactionalPlayAttemptKey = key
+    transactionalPlayResolvedKey = key
+  }
   if (!expected && video && isLocalController() && activeState?.snapshot?.seek) {
     expectPauseEvent()
     video.pause()
@@ -924,7 +952,14 @@ function playerDiagnostics(target: HTMLVideoElement): PlayerDiagnostics {
 
 function applyAuthoritativeState(): void {
   const snapshot = activeState?.snapshot
-  if (!video || !activeState || !snapshot)
+  if (!activeState || !snapshot)
+    return
+
+  const transactionalOperation = currentTransactionalOperation()
+  if (transactionalOperation && applyTransactionalOperation(transactionalOperation))
+    return
+
+  if (!video)
     return
 
   // A same-tab episode transition can precede the worker's media heartbeat.
@@ -1117,7 +1152,7 @@ function activateSynchronizedPlayback(): void {
   }, 'Click the video player once, then press Sync again.')
 }
 
-function requestVideoPlay(onStarted: () => void, blockedNotice: string): void {
+function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed?: () => void): void {
   if (!video)
     return
   const target = video
@@ -1144,8 +1179,11 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string): void {
     // pause(), load(), and source replacement can interrupt play(). They
     // do not indicate that the browser needs another user gesture.
     const name = error instanceof Error ? error.name : ''
-    if (name === 'AbortError')
+    if (name === 'AbortError') {
+      onFailed?.()
       return
+    }
+    onFailed?.()
     playerHealth = name === 'NotAllowedError'
       ? markPlaybackStartFailed(playerHealth)
       : clearPlaybackStartFailed(playerHealth)
@@ -1166,6 +1204,200 @@ function currentEpisodeMatchesRoom(): boolean {
     nested: window.top !== window,
   })
   return decision === 'match'
+}
+
+function currentTransactionalOperation(): RoomOperation | null {
+  const operation = activeState?.snapshot?.contract?.mode === 'transactional'
+    ? activeState.snapshot.contract.operation
+    : null
+  return operation && (operation.phase === 'preparing' || operation.phase === 'prepared' || operation.phase === 'committed')
+    ? operation
+    : null
+}
+
+function transactionalOperationKey(operation: RoomOperation): string {
+  return `${operation.mediaEpoch}:${operation.operationId}`
+}
+
+function syncTransactionalOperationIdentity(operation: RoomOperation): string {
+  const key = transactionalOperationKey(operation)
+  if (transactionalActiveKey === key)
+    return key
+  clearTransactionalStartTimer()
+  transactionalActiveKey = key
+  transactionalPlayAttemptKey = null
+  transactionalPlayResolvedKey = null
+  transactionalPreparedKey = null
+  transactionalStartedKey = null
+  transactionalAckInFlightKey = null
+  return key
+}
+
+function clearTransactionalStartTimer(): void {
+  if (transactionalStartTimer)
+    clearTimeout(transactionalStartTimer)
+  transactionalStartTimer = null
+}
+
+function transactionalTargetPosition(operation: RoomOperation): number {
+  return operation.targetPositionSeconds ?? activeState?.snapshot?.playback.positionSeconds ?? 0
+}
+
+function isTransactionallyPrepared(targetSeconds: number): boolean {
+  return video !== null
+    && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    && !video.seeking
+    && !localSeeking
+    && pendingSeek === null
+    && canConfirmSeek({
+      currentSeconds: video.currentTime,
+      targetSeconds,
+      seeking: false,
+    })
+}
+
+function scheduleTransactionalPlay(delayMs: number): void {
+  clearTransactionalStartTimer()
+  transactionalStartTimer = setTimeout(() => {
+    transactionalStartTimer = null
+    applyAuthoritativeState()
+  }, Math.min(Math.max(0, delayMs), 1_000))
+}
+
+function applyTransactionalOperation(operation: RoomOperation): boolean {
+  const key = syncTransactionalOperationIdentity(operation)
+  clearScheduledPlay()
+
+  if (!video || !currentEpisodeMatchesRoom()) {
+    clearTransactionalStartTimer()
+    return true
+  }
+
+  const targetSeconds = transactionalTargetPosition(operation)
+  if (operation.phase === 'preparing' || operation.phase === 'prepared') {
+    clearTransactionalStartTimer()
+    if (!video.paused) {
+      expectPauseEvent()
+      video.pause()
+    }
+    if (!isTransactionallyPrepared(targetSeconds)) {
+      trySetProgrammaticPosition(targetSeconds)
+      return true
+    }
+    if (operation.phase === 'preparing' && transactionalPreparedKey !== key)
+      sendTransactionalAcknowledgement(operation, 'prepared')
+    return true
+  }
+
+  if (operation.resumeWhenReady === false) {
+    clearTransactionalStartTimer()
+    if (!video.paused) {
+      expectPauseEvent()
+      video.pause()
+    }
+    if (!isTransactionallyPrepared(targetSeconds))
+      trySetProgrammaticPosition(targetSeconds)
+    return true
+  }
+
+  if (operation.effectiveAtServerMs === null)
+    return true
+
+  const estimatedServerNowMs = Date.now() + (activeState?.serverOffsetMs ?? 0)
+  const timeUntilPlayMs = operation.effectiveAtServerMs - estimatedServerNowMs
+  if (timeUntilPlayMs > 12) {
+    if (!video.paused) {
+      expectPauseEvent()
+      video.pause()
+    }
+    if (Math.abs(video.currentTime - targetSeconds) > 0.12)
+      trySetProgrammaticPosition(targetSeconds)
+    scheduleTransactionalPlay(timeUntilPlayMs)
+    return true
+  }
+
+  clearTransactionalStartTimer()
+  const needsTransactionalPreparation = transactionalPlayAttemptKey !== key && !isTransactionallyPrepared(targetSeconds)
+  if (video.seeking || pendingSeek !== null || needsTransactionalPreparation) {
+    if (!video.paused) {
+      expectPauseEvent()
+      video.pause()
+    }
+    trySetProgrammaticPosition(targetSeconds)
+    return true
+  }
+
+  if (video.paused) {
+    requestTransactionalPlay(key)
+    return true
+  }
+
+  if (transactionalPlayResolvedKey === key
+    && !video.seeking
+    && pendingSeek === null
+    && playerHealth.hasRealPlaybackProgress
+    && transactionalStartedKey !== key) {
+    sendTransactionalAcknowledgement(operation, 'started')
+  }
+  return true
+}
+
+function requestTransactionalPlay(key: string): void {
+  if (transactionalPlayAttemptKey === key)
+    return
+  const operation = currentTransactionalOperation()
+  if (!operation || transactionalOperationKey(operation) !== key)
+    return
+  transactionalPlayAttemptKey = key
+  requestVideoPlay(() => {
+    const current = currentTransactionalOperation()
+    if (current && transactionalOperationKey(current) === key)
+      transactionalPlayResolvedKey = key
+    applyAuthoritativeState()
+  }, 'Click the video player once, then press Sync again.', () => {
+    if (transactionalActiveKey === key) {
+      transactionalPlayAttemptKey = null
+      transactionalPlayResolvedKey = null
+    }
+  })
+}
+
+function sendTransactionalAcknowledgement(operation: RoomOperation, phase: 'prepared' | 'started'): void {
+  if (!activeState || !video || !playerBindingId)
+    return
+  const key = transactionalOperationKey(operation)
+  if ((phase === 'prepared' && transactionalPreparedKey === key)
+    || (phase === 'started' && transactionalStartedKey === key))
+    return
+  const acknowledgementKey = `${key}:${phase}`
+  if (transactionalAckInFlightKey === acknowledgementKey)
+    return
+  const { sourceGeneration } = playerOperations.snapshot()
+  const acknowledgement: OperationAcknowledgement = {
+    mediaEpoch: operation.mediaEpoch,
+    operationId: operation.operationId,
+    bindingId: playerBindingId,
+    sourceGeneration,
+    sampleSequence: ++transactionalSampleSequence,
+    phase,
+    participantId: activeState.participantId,
+    observedPositionSeconds: finiteOrZero(video.currentTime),
+    observedAtLocalMs: Date.now(),
+  }
+  transactionalAckInFlightKey = acknowledgementKey
+  void sendRuntime({ type: 'OPERATION_ACK', acknowledgement }).then(response => {
+    if (transactionalAckInFlightKey === acknowledgementKey)
+      transactionalAckInFlightKey = null
+    if (!response.ok || transactionalActiveKey !== key)
+      return
+    if (phase === 'prepared')
+      transactionalPreparedKey = key
+    else
+      transactionalStartedKey = key
+  }).catch(() => {
+    if (transactionalAckInFlightKey === acknowledgementKey)
+      transactionalAckInFlightKey = null
+  })
 }
 
 function forceSyncToRoom(fromUserGesture: boolean): void {

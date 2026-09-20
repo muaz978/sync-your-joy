@@ -388,6 +388,7 @@ describe('service worker observed episode identity', () => {
         || message.type === 'MEDIA_LOST'
         || message.type === 'PLAYER_STATUS'
         || message.type === 'SEEK_APPLIED'
+        || message.type === 'OPERATION_ACK'
         || message.type === 'PLAYER_INTENT'
       const boundMessage = bindingAware && !('bindingId' in message)
         ? { ...message, bindingId: currentBindingId } as RuntimeRequest
@@ -516,6 +517,26 @@ describe('service worker observed episode identity', () => {
     await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: staleSample, bindingId: newBindingId }, newSender)
     const afterCurrentStatus = await request({ type: 'GET_STATE' })
     expect(afterCurrentStatus.state.lastPlayerSample).toMatchObject(staleSample)
+
+    const currentOperationAcknowledgement = {
+      mediaEpoch: 1,
+      operationId: 'operation_play_123456',
+      bindingId: newBindingId!,
+      sourceGeneration: 2,
+      sampleSequence: 7,
+      phase: 'started' as const,
+      participantId: 'participant_resumed',
+      observedPositionSeconds: 12,
+      observedAtLocalMs: Date.now(),
+    }
+    const sentBeforeAcknowledgements = socket.sentMessages.length
+    await request({
+      type: 'OPERATION_ACK',
+      acknowledgement: { ...currentOperationAcknowledgement, bindingId: oldBindingId! },
+    }, oldSender)
+    expect(socket.sentMessages).toHaveLength(sentBeforeAcknowledgements)
+    await request({ type: 'OPERATION_ACK', acknowledgement: currentOperationAcknowledgement }, newSender)
+    expect(socket.sentMessages).toContainEqual({ type: 'operation_ack', acknowledgement: currentOperationAcknowledgement })
 
     ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockClear()
     await request({ type: 'LOCK_PLAYER' })

@@ -362,6 +362,10 @@ export type ClientMessage =
       positionSeconds: number
     }
   | {
+      type: 'operation_ack'
+      acknowledgement: OperationAcknowledgement
+    }
+  | {
       type: 'request_diagnostics'
       reportId: string
     }
@@ -789,6 +793,11 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       if (!isNonNegativeInteger(value.revision) || !isFiniteNonNegative(value.positionSeconds))
         return null
       return value as unknown as ClientMessage
+
+    case 'operation_ack': {
+      const acknowledgement = parseOperationAcknowledgement(value.acknowledgement)
+      return acknowledgement ? { type: 'operation_ack', acknowledgement } : null
+    }
 
     case 'request_diagnostics':
       if (!validId(value.reportId))

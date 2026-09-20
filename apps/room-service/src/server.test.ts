@@ -1,3 +1,4 @@
+import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import type { ServerMessage } from '@syncyourjoy/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
@@ -84,6 +85,113 @@ describe('room service', () => {
     host.send(JSON.stringify({ type: 'ping', id: 'ping_after_approve', sentAtLocalMs: 0 }))
     const afterApprove = await nextMessage(host)
     expect(afterApprove).toMatchObject({ type: 'pong', id: 'ping_after_approve' })
+
+    host.close()
+    friend.close()
+  })
+
+  it('forwards identity-bound prepare and started acknowledgements through a negotiated transactional room', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const friend = await connect(service.url)
+    const media = {
+      service: 'youtube',
+      canonicalId: 'youtube:transactional',
+      title: 'Transactional test video',
+      durationSeconds: 600,
+    }
+
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'TXN12345', media,
+      capabilities: CURRENT_CLIENT_CAPABILITIES,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+
+    const hostPendingNotice = nextMessage(host)
+    friend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: created.snapshot.code, media,
+      capabilities: CURRENT_CLIENT_CAPABILITIES,
+    }))
+    await nextMessage(friend)
+    await hostPendingNotice
+    const hostApproved = nextMessage(host)
+    const friendApproved = nextMessage(friend)
+    host.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_friend', approve: true, actionId: 'action_approve_transactional', basedOnRevision: 0, leaseEpoch: 1,
+    }))
+    await Promise.all([hostApproved, friendApproved])
+
+    host.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    await Promise.all([
+      nextRoomSnapshot(host, 'participant_ready'),
+      nextRoomSnapshot(friend, 'participant_ready'),
+    ])
+    friend.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    const [hostReady, friendReady] = await Promise.all([
+      nextRoomSnapshot(host, 'participant_ready'),
+      nextRoomSnapshot(friend, 'participant_ready'),
+    ])
+    expect(hostReady.snapshot.contract?.mode).toBe('transactional')
+    expect(friendReady.snapshot.contract?.mode).toBe('transactional')
+
+    const pendingHost = nextRoomSnapshot(host, 'control_play_pending')
+    const pendingFriend = nextRoomSnapshot(friend, 'control_play_pending')
+    host.send(JSON.stringify({
+      type: 'control', actionId: 'action_play_transactional', basedOnRevision: hostReady.snapshot.revision, leaseEpoch: 1, kind: 'play', positionSeconds: 0,
+    }))
+    const [pendingHostSnapshot] = await Promise.all([pendingHost, pendingFriend])
+    const operation = pendingHostSnapshot.snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation')
+
+    const hostPrepared = nextRoomSnapshot(host, 'operation_participant_prepared')
+    const friendPrepared = nextRoomSnapshot(friend, 'operation_participant_prepared')
+    host.send(JSON.stringify({
+      type: 'operation_ack',
+      acknowledgement: {
+        mediaEpoch: operation.mediaEpoch, operationId: operation.operationId, bindingId: 'binding_host_123456', sourceGeneration: 0, sampleSequence: 1,
+        phase: 'prepared', participantId: 'participant_host', observedPositionSeconds: 0, observedAtLocalMs: Date.now(),
+      },
+    }))
+    await Promise.all([hostPrepared, friendPrepared])
+
+    const committedHost = nextRoomSnapshot(host, 'operation_committed')
+    const committedFriend = nextRoomSnapshot(friend, 'operation_committed')
+    friend.send(JSON.stringify({
+      type: 'operation_ack',
+      acknowledgement: {
+        mediaEpoch: operation.mediaEpoch, operationId: operation.operationId, bindingId: 'binding_friend_123456', sourceGeneration: 0, sampleSequence: 1,
+        phase: 'prepared', participantId: 'participant_friend', observedPositionSeconds: 0, observedAtLocalMs: Date.now(),
+      },
+    }))
+    const [committed] = await Promise.all([committedHost, committedFriend])
+    expect(committed.snapshot.contract?.operation).toMatchObject({ phase: 'committed', preparedParticipantIds: ['participant_host', 'participant_friend'] })
+
+    await new Promise(resolve => setTimeout(resolve, 220))
+    const startedParticipantHost = nextRoomSnapshot(host, 'operation_participant_started')
+    const startedParticipantFriend = nextRoomSnapshot(friend, 'operation_participant_started')
+    host.send(JSON.stringify({
+      type: 'operation_ack',
+      acknowledgement: {
+        mediaEpoch: operation.mediaEpoch, operationId: operation.operationId, bindingId: 'binding_host_123456', sourceGeneration: 0, sampleSequence: 2,
+        phase: 'started', participantId: 'participant_host', observedPositionSeconds: 0, observedAtLocalMs: Date.now(),
+      },
+    }))
+    await Promise.all([startedParticipantHost, startedParticipantFriend])
+
+    const startedHost = nextRoomSnapshot(host, 'operation_started')
+    const startedFriend = nextRoomSnapshot(friend, 'operation_started')
+    friend.send(JSON.stringify({
+      type: 'operation_ack',
+      acknowledgement: {
+        mediaEpoch: operation.mediaEpoch, operationId: operation.operationId, bindingId: 'binding_friend_123456', sourceGeneration: 0, sampleSequence: 2,
+        phase: 'started', participantId: 'participant_friend', observedPositionSeconds: 0, observedAtLocalMs: Date.now(),
+      },
+    }))
+    const [started] = await Promise.all([startedHost, startedFriend])
+    expect(started.snapshot.contract?.operation).toMatchObject({ phase: 'started', startedParticipantIds: ['participant_host', 'participant_friend'] })
 
     host.close()
     friend.close()

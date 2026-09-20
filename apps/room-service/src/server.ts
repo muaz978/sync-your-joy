@@ -396,6 +396,13 @@ export async function createRoomService(options: { port?: number; host?: string 
       return
     }
 
+    if (message.type === 'operation_ack') {
+      const result = room.coordinator.acknowledgeOperation(client.participantId, message.acknowledgement)
+      if (result?.ok)
+        broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+      return
+    }
+
     if (message.type === 'respond_to_join') {
       // The controller's identity comes from the sender's own tracked
       // socket (client.participantId), never from a client-asserted field
