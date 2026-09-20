@@ -25,6 +25,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
+    "test:e2e:crunchyroll": "playwright test --config tests/e2e/playwright.config.ts --grep \"authenticated Crunchyroll\"",
     "typecheck": "tsc --noEmit && tsc -p apps/edge-service/tsconfig.json",
     "check": "npm run typecheck && npm test && npm run build"
   },

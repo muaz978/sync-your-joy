@@ -3516,3 +3516,383 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-38 remain intact. This checkpoint supersedes the earlier statement that the service-worker review was still pending by recording the actual correction and local verification, but it does not claim remote checks or merge completion.
 - This checkpoint contains no passwords, tokens, cookies, private keys, signed URLs, protected-media bytes or DRM data.
+
+## Checkpoint 40 - PR #70 reviewed and accepted
+
+### Session Metadata
+- Task or project: Complete the requested review and acceptance of PR #70, then continue the oldest-to-newest open issue workflow.
+- Checkpoint number: 40.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: Fresh remote verification after Checkpoint 39 through the final review comment, administrator acceptance, merge verification, and current issue-work handoff state.
+- Current context status: PR #70 is merged as `7451307b86aa2a8ab4bef17a3e8bed6e4c05b4e9`. No issue was closed as part of this acceptance. The next work item must be selected from the oldest remaining open issue and must retain the external-evidence boundaries documented below.
+
+### Complete Chronological Activity Log
+
+1. Pushed reviewed commit `a555366` to `origin/codex/crunchyroll-sync-hardening`, then committed and pushed the append-only review checkpoint as `e7e5706`. The PR branch head became `e7e57062b355e063bcfd9e89a622b98e0e73fa01`.
+
+2. Refreshed PR #70's body from `docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md`. The record includes the stale refresh finding, the failed first test design, the corrected initialized-worker regression, local verification, and explicit non-closure of issue #48.
+
+3. Waited for fresh remote checks for the reviewed head. The following checks all completed successfully: Analyze (javascript-typescript), Typecheck, test, and build, DevSkim, lowercase `devskim`, and CodeQL.
+
+4. Re-ran the final clean-diff and PR-state verification. `git diff --check origin/main...HEAD` passed. The PR had base `bfe0d88ad53f5ed51f960b5a90e5d9253c2616c2`, head `e7e5706`, all five checks successful, and no new review blocker identified. The diff remained intentionally broad because the PR preserves the detailed candidate evidence and deterministic fixes, not only the final race correction.
+
+5. Posted the final pre-merge review comment at [PR #70 review comment](https://github.com/muaz978/sync-your-joy/pull/70#issuecomment-5749229332). It records the no-blocker result, correctness and security review scope, 205-test local evidence, all remote check results, the state-only boundary, and the unresolved live-provider and multi-device gates. Because the current account is the PR author, GitHub did not expose an approval review action; the comment is the explicit review record before acceptance.
+
+6. Used the administrator merge path only after the review comment and all fresh checks were complete, as explicitly authorized by the user. The command completed without error and PR #70 entered the merged state at `2026-09-20T10:28:00Z`.
+
+7. Verified the merged PR with GitHub. The resulting merge commit is `7451307b86aa2a8ab4bef17a3e8bed6e4c05b4e9`, and the PR state is `MERGED` at `https://github.com/muaz978/sync-your-joy/pull/70`.
+
+8. Fetched `origin/main` and verified that it advanced from `bfe0d88` to `7451307`, with subject `CR-A01: preserve candidate evidence and fix deterministic regressions (#70)`.
+
+9. No GitHub issue was closed during this process. In particular, issue #48 remains open because the local and CI evidence does not establish authenticated Crunchyroll two-account behavior, two-device behavior, deployment acceptance or all external gates. The prior issue comments remain evidence notes and not closure claims.
+
+### Confirmed Successful Results
+- PR #70 was reviewed after the stale-binding correctness fix and fresh checks.
+- The final review comment was posted at `https://github.com/muaz978/sync-your-joy/pull/70#issuecomment-5749229332`.
+- All fresh remote checks passed.
+- PR #70 was accepted with administrator merge and is confirmed `MERGED`.
+- Merge commit `7451307b86aa2a8ab4bef17a3e8bed6e4c05b4e9` is present on `origin/main`.
+- The PR documentation and append-only checkpoint were pushed before acceptance.
+- No issue was prematurely closed.
+
+### Failed, Incomplete, or Unresolved Work
+- GitHub's `reviewDecision` field remains `REVIEW_REQUIRED` on the merged PR because the author cannot approve their own PR. This did not prevent the explicitly authorized administrator merge after the documented review comment and passing checks.
+- Issue #48 and the other related issues remain open where their complete acceptance gates are not yet established.
+- The Crunchyroll browser session is evidence of an available signed-in page only. It does not substitute for a controlled two-account, two-device synchronization run.
+- No follow-on issue implementation has been committed in this checkpoint.
+
+### Decisions and Rationale
+- Accept PR #70 because the Required review finding was fixed, its regression test passed, the complete local check passed, all fresh remote checks passed, and the final diff had no remaining blocking finding.
+- Use the administrator merge path only because the user explicitly requested acceptance after review and the PR author cannot submit an approval review.
+- Keep issues open until their full acceptance criteria, including live provider and device evidence where required, are verified.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this complete append-only checkpoint.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md` - detailed PR implementation and review record.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_BASELINE.md` - baseline and verification evidence.
+- GitHub PR #70: `https://github.com/muaz978/sync-your-joy/pull/70`.
+- Final review comment: `https://github.com/muaz978/sync-your-joy/pull/70#issuecomment-5749229332`.
+- Merge commit: `7451307b86aa2a8ab4bef17a3e8bed6e4c05b4e9`.
+
+### Assumptions and Uncertainties
+- A green CI result confirms the configured source, test, build and security checks for the merged head. It does not prove live authenticated provider behavior or user acceptance.
+- The next issue should be selected by actual creation date and dependency readiness, not by the order of earlier comments or by assuming that a deterministic sub-fix closes a broader manual issue.
+
+### Open Questions, Blockers, and Dependencies
+- Which oldest remaining issue is actionable from the current repository and available runtime evidence?
+- Which old manual issues require separate accounts, devices, browser sessions or deployment access before implementation can be considered complete?
+- Are there deterministic subproblems in the oldest issue that can be fixed locally without claiming the external issue complete?
+
+### Next Steps
+1. Inventory the remaining open issues from GitHub in creation order after the merge.
+2. Select the oldest actionable issue and inspect its source, existing comments, acceptance criteria and current runtime evidence.
+3. Implement only verified fixes, add tests and detailed issue-specific documentation, and open a separate PR without an automatic close directive unless every issue gate is genuinely satisfied.
+4. Preserve the same distinction between deterministic local evidence, synthetic provider evidence, browser/live-provider evidence, deployment evidence and user acceptance.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-39 remain intact. This checkpoint records the verified merged outcome and supersedes only the earlier pending-merge status.
+- This checkpoint contains no passwords, access tokens, cookies, private keys, signed stream URLs, protected-media bytes or DRM data.
+
+## Checkpoint 41 - Advanced Security diagnosis and PR metadata inspection
+
+### Session Metadata
+- Task or project: Diagnose the failed `github-advanced-security` check shown on merged PR #70, and establish a systematic metadata process for future pull requests.
+- Checkpoint number: 41.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: The user's security-check question, the repository and GitHub run inspection, the failed rerun attempt, the metadata correction on PR #70, and the project-versus-milestone planning discussion.
+- Current context status: The failed Advanced Security result is diagnosed as an unsupported-model workflow failure, not a code-scanning vulnerability. PR #70 is merged and now has labels, self-assignment, and the existing reliability milestone. No GitHub Project is currently available through the configured CLI access.
+
+### Complete Chronological Activity Log
+
+1. The user supplied a screenshot showing 5 of 6 checks passed on PR #70, with `github-advanced-security` marked failed while Analyze, Typecheck/test/build, DevSkim, CodeQL and lowercase `devskim` were successful. The screenshot was treated as evidence only, not as an instruction to run anything from the image.
+
+2. Read the security-and-hardening skill before investigating. The review procedure required distinguishing code findings from workflow failures, treating secrets as sensitive, checking trust boundaries, and validating security evidence rather than assuming a green or red badge proves the entire security posture.
+
+3. Queried the actual GitHub workflow history. The failed runs were dynamic `GitHub Advanced Security` jobs titled `Code scanning AI findings on PR #70`, including the final failed run `35505038918` for head `e7e57062b355e063bcfd9e89a622b98e0e73fa01`. Earlier attempts on `a555366`, `4f4190c` and `031f380` failed in the same workflow family.
+
+4. Inspected run `35505038918` and its failed job logs. The job completed setup, repository checkout, PR diff retrieval and detector startup successfully. It failed in `Processing Request (Linux)` while creating the Copilot code-scanning review request. The exact error was `SessionModelError: Execution failed: CAPIError: 400 The requested model is not supported.` No security finding, alert rule, vulnerable file, severity, or exploitable path was reported.
+
+5. Attempted one verification rerun with `gh run rerun 35505038918 --failed`. GitHub rejected the request with `This workflow run cannot be retried`. This workflow run is non-retriable from the current GitHub state, so the failure cannot be independently rerun against the already merged PR through that run ID.
+
+6. Independently checked the ordinary security and build results. The final PR checks for CodeQL, DevSkim, lowercase `devskim`, Analyze, and Typecheck/test/build were successful. The merged push also produced successful CI, DevSkim and CodeQL runs. The available code-scanning alert query returned no persisted alert output, and the open secret-scanning alert query returned no alert output. These checks do not prove every security property, but they corroborate that the red badge was not a reported code vulnerability.
+
+7. Inspected repository metadata. Existing labels include `bug`, `documentation`, `security`, `initiative: crunchyroll-sync`, `area: extension`, `area: sync-engine`, `area: backend` and `area: testing`. The repository has one open milestone, `M3/M5: reliability and real-device validation`. PR #70 had no labels, assignee, milestone or project before correction.
+
+8. Updated merged PR #70 with `muaz978` as assignee, labels `bug`, `documentation`, `security`, `initiative: crunchyroll-sync`, `area: extension`, `area: sync-engine`, `area: backend` and `area: testing`, and milestone `M3/M5: reliability and real-device validation`. GitHub confirmed these fields after the update.
+
+9. Checked the repository's `.github` configuration. It contains CI, DevSkim, CodeQL, deployment, release, dependabot, issue templates and CODEOWNERS, but no PR metadata automation or PR template that establishes a metadata checklist.
+
+10. Checked project availability. `gh project list --owner muaz978` could not read user projects because the current GitHub token lacks the `read:project` scope. The repository REST projects endpoint returned HTTP 404, so no repository project is currently accessible or configured through the current CLI context. This is not evidence that a project can never be created; it is evidence that one is not currently available to this workflow.
+
+11. Consulted the current GitHub documentation for Projects. GitHub describes a Project as a table, board and roadmap that integrates with issues and pull requests, supports multiple views, custom fields, charts, templates and automation, and synchronizes built-in metadata such as assignees, milestones and labels with project items. This makes it complementary to, not a replacement for, labels or milestones.
+
+### Confirmed Successful Results
+- The failed `github-advanced-security` check was traced to an HTTP 400 unsupported-model error in GitHub's Copilot-backed code-scanning reviewer, before a finding was generated.
+- CodeQL, DevSkim, lowercase `devskim`, Analyze and Typecheck/test/build passed for the reviewed PR head.
+- No persisted code-scanning alert output or open secret-scanning alert output was returned by the checked GitHub API queries.
+- PR #70 now has an assignee, eight scope-appropriate labels and the existing reliability milestone.
+- The current repository has a single milestone but no project available through the current access context.
+
+### Failed, Incomplete, or Unresolved Work
+- The failed Advanced Security workflow cannot be retried from its existing run ID. A new future PR or a newly triggered supported workflow run would be needed to test whether GitHub has corrected the model availability issue.
+- No project was created. Creating one requires deciding its name, visibility, owner scope and access model. The current CLI also lacks the `read:project` scope needed to inspect user projects.
+- No PR metadata automation has yet been committed. Future PRs can still receive metadata manually, but a durable automation and checklist remain to be implemented if the user approves the proposed defaults.
+- A passing CodeQL and DevSkim result does not equal a complete security audit. Trust boundaries, dependency reachability, authorization and live deployment behavior still require their own evidence.
+
+### Decisions and Rationale
+- Classify the Advanced Security failure as an infrastructure or service-configuration failure, not as a serious code vulnerability, because the log failed while creating the AI review session and contained no finding details.
+- Keep CodeQL and DevSkim as the primary repository security gates while treating the AI reviewer as additional, non-substitutive evidence until its model-support issue is resolved.
+- Use labels for classification, assignee for ownership, milestone for a release or outcome bucket, and a Project for cross-issue workflow, custom evidence fields and views.
+- Recommend one focused user-level project for SyncYourJoy rather than multiple overlapping projects. Add the repository to that project and use built-in milestone, label and assignee fields as synchronized metadata.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this append-only diagnosis and planning checkpoint.
+- GitHub PR #70: `https://github.com/muaz978/sync-your-joy/pull/70`.
+- Failed Advanced Security run: `https://github.com/muaz978/sync-your-joy/actions/runs/35505038918`.
+- GitHub Projects documentation: `https://docs.github.com/en/issues/planning-and-tracking-with-projects/learning-about-projects/about-projects`.
+
+### Assumptions and Uncertainties
+- The current GitHub CLI token may be missing only the project scope, rather than proving that the user account has no Projects. The repository endpoint's 404 also indicates that no repository-level project is currently accessible through that API path.
+- The proposed process assumes a single-user or small-team repository where assigning future implementation PRs to `muaz978` is desired. If collaborators will open PRs, assignment should be chosen by ownership rather than always forcing the repository owner.
+
+### Open Questions, Blockers, and Dependencies
+- Should the new Project be user-owned under `muaz978` or organization-owned if SyncYourJoy later moves into an organization?
+- Should it be private, or visible to collaborators?
+- Which future PR metadata should be automatic for every PR, and which should be derived from changed paths and PR title?
+- Can the GitHub account grant the `read:project` and `project` scopes needed for CLI-based project setup and automation?
+
+### Next Steps
+1. Create one `SyncYourJoy Delivery and Reliability` Project with table, board and evidence-gate views after the owner and visibility choice is confirmed.
+2. Add the repository to that Project and configure automatic intake for open issues and pull requests.
+3. Add a PR template and metadata automation or a documented PR-opening helper so every future PR receives labels, assignee, milestone, project linkage, linked issue and evidence status.
+4. Add a verification matrix and issue-closure checklist that distinguish source, typecheck, deterministic test, synthetic provider, browser, live provider, deployment and user acceptance evidence.
+5. When a future security workflow run is available, verify whether the unsupported-model error is resolved. Never treat the AI reviewer as a substitute for CodeQL, DevSkim, dependency audit or human review.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-40 remain intact. This checkpoint adds the security diagnosis and metadata state without changing the merged PR result.
+- This checkpoint contains no passwords, access tokens, cookies, private keys, model tokens, signed stream URLs, protected-media bytes or DRM data.
+
+## Checkpoint 42 - Public project configured and issue #30 implementation verified locally
+
+### Session Metadata
+- Task or project: Create the public SyncYourJoy delivery project, configure its fields and workflow, then start the oldest remaining open issue with detailed evidence and PR documentation.
+- Checkpoint number: 42.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: Project creation and configuration, issue #30 inspection, authenticated Crunchyroll E2E implementation, local verification, and current pre-PR state.
+- Current context status: The public project is configured at `https://github.com/users/muaz978/projects/1`. Issue #30 has a new implementation branch with deterministic and opt-in authenticated-provider coverage. The live two-profile Crunchyroll gate is not yet run and the issue remains open.
+
+### User Objective and Requirements
+- Make the project public and useful to contributors so progress, blockers, evidence and remaining work are visible.
+- Add the agreed custom data fields, views, workflow automation and project documentation.
+- Continue systematically from the oldest open issue after the merged PR #70.
+- Add detailed documentation for every issue-specific PR, including baseline, reproduction, root cause, implementation, verification, security, external limits and the exact closure decision.
+- Keep issues open until every required gate is actually verified. Do not claim that a merged deterministic change proves live provider, two-account, two-device, deployment or user-acceptance gates.
+
+### Complete Chronological Activity Log
+
+1. Created the user-level GitHub Project `SyncYourJoy Delivery and Reliability` at `https://github.com/users/muaz978/projects/1`. The initial creation used private visibility by mistake. Opened Project Settings, changed visibility to public, saved it, and verified the page stated `This project is currently public`.
+
+2. Added the repository `muaz978/sync-your-joy` to the project. The project imported open issues, including issue #30 and the later open issue set. Issue #48 was not imported during this operation because it was closed at that point according to the current project import behavior.
+
+3. Added the short project description: `Public delivery, reliability, verification and acceptance tracking for SyncYourJoy issues and pull requests.`
+
+4. Added and saved the public project README. It explains the project purpose, the evidence levels, the recommended workflow from triage through complete, the PR documentation requirements, and the distinction between native GitHub metadata and project-specific evidence fields. It explicitly says to use `Relates to #N` until all acceptance gates are verified and `Closes #N` only when they are complete.
+
+5. Added the custom project fields and options:
+   - `Priority`: P0 Critical, P1 High, P2 Normal, P3 Low.
+   - `Work type`: Bug, Security hardening, Feature, Documentation, Test coverage, Research, Manual acceptance.
+   - `Evidence state`: Not started, Partial, Local deterministic, Synthetic provider, Controlled browser, Live provider, Deployment, User accepted.
+   - `Acceptance gates`: Source review, Typecheck, Unit tests, Integration tests, Browser test, Live provider, Two-account, Two-device, Deployment, User acceptance.
+   - `Risk`: Low, Medium, High, Critical.
+   - `Blocked reason`: Missing test, Missing account, Missing device, Missing deployment, External provider issue, Review required, Security check, Product decision.
+   - `Target date`: Date field.
+   - `Verification owner`: Text field.
+
+6. Preserved the built-in project status field and added the workflow statuses `Triage`, `Ready`, `Verification`, `Blocked`, `Complete` and `In review` alongside the existing `Todo`, `In Progress` and `Done` options.
+
+7. Updated the project Auto-add workflow. The filter originally showed `is:issue is:open`; it was changed to `is:open`, and GitHub normalized the saved filter to `is:issue,pr is:open` for repository `sync-your-joy`. This makes future open issues and open pull requests enter the project automatically.
+
+8. Renamed and configured the project views:
+   - `Intake` for incoming work.
+   - `Execution board` using the Board layout and the expanded status columns.
+   - `Reliability roadmap` using the Roadmap layout with `Target date` selected as the roadmap date field. No dates were invented; items currently show that a date can be added.
+   - `Evidence and acceptance` using the Table layout with the custom fields visible and saved as the default view for everyone.
+
+9. Used `gh project item-list` and `gh project field-list` as a possible verification path. Both were blocked by the local GitHub token lacking the `read:project` scope. No token refresh was attempted. The browser UI remained the authoritative configuration path for this session.
+
+10. Inspected the oldest remaining open issue with `gh issue view 30 --json ...`. Issue #30 was created at `2026-09-18T17:23:54Z`, is titled `Extend the real two-profile E2E test to a commercial provider (Crunchyroll)`, belongs to milestone `M3/M5: reliability and real-device validation`, and has an acceptance gap because the existing two-profile E2E covers only the generic HTML5 fixture. Its body references `npm run test:e2e`, SYJ-AUD-009 and the need for a dedicated Crunchyroll CI job.
+
+11. Reviewed the repository evidence before implementation. `docs/PRODUCT_PLAN.md`, `docs/TEST_GUIDE.md`, `docs/CODE_AUDIT.md`, `docs/CRUNCHYROLL_REMEDIATION_PLAN.md`, `docs/CRUNCHYROLL_HANDOFF.md`, `docs/CRUNCHYROLL_ISSUE_MAP.md` and `docs/CRUNCHYROLL_SYNC_ANALYSIS.md` all distinguish generic fixture evidence from authenticated live-provider, two-account, two-device, deployment and user-acceptance evidence. The new implementation follows those boundaries.
+
+12. Confirmed the repository branch state. The merged main tree is at `7451307b86aa2a8ab4bef17a3e8bed6e4c05b4e9`. A fetch attempt failed with a `.git/FETCH_HEAD` permission error, but the local `origin/main` reference was already at that merge commit and the tree comparison showed no difference. Created `codex/issue-30-crunchyroll-e2e` from `origin/main` after the first branch operation hit a `.git/index.lock` permission error. The branch creation completed with the narrowly scoped elevated git permission.
+
+13. Added optional storage-state support to `tests/e2e/extension-profile.ts`. The default generic test behavior is unchanged. Authenticated runs may provide a Playwright storage-state path, and comments state that the file must not be committed or printed. No browser cookies or credentials were extracted from the user's signed-in Edge session.
+
+14. Added `tests/e2e/provider-playback.ts` with native state-only helpers. It selects a visible metadata-ready video using dimensions, readyState and finite duration, observes native `requestVideoFrameCallback` progress, snapshots only `currentTime`, `paused` and `duration`, and asserts convergence within `0.75` seconds. It does not read source URLs, media bytes, page HTML, private player APIs or DRM data.
+
+15. Added `tests/e2e/crunchyroll-two-profile.spec.ts`. The opt-in spec validates an HTTPS Crunchyroll `/watch/` URL, requires two protected storage-state paths, launches two isolated extension profiles, creates and joins a real room, opens the provider through the real shared-link flow, waits for native video, verifies play and presented-frame progress, checks convergence, exercises the extension forward seek, performs a native backward seek, verifies progress and convergence again, and pauses through the real side panel. If no provider variables are supplied, the test is skipped rather than silently using a signed-in browser account. Partial configuration fails clearly.
+
+16. Added `.github/workflows/e2e-crunchyroll.yml`. It is a manual workflow with an HTTPS provider URL input, read-only repository contents permission, pinned checkout and setup-node action SHAs, locked dependency installation, Playwright Chromium installation, two required base64 storage-state secrets materialized only under the ephemeral runner temp directory, JSON validation without echoing contents, and the dedicated provider test command. It is intentionally not a pull-request trigger because authenticated accounts and protected media must not be used on ordinary PR or fork builds.
+
+17. Appended an authenticated Crunchyroll section to `docs/TEST_GUIDE.md`. It documents the state-only boundary, local variables, sensitive storage-state handling, dedicated command, manual CI workflow, evidence scope and the fact that a passing provider run does not prove every title, browser, locale, deployment or future provider change.
+
+18. Added `.github/pull_request_template.md` with mandatory sections for issue relationship, baseline, reproduction, root cause, implementation record, data and compatibility impact, security impact, failed attempts, every applicable verification gate, exact commands and results, external validation limits, project metadata and closure decision. It requires `Relates to #N` when a required gate is missing.
+
+19. Added the package script `npm run test:e2e:crunchyroll` and changed the manual workflow to use that same command, avoiding drift between local and CI acceptance instructions.
+
+20. Updated issue #30 metadata using `gh issue edit`: assigned `muaz978` and added labels `documentation`, `security`, `initiative: crunchyroll-sync` and `area: testing`. The issue's existing reliability milestone remains. The issue was not closed.
+
+21. Ran `npm test`. Result: 27 test files passed and 205 tests passed.
+
+22. Ran `npm audit --omit=dev --audit-level=high`. Result: `found 0 vulnerabilities`.
+
+23. Ran `git diff --check`. Result: passed with no whitespace errors.
+
+24. Ran `npm run check`. Root and edge TypeScript typecheck passed, Vitest passed with 27 files and 205 tests, the room-service build passed, and the extension build passed.
+
+25. Ran `npm run test:e2e:crunchyroll` without provider variables. The room service started, the extension was built against its ephemeral port, one authenticated Crunchyroll test was discovered and safely skipped. This confirms the default command does not consume a signed-in account or fail merely because live acceptance material is absent.
+
+26. Ran the full `npm run test:e2e` once in the sandbox. It initially failed before executing the generic browser test because the Playwright Chromium binary was absent from `/Users/muazsabbagh/Library/Caches/ms-playwright/chromium-1243`. This was an environment prerequisite failure, not an application assertion.
+
+27. Installed the pinned Playwright Chromium, FFmpeg and headless-shell runtimes with the approved elevated installation command `npx playwright install chromium`.
+
+28. Reran the full `npm run test:e2e` in the sandbox. The browser launched but aborted with `Target page, context or browser has been closed` and a process `SIGABRT`, with the log showing the sandbox process could not be killed cleanly. This was a local process-permission limitation.
+
+29. Reran the full `npm run test:e2e` with the approved elevated browser-process permission. Result: the generic two-profile test passed in 4.0 seconds, the live Crunchyroll test was skipped because protected provider variables were absent, and the complete run finished with `1 passed` and `1 skipped`.
+
+30. Inspected the changed files and searched for sensitive extraction patterns. The matches are documentation and variable names describing protected inputs or native media state. The new provider code does not read or print cookies, credentials, source URLs, blobs, screenshots, page HTML, media bytes or DRM data. The new PR template, workflow and provider files contain no em dash characters. Existing unrelated documentation still contains an older em dash line.
+
+### Confirmed Successful Results
+- The GitHub Project is public, repository-linked and configured with the agreed workflow statuses, custom evidence fields, views, README and open-work auto-add filter.
+- Issue #30 is the oldest inspected open issue, has owner and classification metadata, remains open, and is being handled without claiming that local work closes its live acceptance gap.
+- The dedicated opt-in provider harness, secure storage-state injection, manual CI workflow, contributor test documentation and PR evidence template are implemented on branch `codex/issue-30-crunchyroll-e2e`.
+- `npm test`: 27 files and 205 tests passed.
+- `npm audit --omit=dev --audit-level=high`: zero vulnerabilities.
+- `npm run check`: typecheck, tests, room-service build and extension build all passed.
+- `npm run test:e2e:crunchyroll`: one live-provider test safely skipped without protected inputs.
+- Full elevated `npm run test:e2e`: generic two-profile browser test passed, live provider test skipped. Final result was 1 passed and 1 skipped.
+- `git diff --check` passed.
+- Issue #30 was not closed because authenticated Crunchyroll two-profile evidence and related acceptance gates have not run.
+
+### Failed, Incomplete, or Unresolved Work
+- `gh project item-list` and `gh project field-list` could not run because the local GitHub token lacks `read:project`; project verification used the GitHub browser UI instead.
+- The first full E2E run failed because the Playwright browser binary was missing. The browser was installed and the rerun succeeded after elevated process permission.
+- The sandbox full E2E rerun aborted because the browser process could not be managed under the sandbox. The elevated rerun passed the generic test.
+- No authenticated Crunchyroll run has been executed. The user’s signed-in account was not copied or inspected for cookies, and two protected storage-state files were not available in the repository environment.
+- Issue #30 remains incomplete for its live-provider, two-account, two-device, deployment and user-acceptance requirements. No closure directive is present in the intended PR.
+- The branch has not yet been committed, pushed, reviewed remotely, or opened as a PR in this checkpoint.
+- Project item-level custom values for issue #30 still need to be set through the browser UI if the current session can edit the imported row. The intended values are In review once the PR is open, P1 High, Test coverage, Partial, Browser test plus Live provider, High risk and verification owner `muaz978`.
+
+### Decisions and Rationale
+- Make the project public because the user explicitly wants contributors to follow progress and the project contains process metadata rather than secrets.
+- Use a user-level project because it is appropriate for the current repository owner and can later be migrated or recreated under an organization if repository ownership changes.
+- Keep native labels, assignee and milestone on issues and PRs, and use the project for workflow, evidence, risk, blockers and target-date tracking.
+- Use a manual authenticated provider workflow with protected storage-state inputs. Do not automatically consume the user’s daily browser session or run live authenticated media on ordinary PRs.
+- Treat the generic deterministic two-profile test as separate evidence from authenticated Crunchyroll evidence.
+- Use `Relates to #30`, not `Closes #30`, for the issue-specific PR because the live provider and external acceptance gates are unresolved.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/package.json` - dedicated Crunchyroll E2E script.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/extension-profile.ts` - optional protected storage-state support.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/provider-playback.ts` - state-only provider playback helpers.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/crunchyroll-two-profile.spec.ts` - opt-in issue #30 provider test.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/.github/workflows/e2e-crunchyroll.yml` - manual protected CI workflow.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/.github/pull_request_template.md` - detailed PR evidence and closure template.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` - provider setup, security boundary and evidence documentation.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - append-only session record.
+- Public GitHub Project: `https://github.com/users/muaz978/projects/1`.
+- Issue #30: `https://github.com/muaz978/sync-your-joy/issues/30`.
+
+### Assumptions and Uncertainties
+- The project owner is `muaz978`, and public user-level visibility is the desired current collaboration model. An organization-level project would be a later ownership decision.
+- The configured field IDs and view settings were verified through the GitHub UI, while CLI project queries remain unavailable because of token scope.
+- A successful generic E2E run establishes the existing fixture-based browser flow only. It does not establish Crunchyroll playback, two-account identity, two-device behavior or deployment behavior.
+- The provider spec's selectors and seek controls are based on the current extension flow and native video state. A live run may reveal provider-specific player lifecycle behavior that requires another implementation iteration.
+
+### Open Questions, Blockers, and Dependencies
+- A controlled authenticated run requires two authorized Crunchyroll storage-state files, an HTTPS `/watch/` URL and a permitted browser environment.
+- The PR must be created with detailed evidence, `Relates to #30`, labels, assignee, milestone and project metadata, then reviewed against fresh checks.
+- The project row for issue #30 should be assigned explicit evidence and risk values when the browser UI is available.
+- The live run may be blocked by account entitlement, title availability, region, device authorization, provider changes, browser DRM behavior or deployment state. Those blockers must be recorded rather than bypassed.
+
+### Next Steps
+1. Commit the implementation, documentation and this checkpoint on `codex/issue-30-crunchyroll-e2e`.
+2. Push the branch and open a detailed PR linked with `Relates to #30`.
+3. Apply and verify PR metadata: assignee `muaz978`, appropriate labels, milestone `M3/M5: reliability and real-device validation`, and the public project.
+4. Set issue #30's project fields to reflect the current evidence, without marking it Complete.
+5. Wait for remote checks, review the diff and security boundary, and record the result in the PR. Merge only according to the user's reviewed-acceptance workflow and never close #30 until the live and external gates are verified.
+6. If protected provider states become available, run the manual authenticated workflow and append exact live evidence, failures and limits to the PR and issue.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-41 remain intact. This checkpoint supersedes only the earlier planning state that no project existed and that issue #30 had not yet been started.
+- This checkpoint contains no passwords, access tokens, cookies, private keys, storage-state contents, signed stream URLs, protected-media bytes or DRM data.
+
+## Checkpoint 43 - Issue #30 project item classified before PR creation
+
+### Session Metadata
+- Task or project: Continue the public SyncYourJoy delivery project and package the oldest open issue implementation for review.
+- Checkpoint number: 43.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: Verification of the imported issue #30 project item after the public project configuration checkpoint.
+- Current context status: Project item fields are now explicitly populated. The branch is still uncommitted and the PR has not yet been opened.
+
+### User Objective and Requirements
+- Keep contributor-visible progress, evidence, blockers and ownership in the public project.
+- Open a detailed issue-linked PR for issue #30 with labels, assignee, milestone and project metadata.
+- Keep the issue open until live authenticated provider and other required external gates are actually verified.
+
+### Complete Chronological Activity Log
+
+1. Read the latest checkpoint and confirmed that the project UI still had issue #30 open in the `Evidence and acceptance` table view. The issue was also open in the right-side GitHub issue pane.
+
+2. Inspected the issue pane's Project section and confirmed the repository-linked public project was `SyncYourJoy Delivery and Reliability`. Before this checkpoint, the row already showed `In Progress`, `P1 High`, `Test coverage`, `Partial`, `Browser test`, `Live provider` and `High`.
+
+3. Opened the `Verification owner` project field editor from the issue pane, entered `muaz978`, saved it with the project UI's `Update` action and confirmed the pane rendered `Verification owner muaz978`.
+
+4. Kept the project status at `In Progress` because the PR does not exist yet. The intended transition is `In review` after the PR is opened and linked, while `Evidence state` remains `Partial` until the protected live-provider run is completed.
+
+### Confirmed Successful Results
+- Issue #30's public project row is classified as:
+  - Status: `In Progress`.
+  - Priority: `P1 High`.
+  - Work type: `Test coverage`.
+  - Evidence state: `Partial`.
+  - Acceptance gates: `Browser test`, `Live provider`.
+  - Risk: `High`.
+  - Blocked reason: blank because the implementation is not currently blocked by a declared external blocker.
+  - Target date: blank because no date was authorized or evidence-based.
+  - Verification owner: `muaz978`.
+- The issue remains open and no completion claim has been made.
+
+### Failed, Incomplete, or Unresolved Work
+- The PR is not yet committed, pushed or opened.
+- The project status has not yet changed to `In review`, because changing it before a PR exists would misrepresent the workflow state.
+- Authenticated Crunchyroll, two-account, two-device, deployment and user-acceptance evidence remain outstanding.
+
+### Decisions and Rationale
+- Project fields are being populated before PR creation so the public project reflects the real implementation state and ownership.
+- `In Progress` is retained until the review artifact exists. `In review` will be used only after the PR is available for review.
+- No target date or blocked reason is invented without an explicit schedule or verified blocker.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this append-only checkpoint.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+- Issue #30: `https://github.com/muaz978/sync-your-joy/issues/30`.
+
+### Assumptions and Uncertainties
+- The GitHub project UI save confirmation is treated as authoritative for the project item field update because the local CLI token lacks the required project scope.
+- The project item may be auto-linked to the future PR by the configured open-issue/open-PR workflow, but this must be verified after the PR is created.
+
+### Open Questions, Blockers, and Dependencies
+- The PR still needs a detailed body, commit, push, metadata, project linkage, remote checks and review.
+- A protected live-provider run requires two authorized storage-state inputs and a permitted browser environment.
+
+### Next Steps
+1. Create the detailed PR body and commit the implementation, documentation and checkpoint.
+2. Push `codex/issue-30-crunchyroll-e2e` and open the PR with `Relates to #30`.
+3. Apply and verify labels, assignee, milestone, project linkage and review status.
+4. Review fresh remote checks and preserve the issue's open state until the external gates are complete.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-42 remain intact. This checkpoint supersedes only the earlier statement that issue #30's project fields still needed to be populated.
+- No secrets, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
