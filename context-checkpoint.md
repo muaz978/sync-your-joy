@@ -3421,3 +3421,98 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-36 remain intact. Checkpoint 36's 203-test count is superseded by this checkpoint's verified 204-test count.
 - This checkpoint contains no credentials, access tokens, cookies, private keys, protected-media data, signed stream URLs or DRM material.
+
+## Checkpoint 39 - pre-merge review correction and local verification
+
+### Session Metadata
+- Task or project: Review PR #70 before accepting it, then continue the systematic issue workflow without prematurely closing issues.
+- Checkpoint number: 39.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: The user request to review and accept PR #70 through the reviewed source correction, corrected regression test, documentation update, commit `a555366`, and local full-check verification.
+- Current context status: The reviewed fix is committed locally on `codex/crunchyroll-sync-hardening`. It still needs to be pushed, have fresh remote checks, receive the final review decision, and then be merged only if all gates remain green.
+
+### User Objective and Requirements
+- The user asked to review the open PR before accepting it on their behalf.
+- The user reiterated that issues must not be closed until completely fixed without gaps.
+- The user requested detailed documentation for every action in an issue-specific PR.
+- The user stated that a Crunchyroll account is active and signed in, permitting later live-provider inspection within the state-only boundary.
+
+### Complete Chronological Activity Log
+
+1. Continued from Checkpoint 38 with two uncommitted source changes in `apps/extension/src/service-worker.ts` and `apps/extension/src/service-worker.test.ts`. The prior review had identified a stale asynchronous refresh race in `refreshBoundPlayerTab()`.
+
+2. Read the current service-worker fixture and implementation. Confirmed that runtime messages are gated by the `initialized` promise, that `UNLOCK_PLAYER` performs `sendToPlayerTab()` followed by `refreshBoundPlayerTab()`, and that `sendToTab()` treats an undefined resolved response as successful delivery.
+
+3. Replaced the first regression-test design. The discarded design held the worker's restore-time `GET_PLAYER_CONTEXT` promise open and then tried to deliver `MEDIA_DETECTED` before initialization had completed. The test timed out after five seconds because the production initialization gate correctly prevented that runtime message from running. This failed attempt was not retained as a passing test.
+
+4. Added the corrected test `does not clear a replacement binding when an old context read returns no media` in `apps/extension/src/service-worker.test.ts`. It uses the existing `resumeAtPage()` helper to complete initialization, starts an `UNLOCK_PLAYER` refresh, waits for its real `GET_PLAYER_CONTEXT` call, binds a replacement context on the same tab and frame through `MEDIA_DETECTED`, resolves the old read with no media, and verifies that the replacement binding and current media remain present.
+
+5. Confirmed the source correction in `refreshBoundPlayerTab()`. The function now checks tab, frame and `playerContextGeneration` immediately after the asynchronous context read and before the no-media branch can clear state. Its rejection branch now clears only when the captured binding is still current. A stale result therefore returns without clearing a replacement binding.
+
+6. Ran `npm exec vitest run apps/extension/src/service-worker.test.ts`. The result was 1 file passed and 10 tests passed. This verified both the existing delayed-navigation and old-document failure protections and the new stale no-media replacement case.
+
+7. Updated `docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md` with the review finding, the invalid first test attempt, the corrected test design, the focused result, and the expanded file description. Changed the PR linkage from `Closes #48 when merged` to `Relates to #48` because issue #48 still has live-provider and multi-device acceptance gates and must not be closed automatically by this PR.
+
+8. Updated `docs/CRUNCHYROLL_A01_BASELINE.md` with the review correction, the initialized-worker test boundary, the focused 10-test result, and the latest full-suite count.
+
+9. Ran `npm run check`. Root and edge TypeScript typecheck passed. Vitest reported 27 files and 205 tests passed. The room-service build passed and the extension build passed. The result increased from 204 to 205 because the new regression is part of the full suite.
+
+10. Ran `git diff --check`, which passed. Inspected the complete four-file diff covering the service-worker source, regression test and both detailed implementation documents.
+
+11. The first commit attempt failed with `Unable to create .../.git/index.lock: Operation not permitted` because the managed sandbox allows workspace edits but blocks git metadata writes. A narrowly scoped elevated git permission was requested and approved for recording the reviewed change.
+
+12. Committed the reviewed source, test and documentation changes as `a555366 fix: preserve replacement player bindings after stale refresh`. The commit completed successfully and the workspace was clean after the commit.
+
+### Confirmed Successful Results
+- The stale no-media and stale rejection paths in `refreshBoundPlayerTab()` now preserve a newer same-tab replacement binding when the binding generation has changed.
+- The corrected regression test passes as part of the 10-test service-worker suite.
+- `npm run check` passes with 27 Vitest files and 205 tests, root and edge typecheck, room-service build, and extension build.
+- `git diff --check` passes for the reviewed changes.
+- The issue-specific documentation explicitly records the review finding and does not auto-close issue #48 on merge.
+- Commit `a555366` contains the reviewed source, test and documentation update.
+
+### Failed, Incomplete, or Unresolved Work
+- The initial regression-test design timed out because it attempted to send a runtime request before worker initialization completed. It was discarded and is documented as a failed attempt.
+- The reviewed commit has not yet been pushed in this checkpoint. PR #70 has not yet received fresh remote checks for `a555366`.
+- The final PR review decision has not yet been posted, and the PR has not yet been accepted or merged.
+- Self-approval is not available because the current GitHub account is the PR author. A review result must therefore be represented by a final review comment or an available administrator merge path, and no administrator merge may occur until the code review and fresh checks are clean.
+- Issue #48 remains open by design. Its authenticated Crunchyroll, two-account, two-device, deployment and other external acceptance gates are not established by local tests.
+- Other issue comments remain evidence notes only. No issue was closed during this checkpoint.
+
+### Decisions and Rationale
+- Treat the stale no-media and rejection race as a Required correctness blocker because it violated the stated asynchronous binding-generation guarantee.
+- Keep the invalid first test attempt in the activity log but exclude it from passing evidence.
+- Use the initialized worker path for the regression so the test exercises production message gating rather than bypassing it.
+- Do not allow the issue-specific PR to close #48 automatically because the documented local evidence does not cover all of the issue's external acceptance requirements.
+- Require fresh remote checks after the reviewed commit before taking the requested acceptance action.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.ts` - generation guards for stale no-media and rejection results.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.test.ts` - initialized-worker replacement-binding regression.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md` - detailed PR and review record.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_BASELINE.md` - corrected baseline and verification evidence.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this append-only checkpoint.
+- GitHub PR #70: `https://github.com/muaz978/sync-your-joy/pull/70`.
+- Commit: `a555366 fix: preserve replacement player bindings after stale refresh`.
+
+### Assumptions and Uncertainties
+- The local green suite is source, deterministic, synthetic-provider, typecheck and build evidence. It is not authenticated Crunchyroll acceptance.
+- The signed-in Crunchyroll browser tab observed earlier is available for later live inspection, but a visible signed-in series page alone is not proof of synchronization, two-account behavior or two-device behavior.
+- The repository branch policy may require a review from an account other than the PR author. Administrator acceptance is only appropriate after review and fresh checks, and only if the authenticated account has that permission.
+
+### Open Questions, Blockers, and Dependencies
+- Will the fresh GitHub checks for commit `a555366` pass?
+- Can the current authenticated account perform the explicitly requested administrator merge after the final review is complete?
+- Which oldest remaining open issue is actionable after PR #70, and what external acceptance evidence does it require?
+- Live provider issues still require careful distinction between page access, player detection, synchronization state, and genuine multi-account or multi-device acceptance.
+
+### Next Steps
+1. Push `a555366` to `origin/codex/crunchyroll-sync-hardening` and refresh PR #70's body from the updated implementation record.
+2. Wait for all fresh PR checks, then inspect the updated diff and review findings across correctness, architecture, security, performance, tests and documentation.
+3. If no Required or Critical issue remains, post the final review result and use the explicitly authorized acceptance path. Verify the resulting merge SHA and PR state.
+4. Do not close issue #48 or any other issue unless every stated acceptance gate is verified.
+5. After the PR is accepted, continue with the oldest actionable issue and preserve the detailed issue-specific documentation requirement for any new PR.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-38 remain intact. This checkpoint supersedes the earlier statement that the service-worker review was still pending by recording the actual correction and local verification, but it does not claim remote checks or merge completion.
+- This checkpoint contains no passwords, tokens, cookies, private keys, signed URLs, protected-media bytes or DRM data.
