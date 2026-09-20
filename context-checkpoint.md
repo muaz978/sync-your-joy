@@ -4672,3 +4672,95 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-51 remain intact. This checkpoint records the completed PR #76 milestone and transition to issue #55.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 55
+
+### Session Metadata
+- Task or project: SyncYourJoy oldest-first issue processing, CR-A03 issue #50 commit preparation and repository handoff.
+- Checkpoint number: 55.
+- Date and time: 2026-09-20 16:54 +03 (Europe/Istanbul).
+- Coverage period: user clarification about the signed-in Crunchyroll account, working-tree verification, commit attempt, permission escalation, successful commit and pre-push state.
+- Current context status: the CR-A03 implementation and documentation are committed locally on `codex/issue-50-operation-ownership` at `75ee8e37d9982fa103367a97f1195a5b48bb8c85`. The branch is three commits ahead of `origin/main`, has not yet been pushed, and no PR has yet been opened for issue #50.
+
+### User Objective and Requirements
+- The user clarified that the Crunchyroll account is already signed in in the controlled browser and must not be treated as unavailable.
+- The user instructed that any genuinely missing prerequisite must be named explicitly, such as a second account, profile, device, deployment or another account.
+- The ongoing workflow remains oldest open issue first, with detailed documentation, complete review and metadata, no premature issue closure, and compatible interim releases only after a coherent verified group. `1.0.0` remains reserved for the end of the milestone.
+
+### Complete Chronological Activity Log
+
+#### 2026-09-20 16:48 +03 - Account-availability clarification
+- User context was incorporated: the existing signed-in Crunchyroll session is available for controlled browser work.
+- Decision: do not ask for another Crunchyroll account for issue #50, because CR-A03 is a deterministic operation-lifecycle implementation task and does not currently require a live provider run.
+- Decision: distinguish an available authenticated session from unperformed two-profile, two-account, two-device, deployment and explicit user-acceptance gates. Those gates remain separate evidence claims and will be requested only when the selected issue requires them.
+
+#### 2026-09-20 16:49 +03 - Working-tree inspection
+- Ran `git status --short --branch`, `git log --oneline --decorate -5`, `git diff --stat` and `git diff --check` in `/Users/muazsabbagh/Codex/Projects/SyncYourJoy`.
+- Confirmed the branch was `codex/issue-50-operation-ownership`, based on `origin/main`, with the CR-A03 source, tests, documentation and checkpoint changes present.
+- `git diff --check` returned no whitespace errors.
+- The expected changed paths were `apps/extension/src/content-script.ts`, `apps/extension/src/content-script.test.ts`, `apps/extension/src/player-operations.ts`, `apps/extension/src/player-operations.test.ts`, `docs/CR_A03_OPERATION_OWNERSHIP_ACCEPTANCE_REPORT_TEMPLATE.md`, `docs/TEST_GUIDE.md` and `context-checkpoint.md`.
+
+#### 2026-09-20 16:50 +03 - First commit attempt failed
+- Attempted to stage the CR-A03 implementation, tests, documentation and checkpoint and create commit `fix: preserve player operation ownership`.
+- Git failed before staging because it could not create `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/.git/index.lock`, reporting `Operation not permitted`.
+- Cause: the managed filesystem exposed the repository `.git` directory as read-only for the initial command, even though the source workspace was writable.
+- No repository content was lost and no destructive command was attempted.
+
+#### 2026-09-20 16:51 +03 - Repository write permission granted for the normal workflow
+- Requested the required repository write permission with a narrowly scoped `git` prefix so the commit could be recorded.
+- Re-ran the same staging and commit operation after permission escalation.
+- The commit succeeded as `75ee8e3` with subject `fix: preserve player operation ownership`.
+- Git reported 7 files changed, 571 insertions and 43 deletions, including the two new operation-manager files and the detailed CR-A03 acceptance report template.
+- The working tree was clean after the commit. The branch reported `ahead 3` of `origin/main`, because it contains the prior checkpoint commits plus the new CR-A03 implementation commit.
+
+#### 2026-09-20 16:53 +03 - Commit and history verification
+- Ran `git show --stat --oneline --decorate HEAD` and verified the exact commit was `75ee8e37d9982fa103367a97f1195a5b48bb8c85`.
+- Confirmed `context-checkpoint.md` contains the prior CR-A03 working-tree checkpoint and the historical account and issue-queue corrections. The new checkpoint is appended at the end without deleting earlier history.
+- No push, PR creation, review, merge, issue comment or release operation has been performed yet in this checkpoint period.
+
+### Confirmed Successful Results
+- CR-A03 implementation, deterministic regression tests, acceptance documentation, test-guide link and checkpoint record are committed locally in commit `75ee8e3`.
+- The commit is on the intended issue branch and the working tree is clean.
+- The signed-in Crunchyroll account is treated as available for future controlled-browser work. No account credentials, cookies, storage state, account name, viewing history or protected media were recorded.
+- No claim has been made that the remaining two-profile, two-device, deployment or user-acceptance gates have passed.
+
+### Failed, Incomplete, or Unresolved Work
+- The first commit attempt failed because `.git/index.lock` could not be created under the initial filesystem permission profile. The same operation succeeded after the required repository write permission was granted.
+- The branch has not yet been pushed to GitHub.
+- PR #50 has not yet been opened, reviewed, given metadata, checked or merged.
+- Issue #50 remains open. No issue was closed and no release version was bumped.
+- Live provider, headed browser, two-account/profile, two-device, deployment and explicit user-acceptance evidence for CR-A03 remain unclaimed. The available signed-in account is not the blocker for the deterministic implementation itself.
+
+### Decisions and Rationale
+- Keep the PR non-closing and keep issue #50 open until every applicable acceptance gate is actually evidenced.
+- Use the authenticated browser session when a future gate needs it, but ask only for a second account/profile, second device, deployment or other missing authority when that specific gate requires it.
+- Preserve the exact implementation commit and checkpoint history before pushing, so the PR can document the actual tested state rather than an unrecorded working tree.
+- Keep version `0.2.4` unchanged. This single issue does not yet constitute a coherent verified release group, and the milestone-end `1.0.0` gate is not applicable yet.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts` - integrated operation ownership and generation invalidation.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts` - CR-A03 lifecycle regressions.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-operations.ts` - operation-token and bounded-retirement manager.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-operations.test.ts` - focused operation ownership tests.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A03_OPERATION_OWNERSHIP_ACCEPTANCE_REPORT_TEMPLATE.md` - detailed acceptance and evidence template.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` - CR-A03 contributor workflow.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - chronological session record including this checkpoint.
+- Local commit: `75ee8e37d9982fa103367a97f1195a5b48bb8c85`.
+
+### Open Questions, Blockers, and Dependencies
+- The next action is to push the verified issue #50 branch and open its metadata-complete, non-closing PR.
+- After PR creation, the exact diff and remote checks must be reviewed, then the PR can be accepted through a formal review comment if GitHub prevents self-approval, and merged only after checks pass.
+- The public project item must be set to In review with its P1/Bug/Partial/high-risk and acceptance-gate fields, and the issue must remain open in Verification or In Progress depending on the post-merge evidence state.
+- Issue #49 still has a separate headed nested-frame gate. It remains open and is not replaced by the CR-A03 work.
+
+### Next Steps
+1. Push `codex/issue-50-operation-ownership` and verify the remote branch SHA.
+2. Open the detailed CR-A03 PR using `Relates to #50` without a closing keyword.
+3. Apply labels, assignee, M3/M5 milestone and the public-project metadata.
+4. Wait for and inspect every remote check, review the exact diff and record the deterministic evidence and live-provider limits.
+5. Merge only after review and checks, then verify `origin/main`, the issue state and project fields.
+6. Continue with issue #51, preserving the oldest-first queue and the no-premature-release policy.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-54 remain intact, including the prior account correction, public-project blocker correction and CR-A03 working-tree checkpoint. This checkpoint records the transition from committed local implementation to the pending push and PR stage.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
