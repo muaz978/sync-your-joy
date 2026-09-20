@@ -203,6 +203,24 @@ describe('adaptive player lifecycle', () => {
     expect(video.play).toHaveBeenCalledOnce()
   })
 
+  it.each([800, 1_200, 2_000])('bounds hard corrections during a %sms seek and 30 seconds of stalled playback', async (delayMs) => {
+    apply('playing', 120)
+    await vi.advanceTimersByTimeAsync(delayMs)
+    video.seeking = false
+    video.position = 120
+    video.dispatchEvent(new Event('seeked'))
+    for (let elapsed = delayMs; elapsed < 30_000; elapsed += 100) {
+      await vi.advanceTimersByTimeAsync(100)
+      if (video.seeking) {
+        video.seeking = false
+        video.dispatchEvent(new Event('seeked'))
+      }
+    }
+
+    expect(video.writes.length).toBeLessThanOrEqual(2)
+    expect(statuses().some(message => message.sample.buffering)).toBe(true)
+  })
+
   it('retains a timed-out native seek instead of restarting it on each paused heartbeat', async () => {
     apply('paused', 120)
     await vi.advanceTimersByTimeAsync(4000)

@@ -32,6 +32,8 @@ let expectedPauseUntil = 0
 let expectedSeek: { positionSeconds: number; until: number } | null = null
 let pendingSeek: { positionSeconds: number; since: number; lastAttemptAt: number; roomRevision: number | null; timedOut?: boolean } | null = null
 let seekRecoveryUntil = 0
+let hardCorrectionAttempted = false
+let playbackRecoveryRequested = false
 let completedRoomSeekRevision = 0
 let seekAckInFlightRevision = 0
 let seekCompletionTimer: ReturnType<typeof setTimeout> | null = null
@@ -301,6 +303,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     }
     if (commandChanged) {
       invalidatePlayRequest()
+      resetCorrectionBudget()
       resetPlaybackHealthBaseline()
     }
     if ((message.state.snapshot?.revision ?? -1) > previousRevision)
@@ -625,6 +628,24 @@ function resetPlayerOperations(): void {
   lastReportedPosition = null
   clearSeekCompletionTimer()
   clearSeekAckRetryTimer()
+  resetCorrectionBudget()
+}
+
+function resetCorrectionBudget(): void {
+  hardCorrectionAttempted = false
+  playbackRecoveryRequested = false
+}
+
+function requestBoundedPlaybackRecovery(): void {
+  if (!video || playbackRecoveryRequested)
+    return
+  playbackRecoveryRequested = true
+  showNotice('Playback could not converge. Press Sync to retry without refreshing.')
+  if (!video.paused) {
+    expectPauseEvent()
+    video.pause()
+  }
+  void reportPlayerStatus(true)
 }
 
 function handlePlay(): void {
@@ -925,12 +946,21 @@ function applyAuthoritativeState(): void {
     correction = { kind: 'rate', driftSeconds: correction.driftSeconds, playbackRate: correction.driftSeconds > 0 ? 1.02 : 0.98 }
   }
   if (correction.kind === 'seek') {
+    if (hardCorrectionAttempted) {
+      requestBoundedPlaybackRecovery()
+      return
+    }
     if (!video.paused) {
       expectPauseEvent()
       video.pause()
     }
-    if (!trySetProgrammaticPosition(correction.positionSeconds))
+    const previousPendingSeek = pendingSeek
+    if (!trySetProgrammaticPosition(correction.positionSeconds)) {
+      if (pendingSeek !== null && pendingSeek !== previousPendingSeek)
+        hardCorrectionAttempted = true
       return
+    }
+    hardCorrectionAttempted = true
   }
   else if (correction.kind === 'rate') {
     video.playbackRate = correction.playbackRate
@@ -1043,6 +1073,7 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
   }
 
   clearScheduledPlay()
+  resetCorrectionBudget()
   localIntentHoldUntil = 0
   localSeeking = false
   // An explicit Sync is the retry boundary for a timed-out operation.
