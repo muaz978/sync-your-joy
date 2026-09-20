@@ -3286,3 +3286,60 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-35 remain intact and are not rewritten.
 - This checkpoint contains no credentials, access tokens, cookies, private keys, protected-media data, signed stream URLs or DRM material.
+
+## Checkpoint 37 - PR base refresh and corrected verification count
+
+### Session Metadata
+- Task or project: Rebase and verify the documented CR-A01 pull request after main advanced.
+- Checkpoint number: 37.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: The PR #70 creation recorded in Checkpoint 36 through the current main fetch, rebase and post-rebase verification.
+- Current context status: The branch is clean before the documentation count correction is committed. It is rebased onto `origin/main` at `bfe0d88ad53f5ed51f960b5a90e5d9253c2616c2`. PR #70 remains open and needs the rebased branch and fresh checks.
+
+### Complete Chronological Activity Log
+
+1. After opening PR #70, queried its metadata. It was open and not a draft, with CodeQL Analyze, Typecheck/test/build and DevSkim in progress. GitHub reported merge state `BEHIND` because main had advanced after the candidate branch was prepared.
+
+2. Appended Checkpoint 36 to `context-checkpoint.md` and committed it as `f7a34c2` before performing repository history operations. The worktree was clean after that commit.
+
+3. Refreshed the real remote main with `git fetch origin main`. The local ref advanced from `1ac5b1c` to `bfe0d88`, confirming the four PR merge commits recorded in Checkpoint 35.
+
+4. Inspected the branch graph. Before the rebase, the candidate branch was based on merge-base `1ac5b1c`, while `origin/main` was `bfe0d88`. No unrelated dirty file or unresolved merge was present.
+
+5. Rebasing with `git rebase origin/main` completed successfully through all 16 candidate commits. The rebased branch now has merge-base `bfe0d88` and new rewritten commit IDs, including `b3501e3` for the health fix, `d726a08` for the nested identity test, `18df1e1` for the implementation record, `57d8f86` for the PR scope linkage and `51ca640` for Checkpoint 36.
+
+6. Ran `npm run check` on the rebased branch. TypeScript and edge typecheck passed. Vitest reported 27 files and 204 tests passed. The room-service build and extension build passed. The total is 204 rather than the earlier 203 because the newly added nested identity integration test is included in the full suite.
+
+7. Corrected the stale 203-test count to 204 in `docs/CRUNCHYROLL_A01_BASELINE.md` and `docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md`. The PR body also needs to be refreshed from the corrected implementation record after the documentation commit is pushed.
+
+### Confirmed Successful Results
+- `origin/main` was refreshed to `bfe0d88ad53f5ed51f960b5a90e5d9253c2616c2`.
+- The candidate branch rebased cleanly onto the current main with no conflicts.
+- Post-rebase `npm run check` passed with 27 files and 204 tests, root and edge typecheck, room-service build and extension build.
+- The corrected test count is now recorded as 204 in both issue-specific documentation files.
+
+### Failed, Incomplete, or Unresolved Work
+- PR #70's prior remote checks belong to the pre-rebase branch state and must not be treated as final evidence. Fresh checks are required after the force-with-lease push.
+- The branch has not yet been force-pushed after the rebase. The PR body has not yet been refreshed from the corrected record.
+- The earlier implementation record and baseline text before this checkpoint said 203 tests. That statement is superseded by the verified 204-test result and remains historically represented only by the earlier checkpoint and PR run.
+
+### Decisions and Rationale
+- Rebased instead of merging main into the issue branch so PR #70 has a clean current-base diff and fresh CI evidence.
+- Used the post-rebase full check as the authoritative count and corrected documentation rather than preserving a stale earlier total.
+- Will use lease-protected force push because rebase rewrote only the branch commits and the remote branch is the known candidate branch.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_BASELINE.md` - corrected full-check count.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md` - corrected PR evidence count.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this append-only checkpoint.
+- GitHub PR #70 - `https://github.com/muaz978/sync-your-joy/pull/70`.
+
+### Next Steps
+1. Commit the corrected documentation and Checkpoint 37.
+2. Force-push the rebased branch with `--force-with-lease`.
+3. Refresh PR #70's body from the corrected implementation record.
+4. Watch the fresh GitHub checks to completion and review the final PR diff.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-36 remain intact. Checkpoint 36's 203-test count is superseded by this checkpoint's verified 204-test count.
+- This checkpoint contains no credentials, access tokens, cookies, private keys, protected-media data, signed stream URLs or DRM material.

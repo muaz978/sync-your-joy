@@ -59,7 +59,7 @@ npm exec vitest run apps/extension/src/content-script.test.ts apps/extension/src
 3 files passed, 33 tests passed
 
 npm run check
-27 Vitest files passed, 203 tests passed
+27 Vitest files passed, 204 tests passed
 TypeScript and edge typecheck passed
 room-service build passed
 extension build passed
