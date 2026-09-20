@@ -3080,3 +3080,209 @@
 ### Historical Checkpoint Notes
 - Checkpoint 33 records the completed GitHub issue publication: 23 trackers, 22 new issues, CR-D04 reused as issue 33, six reusable labels, and milestone 1.
 - This checkpoint records branch preparation and the current metadata-permission blocker. It contains no credentials, access tokens, cookies, private keys, protected-media bytes, stream URLs, or DRM material.
+
+## Checkpoint 35 - Open PR processing and issue-queue handoff
+
+### Session Metadata
+- Task or project: Process all open pull requests, then begin the open issue queue systematically.
+- Checkpoint number: 35.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: The current user request through completion of the open Dependabot PR queue and issue-queue inventory.
+- Current context status: All four open PRs are merged. No issue implementation has yet been changed in this checkpoint. The worktree remains clean on `codex/crunchyroll-sync-hardening`.
+
+### User Objective and Requirements
+- User requested: start working on the open PRs, then work through the opened issues systematically from oldest to newest, ensuring fixes and coverage.
+- Preserve the repository state and existing candidate branch work.
+- Review each PR against its diff and checks before merging.
+- Treat issue dependencies and real-provider/device requirements as evidence boundaries, not as completed work.
+- Do not expose credentials, tokens, cookies, protected-media bytes, signed stream URLs or DRM information.
+
+### Complete Chronological Activity Log
+
+1. Inspected the repository worktree and remote. The current branch was `codex/crunchyroll-sync-hardening`, at commit `762fc585829e4b0cc3443997c049f1d281872b4d`, with a clean status. The remote was `https://github.com/muaz978/sync-your-joy.git`.
+2. Read the relevant SyncYourJoy memory entry. It confirmed the state-only transport boundary, the candidate branch context, the distinction between synthetic/local evidence and authenticated provider acceptance, and the existing handoff documents. No memory-derived fact replaced current repository verification.
+3. Read and applied the planning-and-task-breakdown, code-review-and-quality, git-workflow-and-versioning, and incremental-implementation skill instructions. The working approach was to review diffs and tests first, keep changes atomic, rebase PR branches when their base changed, and preserve a checkpoint.
+4. Read the existing `context-checkpoint.md`, Crunchyroll remediation plan, issue map and handoff. The historical file contains checkpoints 1 through 34. This checkpoint is appended and does not replace earlier history.
+5. Queried GitHub with `gh pr list --state open`. Four open PRs existed, all Dependabot dependency changes:
+   - #44, created 2026-09-19 19:34 UTC, grouped patch updates for `@unocss/preset-wind4` and `unocss` from 66.10.1 to 66.10.2.
+   - #45, created 2026-09-19 19:34 UTC, pinned `github/codeql-action/upload-sarif` to commit `b96794f...`.
+   - #46, created 2026-09-19 19:36 UTC, pinned `github/codeql-action/analyze` to commit `b96794f...`.
+   - #47, created 2026-09-19 19:37 UTC, pinned `github/codeql-action/init` to commit `b96794f...`.
+6. Reviewed each PR metadata and patch. All four were application-scope-safe dependency updates. PR #44 changed `package.json` and the generated lockfile only. PRs #45-#47 each changed one GitHub Actions pin. Before merging, every listed check was successful: typecheck/test/build, CodeQL, DevSkim, and the JavaScript/TypeScript analysis where reported.
+7. Approved and merged PR #44 oldest first with squash merge. GitHub produced merge commit `34a7630ee01f13374c0f5416e5b21bbb06f58040` at 2026-09-20 09:18:01 UTC.
+8. After #44, PR #45 was correctly reported as not up to date. The first merge attempt failed safely with GitHub's message that the head branch was behind the base. No administrator bypass was used. The branch was rebased with `gh pr update-branch 45 --rebase`, its new checks were watched to completion, and all checks passed. PR #45 was approved and merged with merge commit `91fad76d10abe749b9fc1cd55383351f889f99d0` at 09:20:08 UTC.
+9. Rebased PRs #46 and #47 onto the updated main, approved them, and watched both fresh check sets in parallel. All checks passed for both branches. PR #46 was merged with merge commit `c4e346a1947499d7f6037975d31811b8a494d575` at 09:21:34 UTC. PR #47 was then rebased onto the new main, its checks passed, and it was merged with merge commit `bfe0d88ad53f5ed51f960b5a90e5d9253c2616c2` at 09:22:55 UTC.
+10. Re-queried the remote PR list. No open PRs remained.
+11. Queried all open issues ordered by creation time. The queue contains 27 issues: older validation issues #30, #33, #34 and #35, followed by CR-A01 through CR-C04 (#48-#65) and CR-D01 through CR-D05 (#66-#69, with CR-D04 canonically reusing #33).
+12. Read the canonical issue map and remediation plan. The issue chain establishes that #48 is the first actionable implementation/reproduction task, A02-A07 follow it, B01 must define shared operation contracts before B02/B03, and D-stage acceptance depends on earlier fixes. The older #30/#33/#34/#35 tasks require real provider accounts, devices, or platform runtimes and cannot be truthfully closed through unit tests alone.
+13. Read the exact acceptance and dependency text for issues #48-#69. Confirmed that #48 asks for a reproducibility baseline and red regressions before subsequent fixes, while #49-#54 cover identity, operation ownership, binding, correction, health evidence, and seek-barrier gaps.
+14. Inspected the candidate source and tests. Existing candidate files include the content script and tests, player tab and worker logic, coordinator and health logic, the adaptive streaming regression suite, and the strengthened generic two-profile E2E. The current source has known gaps documented by the plan, including late ACK expiry, quorum recomputation, incomplete binding incarnation checks, report-silence health evaluation, and long-running slow-seek convergence.
+15. No source, test, workflow, or issue state was modified during this checkpoint. The only file modification is this append-only checkpoint record.
+
+### Confirmed Successful Results
+- All four open PRs were reviewed against their diffs and required checks, approved, rebased when necessary, and merged in creation order.
+- Merged PR #44: `34a7630ee01f13374c0f5416e5b21bbb06f58040`.
+- Merged PR #45: `91fad76d10abe749b9fc1cd55383351f889f99d0`.
+- Merged PR #46: `c4e346a1947499d7f6037975d31811b8a494d575`.
+- Merged PR #47: `bfe0d88ad53f5ed51f960b5a90e5d9253c2616c2`.
+- No administrator merge or force-push was used.
+- The open PR queue is empty.
+- The open issue queue and its dependency structure were verified against GitHub and the repository's canonical issue map.
+- Existing candidate source and tests remain unchanged and clean in the worktree.
+
+### Failed, Incomplete, or Unresolved Work
+- The first merge attempt for PR #45 failed because the branch was behind main. This was resolved by a normal rebase and fresh checks; it was not a product failure.
+- No issue has been closed or marked complete in this checkpoint.
+- Older live-provider and cross-platform issues remain pending because no authorized provider account/device or additional runtime acceptance was available in this turn.
+- CR-A01 reproduction and regression implementation is the next task and has not started yet.
+- The candidate branch is not yet rebased locally onto the four new dependency merge commits. The local `origin/main` tracking ref was not refreshed during this inventory; current branch source remains the previously published candidate.
+
+### Decisions and Rationale
+- Processed PRs in creation order, and rebased dependent PR branches after each merge so final CI results covered the current main.
+- Used the repository's existing CR issue dependency chain instead of treating the issue list as a flat chronological list. This preserves the user's oldest-to-newest intent while avoiding false completion of an acceptance task whose implementation prerequisite is still open.
+- Treat #30/#33/#34/#35 as blocked evidence work when their required real accounts, devices or runtimes are absent. Continue with the actionable A-stage implementation rather than claiming those tests passed.
+- Keep the current candidate branch and its historical changes intact. New issue work will use atomic increments, focused regression tests, and explicit verification before any issue is closed.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this append-only record.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_REMEDIATION_PLAN.md` - dependency and evidence plan.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_ISSUE_MAP.md` - canonical issue index.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_HANDOFF.md` - candidate handoff.
+- GitHub PRs #44-#47 - all merged.
+
+### Assumptions and Uncertainties
+- GitHub issue and PR state can change after this checkpoint; the merge SHAs above are immutable evidence of the completed PR actions.
+- Real authenticated Crunchyroll acceptance remains unverified. No conclusion about protected playback can be inferred from the green local or CI tests.
+- The user has authorized implementation by asking to work through the open issues, superseding the earlier issue-body note that issue creation alone was not authorization.
+
+### Open Questions, Blockers, and Dependencies
+- The exact browser/device/provider environment needed for #30, #33, #34 and #35 remains unavailable unless the user provides or authorizes it.
+- Issue #48 requires recording a new baseline and adding red regressions before its dependent fixes can be assessed.
+- Local Git metadata write restrictions previously affected staging/pushing in this workspace. No such write was attempted in this checkpoint beyond editing the workspace file.
+
+### Next Steps
+1. Refresh the local view of `main` and inspect the candidate branch relationship without discarding any work.
+2. Establish the CR-A01 baseline: exact base SHA, dirty-source hashes, test environment, and focused reproductions for nested-frame identity, stale binding, late ACK, quorum shrinkage, late native completion, no-status startup and slow-seek correction.
+3. Preserve red regression results, then fix the first dependent A-stage issue with one focused increment at a time.
+4. Keep issue comments, commits, test output and closure decisions tied to confirmed evidence. Do not close manual/live issues without their required runtime evidence.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-34 remain intact and document the earlier implementation, planning, issue publication and candidate-branch publication history.
+- This checkpoint includes no credentials, access tokens, cookies, private keys, protected-media data, signed stream URLs or DRM material.
+
+## Checkpoint 36 - CR-A01 implementation, documentation and PR creation
+
+### Session Metadata
+- Task or project: Process the open issue queue after merging the open PR queue, beginning with CR-A01 and its deterministic dependencies.
+- Checkpoint number: 36.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: Continuation from Checkpoint 35 through implementation of the health deadline increment, issue-specific documentation, branch publication and pull request creation.
+- Current context status: CR-A01 implementation is committed and published. Issue-specific PR #70 is open. Its checks are running and the PR initially reports `BEHIND` because main advanced after the candidate branch was based. The append-only checkpoint file is the only known local dirty file at the end of this checkpoint.
+
+### User Objective and Requirements
+- The user requested systematic work through all open PRs and then all open issues from oldest to newest, ensuring fixes and coverage.
+- The user added a specific documentation requirement: whenever a PR is opened for a specific issue, include detailed documentation for every action performed while working on that issue.
+- Preserve the state-only boundary and do not claim live-provider, headed-browser or two-device acceptance without the required environment.
+- Continue the durable chronological session record and preserve all earlier checkpoint content.
+
+### Complete Chronological Activity Log
+
+1. Resumed from Checkpoint 35. The worktree was inspected. The branch was `codex/crunchyroll-sync-hardening` at `023816f`, with `context-checkpoint.md` modified and `docs/CRUNCHYROLL_A01_BASELINE.md` untracked. The prior five issue-fix commits were present: `e5abcec`, `98e3e07`, `fa1891c`, `ca74ac6` and `023816f`.
+
+2. Inspected the existing health code, coordinator, local room-service cleanup timer, edge Durable Object alarm and tests. Confirmed that startup and progress health were evaluated only when a player status message arrived. The local timer and edge alarm handled seek expiry but did not call a health evaluator. Confirmed the centralized candidate timing values: startup timeout 10,000 ms, progress timeout 1,800 ms and startup grace 2,500 ms.
+
+3. Added a report-silence policy constant, `PLAYBACK_REPORT_SILENCE_TIMEOUT_MS = 5_000`, in `packages/sync-engine/src/playback-health.ts`. Added `resetPlaybackHealth()`, `nextHealthDeadlineMs()` and `evaluateHealth()` to `RoomCoordinator`. New play and resumed seek operations reset participant sample and progress baselines. The evaluator ignores paused rooms, checks only connected ready media-matching participants, pauses at the authoritative current position after silent startup or five seconds without an accepted report, increments the revision, marks a state barrier and returns `participant_playback_silent`.
+
+4. Wired `evaluateHealth(nowMs)` into the local room-service cleanup timer and the edge Durable Object `alarm()`. Wired `nextHealthDeadlineMs()` into edge alarm scheduling alongside pending seek, controller recovery and room lifetime deadlines.
+
+5. Added two coordinator regressions for no startup status and post-start status silence. The first targeted run failed one assertion because the expected pause position was incorrectly set to the original 20 seconds. The authoritative clock correctly advanced to 30 seconds at the ten-second startup deadline. The assertion was corrected to 30 seconds. This was a test expectation correction, not a source rollback or weakened behavior.
+
+6. Re-ran the targeted engine and health suites. Result: 3 files passed and 60 tests passed. `npm run typecheck` passed.
+
+7. Ran `npm run check`. Result: 27 Vitest files passed and 203 tests passed; root and edge TypeScript checks passed; room-service build passed; extension build passed. `git diff --check` passed.
+
+8. Updated `docs/CRUNCHYROLL_A01_BASELINE.md` with a post-fix verification section. The earlier red results were preserved. The document now records the five implementation commits, the health increment, focused test output, the existing delayed-readiness case that dispatches `canplay` without `seeked`, and the remaining live-provider and runtime gates.
+
+9. Committed the health implementation and baseline update as `74aa151`, `fix: enforce playback health deadlines`. The commit included the source health logic, both backend timer integrations, two coordinator regressions and the CR-A01 baseline document. The branch was pushed successfully to `origin/codex/crunchyroll-sync-hardening`, advancing it from `762fc58` through the issue-fix history to `74aa151`.
+
+10. Reviewed the exact GitHub issue bodies for #48 through #60. Confirmed that CR-A02 requires a strong/mismatch/unknown identity decision, CR-A03 requires retained operation ownership after timeout, CR-A04 requires delayed binding revalidation, CR-A05 requires bounded correction, CR-A06 remains a broader health-evidence task, CR-A07 is the seek-barrier task already covered by the earlier commits, and CR-B04/B05/B06 require progressively broader health and backend evidence.
+
+11. Added a content-script integration regression for a generic nested player with a wrapper URL and a matching worker-bound outer-tab media identity. The first test run failed because the fake video was at time 0, so the normal correction path issued a seek instead of calling `play()` immediately. The test was corrected to set the video position to the target and to stub the nested player location with a new URL. The focused content-script suite then passed 26 tests.
+
+12. Published the nested identity regression as commit `b19b5e9`, `test: cover nested player identity binding`, and pushed it to the existing remote branch.
+
+13. Commented on issue #48 with the baseline document, implementation commit list, test/build results and explicit evidence limits. The comment URL was `https://github.com/muaz978/sync-your-joy/issues/48#issuecomment-5749079406`. Issue #48 was not closed at this point.
+
+14. The user explicitly added the requirement that any issue-specific PR must contain detailed documentation of every action. Acknowledged this requirement and decided to create a dedicated implementation record before opening a PR.
+
+15. Added `docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md`. It records the scope, dependent issue relationship, chronological actions, the failed test expectation and failed typecheck/amend cycle, all source commits, exact commands and results, file and artifact list, and unresolved live-provider, device, edge-persistence and release gates.
+
+16. Committed the record as `06f20a6`, `docs: record CR-A01 implementation`, and pushed it to the remote branch. Added the explicit `Closes #48 when merged` and related-issue scope sentence to the record, then committed it as `9ae9498`, `docs: link CR-A01 review scope`, and pushed it.
+
+17. Confirmed that no previous PR existed for `codex/crunchyroll-sync-hardening` with `gh pr list --head ... --state all`.
+
+18. Opened issue-specific pull request #70, `CR-A01: preserve candidate evidence and fix deterministic regressions`, from `codex/crunchyroll-sync-hardening` into `main`, using `docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md` as the PR body. GitHub returned `https://github.com/muaz978/sync-your-joy/pull/70`.
+
+19. Attached PR #70 to the current Codex task with the artifact attachment tool.
+
+20. Queried PR #70 after creation. It is open, not a draft, and has CodeQL Analyze, Typecheck/test/build and DevSkim running. Its merge state is initially `BEHIND`, because the remote main branch contains the four PR merges completed in the prior checkpoint and the candidate branch has not yet been rebased onto the current main.
+
+### Confirmed Successful Results
+- Playback health deadlines are implemented in the coordinator, local room service and edge Durable Object scheduling path.
+- Focused engine and health tests pass: 3 files, 60 tests.
+- Content-script nested identity integration test passes as part of a 26-test focused content suite.
+- Full `npm run check` passes: 27 files, 203 tests, root and edge typecheck, room-service build and extension build.
+- `git diff --check` passed for the implementation changes.
+- `docs/CRUNCHYROLL_A01_BASELINE.md` preserves the red baseline and records post-fix evidence.
+- `docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md` contains the detailed issue-specific PR record required by the user's latest instruction.
+- Commits `74aa151`, `b19b5e9`, `06f20a6` and `9ae9498` were created and published to `origin/codex/crunchyroll-sync-hardening`.
+- Pull request #70 was created and attached to the Codex task.
+
+### Failed, Incomplete, or Unresolved Work
+- The first new health regression assertion expected 20 seconds instead of the authoritative 30-second position at the startup deadline. The assertion was corrected and the full suite passed.
+- The first nested identity integration test expected immediate `play()` while the fake player was at time 0, causing the normal correction path to issue a seek. The fixture was corrected to start at the target, and the focused suite passed.
+- PR #70 currently reports `BEHIND` and its remote checks are still running. It must be rebased onto the current main and rechecked before any merge.
+- CR-A06 remains broader than the new missing-report evaluator. Stable progress evidence, context refresh retention, counter edge cases and visible-frame semantics remain open.
+- CR-B06 edge persistence and rehydration semantics remain unverified without a Cloudflare-compatible storage/alarm harness.
+- Authenticated Crunchyroll, cross-provider, headed-browser and real two-device issues remain open. No live-provider acceptance has been claimed.
+- The checkpoint file itself is intentionally pending in the worktree until this checkpoint is committed.
+
+### Decisions and Rationale
+- Implemented the report-silence evaluator as the direct CR-A01 missing-status fix and the minimal missing-report slice of CR-B04. This follows the documented dependency chain while addressing the oldest reproducible failure.
+- Paused at `expectedPosition()` rather than the last guest sample, preventing a stale or arbitrary participant time from becoming the recovery target.
+- Kept the health deadline deterministic and shared across local and edge timer paths, rather than duplicating policy in each backend.
+- Corrected test fixture assumptions when they conflicted with the actual room clock and content-script correction lifecycle. No assertions were weakened to match a broken implementation.
+- Created PR #70 only after adding the detailed implementation record required by the user. Related issue fixes are explicitly described as evidence relevant to, not completion of, #49, #50, #51, #52, #54 and #58.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/playback-health.ts` - report silence policy.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts` - health deadlines, evaluation and baseline reset.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room-streaming-regressions.test.ts` - no-status and report-silence regressions.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/room-service/src/server.ts` - local timer evaluation.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/edge-service/src/worker.ts` - edge alarm evaluation and scheduling.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts` - nested identity integration regression.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_BASELINE.md` - reproducibility baseline and post-fix evidence.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md` - PR body and detailed issue-specific implementation record.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this append-only full session record.
+- GitHub PR #70 - `https://github.com/muaz978/sync-your-joy/pull/70`.
+
+### Assumptions and Uncertainties
+- The remote `main` branch is newer than the local candidate base because PRs #44-#47 were merged after the candidate branch was prepared. The branch relationship must be refreshed before PR #70 can be considered mergeable.
+- The open PR check results can change until GitHub completes the current run. The local green full check remains valid for the exact source currently tested.
+- Issue-specific PR documentation is now in both the PR body and the versioned implementation record. The checkpoint is a more exhaustive chronological supplement.
+
+### Open Questions, Blockers, and Dependencies
+- PR #70 needs a fresh rebase onto `main`, then fresh GitHub checks, review and merge decision.
+- The user did not ask for automatic merging of PR #70. Do not merge it until its rebase and checks are verified and the issue scope remains correct.
+- Work remains for the oldest manual issues #30, #33, #34 and #35 once the required accounts, devices and headed runtimes are available.
+
+### Next Steps
+1. Append any final checkpoint edits, commit the checkpoint safely, and refresh `origin/main` without discarding work.
+2. Rebase `codex/crunchyroll-sync-hardening` onto the current `origin/main`, preserving all issue commits and the detailed documentation.
+3. Push the rebased branch with lease protection, then watch fresh PR #70 checks to completion.
+4. Review PR #70's final diff and check results. Merge only after confirming its issue-specific documentation and evidence boundaries remain intact.
+5. Continue with the next oldest issue that has actionable local scope, recording a similar detailed implementation document before opening any issue-specific PR.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-35 remain intact and are not rewritten.
+- This checkpoint contains no credentials, access tokens, cookies, private keys, protected-media data, signed stream URLs or DRM material.
