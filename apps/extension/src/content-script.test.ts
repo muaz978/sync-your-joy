@@ -210,7 +210,7 @@ beforeEach(async () => {
     runtime: {
       id: 'fixture-extension',
       onMessage: { addListener: (callback: typeof listener) => { listener = callback } },
-      sendMessage: async (request: RuntimeRequest) => { messages.push(request); return { ok: true, state } },
+      sendMessage: vi.fn(async (request: RuntimeRequest) => { messages.push(request); return { ok: true, state } }),
     },
   })
   await import('./content-script.ts')
@@ -226,6 +226,26 @@ afterEach(() => {
 })
 
 describe('adaptive player lifecycle', () => {
+  it('learns the worker binding token from media detection and propagates it to later status messages', async () => {
+    const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+    sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+      messages.push(request)
+      return request.type === 'MEDIA_DETECTED'
+        ? { ok: true, state, playerBindingId: 'binding_content_document' }
+        : { ok: true, state }
+    })
+    messages.length = 0
+
+    video.dispatchEvent(new Event('loadstart'))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'MEDIA_DETECTED' }))
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    const status = messages.find((message): message is Extract<RuntimeRequest, { type: 'PLAYER_STATUS' }> => message.type === 'PLAYER_STATUS')
+    expect(status?.bindingId).toBe('binding_content_document')
+  })
+
   it.each(identityLayouts)('keeps playback commands and samples bound to the $name identity', async (layout) => {
     configureIdentityLayout(layout)
     video.position = 120

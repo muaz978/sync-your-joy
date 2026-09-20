@@ -15,6 +15,7 @@ declare const __ROOM_SERVER_URL__: string
 
 const ROOM_SERVER_URL = __ROOM_SERVER_URL__
 const SESSION_STATE_KEY = 'syncYourJoySessionState'
+const PLAYER_BINDING_KEY = 'syncYourJoyPlayerBinding'
 const DISPLAY_NAME_KEY = 'syncYourJoyDisplayName'
 const DIAGNOSTIC_EVENT_LIMIT = 100
 // A participant may be waking a suspended service worker or a throttled tab.
@@ -33,6 +34,11 @@ interface DiagnosticCollection {
   timer: ReturnType<typeof setTimeout>
   retryTimers: Array<ReturnType<typeof setTimeout>>
   attempts: number
+}
+
+interface PlayerBinding {
+  id: string
+  documentId: string | null
 }
 
 let state: ExtensionState = {
@@ -67,6 +73,10 @@ let intentionallyClosed = false
 let clock = new ClockSynchronizer()
 const diagnosticEvents: DiagnosticEvent[] = []
 let diagnosticCollection: DiagnosticCollection | null = null
+// This identity is deliberately persisted separately from ExtensionState so
+// it is not sent to extension views or copied into room-state events. Content
+// scripts receive it only through a successful MEDIA_DETECTED response.
+let playerBinding: PlayerBinding | null = null
 let pendingMediaMismatchKey: string | null = null
 let pendingMediaMismatchObservedAtMs: number | null = null
 // In-memory only: tracks a navigation revision whose deferred tab-open/reuse
@@ -115,6 +125,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== 'loading')
     return
   playerContextGeneration += 1
+  playerBinding = null
   state.playerFrameId = null
   state.playerAreaPixels = 0
   state.playerLastSeenAtMs = 0
@@ -160,11 +171,15 @@ chrome.runtime.onMessage.addListener((request: RuntimeRequest | RuntimeEvent, se
 
 async function initialize(): Promise<void> {
   const [sessionData, localData] = await Promise.all([
-    chrome.storage.session.get(SESSION_STATE_KEY),
+    chrome.storage.session.get([SESSION_STATE_KEY, PLAYER_BINDING_KEY]),
     chrome.storage.local.get(DISPLAY_NAME_KEY),
   ])
 
   const stored = sessionData[SESSION_STATE_KEY] as Partial<ExtensionState> | undefined
+  const storedBinding = sessionData[PLAYER_BINDING_KEY] as Partial<PlayerBinding> | undefined
+  playerBinding = typeof storedBinding?.id === 'string'
+    ? { id: storedBinding.id, documentId: typeof storedBinding.documentId === 'string' ? storedBinding.documentId : null }
+    : null
   const displayName = localData[DISPLAY_NAME_KEY]
   state = {
     ...state,
@@ -209,10 +224,10 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       // currently playing. Native next-episode/SPA navigation can leave it
       // behind; using it first would relabel the next episode as the old one.
       const candidateMedia = bindMediaToSharedPage(request.media, sender.tab?.url ?? state.snapshot?.navigation?.url)
-      if (!acceptMediaSender(sender, request.areaPixels, candidateMedia))
+      if (!acceptMediaSender(sender, request.areaPixels, candidateMedia, request.bindingId))
         return success()
       if (sender.tab?.id !== undefined && sender.frameId !== undefined)
-        await bindPlayerContext(sender.tab.id, sender.frameId, request.areaPixels)
+        await bindPlayerContext(sender.tab.id, sender.frameId, request.areaPixels, sender.documentId ?? null, request.bindingId)
       state.playerLastSeenAtMs = Date.now()
       recordDiagnostic('player', 'media_detected', {
         frameId: sender.frameId ?? null,
@@ -250,10 +265,10 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         }
       }
       await publishState()
-      return success()
+      return success(state, playerBinding?.id)
 
     case 'MEDIA_LOST':
-      if (!isBoundPlayerSender(sender))
+      if (!isBoundPlayerSender(sender, request.bindingId))
         return success()
       state.currentMedia = null
       state.playerDiagnostics = null
@@ -266,7 +281,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return success()
 
     case 'PLAYER_STATUS':
-      if (!isBoundPlayerSender(sender))
+      if (!isBoundPlayerSender(sender, request.bindingId))
         return success()
       state.lastPlayerSample = request.sample
       state.playerLastSeenAtMs = Date.now()
@@ -290,7 +305,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return success()
 
     case 'SEEK_APPLIED':
-      if (!isBoundPlayerSender(sender))
+      if (!isBoundPlayerSender(sender, request.bindingId))
         return success()
       if (!sendToServer({ type: 'seek_applied', revision: request.revision, positionSeconds: request.positionSeconds }))
         return failure('The room connection was interrupted while confirming the seek.')
@@ -451,7 +466,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       return sendControl(request.kind, request.positionSeconds)
 
     case 'PLAYER_INTENT': {
-      if (!isBoundPlayerSender(sender))
+      if (!isBoundPlayerSender(sender, request.bindingId))
         return success()
       if (!isController()) {
         await sendToPlayerTab({ type: 'APPLY_ROOM_STATE', state })
@@ -800,6 +815,7 @@ function sendToServer(message: ClientMessage): boolean {
 function leaveRoom(): void {
   const previousPlayerTabId = state.playerTabId
   const previousPlayerFrameId = state.playerFrameId
+  const previousPlayerDocumentId = playerBinding?.documentId ?? undefined
   intentionallyClosed = true
   if (reconnectTimer)
     clearTimeout(reconnectTimer)
@@ -821,13 +837,15 @@ function leaveRoom(): void {
     intentionallyClosed = false
   }, 0)
   if (previousPlayerTabId !== null && previousPlayerFrameId !== null)
-    void sendToTab(previousPlayerTabId, { type: 'APPLY_ROOM_STATE', state }, previousPlayerFrameId)
+    void sendToTab(previousPlayerTabId, { type: 'APPLY_ROOM_STATE', state }, previousPlayerFrameId, previousPlayerDocumentId)
 }
 
-function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: number, media: MediaFingerprint): boolean {
+function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: number, media: MediaFingerprint, bindingId?: string): boolean {
   const senderTabId = sender.tab?.id
   const senderFrameId = sender.frameId
   if (senderTabId === undefined || senderFrameId === undefined)
+    return false
+  if (!acceptMediaBinding(sender, bindingId))
     return false
   const me = state.snapshot?.participants.find(participant => participant.id === state.participantId)
   const senderMediaMatchesRoom = state.snapshot ? mediaMatches(state.snapshot.media, media) : false
@@ -847,16 +865,42 @@ function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: num
   })
 }
 
+function acceptMediaBinding(sender: chrome.runtime.MessageSender, bindingId?: string): boolean {
+  const currentBinding = playerBinding
+  if (!currentBinding)
+    return bindingId === undefined
+
+  // A token from a retired document must never be allowed to establish a new
+  // binding after loading cleared the active frame or after another document
+  // replaced it.
+  if (bindingId !== undefined && bindingId !== currentBinding.id)
+    return false
+  if (currentBinding.documentId !== null && sender.documentId !== undefined && sender.documentId !== currentBinding.documentId)
+    return bindingId === undefined && state.playerFrameId !== null
+  // When documentId is unavailable, the worker-issued token is the only
+  // browser-compatible identity signal after the first handshake.
+  if (currentBinding.documentId === null && sender.documentId === undefined && bindingId === undefined && state.playerFrameId !== null)
+    return false
+  if (state.playerFrameId === null && bindingId !== undefined)
+    return false
+  return true
+}
+
 function clearPendingMediaMismatch(): void {
   pendingMediaMismatchKey = null
   pendingMediaMismatchObservedAtMs = null
 }
 
-function isBoundPlayerSender(sender: chrome.runtime.MessageSender): boolean {
-  return sender.tab?.id !== undefined
-    && sender.frameId !== undefined
-    && sender.tab.id === state.playerTabId
-    && sender.frameId === state.playerFrameId
+function isBoundPlayerSender(sender: chrome.runtime.MessageSender, bindingId?: string): boolean {
+  if (sender.tab?.id === undefined || sender.frameId === undefined)
+    return false
+  if (sender.tab?.id !== state.playerTabId || sender.frameId !== state.playerFrameId || !playerBinding)
+    return false
+  const documentMatches = playerBinding.documentId !== null
+    && sender.documentId !== undefined
+    && sender.documentId === playerBinding.documentId
+  const bindingMatches = bindingId !== undefined && bindingId === playerBinding.id
+  return documentMatches || bindingMatches
 }
 
 function isNavigationShellSender(sender: chrome.runtime.MessageSender): boolean {
@@ -900,21 +944,23 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
   }
   const tabId = state.playerTabId
   const frameId = state.playerFrameId
+  const bindingId = playerBinding?.id ?? null
+  const documentId = playerBinding?.documentId ?? undefined
   const contextGeneration = playerContextGeneration
   try {
     const context = await chrome.tabs.sendMessage(
       tabId,
       { type: 'GET_PLAYER_CONTEXT' } satisfies ContentRequest,
-      { frameId },
+      documentId !== undefined ? { documentId } : { frameId },
     ) as PlayerContext
-    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
+    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || (playerBinding?.id ?? null) !== bindingId || playerContextGeneration !== contextGeneration)
       return false
     if (!context?.media) {
       clearPlayerTab()
       return false
     }
     const tab = await chrome.tabs.get(tabId)
-    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
+    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || (playerBinding?.id ?? null) !== bindingId || playerContextGeneration !== contextGeneration)
       return false
     playerContextGeneration += 1
     state.currentMedia = bindMediaToSharedPage(context.media, tab.url ?? state.snapshot?.navigation?.url)
@@ -924,7 +970,7 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
     return true
   }
   catch {
-    if (state.playerTabId === tabId && state.playerFrameId === frameId && playerContextGeneration === contextGeneration)
+    if (state.playerTabId === tabId && state.playerFrameId === frameId && (playerBinding?.id ?? null) === bindingId && playerContextGeneration === contextGeneration)
       clearPlayerTab()
     return false
   }
@@ -980,6 +1026,7 @@ async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snaps
 
 function clearPlayerTab(): void {
   playerContextGeneration += 1
+  playerBinding = null
   state.playerTabId = null
   state.playerFrameId = null
   state.playerAreaPixels = 0
@@ -990,16 +1037,28 @@ function clearPlayerTab(): void {
   clearPendingMediaMismatch()
 }
 
-async function bindPlayerContext(tabId: number, frameId: number | null, areaPixels: number): Promise<void> {
+async function bindPlayerContext(tabId: number, frameId: number | null, areaPixels: number, documentId: string | null = null, bindingId?: string): Promise<void> {
   const previousTabId = state.playerTabId
   const previousFrameId = state.playerFrameId
+  const previousBinding = playerBinding
   playerContextGeneration += 1
+  const sameBinding = previousTabId === tabId
+    && previousFrameId === frameId
+    && previousBinding !== null
+    && ((documentId !== null && previousBinding.documentId === documentId)
+      || (documentId === null && bindingId !== undefined && previousBinding.id === bindingId))
+  playerBinding = sameBinding && previousBinding !== null
+    ? previousBinding
+    : { id: createId('binding'), documentId }
   state.playerTabId = tabId
   state.playerFrameId = frameId
   state.playerAreaPixels = Math.max(0, areaPixels)
   state.playerLastSeenAtMs = Date.now()
-  if (previousTabId !== null && previousFrameId !== null && (previousTabId !== tabId || previousFrameId !== frameId))
-    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId)
+  const bindingChanged = !sameBinding || previousBinding?.id !== playerBinding.id
+  const canTargetPreviousDocument = previousBinding?.documentId !== null && previousBinding?.documentId !== undefined
+  const previousContextChanged = previousTabId !== tabId || previousFrameId !== frameId
+  if (previousTabId !== null && previousFrameId !== null && bindingChanged && (previousContextChanged || canTargetPreviousDocument))
+    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId, previousBinding?.documentId ?? undefined)
   else if (previousTabId === tabId && previousFrameId === null && frameId !== null && frameId !== 0)
     await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, 0)
 }
@@ -1007,9 +1066,10 @@ async function bindPlayerContext(tabId: number, frameId: number | null, areaPixe
 async function unbindPlayerContext(): Promise<void> {
   const previousTabId = state.playerTabId
   const previousFrameId = state.playerFrameId
+  const previousDocumentId = playerBinding?.documentId ?? undefined
   clearPlayerTab()
   if (previousTabId !== null && previousFrameId !== null)
-    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId)
+    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId, previousDocumentId)
 }
 
 function isController(): boolean {
@@ -1032,11 +1092,14 @@ async function sendToPlayerTab(message: RuntimeEvent): Promise<void> {
     return
   const tabId = state.playerTabId
   const frameId = state.playerFrameId
+  const bindingId = playerBinding?.id ?? null
+  const documentId = playerBinding?.documentId ?? undefined
   const contextGeneration = playerContextGeneration
-  const delivered = await sendToTab(tabId, message, frameId)
-  if (delivered || state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
+  const delivered = await sendToTab(tabId, message, frameId, documentId)
+  if (delivered || state.playerTabId !== tabId || state.playerFrameId !== frameId || (playerBinding?.id ?? null) !== bindingId || playerContextGeneration !== contextGeneration)
     return
   playerContextGeneration += 1
+  playerBinding = null
   state.playerFrameId = null
   state.playerAreaPixels = 0
   state.playerLastSeenAtMs = 0
@@ -1051,9 +1114,12 @@ async function sendToPlayerTab(message: RuntimeEvent): Promise<void> {
   notifyExtensionViews()
 }
 
-async function sendToTab(tabId: number, message: RuntimeEvent, frameId?: number): Promise<boolean> {
+async function sendToTab(tabId: number, message: RuntimeEvent, frameId?: number, documentId?: string): Promise<boolean> {
   try {
-    await chrome.tabs.sendMessage(tabId, message, frameId === undefined ? undefined : { frameId })
+    const options = documentId !== undefined
+      ? { documentId }
+      : frameId === undefined ? undefined : { frameId }
+    await chrome.tabs.sendMessage(tabId, message, options)
     return true
   }
   catch {
@@ -1063,11 +1129,11 @@ async function sendToTab(tabId: number, message: RuntimeEvent, frameId?: number)
 }
 
 async function persistState(): Promise<void> {
-  await chrome.storage.session.set({ [SESSION_STATE_KEY]: state })
+  await chrome.storage.session.set({ [SESSION_STATE_KEY]: state, [PLAYER_BINDING_KEY]: playerBinding })
 }
 
-function success(responseState: ExtensionState = state): RuntimeResponse {
-  return { ok: true, state: responseState }
+function success(responseState: ExtensionState = state, playerBindingId?: string): RuntimeResponse {
+  return { ok: true, state: responseState, ...(playerBindingId ? { playerBindingId } : {}) }
 }
 
 function detachedState(): ExtensionState {

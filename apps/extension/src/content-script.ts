@@ -20,6 +20,10 @@ const MINI_CONTROLLER_HIDDEN_KEY = 'syncYourJoyMiniControllerHidden'
 
 let video: HTMLVideoElement | null = null
 let activeState: ExtensionState | null = null
+// The worker issues this opaque token after accepting the document's first
+// media report. It is intentionally local to this content-script instance and
+// is attached automatically to subsequent sender-bound messages.
+let playerBindingId: string | null = null
 let runtimeInvalidated = false
 let scheduledPlayTimer: ReturnType<typeof setTimeout> | null = null
 let bufferingTimer: ReturnType<typeof setTimeout> | null = null
@@ -1618,11 +1622,29 @@ async function sendRuntime(request: RuntimeRequest): Promise<RuntimeResponse> {
     throw new Error('SyncYourJoy extension context is gone.')
   }
   try {
-    return await chrome.runtime.sendMessage(request) as RuntimeResponse
+    const response = await chrome.runtime.sendMessage(withPlayerBinding(request)) as RuntimeResponse
+    if (request.type === 'MEDIA_DETECTED' && response.playerBindingId)
+      playerBindingId = response.playerBindingId
+    return response
   }
   catch (error) {
     handleRuntimeInvalidated()
     throw error
+  }
+}
+
+function withPlayerBinding(request: RuntimeRequest): RuntimeRequest {
+  if (!playerBindingId)
+    return request
+  switch (request.type) {
+    case 'MEDIA_DETECTED':
+    case 'MEDIA_LOST':
+    case 'PLAYER_STATUS':
+    case 'SEEK_APPLIED':
+    case 'PLAYER_INTENT':
+      return { ...request, bindingId: playerBindingId }
+    default:
+      return request
   }
 }
 

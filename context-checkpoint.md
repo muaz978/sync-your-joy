@@ -3988,6 +3988,252 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+## Checkpoint 56
+
+### Session Metadata
+- Task or project: SyncYourJoy oldest-first issue processing, account-availability correction, PR #77 completion, and CR-A04 issue #51 preparation.
+- Checkpoint number: 56.
+- Date and time: 2026-09-20 17:16 +03 (Europe/Istanbul).
+- Coverage period: account clarification through CR-A03 PR creation, review, merge, project classification, issue #51 classification, branch creation, and source inspection.
+- Current context status: CR-A03 issue #50 PR #77 is merged into verified `origin/main` at `ff30dfb4be0b2ef8ab1d725422f246ac2d0c52b1`. Issue #50 remains OPEN and is in Verification. The next oldest open issue is #51 CR-A04. Branch `codex/issue-51-player-binding` is clean at the verified main commit and is ready for implementation.
+
+### User Objective and Requirements
+- The user corrected the prior assumption that Crunchyroll was unavailable. The controlled Edge browser already has an authenticated Crunchyroll session.
+- Continue open PR and issue work systematically, oldest to newest. Ask explicitly only when a real gate requires another account, profile, device, deployment, or other access.
+- Keep issue-specific PRs detailed and non-closing until all applicable gates are evidenced. Review before merge, preserve labels, assignee, milestone and project fields, and do not bump a release prematurely.
+- A compatible interim release may follow a complete coherent verified issue group. The milestone-end target remains `1.0.0`.
+
+### Complete Chronological Activity Log
+
+#### 2026-09-20 16:55-17:00 +03 - CR-A03 branch push and PR creation
+- Pushed branch `codex/issue-50-operation-ownership` after the local commit was verified.
+- Verified the remote branch SHA before opening the PR.
+- Opened PR #77, `https://github.com/muaz978/sync-your-joy/pull/77`, using the detailed body at `/private/tmp/issue50-pr-body.md`.
+- The PR body documented the root cause, operation tokens and generations, retired seeks, implementation files, exact acceptance mapping, focused and full checks, `npm audit` result, diff hygiene, security boundary, signed-in account availability, live-provider limits, release version `0.2.4`, and `Relates to #50` without a closing keyword.
+- Attached PR #77 to the Codex task with the pull-request artifact tool.
+- Applied PR metadata: assignee `muaz978`; labels `bug`, `initiative: crunchyroll-sync`, `area: extension`, `area: testing`; milestone `M3/M5: reliability and real-device validation`.
+
+#### 2026-09-20 17:01-17:03 +03 - PR #77 checks and review
+- Waited for the remote checks and confirmed all required checks passed: Analyze (javascript-typescript), CodeQL, DevSkim, Typecheck/test/build and lowercase `devskim`.
+- Reviewed the complete PR diff rather than relying only on the green checks.
+- Attempted `gh pr review 77 --approve`. GitHub rejected approval because the current account owns the PR and cannot approve its own pull request.
+- Posted a complete formal review comment instead, using `/private/tmp/issue50-review.md`, and verified the review state was `COMMENTED`.
+- This self-review limitation was recorded as an evidence limitation, not treated as a failed implementation check.
+
+#### 2026-09-20 17:04 +03 - PR #77 merge and main verification
+- Administrator-squash-merged PR #77.
+- Verified merge commit `ff30dfb4be0b2ef8ab1d725422f246ac2d0c52b1` and confirmed `origin/main` points exactly to that commit.
+- Posted issue #50 merge-status comment `https://github.com/muaz978/sync-your-joy/issues/50#issuecomment-5750269842` with implementation, tests, checks, account availability, remaining runtime gates, issue-open status and version boundary.
+- Verified issue #50 remains OPEN with its assignee, labels and milestone intact.
+
+#### 2026-09-20 17:05-17:08 +03 - Public project verification after PR #77
+- Used the public project UI `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`.
+- Changed issue #50 from In Progress to Verification. Its row shows P1 High, Bug, Partial, Unit tests plus Integration tests plus Browser test plus User acceptance, High risk, no blocker reason, and verification owner `muaz978`.
+- Confirmed PR #77 was auto-added after merge and set it to Done with P1 High, Bug, Partial, Unit tests plus Integration tests plus Browser test plus User acceptance, High risk, no blocker reason and owner `muaz978`.
+- No release version was changed and no issue was closed.
+
+#### 2026-09-20 17:09-17:12 +03 - Crunchyroll account verification and blocker correction
+- The controlled Edge browser inventory showed existing Crunchyroll tabs in the same user profile.
+- The authenticated user menu and signed-in playback controls were verified through the browser UI without reading credentials, cookies, storage state, account name, viewing history or protected media.
+- A first detailed public comment draft was rejected by safety review because it included unnecessary profile or viewing details. No public comment was posted from that draft.
+- Replaced it with sanitized comments that state only that an authenticated user menu and signed-in playback controls were visible. The comments do not expose account identity or private browsing data and distinguish one active account from separate two-profile/two-account, two-device, deployment and user-acceptance gates.
+- Sanitized comments were posted to issue #30 at `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5750113693` and issue #33 at `https://github.com/muaz978/sync-your-joy/issues/33#issuecomment-5750113796`.
+- Corrected issue #33 and PR #73 public-project blocker fields from Missing account to Missing device. The active account is not the blocker for that issue, but the two-device gate remains unperformed.
+
+#### 2026-09-20 17:13 +03 - Oldest issue #51 classification
+- Queried the open issue queue and confirmed issue #51 was created immediately after #50 and is the oldest remaining open issue.
+- Issue #51 is `CR-A04: Make player binding atomic across asynchronous work`, created `2026-09-19T21:04:27Z`.
+- Inspected its body, existing comments, acceptance criteria and dependency on #49. The scope is `apps/extension/src/internal.ts`, `service-worker.ts` and `service-worker.test.ts`.
+- Added assignee `muaz978` and label `area: testing`; existing labels remain `bug`, `initiative: crunchyroll-sync` and `area: extension`; milestone remains M3/M5.
+- Classified the public project item as In Progress, P1 High, Bug, Partial, Unit tests plus Integration tests plus Browser test plus User acceptance, High risk, no blocker reason, verification owner `muaz978`.
+- Posted classification comment `https://github.com/muaz978/sync-your-joy/issues/51#issuecomment-5750312446`. It records the partial PR #70 evidence, the required full binding matrix, the signed-in account availability, the fact that no extra account is currently required, and the rule that separate account/device/deployment/user acceptance will be requested only when a selected gate needs it.
+
+#### 2026-09-20 17:14-17:16 +03 - CR-A04 source inspection and implementation plan
+- Created branch `codex/issue-51-player-binding` from verified `origin/main` at `ff30dfb` and confirmed the working tree was clean.
+- Inspected `internal.ts`, `service-worker.ts`, `content-script.ts`, existing service-worker tests, `CRUNCHYROLL_REMEDIATION_PLAN.md` and `CRUNCHYROLL_HANDOFF.md`.
+- Confirmed the current worker checks only tab ID and frame ID for most incoming sender-bound messages, so an old document can reuse the same tab/frame identity after navigation.
+- Confirmed delayed context refresh already uses `playerContextGeneration`, but the incoming sender identity and browser-compatible fallback handshake remain incomplete.
+- Confirmed `chrome.runtime.MessageSender` exposes optional `documentId` and `documentLifecycle` in the installed type definitions.
+- Planned a worker-issued opaque binding identity carried by sender-bound messages, with Chromium `sender.documentId` used when available and the opaque binding token required as a browser-compatible fallback. The implementation must preserve the same binding for routine heartbeats, rotate it for replacement documents, invalidate it on loading/detach, target outbound messages by document ID when available, and reject stale media/status/loss/intent messages.
+- Planned deterministic tests for same-document heartbeats, Chromium document replacement, fallback replacement without document ID, stale old-document status/loss/intent messages, delayed context refresh and exact outbound targeting. Planned documentation must state that this proves worker-level identity protection, not live-provider or two-device acceptance.
+
+### Confirmed Successful Results
+- PR #77 was pushed, checked, formally reviewed by comment, administrator-squash-merged and verified on `origin/main`.
+- CR-A03 implementation and documentation are present on main, while issue #50 remains open because runtime and acceptance gates are not all complete.
+- The active Crunchyroll session is confirmed available for controlled browser work. It is no longer valid to use Missing account as a blocker for this user’s already signed-in profile.
+- Public-project metadata for issue #50 and PR #77 is visible and consistent with the evidence state.
+- Issue #51 is the next oldest open issue, is classified and assigned, and has a clean implementation branch from verified main.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+### Failed, Incomplete, or Unresolved Work
+- GitHub self-approval remains unavailable for PRs authored by `muaz978`; formal review comments are the recorded review evidence when the command is rejected.
+- Issue #30 and #33 have an authenticated session available, but their separate profile/account, two-device, deployment and user-acceptance gates are not all satisfied. They remain open where appropriate.
+- CR-A04 implementation has not started. No source changes, tests, PR, review, merge or release have been performed for issue #51.
+- The browser verification proves account availability only. It does not prove a second account/profile, second device, deployment or user acceptance.
+- Version remains `0.2.4`; no coherent verified issue group has earned an interim release and the milestone-end `1.0.0` gate is not ready.
+
+### Decisions and Rationale
+- Treat the signed-in Crunchyroll account as available and do not label related work Missing account unless a new gate specifically requires an additional account or profile.
+- Keep the public project evidence state Partial for deterministic implementation work until the applicable browser, provider, device, deployment and acceptance gates are actually run.
+- Implement CR-A04 with two layers of identity protection: Chromium document identity where available and an opaque worker-issued binding token for browser-compatible fallback. Do not rely on tab/frame equality alone.
+- Keep issue #51 and future issue PRs non-closing until all applicable acceptance gates pass. Do not merge a release bump alongside CR-A04 unless a complete coherent group is verified.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/internal.ts` - runtime and state contracts to be updated for binding identity.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.ts` - worker binding, sender validation, delayed refresh and outbound targeting to be updated.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts` - binding-token handshake and sender-bound message propagation to be updated.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.test.ts` - deterministic stale-document and binding replacement coverage to be added.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_REMEDIATION_PLAN.md` - source contract and G07 rationale.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_HANDOFF.md` - current partial binding and known gap.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this append-only record.
+- PR #77: `https://github.com/muaz978/sync-your-joy/pull/77`.
+- PR #77 merge commit: `ff30dfb4be0b2ef8ab1d725422f246ac2d0c52b1`.
+- Issue #51: `https://github.com/muaz978/sync-your-joy/issues/51`.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+
+### Open Questions, Blockers, and Dependencies
+- Whether all existing test fixtures model `ExtensionState` as required or optional fields must be added for backward-compatible persisted state.
+- Which exact browser-compatible sender behavior is exposed by the test harness for `documentId`, and how to test fallback when it is absent.
+- The issue depends on #49 for the broader identity matrix, but CR-A04 can add independent worker binding protection and must document the remaining nested-frame/live-provider limits.
+- No external account is currently needed for deterministic CR-A04 implementation. A second profile/account, second device, deployment or user acceptance will be requested only when the corresponding gate is selected.
+
+### Next Steps
+1. Inspect exact current type definitions, state initialization and test harness helpers before editing.
+2. Implement binding identity contracts, worker validation, content-script token propagation, document-aware outbound targeting and replacement invalidation.
+3. Add focused deterministic regression tests, run full checks and inspect the exact diff.
+4. Add a detailed CR-A04 acceptance report and test-guide documentation, commit and push the branch.
+5. Open a non-closing metadata-complete PR, apply project fields, wait for all checks, review the exact diff and merge only after review and checks pass.
+6. Keep issue #51 open until its remaining runtime, browser, deployment and user-acceptance gates are separately evidenced. Continue oldest-to-newest and keep release `0.2.4` until a coherent group qualifies.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-55 remain intact. This checkpoint records the completed CR-A03 PR lifecycle, the correction of account-related blocker assumptions, and the transition to CR-A04 issue #51.
+- This checkpoint was written before implementation work so a future continuation can reconstruct the account verification, external actions, exact commits, issue state, project state and CR-A04 plan without relying on the compacted conversation.
+
+## Checkpoint 57
+
+### Session Metadata
+- Task or project: SyncYourJoy CR-A04 issue #51 implementation, documentation, deterministic verification and pre-PR packaging.
+- Checkpoint number: 57.
+- Date and time: 2026-09-20 17:35 +03 (Europe/Istanbul).
+- Coverage period: user release/install question through source implementation, test repair, acceptance documentation, full checks, synthetic E2E/package attempts and controlled packaging verification.
+- Current context status: CR-A04 implementation is complete on branch `codex/issue-51-player-binding`, but it has not yet been committed, pushed or opened as a PR. The branch still contains the prior checkpoint modification plus the CR-A04 source, tests and docs. The full repository check and package smoke passed. Environment-sensitive browser evidence is partially pending or failed before scenario execution.
+
+### User Objective and Requirements
+- The user asked whether a new release should be bumped so they could install the latest extension for direct browser testing, and reiterated that every repository change must be committed and pushed.
+- Decision: do not bump a release for a single issue or before the coherent verified issue-group gate. Keep version `0.2.4` for this branch. Produce a local/package candidate after implementation so a later browser install can be performed without falsely representing it as a published release.
+- Continue to distinguish source, deterministic tests, synthetic E2E, headed browser, live Crunchyroll, two-profile/two-account, two-device, deployment and user-acceptance evidence.
+
+### Complete Chronological Activity Log
+
+#### 2026-09-20 17:17 +03 - Context restoration and checkpoint creation
+- Re-read the latest checkpoint tail after the prior conversation compaction.
+- Restored the CUA documentation and browser inventory. The existing Edge browser binding is still browser ID `1`; existing Crunchyroll tabs remain visible in the user profile.
+- Appended checkpoint #56 to the append-only context record before continuing implementation.
+
+#### 2026-09-20 17:18-17:20 +03 - CR-A04 source inspection
+- Inspected `internal.ts`, `service-worker.ts`, `content-script.ts`, the service-worker tests, `player-tab.ts`, `CRUNCHYROLL_REMEDIATION_PLAN.md`, `CRUNCHYROLL_HANDOFF.md` and existing acceptance templates.
+- Confirmed the worker already guarded delayed refresh and delivery failures with `playerContextGeneration`, but ordinary incoming `MEDIA_LOST`, `PLAYER_STATUS`, `SEEK_APPLIED` and `PLAYER_INTENT` messages trusted only tab ID and frame ID.
+- Confirmed Chrome types expose optional `sender.documentId` and `documentLifecycle`.
+- Chose a two-layer contract: use Chromium document ID where present, and use a worker-issued opaque binding token as the browser-compatible fallback. Keep the token in a separate session-storage entry and out of public extension state, room state and diagnostics.
+
+#### 2026-09-20 17:20-17:23 +03 - First implementation pass
+- Updated `apps/extension/src/internal.ts` so sender-bound runtime requests can carry an optional binding ID and successful responses can return the current opaque binding ID.
+- Updated `apps/extension/src/service-worker.ts` with a separate `syncYourJoyPlayerBinding` session key and in-memory `PlayerBinding` record containing opaque ID plus optional document ID.
+- Loaded and persisted the binding alongside session state without copying it into `ExtensionState` or room events.
+- Invalidated the binding on tab loading and clear/detach paths.
+- Added media-candidate binding checks that reject mismatched retired tokens, require the fallback token after the initial handshake when document ID is unavailable, and allow a new Chromium document to replace a same-frame candidate without inheriting the old binding.
+- Updated all sender-bound paths to validate tab, frame, document identity or current binding token: media loss, player status, seek acknowledgement and player intent.
+- Rotated the binding on document/frame replacement while retaining it for routine heartbeats from the same binding.
+- Made delayed refresh and outbound delivery compare binding identity in addition to context generation, and target exact Chromium documents with `{ documentId }` when available.
+- Kept frame-only targeting for browsers where document ID is unavailable.
+- Updated `leaveRoom` and detach delivery to use the previous document ID when it can be targeted safely.
+- Updated `apps/extension/src/content-script.ts` to keep the token local to each content-script document, learn it from the first accepted media report and attach it automatically to later media, loss, status, seek-acknowledgement and player-intent messages.
+
+#### 2026-09-20 17:23-17:26 +03 - Initial test failures and repair
+- The first `npm run check` reached typecheck and then reported four existing service-worker test failures because test fixtures did not provide the new separate binding session value. The failures were in player-status persistence, observed episode resume, delayed context loading and diagnostics evidence.
+- Added binding state to the fake Chrome session storage and supplied a binding ID to bound test fixtures. Updated the observed-episode request helper to carry and refresh binding IDs in the same way as the content script.
+- One delayed-context test still failed because a comparison treated `undefined` and `null` binding IDs as different. Normalized both sides to `null` before stale-result comparisons.
+- The focused service-worker suite then passed 10/10 tests.
+- Added two CR-A04 regression tests covering same-frame Chromium document replacement, stale status/loss/seek-acknowledgement/intent rejection, exact document-targeted outbound delivery, fallback token stability and rotation after loading. The service-worker suite passed 12/12.
+
+#### 2026-09-20 17:27-17:30 +03 - Acceptance documentation
+- Added `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A04_PLAYER_BINDING_ACCEPTANCE_REPORT_TEMPLATE.md`.
+- The template documents privacy boundaries, candidate identity, binding contract, deterministic lifecycle matrix, source/test evidence, headed/provider gates, precise blocker categories and release boundary.
+- Updated `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` with the CR-A04 workflow, exact test path and evidence limitations.
+- Added a content-script regression test proving that the content script learns the worker token from `MEDIA_DETECTED` and propagates it on later `PLAYER_STATUS` messages. The focused content-script plus service-worker suites passed 54/54.
+- Corrected a same-frame detach edge case so a legacy or unhandshaken binding cannot send a frame-only detach to the replacement content script when no previous document identity is targetable.
+
+#### 2026-09-20 17:31-17:34 +03 - Final source verification and packaging
+- The final `npm run check` passed:
+  - 28 test files passed;
+  - 228 tests passed;
+  - root and edge-service typechecks passed;
+  - room-service and extension builds passed;
+  - generated manifest remained version `0.2.4`, MV3, with `service-worker.js` and the Chrome side panel.
+- `npm audit --audit-level=high` passed with `found 0 vulnerabilities`.
+- `git diff --check` passed.
+- The first parallel run of `npm run test:e2e`, `npm run verify:browser-packages` and `npm run release:check-version` produced a false package failure because the E2E and package verifier both concurrently rebuilt and removed the shared `apps/extension/dist` directory. This was identified from the verifier's missing temporary Chrome manifest and the build script's destructive output-directory reset.
+- `npm run release:check-version` passed and returned `0.2.4`.
+- Reran `npm run verify:browser-packages` serially. Chrome and Firefox manifest checks passed. The Safari packager then failed under the normal sandbox because `xcrun` could not read the temporary staging path.
+- Reran the same verifier with the required approved macOS Xcode-tool permission. Chrome, Firefox and Safari package smoke all passed. The Safari project was generated under the temporary `.browser-package-smoke-*` directory and was cleaned by the verifier.
+- Ran `env RELEASE_OUTPUT_DIR=/private/tmp/syj-release-cr-a04 npm run release:package` without publishing a release. The ZIP passed `unzip -t`, contained 12 expected package entries, excluded source maps and reported SHA-256 `4d2fd93b3650b790f78197f6c421ddc5cca58dbcf1e1a17538fba0846d62b3f1`. The embedded manifest remained version `0.2.4`.
+
+#### 2026-09-20 17:34-17:35 +03 - Synthetic E2E result
+- `npm run test:e2e` built the extension and started the ephemeral room service. The authenticated Crunchyroll two-profile test was skipped because its opt-in provider credentials/storage state were not supplied.
+- The generic two-profile synchronization test failed before the scenario started while Playwright attempted to launch the isolated extension profile. Chromium aborted with `Target page, context or browser has been closed` and an environment-level process termination error. No room, player, synchronization or CR-A04 assertion ran in that failed test.
+- This result is recorded as environment-sensitive E2E evidence, not as a CR-A04 source failure. A headed or host-supported isolated-browser run remains separate evidence.
+
+### Confirmed Successful Results
+- CR-A04 source, worker validation, content-script propagation, persistence, document-aware delivery and replacement invalidation are implemented.
+- Deterministic verification passed: 28 test files and 228 tests, plus typechecks and both builds.
+- Security/package checks passed: npm audit found zero vulnerabilities, diff hygiene passed, Chrome/Firefox/Safari package smoke passed with the required Xcode tool access, and the local 0.2.4 ZIP passed archive integrity and manifest inspection.
+- Detailed CR-A04 acceptance documentation and test-guide instructions are present.
+- No release version was bumped and no public release was published.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes, provider HAR files or screenshots were recorded.
+
+### Failed, Incomplete, or Unresolved Work
+- The CR-A04 branch has not yet been committed, pushed, opened as a PR, assigned PR metadata, reviewed or merged.
+- Generic two-profile Playwright E2E failed before scenario execution because Chromium aborted while launching the isolated extension profile on this host. It needs a separate environment investigation or a headed host-supported run.
+- The authenticated Crunchyroll test was skipped because its opt-in storage-state input is not configured. The user’s active Crunchyroll session is available in the controlled Edge browser, but it is not equivalent to the isolated Playwright profile’s credentials and should not be copied into test storage state.
+- The parallel package-verifier failure was an orchestration race and was superseded by a serial verifier run. It remains recorded for reproducibility.
+- No live-provider, two-profile/two-account, two-device, deployment or user-acceptance claim has been made for CR-A04.
+
+### Decisions and Rationale
+- Do not bump a release for CR-A04 alone. Keep `0.2.4` until a complete coherent issue group meets the release policy. Keep milestone-end `1.0.0` separate.
+- Treat the installed local package as a test candidate, not a release. A user installation may be requested after the PR is merged or when a specific headed acceptance run is ready.
+- Keep the opaque binding ID out of public state and diagnostics to reduce exposure and prevent stale content scripts from learning a replacement token through generic room-state broadcasts.
+- Treat the generic E2E launch failure as an environment limitation because it occurred before test setup and assertions. Do not use it to downgrade the deterministic source result.
+- Do not label the issue Missing account. The current signed-in Crunchyroll session is available. Request a second account/profile, second device, deployment or user acceptance only for a gate that explicitly needs it.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/internal.ts` - binding-aware request and response contracts.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.ts` - binding lifecycle, sender validation, persistence and document-aware delivery.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts` - local token retention and propagation.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.test.ts` - worker binding regression matrix.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts` - content-script propagation regression.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A04_PLAYER_BINDING_ACCEPTANCE_REPORT_TEMPLATE.md` - detailed CR-A04 report template.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` - CR-A04 test-guide section.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - append-only history through checkpoint #57.
+- Local package candidate: `/private/tmp/syj-release-cr-a04/sync-your-joy-extension.zip`.
+- Local package checksum: `/private/tmp/syj-release-cr-a04/sync-your-joy-extension.zip.sha256`.
+
+### Open Questions, Blockers, and Dependencies
+- The branch still needs commit, push, PR creation, remote checks, formal review comment if self-approval is rejected, merge, issue comment and public-project update.
+- A headed browser run with the local package can test the active signed-in Crunchyroll account without treating account availability as missing. The direct browser installation step is still unperformed.
+- A separate isolated two-profile/two-account run needs its authorized test profiles/storage state. Do not copy the user’s daily Edge state.
+- Two-device, deployment and explicit user-acceptance gates remain separate and are not implied by the current results.
+
+### Next Steps
+1. Inspect the final diff and checkpoint, stage all CR-A04 files, and commit with an issue-specific message.
+2. Push `codex/issue-51-player-binding` and verify the remote SHA.
+3. Open a detailed non-closing PR with the acceptance report, exact checks, package hash, synthetic E2E limitations, account-availability correction and release boundary.
+4. Apply labels, assignee, milestone and public-project fields. Wait for remote checks, review the exact diff, record the self-approval limitation if applicable, and merge only after checks and review evidence are complete.
+5. Keep issue #51 open in Verification until the remaining browser/provider/deployment/user gates are directly evidenced. Continue oldest-first and do not bump a release yet.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-56 remain intact. This checkpoint records the complete CR-A04 implementation and verification phase after the release/install clarification.
+- The next checkpoint should record the commit, push, PR lifecycle and post-merge state, or any precise blocker if repository or remote operations fail.
+
 ## Checkpoint 53
 
 ### Session Metadata

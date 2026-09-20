@@ -42,11 +42,11 @@ export type RuntimeRequest =
   | { type: 'CONTROL'; kind: ControlKind; positionSeconds?: number }
   | { type: 'TRANSFER_CONTROL'; participantId: string }
   | { type: 'RESPOND_TO_JOIN'; participantId: string; approve: boolean }
-  | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number; diagnostics?: PlayerDiagnostics }
-  | { type: 'MEDIA_LOST' }
-  | { type: 'PLAYER_STATUS'; basedOnRevision: number; sample: PlayerSample }
-  | { type: 'SEEK_APPLIED'; revision: number; positionSeconds: number }
-  | { type: 'PLAYER_INTENT'; kind: ControlKind; positionSeconds: number }
+  | { type: 'MEDIA_DETECTED'; media: MediaFingerprint; areaPixels: number; diagnostics?: PlayerDiagnostics; bindingId?: string | undefined }
+  | { type: 'MEDIA_LOST'; bindingId?: string | undefined }
+  | { type: 'PLAYER_STATUS'; basedOnRevision: number; sample: PlayerSample; bindingId?: string | undefined }
+  | { type: 'SEEK_APPLIED'; revision: number; positionSeconds: number; bindingId?: string | undefined }
+  | { type: 'PLAYER_INTENT'; kind: ControlKind; positionSeconds: number; bindingId?: string | undefined }
   | { type: 'OPEN_PANEL' }
 
 export type ContentRequest =
@@ -72,4 +72,6 @@ export interface RuntimeResponse {
   ok: boolean
   state: ExtensionState
   error?: string
+  /** Opaque worker-issued identity for the current content-script document. */
+  playerBindingId?: string
 }

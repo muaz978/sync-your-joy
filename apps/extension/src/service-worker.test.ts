@@ -22,6 +22,7 @@ import type { ContentRequest, RuntimeEvent, RuntimeRequest, RuntimeResponse } fr
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const SESSION_STATE_KEY = 'syncYourJoySessionState'
+const PLAYER_BINDING_KEY = 'syncYourJoyPlayerBinding'
 const DISPLAY_NAME_KEY = 'syncYourJoyDisplayName'
 
 /** Minimal fake WebSocket: enough of the browser WebSocket surface for
@@ -80,6 +81,7 @@ class FakeWebSocket {
 
 interface FakeChromeOptions {
   sessionState?: unknown
+  playerBindingState?: unknown
   sessionSet?: (values: Record<string, unknown>) => Promise<void> | void
 }
 
@@ -115,7 +117,7 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
     },
     storage: {
       session: {
-        get: vi.fn(async () => ({ [SESSION_STATE_KEY]: options.sessionState })),
+        get: vi.fn(async () => ({ [SESSION_STATE_KEY]: options.sessionState, [PLAYER_BINDING_KEY]: options.playerBindingState })),
         set: sessionSetMock,
       },
       local: {
@@ -295,6 +297,7 @@ describe('service worker player-status persistence', () => {
         playerTabId: 42,
         playerFrameId: 0,
       },
+      playerBindingState: { id: 'binding_status', documentId: null },
       sessionSet: async () => sessionSetGate,
     })
     const { chrome: fakeChrome, sessionSetMock } = fakeChromeResult
@@ -314,6 +317,7 @@ describe('service worker player-status persistence', () => {
         type: 'PLAYER_STATUS',
         basedOnRevision: 1,
         sample: { positionSeconds: 12, durationSeconds: 120, paused: false, buffering: false, sampledAtLocalMs: Date.now() },
+        bindingId: 'binding_status',
       },
       sender,
       sendResponse,
@@ -366,7 +370,7 @@ describe('service worker observed episode identity', () => {
       playerAreaPixels: 500_000,
       currentMedia: oldMedia,
       lastOpenedNavigationRevision: 5,
-    } })
+    }, playerBindingState: { id: 'binding_resumed', documentId: null } })
     ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
       media: currentUrl === nextUrl ? nextMedia : oldMedia,
       diagnostics: null,
@@ -378,10 +382,25 @@ describe('service worker observed episode identity', () => {
     await import('./service-worker.ts')
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
     FakeWebSocket.instances[0]!.simulateOpen()
-    const request = (message: RuntimeRequest, sender: chrome.runtime.MessageSender = {}) =>
-      new Promise<RuntimeResponse>((resolve) => {
-        fake.messageListener(message, sender, response => resolve(response as RuntimeResponse))
+    let currentBindingId = 'binding_resumed'
+    const request = (message: RuntimeRequest, sender: chrome.runtime.MessageSender = {}) => {
+      const bindingAware = message.type === 'MEDIA_DETECTED'
+        || message.type === 'MEDIA_LOST'
+        || message.type === 'PLAYER_STATUS'
+        || message.type === 'SEEK_APPLIED'
+        || message.type === 'PLAYER_INTENT'
+      const boundMessage = bindingAware && !('bindingId' in message)
+        ? { ...message, bindingId: currentBindingId } as RuntimeRequest
+        : message
+      return new Promise<RuntimeResponse>((resolve) => {
+        fake.messageListener(boundMessage, sender, response => {
+          const result = response as RuntimeResponse
+          if (result.playerBindingId)
+            currentBindingId = result.playerBindingId
+          resolve(result)
+        })
       })
+    }
     await request({ type: 'GET_STATE' })
     FakeWebSocket.instances[0]!.simulateMessage({
       type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot,
@@ -443,6 +462,109 @@ describe('service worker observed episode identity', () => {
       .not.toContainEqual({ type: 'set_ready', ready: false, media: null })
   })
 
+  it('rejects stale same-frame status, loss, seek acknowledgement and intent messages after document replacement', async () => {
+    const { fake, request } = await resumeAtPage(sharedUrl)
+    const oldSender = {
+      tab: { id: 42, active: true, url: sharedUrl },
+      frameId: 0,
+      documentId: 'document-old',
+      url: sharedUrl,
+    } as chrome.runtime.MessageSender
+    const oldBindingResponse = await request({
+      type: 'MEDIA_DETECTED',
+      media: oldMedia,
+      areaPixels: 500_000,
+      bindingId: 'binding_resumed',
+    }, oldSender)
+    const oldBindingId = oldBindingResponse.playerBindingId
+    expect(oldBindingId).toEqual(expect.any(String))
+
+    const newSender = {
+      tab: { id: 42, active: true, url: sharedUrl },
+      frameId: 0,
+      documentId: 'document-new',
+      url: sharedUrl,
+    } as chrome.runtime.MessageSender
+    const replacement = await request({
+      type: 'MEDIA_DETECTED',
+      media: oldMedia,
+      areaPixels: 500_000,
+      bindingId: undefined,
+    }, newSender)
+    const newBindingId = replacement.playerBindingId
+    expect(newBindingId).toEqual(expect.any(String))
+    expect(newBindingId).not.toBe(oldBindingId)
+
+    const staleSample = {
+      positionSeconds: 99,
+      durationSeconds: 120,
+      paused: false,
+      buffering: false,
+      sampledAtLocalMs: Date.now(),
+    }
+    const socket = FakeWebSocket.instances[0]!
+    const sentBeforeStaleMessages = socket.sentMessages.length
+    await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: staleSample, bindingId: oldBindingId }, oldSender)
+    await request({ type: 'MEDIA_LOST', bindingId: oldBindingId }, oldSender)
+    await request({ type: 'SEEK_APPLIED', revision: 5, positionSeconds: 99, bindingId: oldBindingId }, oldSender)
+    await request({ type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: 99, bindingId: oldBindingId }, oldSender)
+    const afterStaleMessages = await request({ type: 'GET_STATE' })
+    expect(afterStaleMessages.state.currentMedia).toMatchObject(oldMedia)
+    expect(afterStaleMessages.state.lastPlayerSample).toBeNull()
+    expect(socket.sentMessages).toHaveLength(sentBeforeStaleMessages)
+
+    await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: staleSample, bindingId: newBindingId }, newSender)
+    const afterCurrentStatus = await request({ type: 'GET_STATE' })
+    expect(afterCurrentStatus.state.lastPlayerSample).toMatchObject(staleSample)
+
+    ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockClear()
+    await request({ type: 'LOCK_PLAYER' })
+    expect(fake.chrome.tabs.sendMessage).toHaveBeenCalledWith(42, { type: 'LOCK_PLAYER' }, { documentId: 'document-new' })
+  })
+
+  it('keeps a fallback binding stable for heartbeats and rotates it after loading without documentId', async () => {
+    const { fake, request } = await resumeAtPage(sharedUrl)
+    const sender = {
+      tab: { id: 42, active: true, url: sharedUrl },
+      frameId: 0,
+      url: sharedUrl,
+    } as chrome.runtime.MessageSender
+    const first = await request({
+      type: 'MEDIA_DETECTED',
+      media: oldMedia,
+      areaPixels: 500_000,
+      bindingId: 'binding_resumed',
+    }, sender)
+    const firstBindingId = first.playerBindingId
+    const heartbeat = await request({
+      type: 'MEDIA_DETECTED',
+      media: oldMedia,
+      areaPixels: 500_000,
+      bindingId: firstBindingId,
+    }, sender)
+    expect(heartbeat.playerBindingId).toBe(firstBindingId)
+
+    fake.updatedListener(42, { status: 'loading' })
+    const staleAfterLoading = await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: {
+      positionSeconds: 12,
+      durationSeconds: 120,
+      paused: false,
+      buffering: false,
+      sampledAtLocalMs: Date.now(),
+    }, bindingId: firstBindingId }, sender)
+    expect(staleAfterLoading.state.playerFrameId).toBeNull()
+    expect(staleAfterLoading.state.lastPlayerSample).toBeNull()
+
+    const replacement = await request({
+      type: 'MEDIA_DETECTED',
+      media: oldMedia,
+      areaPixels: 500_000,
+      bindingId: undefined,
+    }, sender)
+    expect(replacement.playerBindingId).toEqual(expect.any(String))
+    expect(replacement.playerBindingId).not.toBe(firstBindingId)
+  })
+
   it('does not restore a delayed context after the bound tab starts a new navigation', async () => {
     let resolveTab: (tab: unknown) => void = () => {}
     const tabGate = new Promise<unknown>(resolve => { resolveTab = resolve })
@@ -456,7 +578,7 @@ describe('service worker observed episode identity', () => {
       playerLastSeenAtMs: Date.now(),
       currentMedia: oldMedia,
       lastOpenedNavigationRevision: 5,
-    } })
+    }, playerBindingState: { id: 'binding_delayed', documentId: null } })
     ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(async (_tabId: number, message: RuntimeEvent | ContentRequest) => {
       if (message.type === 'GET_PLAYER_CONTEXT')
         return { media: oldMedia, diagnostics: null, sample: null }
