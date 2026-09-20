@@ -277,3 +277,9 @@ The separately tuned manual CI workflow is `.github/workflows/e2e-crunchyroll.ym
 Issue [#33](https://github.com/muaz978/sync-your-joy/issues/33) is the broader manual acceptance matrix. It is distinct from the opt-in two-profile harness above: CR-D04 requires extension-disabled baselines, the exact candidate build, Edge and Chrome, role swaps, at least three episodes or timed editions, cold and warm seeks, Skip Intro, audio or source changes, episode transitions, YouTube and generic or nested players, and at least 30 seek or intro actions per claimed browser/controller combination.
 
 Use [`docs/CRUNCHYROLL_CRD04_ACCEPTANCE_REPORT_TEMPLATE.md`](CRUNCHYROLL_CRD04_ACCEPTANCE_REPORT_TEMPLATE.md) for every controlled run. It keeps native media state, aggregate progress evidence and human visible-motion observation separate. A changing counter with black or frozen visible output is not a pass. Missing accounts, devices, deployment or title access must be recorded as blocked or not run, never converted into a successful result.
+
+### Real two-device network-chaos and reconnect acceptance
+
+Issue [#34](https://github.com/muaz978/sync-your-joy/issues/34) is a separate physical-device gate. The deterministic `network-chaos.test.ts` and room fuzz harness cover protocol delay, reordering and duplication, but they do not prove OS-level throttling, offline/online transitions, sleep/wake or browser reconnect behavior.
+
+Use [`docs/SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md`](SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md) for each controlled run. It records the exact candidate and deployment, two-device baseline, fault profile, room revision, connection and lease state, readiness, native playback, aggregate progress, visible motion and safe recovery outcome. A WebSocket reconnect or advancing counter alone is not proof that the real player recovered.
