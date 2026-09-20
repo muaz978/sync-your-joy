@@ -4,6 +4,8 @@ Prepared: 2026-09-20, Europe/Istanbul
 
 This record accompanies the issue-specific pull request for GitHub issue [#48](https://github.com/muaz978/sync-your-joy/issues/48). It documents the work performed on `codex/crunchyroll-sync-hardening`, including failed attempts and the boundary between verified local behavior and external acceptance.
 
+Closes #48 when merged. Related implementation evidence is also relevant to #49, #50, #51, #52, #54 and the missing-report portion of #58; those issues are not claimed closed by this pull request.
+
 ## Scope
 
 CR-A01 required a reproducible baseline for the slow-loading adaptive-player path, followed by fixes for the uncovered deterministic failures. The work preserved the state-only boundary. No media bytes, screenshots of protected playback, cookies, credentials, signed stream URLs, license traffic or private provider APIs were used.
