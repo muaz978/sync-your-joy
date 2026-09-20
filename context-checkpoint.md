@@ -3987,3 +3987,173 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 46 - Issue #34 network-chaos acceptance support prepared
+
+### Session Metadata
+- Task or project: Continue the oldest-open-issue queue with real two-device network-chaos and reconnect acceptance.
+- Checkpoint number: 46.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: Issue #34 inspection, repository evidence review, acceptance-report template implementation and public project classification.
+- Current context status: Branch `codex/issue-34-network-chaos` is based on `origin/main` at `a011230`. The network-chaos report template, test-guide link and Checkpoint 45 are currently uncommitted on this branch. No issue #34 PR has been opened yet.
+
+### User Objective and Requirements
+- Continue from the oldest open issue after the completed PR queue and issue #33 documentation milestone.
+- Distinguish deterministic protocol simulation from real OS network and device evidence.
+- Provide detailed documentation and visible project status without claiming an unrun physical-device acceptance gate.
+- Keep issue #34 open until two-device network throttling, offline/online, sleep/wake and reconnect behavior are directly verified.
+
+### Complete Chronological Activity Log
+
+1. Inspected issue #34, created at `2026-09-18T17:24:43Z`. Its body states that `packages/sync-engine/src/network-chaos.test.ts` and `room.fuzz.test.ts` simulate protocol delay, reordering and duplication but do not exercise a real OS network stack or hardware. The required real-device work is network throttling, offline/online mid-room, laptop sleep/wake and reconnect recovery, with correct room position and participant state afterward. The issue had no comments, assignee or labels and retained milestone `M3/M5: reliability and real-device validation`.
+
+2. Searched the repository. Existing test-guide sections cover reconnect/readiness and network-chaos observations, the deterministic `network-chaos.test.ts` and room fuzz harness exist, and the architecture and reliability docs distinguish reconnect state, room revision, participant identity, readiness and visible playback. Existing evidence explicitly says two-device acceptance remains pending.
+
+3. Created `docs/SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md`. The template defines exact candidate/deployment identity, device/browser prerequisites, no-fault baseline, fault matrix, offline/online and sleep/wake scenarios, controller/guest role swaps, room revision and lease state, native media state, aggregate progress, visible motion, safe pause/resume, sanitized failures, PASS/FAIL/BLOCKED/UNRESOLVED semantics and completion gates.
+
+4. Updated `docs/TEST_GUIDE.md` with a dedicated issue #34 section linking the template and explaining why deterministic protocol tests do not establish OS-level device acceptance.
+
+5. Ran `git diff --check`, which passed. Updated issue #34 metadata with assignee `muaz978` and labels `documentation`, `initiative: crunchyroll-sync` and `area: testing`, while retaining the existing milestone.
+
+6. Updated the public project item for issue #34 through the GitHub UI. It now shows status `Blocked`, priority `P1 High`, work type `Manual acceptance`, evidence state `Not started`, acceptance gates `Browser test`, `Two-device`, `Deployment` and `User acceptance`, risk `High`, blocked reason `Missing device`, and verification owner `muaz978`.
+
+### Confirmed Successful Results
+- Issue #34 is correctly identified as the next oldest open issue after issue #33.
+- The repository now has a dedicated sanitized report template and test-guide instructions for the real-device gate.
+- Issue #34 has owner, labels, milestone and contributor-visible project classification.
+- The project explicitly distinguishes the manual blocked gate from deterministic protocol simulation.
+- No protected provider data, credentials, device identifiers or media data was recorded.
+
+### Failed, Incomplete, or Unresolved Work
+- The template and test-guide change has not yet been committed, pushed or opened as a PR.
+- No physical two-device network-chaos run has occurred.
+- Network throttling, offline/online recovery, laptop sleep/wake, tab lifecycle, role swaps, deployment evidence and user acceptance remain outstanding.
+- The issue must remain open and Blocked until the report template is executed with real devices and exact candidate/deployment identities.
+
+### Decisions and Rationale
+- Use a documentation artifact as the actionable local contribution because issue #34 explicitly requires real OS and hardware behavior that cannot be proven by the repository's deterministic tests.
+- Mark the issue Blocked with Missing device rather than In Progress or Complete because the required external device gate is not available.
+- Keep native room state, native media state, aggregate progress and visible motion separate so a reconnecting socket or advancing counter cannot be mistaken for a recovered player.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md` - uncommitted issue #34 report template.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` - uncommitted issue #34 guide link.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+- Issue #34: `https://github.com/muaz978/sync-your-joy/issues/34`.
+
+### Assumptions and Uncertainties
+- The exact device, browser, operating-system and network-control matrix will be chosen by the authorized operator when the external run is available.
+- Issue #34 may expose additional implementation work after the real run; this documentation does not pre-classify a failure as network, provider, autoplay or DRM.
+- The public project UI is authoritative for custom fields because the local CLI token lacks project scope.
+
+### Open Questions, Blockers, and Dependencies
+- Which two physical devices, browser versions and exact deployment will be used?
+- Can sleep/wake and controlled offline transitions be safely reproduced on both devices?
+- Does the first controlled run reveal a deterministic source bug that should be handled in a follow-up implementation PR?
+
+### Next Steps
+1. Commit and push the report template, test-guide link and this checkpoint on `codex/issue-34-network-chaos`.
+2. Open a detailed issue-specific PR with `Relates to #34`, labels, assignee, milestone, project metadata and no completion claim.
+3. Review remote checks and merge only after the documentation review is recorded.
+4. Execute the physical-device matrix when prerequisites are available and record sanitized results before any completion decision.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-45 remain intact. This checkpoint records issue #34's initial actionable documentation work and does not supersede the unresolved external acceptance state.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 45 - CR-D04 acceptance documentation merged and issue #34 selected
+
+### Session Metadata
+- Task or project: Continue the oldest-to-newest open-issue workflow after reviewing and accepting the issue #30 and CR-D04 documentation work.
+- Checkpoint number: 45.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: Open-PR inventory, issue #33 inspection, CR-D04 acceptance-template implementation, project classification, PR #73 review and merge, and transition to issue #34.
+- Current context status: PR #73 is merged into `origin/main` at `a01123074a5506d03fd0df9059c5c32693848517`. Issue #33 remains open and blocked by external acceptance prerequisites. The next branch is `codex/issue-34-network-chaos` from the verified remote main.
+
+### User Objective and Requirements
+- Process open pull requests before issues, then select issues by actual creation time.
+- Review every issue-specific PR before acceptance, apply metadata, and document exact evidence and limits.
+- Keep issues open when live-provider, device, deployment or user-acceptance gates are missing.
+- Give contributors a public project view that shows status, evidence, risk, blocker and ownership.
+
+### Complete Chronological Activity Log
+
+1. After PR #71 and the checkpoint PR #72 were accepted, inventoried GitHub. There were no remaining open pull requests. The oldest open issue was #30, whose deterministic harness PR was already merged but whose live authenticated acceptance remained pending. The next oldest issue was #33, created at `2026-09-18T17:24:30Z`.
+
+2. Inspected issue #33's complete body and confirmed it is a planned manual CR-D04 task, not a missing source-only fix. Its acceptance requires extension-disabled and candidate runs, Edge and Chrome, role swaps, at least three episodes or timed editions, cold and warm seeks, Skip Intro, audio/source change, episode transition, YouTube and generic/nested players, separate native and visible evidence, and at least 30 seek or intro actions per browser/controller combination with a provisional 95% target and zero unsafe resumes. Dependencies include #68 and authorized accounts and devices.
+
+3. Inspected the remediation plan, issue map, handoff and test guide. They consistently distinguish deterministic and synthetic evidence from authorized live-provider and physical-device acceptance. No private provider API or protected media access was authorized or needed.
+
+4. Read the documentation-and-ADRs skill because the safe implementation for issue #33 is a durable evidence workflow and report template. No ADR was required because no architectural or public API decision was introduced. The documentation approach captured why the evidence classes must remain separate and how future operators can reproduce the matrix.
+
+5. Added `docs/CRUNCHYROLL_CRD04_ACCEPTANCE_REPORT_TEMPLATE.md`. It records exact candidate and deployment identity, account/device labels without account secrets, browser combinations and role swaps, provider/timed-edition coverage, baseline versus candidate procedure, 30-action tables, native state, aggregate progress, visible-motion evidence, sanitized failures, blocked/unresolved semantics, success-rate calculation and completion gates.
+
+6. Updated `docs/TEST_GUIDE.md` with a CR-D04 section linking the template and distinguishing this broader manual matrix from the opt-in two-profile provider harness added in PR #71.
+
+7. Ran `git diff --check`, which passed. Assigned issue #33 to `muaz978` and added the `documentation` label while retaining `enhancement`, `initiative: crunchyroll-sync` and `area: testing`. Added an issue progress comment after the PR merge with the remaining external prerequisites and evidence rules.
+
+8. Created commit `7bfca33` with the two documentation files, pushed branch `codex/issue-33-cross-provider`, opened PR #73, attached it to the Codex task and applied PR metadata: assignee `muaz978`, labels `documentation`, `enhancement`, `initiative: crunchyroll-sync`, `area: testing`, and milestone `M3/M5: reliability and real-device validation`.
+
+9. Added PR #73 to the public project through the configured open-PR workflow. Set its item to `In review`, P1 High, Documentation, Partial evidence, Browser test plus Live provider plus Two-account plus Two-device plus Deployment plus User acceptance, High risk and Missing account blocker. The issue #33 item was set to Blocked, P1 High, Manual acceptance, Not started, the same required gates, High risk, Missing account blocker and verification owner `muaz978`.
+
+10. Waited for PR #73 remote checks. Analyze (javascript-typescript), CodeQL, DevSkim, Typecheck/test/build and lowercase `devskim` all passed.
+
+11. Reviewed the exact documentation diff. It covered every issue acceptance criterion and preserved the state-only boundary. No source or runtime behavior changed. Posted a formal no-blocker review record on PR #73 that recorded the diff scope, checks, project classification and unresolved external gates.
+
+12. Accepted PR #73 with administrator squash merge. GitHub produced merge commit `a01123074a5506d03fd0df9059c5c32693848517`. The CLI printed a local fast-forward warning because the local branch contained a different commit identity for the earlier checkpoint, but GitHub's remote PR state was confirmed `MERGED` and `origin/main` advanced successfully.
+
+13. Verified issue #33 after merge. It remained `OPEN`, with assignee `muaz978`, labels `documentation`, `enhancement`, `initiative: crunchyroll-sync`, `area: testing`, milestone `M3/M5: reliability and real-device validation`, and issue comment `https://github.com/muaz978/sync-your-joy/issues/33#issuecomment-5749697989`.
+
+14. Refreshed the public project after merge. The merged PR item is `Done`, which is correct for the documentation artifact. Issue #33 remains `Blocked`, `P1 High`, `Manual acceptance`, `Not started`, with all six external/browser gates, High risk, Missing account and owner `muaz978`.
+
+15. Created branch `codex/issue-34-network-chaos` from `origin/main` at `a011230`. Issue #34 is now the next oldest open issue to inspect.
+
+### Confirmed Successful Results
+- No open PRs remain in the queue after PRs #71, #72 and #73 were reviewed and merged.
+- PR #73's CR-D04 acceptance report template and test-guide link are merged into `origin/main`.
+- PR #73 had all five required remote checks pass and received a formal review record before acceptance.
+- Issue #33 remains open and its public project item accurately shows external blockers and incomplete evidence.
+- Issue #33 has a contributor-visible issue comment with the merged PR, exact merge commit, report path, evidence classes and remaining gates.
+- The issue #33 project item has all required custom fields populated, including owner `muaz978`.
+- The next issue branch starts from the verified remote main.
+
+### Failed, Incomplete, or Unresolved Work
+- Issue #33's live matrix has not run. Required accounts, devices, exact deployment and dependency #68 evidence remain unavailable.
+- The CLI emitted a local fast-forward warning after PR #73 merged remotely because the local branch history diverged. Remote merge and `origin/main` were verified successful; the local branch was not used as the next base.
+- The project verification-owner field is populated for issue #33. The merged PR item fields are populated for status, priority, work type, evidence, gates, risk and blocker, but its verification-owner text field was not confirmed through the PR sidebar UI.
+- No issue was marked Complete based on documentation alone.
+
+### Decisions and Rationale
+- Treat issue #33 as an external manual acceptance task and advance it with a report template rather than inventing a source-code fix or claiming a live pass.
+- Use `Blocked` plus `Missing account` in the public project because authorized accounts and physical devices are explicit prerequisites. The issue remains open.
+- Keep the merged PR item Done while keeping the broader issue item Blocked, so contributor-visible project state distinguishes an accepted documentation artifact from incomplete product acceptance.
+- Start the next issue from `origin/main`, not from a divergent local merge branch.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_CRD04_ACCEPTANCE_REPORT_TEMPLATE.md` - merged CR-D04 runbook and report template.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` - merged CR-D04 guide link and evidence distinction.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+- Issue #33: `https://github.com/muaz978/sync-your-joy/issues/33`.
+- PR #73: `https://github.com/muaz978/sync-your-joy/pull/73`.
+- PR #73 merge commit: `a01123074a5506d03fd0df9059c5c32693848517`.
+- Issue #33 status comment: `https://github.com/muaz978/sync-your-joy/issues/33#issuecomment-5749697989`.
+
+### Assumptions and Uncertainties
+- Issue #34 may also be an external manual gate or may expose a deterministic implementation subtask. Its body, dependencies, source evidence and existing comments must be inspected before deciding.
+- The project UI remains authoritative for custom fields because the local CLI token lacks project scope.
+- A template or local browser result cannot substitute for physical-device network-chaos evidence.
+
+### Open Questions, Blockers, and Dependencies
+- What exact scenarios and acceptance evidence does issue #34 require?
+- Does issue #34 have an actionable deterministic prerequisite, or is it fully dependent on real devices and deployed infrastructure?
+- Which labels, project fields and issue comment are needed after its classification?
+
+### Next Steps
+1. Inspect issue #34's body, comments, dependencies and relevant repository evidence.
+2. If it is an external manual task, add only the necessary report/runbook support and classify it as blocked without a completion claim.
+3. If a deterministic source fix is justified, implement it on `codex/issue-34-network-chaos`, test it, document it, and open a detailed `Relates to #34` PR.
+4. Preserve the oldest-to-newest queue and verify project status after every merge or issue-state automation event.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-44 remain intact. This checkpoint records the completed issue #33 documentation milestone and transitions the working queue to issue #34.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
