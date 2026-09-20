@@ -3988,6 +3988,65 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+## Checkpoint 59
+
+### Session Metadata
+- Task or project: SyncYourJoy oldest-first issue processing, CR-A05 classification and implementation preparation.
+- Checkpoint number: 59.
+- Date and time: 2026-09-20 18:10 +03 (Europe/Istanbul).
+- Coverage period: continuation after CR-A04 merge verification through CR-A05 issue inspection, project classification, label update and classification comment.
+- Current context status: CR-A05 issue #52 is classified and ready for implementation. No source changes for CR-A05 have been made yet.
+
+### User Objective and Requirements
+- Continue the oldest-first issue queue, preserve the signed-in Crunchyroll account correction, document every issue-specific PR in detail, commit and push all work, and do not close issues until their applicable acceptance gates are evidenced.
+- Keep release version `0.2.4` until a coherent verified group qualifies. Reserve `1.0.0` for milestone completion.
+
+### Complete Chronological Activity Log
+
+#### 2026-09-20 18:00-18:05 +03 - CR-A05 inspection
+- Read issue #52 and confirmed it is the next oldest open issue after #51.
+- Confirmed the existing issue comment records only partial implementation evidence from PR #70: bounded hard correction and synthetic delay simulations. The remaining gaps are accepted playback-rate behavior, real progress gating, stop semantics, and continuous browser observation.
+- Confirmed the issue is assigned to `muaz978`, has labels `bug`, `initiative: crunchyroll-sync`, `area: extension` and `area: sync-engine`, and has milestone `M3/M5: reliability and real-device validation`.
+
+#### 2026-09-20 18:05-18:10 +03 - Issue and public-project classification
+- Added the `area: testing` label to issue #52.
+- Posted classification comment `https://github.com/muaz978/sync-your-joy/issues/52#issuecomment-5750563975`. It records the remaining implementation and evidence gaps, preserves the state-only boundary, recognizes the active signed-in Crunchyroll session, and explicitly does not close the issue or authorize a release.
+- Updated the public project row for issue #52: assignee `muaz978`, status `In Progress`, priority `P1 High`, work type `Bug`, evidence `Partial`, acceptance gates `Unit tests`, `Integration tests`, `Browser test`, `User acceptance`, risk `High`, blank blocked reason, and verification owner `muaz978`.
+- Re-read the project row and visually confirmed the values were saved. The issue remains open.
+
+### Confirmed Successful Results
+- Issue #52 metadata and classification comment are updated in GitHub.
+- Public project metadata for #52 is updated and verified.
+- No code, release version or deployment state was changed in this checkpoint.
+
+### Failed, Incomplete, or Unresolved Work
+- CR-A05 implementation, tests, documentation, PR, review, merge and release decisions remain outstanding.
+- Live/provider evidence is not claimed. The existing signed-in session is available for a later controlled browser observation, but it does not replace isolated two-profile, two-device, deployment or user-acceptance gates.
+
+### Decisions and Rationale
+- Treat CR-A05 as an active high-risk bug with partial evidence, not blocked by account availability.
+- Branch from verified `origin/main` after preserving this checkpoint, so the PR contains only the CR-A05 change set and documentation.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Issue #52: `https://github.com/muaz978/sync-your-joy/issues/52`
+- Issue #52 classification comment: `https://github.com/muaz978/sync-your-joy/issues/52#issuecomment-5750563975`
+- Public project: `https://github.com/users/muaz978/projects/1`
+
+### Open Questions, Blockers, and Dependencies
+- The implementation must confirm current `clock.ts`, `content-script.ts` and existing CR-A01 tests before editing.
+- The issue depends on merged CR-A03 (#50), which is present on `origin/main`.
+
+### Next Steps
+1. Commit and push the checkpoint documentation on the current CR-A04 branch.
+2. Create `codex/issue-52-drift-convergence` from `origin/main` and carry the checkpoint history forward.
+3. Implement deterministic convergence and accepted-rate handling, add tests and issue-specific documentation, then run all applicable checks.
+4. Open a detailed non-closing PR with complete metadata, review it, merge only after checks pass, and update issue/project evidence without premature closure.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-58 remain intact. This checkpoint is appended and records the transition from CR-A04 merge verification to CR-A05 implementation preparation.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 ## Checkpoint 56
 
 ### Session Metadata
@@ -5009,4 +5068,100 @@
 
 ### Historical Checkpoint Notes
 - Checkpoints 1-54 remain intact, including the prior account correction, public-project blocker correction and CR-A03 working-tree checkpoint. This checkpoint records the transition from committed local implementation to the pending push and PR stage.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 58
+
+### Session Metadata
+- Task or project: SyncYourJoy oldest-first issue processing, CR-A04 issue #51 PR lifecycle, merge verification and public-project synchronization.
+- Checkpoint number: 58.
+- Date and time: 2026-09-20 17:48 +03 (Europe/Istanbul).
+- Coverage period: user release/install clarification through CR-A04 commit and push, PR creation, remote checks, formal review attempt, administrator merge, issue-state verification and public-project field updates.
+- Current context status: CR-A04 is merged into `main` at `8532c96aa153a3c3daa62e836c6b995a0ae80ba0`. Issue #51 remains open in Verification because runtime, controlled-browser/provider, deployment and user-acceptance gates are not all evidenced. The next oldest open issue is #52.
+
+### User Objective and Requirements
+- The user asked whether a new extension release should be bumped so the active signed-in Crunchyroll browser session could install and test the latest update, and explicitly required that all work be committed and pushed.
+- The user’s standing requirements remain: process issues oldest to newest, review every PR before accepting or merging, document every issue-specific PR in detail, apply future PR labels/assignee/milestone/project metadata, do not close an issue until all applicable gates are actually passed, do not assume the signed-in Crunchyroll account is unavailable, and reserve `1.0.0` for the end of the milestone.
+
+### Complete Chronological Activity Log
+
+#### 2026-09-20 17:35-17:45 +03 - Release and installation decision
+- Reconfirmed that CR-A04 alone does not qualify for a release bump. The repository version remains `0.2.4`; the local ZIP is a test candidate, not a published release.
+- Recorded that a later headed browser test may use the active signed-in Edge session, but the user’s daily browser storage must not be copied into isolated Playwright storage state. A separate profile/account, device, deployment or user-acceptance gate will be requested only when that exact gate is ready.
+
+#### 2026-09-20 17:45-18:00 +03 - Commit and push
+- Inspected the CR-A04 working tree and final diff before repository mutation.
+- Committed the implementation, tests, documentation and checkpoint changes on `codex/issue-51-player-binding` as `b8dcf8ec219f5ba1397b209e57a0af9b97798a3e`, subject `fix: bind player messages to document identity`.
+- Pushed the branch and verified the remote branch reference with `git ls-remote`: `b8dcf8ec219f5ba1397b209e57a0af9b97798a3e refs/heads/codex/issue-51-player-binding`.
+- Repaired local upstream metadata after an initial permission failure so the branch tracks `origin/codex/issue-51-player-binding`.
+
+#### 2026-09-20 18:00-18:15 +03 - PR creation and metadata
+- Opened PR #78, `https://github.com/muaz978/sync-your-joy/pull/78`, with a non-closing relationship `Relates to #51`.
+- The PR body records the root cause, binding design, changed files, acceptance mapping, exact checks, local package checksum, synthetic-E2E limitation, account-availability correction and release boundary.
+- Applied labels `bug`, `initiative: crunchyroll-sync`, `area: extension` and `area: testing`; assigned `muaz978`; set milestone `M3/M5: reliability and real-device validation`.
+- Attached PR #78 to the current Codex task.
+
+#### 2026-09-20 18:15-18:30 +03 - Remote checks and review
+- Verified that the remote checks passed: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim`, and Typecheck, test, and build.
+- Attempted a formal GitHub approval with `gh pr review 78 --approve`. GitHub rejected self-approval with `Review Can not approve your own pull request`.
+- Posted a formal review comment instead. The comment records no blocking findings, the exact source/test/documentation scope, deterministic checks, package evidence, E2E environment limitation, account availability and the self-approval limitation. The review state is `COMMENTED`, not falsely represented as an approval.
+
+#### 2026-09-20 18:30-18:45 +03 - Merge and main verification
+- Merged PR #78 with administrator override after the exact diff, documentation, review comment and required checks were inspected.
+- The resulting squash merge commit is `8532c96aa153a3c3daa62e836c6b995a0ae80ba0`, subject `fix: bind player messages to document identity (#78)`.
+- Fetched `origin/main` and verified that it resolves to the same merge SHA, with parent `ff30dfb4be0b2ef8ab1d725422f246ac2d0c52b1`.
+- Verified that issue #51 is still open. Posted the merge-status comment at `https://github.com/muaz978/sync-your-joy/issues/51#issuecomment-5750495331`, explicitly retaining the issue because live/provider, two-device, deployment and user-acceptance evidence remains outstanding.
+
+#### 2026-09-20 18:45-19:00 +03 - Public project synchronization
+- Updated issue #51 in the public project to status `Verification`; its existing metadata remains P1 High, Bug, Partial, Unit tests, Integration tests, Browser test, User acceptance, High risk and verification owner `muaz978`.
+- Updated merged PR #78 in the public project to Done, assignee `muaz978`, P1 High, Bug, Partial, Unit tests, Integration tests, Browser test, User acceptance, High risk and verification owner `muaz978`. Blocked reason and target date remain blank because the item is merged rather than blocked.
+- Refreshed the project view and verified the visible rows contain the intended values. The project remains public at `https://github.com/users/muaz978/projects/1`.
+
+### Confirmed Successful Results
+- CR-A04 is committed, pushed, reviewed through a formal comment, merged and verified on `origin/main` at `8532c96aa153a3c3daa62e836c6b995a0ae80ba0`.
+- PR #78 has the required detailed body, labels, assignee, milestone and public-project metadata.
+- All required remote checks passed. Local deterministic tests, typechecks, builds, audit, browser-package smoke and local ZIP integrity were already recorded in checkpoint #57.
+- Issue #51 remains open and is correctly represented as Verification, not closed and not falsely marked complete.
+- The public project reflects PR #78 as merged/Done and issue #51 as Verification with the evidence and acceptance fields preserved.
+- The active signed-in Crunchyroll session remains available for a controlled headed browser run. No credentials, cookies, storage state, account name, viewing history or protected media were recorded.
+- No release was bumped or published. Repository version remains `0.2.4`.
+
+### Failed, Incomplete, or Unresolved Work
+- GitHub cannot record an approval by the PR author. The formal review is therefore a non-blocking `COMMENTED` review, and the merge used administrator authorization after checks and diff review.
+- The generic two-profile Playwright run failed before scenario setup because Chromium aborted while launching the isolated extension profile. The authenticated provider test was skipped because isolated provider storage state is not configured. These are environment/evidence limitations, not claims that the source failed.
+- Live Crunchyroll/provider, two-profile/two-account, two-device, deployment and explicit user-acceptance gates remain unverified for issue #51.
+- Issue #51 is not closed. No release was created.
+
+### Decisions and Rationale
+- Keep `0.2.4` until a coherent group of issues satisfies the release gates. Do not ask the user to install a new version for CR-A04 alone; request installation when a headed browser acceptance run or a release candidate is ready.
+- Preserve issue #51 as open Verification because merging the deterministic fix does not prove the remaining live, device, deployment or acceptance gates.
+- Continue with the next oldest open issue, #52 `CR-A05: Bound drift correction and prove convergence`, while retaining the exact evidence distinctions above.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/internal.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.test.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A04_PLAYER_BINDING_ACCEPTANCE_REPORT_TEMPLATE.md`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- PR #78: `https://github.com/muaz978/sync-your-joy/pull/78`
+- PR #78 merge commit: `8532c96aa153a3c3daa62e836c6b995a0ae80ba0`
+- Issue #51 merge-status comment: `https://github.com/muaz978/sync-your-joy/issues/51#issuecomment-5750495331`
+- Public project: `https://github.com/users/muaz978/projects/1`
+
+### Open Questions, Blockers, and Dependencies
+- The next issue is #52 and needs body/comments/source inspection before implementation.
+- The exact headed provider run for #51 still needs a supported browser/package installation path. The existing signed-in Edge account is not itself a blocker.
+- A second authorized profile/account, second device, deployment identity and explicit user acceptance remain dependencies only for the corresponding acceptance gates.
+
+### Next Steps
+1. Inspect issue #52, its comments, dependencies and current implementation evidence.
+2. Classify #52 in the public project before implementation, then implement the narrowest complete fix with issue-specific tests and documentation.
+3. Commit and push all changes, open a non-closing metadata-complete PR, review it, merge only after checks and review evidence, and update the issue/project without premature closure.
+4. Continue oldest-first and keep release `0.2.4` until a coherent verified group qualifies. Reserve `1.0.0` for milestone completion.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-57 remain intact. This checkpoint is appended as a new chronological record and does not supersede earlier entries except where this entry explicitly records the verified newer state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
