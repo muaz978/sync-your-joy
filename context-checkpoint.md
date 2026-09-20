@@ -2642,3 +2642,441 @@
 ### Historical Checkpoint Notes
 - No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
 - An unrelated checkpoint entry about Arabic/Turkish/English subtitle-alignment tooling was found appended to this file's *working copy* (never committed) at the start of this session, evidently written here by mistake from a different, unrelated task. It was discarded before writing this entry; it never touched git history.
+
+## Checkpoint 29 - Crunchyroll investigation and reproduced failures
+
+### Session Metadata
+- Date/time: 2026-09-19 15:20 UTC. Base checkout: clean main at 1ac5b1c, v0.2.4.
+- Coverage: Start of current Crunchyroll request through initial reproduction and parallel audit, before player-side implementation.
+- Current state: Uncommitted fixes from two audit subtasks, research note, and a deliberately failing content-script regression harness. No deployment, release, commit, or push performed.
+
+### User Objective and Requirements
+- Deeply investigate Crunchyroll player and extension synchronization, close gaps and fix supported bugs. Other platforms including YouTube reportedly work.
+- Clarification: all suggested symptoms occur, including repeated pauses, buffering, jumps/drift, Skip Intro/episode transitions, everyone ready but only one participant plays, timeline advancing while image freezes, and black indefinite loading. User subsequently said to pick up where work left off.
+- Preserve state-only synchronization; no media/DRM/cookie/token inspection or transport. No em dashes in new responses. Preserve this chronological checkpoint history.
+
+### Complete Chronological Activity Log
+1. Announced source/live-player investigation and local fixes with separately reported live acceptance. Read debugging-and-error-recovery SKILL.md and announced its use. Searched MEMORY.md for SyncYourJoy and read the single relevant beta-release recap. Used past state-only boundary and verification distinctions; old v0.1.22 version was superseded by current checkout evidence.
+2. Inspected git status/log, package.json, manifest, source/test file inventory, existing checkpoint tail, parent AGENTS.md locations (none found by search), extension content script, identity/discovery/seek helpers, protocol samples, engine health/seek logic and existing two-profile E2E. Current branch initially clean. Node/Vitest dependencies already available.
+3. Asked optional symptom question via async tool. Received detailed all-symptoms response recorded above.
+4. Delegated bounded concurrent audits: coordinator_audit owns sync-engine files; adapter_audit owns identity/frame/service-worker files; provider_research owns docs/research/crunchyroll-source-notes.md. Root owns content-script and its new tests.
+5. Browser inventory found an existing Crunchyroll watch tab. Selected only that tab for investigation. Unrelated tab data is intentionally not retained here. Existing URL: https://www.crunchyroll.com/watch/GE00365016JAJP/extreme-level-3-situation.
+6. Live DOM/native-state inspection found a top-document video id bitmovinplayer-video-null, blob source protocol, duration 1420.002, readyState 4, rate 1, seekable 0..1420, buffered approximately 80..139, and no player iframe (only a OneTrust iframe). UI showed Skip Intro, Next Episode, speed menu and audio/subtitle controls. This suggests Bitmovin for this page, with exact version/configuration unverified.
+7. Read-only facade queries for frame callback/quality methods returned absent methods; this facade result is NOT proof of browser feature absence. Used native Pause control to stop playback for inspection. Did not install new extension, create a live shared room, or test a second Crunchyroll account.
+8. provider_research consulted current Crunchyroll help, WHATWG media, W3C MSE, Chrome autoplay/interrupted-play/content-script and Bitmovin API/event/configuration sources. Public watch fetch hit Cloudflare challenge; two historical static player URLs returned 502. No challenge bypass attempted. Source URLs, attempts, findings and confidence distinctions are retained in docs/research/crunchyroll-source-notes.md.
+9. adapter_audit reproduced five failing assertions for three gaps, then fixed actual sender tab URL taking priority over stale shared URL, stale equal-size frame replacement while unready, and locale/slug-equivalent same-episode tab reuse. Added 14-character Crunchyroll episode ID coverage. Then reproduced/fixed unreachable frame keeping stale media/readiness. Focused suite 28 tests passed. Files: player-tab.ts/test and service-worker.ts/test. No push/commit.
+10. coordinator_audit reproduced all three new room-streaming-regressions.test.ts cases failing, then fixed controller premature auto-ACK, stale revision reports mutating health before rejection, and explicit progressed:false being overridden by time movement. Updated existing seek tests for explicit controller ACK; 68 engine tests passed at that milestone. Later identified indefinite never-started loader exemption and queued play bypassing seek barrier. Root requested bounded 10s startup watchdog without clearing readiness and server rejection of play during incomplete seek. Those two were NOT implemented at this checkpoint. Existing barrier timeout already stops paused, so no timeout policy change requested.
+11. Root added apps/extension/src/content-script.test.ts with minimal DOM/media/chrome globals, fake timers and real module event handlers. Six tests: in-flight seek must not restart as room clock moves; AbortError must not count as autoplay block; stale play rejection after pause ignored; actual NotAllowedError still reported; seek ACK waits for playable data; frame freeze detected despite time advance.
+12. Ran npx vitest run apps/extension/src/content-script.test.ts. Confirmed five failures, one pass. Evidence: writes [120,121] instead of [120]; AbortError and old NotAllowedError incorrectly set playbackStartFailed; HAVE_METADATA seek acknowledged; frozen-frame scenario never buffered. Test harness also has an incomplete ExtensionState assertion to fix before global typecheck.
+13. Agents encountered account usage limit after saving the changes described above. No work from their unfinished turns is counted as complete. User then requested continuation. Root resumed, inspected current files, and re-dispatched coordinator subtask for its two outstanding fixes if available.
+14. Wrote this checkpoint at a stable boundary before root edits. No secrets retained.
+
+### Confirmed Successful Results
+- Live page architecture/native-state observations listed above.
+- Primary-source research document exists with confidence labels and validation matrix.
+- Four adapter/frame fixes passed 28 focused tests at agent milestone.
+- Three coordinator fixes passed 68 engine tests at agent milestone.
+- New content-script harness reliably reproduced five failures against unchanged player implementation; this is reproduction evidence, not fixed behavior.
+
+### Failed, Incomplete, or Unresolved Work
+- Root content-script fixes unimplemented at checkpoint; five intentionally red regressions.
+- Global typecheck reports incomplete harness ExtensionState cast.
+- 10s startup watchdog and play-during-barrier rejection requested, not yet present.
+- Authenticated multi-account Crunchyroll sync/DRM/visual playback verification not performed. Source inspection alone cannot prove cause of every reported black screen.
+- Account usage errors interrupted subtasks, but saved local work remains.
+
+### Decisions and Rationale
+- Native media DOM is sufficient for supported fixes; no private Bitmovin globals or DRM access.
+- Keep buffered and seekable distinct. Avoid repeated seeks interrupting an adaptive player. Require real target readiness before ACK.
+- Scope async play completion to video/source/command; distinguish AbortError from permission rejection.
+- Measure frame progress where available, with visibility-safe fallback; seeks must not count as normal playback.
+- Preserve old checkpoint entries and append only. No new release/deploy implied by investigation.
+
+### Next Steps
+1. Implement root content-script fixes with regression checks and fix harness typing.
+2. Finish startup watchdog and server play-barrier guard, coordinating file ownership.
+3. Review all diffs, run typecheck/full suite/build, then two-profile E2E and relevant browser package verification.
+4. Produce a decision-ready Crunchyroll analysis with fixed vs remaining gaps and a live acceptance checklist.
+5. Append verified final results and residual limitations to this checkpoint.
+
+## Checkpoint 30 - Crunchyroll fixes completed locally
+
+### Session Metadata
+- Task or project: Continue the Crunchyroll-specific synchronization investigation and finish local implementation and verification.
+- Checkpoint number: 30.
+- Date/time: 2026-09-19 23:22 Europe/Istanbul (approximately 20:22 UTC).
+- Coverage period: Continuation after Checkpoint 29 through final local checks.
+- Current context status: Uncommitted working-tree changes implement the investigated extension, worker, coordinator, test, and documentation changes. No production deployment, commit, push, or release was performed.
+
+### User Objective and Requirements
+- User said “pick up where you left off” twice. Continue the already-authorized Crunchyroll deep analysis and bug-fixing work.
+- Preserve the existing state-only product boundary. Do not inspect or transmit media, credentials, cookies, tokens, DRM keys, license requests, or stream URLs.
+- Report the exact validation scope. Separate synthetic/unit, local real-browser, live provider, deployment, and user acceptance evidence.
+
+### Complete Chronological Activity Log
+1. Resumed from Checkpoint 29. Inspected the dirty working tree, latest checkpoint, content script, coordinator, service worker and the strengthened two-profile E2E. Confirmed no commit or deployment had occurred.
+2. Reviewed subtask results. Provider notes documented the live top-document `bitmovinplayer-video-null` player and primary source links. Adapter/worker audit had fixed stale shared-URL identity, localized same-episode tab reuse, equal-size frame replacement, unreachable player cleanup, and delayed failure protection. Coordinator audit had fixed controller seek acknowledgement, stale sample rejection, explicit `progressed:false`, a bounded startup watchdog, and play during an unfinished seek.
+3. Root completed content-script lifecycle fixes: generation-scoped play promises; `AbortError` classification; immediate-pause invalidation; pending seek coalescing and timeout ownership; current-frame readiness before seek ACK; post-seek recovery grace; episode identity gates on incoming state and outgoing intent/status; visible-frame progress using `getVideoPlaybackQuality` with hidden/unsupported fallback; improved pill status for buffering/catching-up/ready; and explicit Sync recovery.
+4. Added and corrected `apps/extension/src/content-script.test.ts`. The original implementation failed five focused tests. After implementation, the focused suite reached 21 passing tests covering slow seek completion, late completion, supersession, source reload, frame advancement/freeze, background behavior, episode transitions, leaving Crunchyroll, immediate pause, autoplay rejection, seek readiness and timeout recovery.
+5. Added a supersession guard so a timed-out local seek does not permanently block a later authoritative play command. One first version of the regression modeled a still-native-seeking element and correctly failed because playback must wait while the element is still seeking; the test was corrected to model seek completion before the newer play command.
+6. Ran `npm run check` after the final code change. TypeScript and edge-service typecheck passed. Vitest passed 26 test files and 189 tests. Room-service and extension builds passed.
+7. Ran `npm audit --omit=dev --audit-level=high`, which reported `found 0 vulnerabilities`.
+8. The earlier real two-profile local-video E2E run, after allowing isolated Chrome process launch, passed in 5.0 seconds before the latest frame-callback and native-backward-seek assertions were added. The strengthened E2E was not rerun because the automatic approval service rejected the new isolated-Chrome escalation after its usage limit was reached. It was not bypassed.
+9. Ran `npm run verify:browser-packages`. It reached the Safari packager after building extension variants, then failed because `xcrun safari-web-extension-packager` could not access the sandbox staging path. This is an environment packaging limitation. No Safari package success is claimed.
+10. Updated `docs/CRUNCHYROLL_SYNC_ANALYSIS.md` with the complete findings, implemented behavior, validation evidence, limitations, and manual acceptance checklist. The report explicitly says no deployment or release occurred.
+11. Ran `git diff --check` successfully. `git status` shows only the intended uncommitted source, tests, docs, research note, and checkpoint changes. No secrets were written.
+
+### Confirmed Successful Results
+- Local source implementation passes `npm run check`: typecheck, 26 Vitest files, 189 tests, room-service build and extension build.
+- Focused content-script suite passes 21 tests.
+- `npm audit --omit=dev --audit-level=high` passes with zero vulnerabilities.
+- Earlier local real-browser E2E baseline passed once isolated Chrome launch was allowed. The latest stronger E2E assertions are typechecked but not browser-executed.
+- Crunchyroll report: `docs/CRUNCHYROLL_SYNC_ANALYSIS.md`.
+- Primary-source note: `docs/research/crunchyroll-source-notes.md`.
+- Working-tree implementation and regression files are listed by `git status`; all are uncommitted and reviewable.
+
+### Failed, Incomplete, or Unresolved Work
+- Authenticated two-account Crunchyroll testing was not performed. The user’s reported black screen, one-sided playback and episode-transition symptoms still need live acceptance with the user’s authorized accounts.
+- The latest frame-aware/backward-seek E2E test did not execute because isolated Chrome launch approval hit the environment usage limit.
+- Safari package verification did not complete because `xcrun` rejected the sandbox staging path. This does not invalidate Chrome/Firefox source builds or Vitest/typecheck.
+- The coordinator watchdog and barrier fixes are uncommitted and not deployed. Production remains on the prior release until a separate release/deployment decision is made.
+- Current safe episode transition flow requires sharing the new episode link and fresh readiness. Seamless automatic native Next Episode propagation is intentionally not claimed.
+- No private Bitmovin player API or exact Crunchyroll library version was established. The live player observation is page/account/time specific.
+
+### Decisions and Rationale
+- Keep native HTML media observation and state-only transport. Do not hook undocumented vendor globals or inspect protected streams.
+- Keep `seekable` separate from `buffered`, require actual seek completion/current data, and coalesce slow adaptive seeks.
+- Treat `AbortError` as a lifecycle interruption and only current `NotAllowedError` as a gesture-required failure.
+- Treat visible frame progress as stronger evidence than clock movement when the browser exposes frame counters, while avoiding false freeze reports for hidden tabs.
+- Make old episode state inert as soon as local URL identity changes. Let the worker establish identity for origin-only legacy frames.
+- Do not deploy or publish from this investigation. The user asked for investigation and fixes, not a release action.
+
+### Files and Artifacts
+- `apps/extension/src/content-script.ts` and `apps/extension/src/content-script.test.ts`.
+- `apps/extension/src/player-tab.ts`, `player-tab.test.ts`.
+- `apps/extension/src/service-worker.ts`, `service-worker.test.ts`.
+- `packages/sync-engine/src/room.ts`, `playback-health.ts`, tests, and `room-streaming-regressions.test.ts`.
+- `tests/e2e/two-profile-sync.spec.ts`.
+- `docs/CRUNCHYROLL_SYNC_ANALYSIS.md` and `docs/research/crunchyroll-source-notes.md`.
+- `context-checkpoint.md`.
+
+### Next Steps
+1. Review the uncommitted diff and choose a version/commit when ready.
+2. Deploy the extension and coordinator together only after the user authorizes release, then run production smoke.
+3. Perform the live Crunchyroll acceptance matrix with two authorized accounts: play, pause, forward/backward seeks, Skip Intro, audio/subtitle change, source reload, Next Episode, black loader and recovery.
+4. Re-run the strengthened two-profile E2E when isolated Chrome process approval is available.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, or signed media URLs are stored here.
+- Checkpoint 29’s “not implemented” statements are superseded by the successful implementations and tests recorded in Checkpoint 30, while its reproduction history remains authoritative.
+
+## Checkpoint 31 - Final review and repeat verification
+
+### Session Metadata
+- Task or project: Final consistency review after the Crunchyroll synchronization implementation and analysis.
+- Checkpoint number: 31.
+- Date/time: 2026-09-19 23:28 Europe/Istanbul.
+- Coverage period: Review after Checkpoint 30 through the final repeated source checks.
+- Current context status: Working tree remains uncommitted and undeployed. Implementation, tests, report, research note and checkpoint are present.
+
+### Complete Chronological Activity Log
+1. Reviewed the completed subagent results and the shared working tree. Confirmed that adapter, worker, coordinator, content-script, E2E and documentation changes are all present, with no commit, push or deployment.
+2. Re-read the content-script diff and regression harness to verify that the previously identified provider-research risks are addressed: slow seek recovery, outgoing episode identity gates, immediate local pause invalidation and late seek ownership.
+3. Re-read the coordinator, worker and player-tab diffs to verify controller seek acknowledgement, stale status rejection, startup timeout behavior, stale URL protection, player-frame generation protection, unreachable-player cleanup and localized Crunchyroll tab reuse.
+4. Re-read `docs/CRUNCHYROLL_SYNC_ANALYSIS.md` and `docs/research/crunchyroll-source-notes.md`. Confirmed that provider observations, source links, confidence limits, validation scope and unresolved live acceptance work are stated separately.
+5. Ran `git status --short` and `git diff --check`. The working tree contains only the intended uncommitted implementation, tests, documentation, research and checkpoint files, and whitespace validation passed.
+6. Re-ran `npm run check`. TypeScript and edge-service typecheck passed, 26 Vitest files and 189 tests passed, room-service build passed, and the extension build passed.
+7. Re-ran `npm audit --omit=dev --audit-level=high`. It returned `found 0 vulnerabilities`.
+
+### Confirmed Successful Results
+- The final local source verification is green: `npm run check`, 26 test files, 189 tests, TypeScript validation and both builds.
+- Dependency audit is clean at the requested high-severity threshold.
+- `git diff --check` is clean.
+- The analysis report and source note accurately distinguish live DOM observation from documented behavior, synthetic tests, local browser evidence and unavailable authenticated Crunchyroll acceptance.
+
+### Failed, Incomplete, or Unresolved Work
+- No new live authenticated two-account Crunchyroll run was performed during this final review.
+- The strengthened frame-aware two-profile E2E remains typechecked but not rerun after its latest assertions because isolated Chrome launch approval reached the environment usage limit.
+- Safari packaging remains blocked by the sandbox staging-path restriction recorded in Checkpoint 30.
+- Changes remain uncommitted, unreleased and undeployed. Production coordinator and extension runtime do not contain this investigation until a separately authorized release.
+
+### Decisions and Rationale
+- No further code changes were made after the final review because the source pass, regression suites, build and audit all remain green and the remaining gaps require authenticated provider/browser acceptance rather than more speculative adapter changes.
+- The final user report will state the exact verification boundaries and will not present local tests as proof of protected Crunchyroll playback.
+
+### Files and Artifacts
+- [docs/CRUNCHYROLL_SYNC_ANALYSIS.md](docs/CRUNCHYROLL_SYNC_ANALYSIS.md)
+- [docs/research/crunchyroll-source-notes.md](docs/research/crunchyroll-source-notes.md)
+- [apps/extension/src/content-script.ts](apps/extension/src/content-script.ts)
+- [packages/sync-engine/src/room.ts](packages/sync-engine/src/room.ts)
+- [context-checkpoint.md](context-checkpoint.md)
+
+### Next Steps
+1. Deliver the decision-ready report to the user with source links and explicit limitations.
+2. If the user later authorizes release work, commit and release the extension and coordinator together, then run production smoke.
+3. Perform the live acceptance matrix with two authorized Crunchyroll accounts and record player error codes, native progress, frame movement and episode transitions without collecting protected stream data.
+
+### Historical Checkpoint Notes
+- No credentials, tokens, private keys, cookies, media bytes, signed URLs or DRM information were written to this checkpoint.
+
+## Checkpoint 32 - Deeper remediation plan and complete handoff, no implementation
+
+### Session Metadata
+- Task or project: Prepare a deeper Crunchyroll remediation plan and a handoff covering the full investigation and test history.
+- Checkpoint number: 32.
+- Date/time: 2026-09-19 23:53 Europe/Istanbul, 20:53 UTC.
+- Coverage period: User's plan-only instruction after the earlier investigation through document preparation and preservation checks.
+- Current context status: Existing uncommitted candidate code preserved. New planning documents written; executable plan tasks are not started. No commit, push, issue publication, build, browser mutation or deployment in this turn.
+
+### User Objective and Requirements
+- User: “Make a deeper plan to fix the problems and implement the necessary fixes. Do not implement the plan, only make it or prepare it.” The explicit last sentence governs: prepare only.
+- User added: “Also prepare a handoff that summarizes everything that you have done and the test you done and so on, alongside the plan.”
+- User later said “pick up where you left off.” This resumes document preparation, retaining the no-implementation constraint.
+- Preserve previous dirty work and task history. Do not use em dashes in new response/documents. Maintain state-only boundaries and exact evidence scope.
+
+### Complete Chronological Activity Log
+1. Announced that the work would produce an implementation-ready plan without changing executable code. Searched the memory registry for SyncYourJoy and read the directly referenced earlier beta-release recap. Used historical privacy/verification conventions only; rechecked current version and checkout from the repository.
+2. Read the planning-and-task-breakdown SKILL.md at `/Users/muazsabbagh/.codex/plugins/cache/web-workflows-suite/agent-skills/0.6.7/skills/planning-and-task-breakdown/SKILL.md` and announced its use. Its output convention is `tasks/plan.md` plus a task checklist. This did not change collaboration mode or authorize code execution.
+3. Inspected `git status`, HEAD, existing analysis/source note and checkpoint 30/31. Confirmed branch main at `1ac5b1c13ba21d93823c43c3b33f354ba5a9ac68`, package 0.2.4 and the existing dirty implementation/test files. The initial chained inventory command stopped at `ls -la tasks` because that directory did not exist; package/config reads were rerun separately. No missing source file was inferred from that command failure.
+4. Delegated three read-only reviews to existing agents: adapter/content/binding risks; coordinator/protocol/transport design; and test/evidence/handoff completeness. Explicitly prohibited edits, test/build execution and external mutation in those reviews.
+5. Received the handoff addition from the user and incorporated a separate handoff artifact. Continued source review while agents inspected independently.
+6. Read current package scripts, `.gitignore`, architecture/product docs and selected protocol/room/seek/health/content/worker/backend code with line numbers. Found that project-wide remaining work is already tracked in GitHub; decided the new task checklist is a local planning draft, with later mapping to existing tracker only after authorization. No issues were created.
+7. Captured SHA-256 for every non-Markdown tracked and untracked, non-ignored file using a read-only Git inventory and Python hash calculation. Stored the 104-file manifest in tool-session state for an end-of-turn comparison. This preserves an exact executable/configuration boundary for the plan-only request.
+8. Read the content-script identity guard and fingerprint/referrer functions, status and refresh paths, worker sender check, protocol sample/ACK types, room control/ACK/expiry, server cleanup loop, edge alarm/persistence, and E2E setup/profile/spec. No code was modified.
+9. Source review found unresolved identity authority mismatch for generic/nested embeds, message-driven-only health watchdog, late ACK without inline deadline check, readiness-dependent shrinking quorum, insufficient slow-seek convergence grace, pending seek attribution cleared on supersession, incomplete asynchronous binding protection, inconsistent context/periodic health, and edge health persistence gaps. These are source findings requiring regression reproduction, not new live Crunchyroll diagnoses.
+10. Test review found the stronger E2E is unexecuted, the earlier passing run does not establish final-source equivalence, `npm run check` excludes Playwright, the fixture is only a short progressive MP4, the forward destination assertion is weak, drift convergence is sampled once, test builds share production dist, endpoint-only cache lacks source provenance, and manually launched contexts do not explicitly start tracing. All became plan/handoff items.
+11. Refreshed primary references through web tooling. WHATWG media/seeking fetch timed out; `https://www.w3.org/TR/media-playback-quality/` returned 404. The corrected `https://w3c.github.io/media-playback-quality/` succeeded, as did WICG frame callback documentation, Chrome's interrupted-play explanation and Cloudflare WebSocket/hibernation guidance. Failed fetches were not used as technical evidence. No authenticated provider data was accessed.
+12. Explained to the user that two major new gaps are embedded-player identity and missing-report health detection, and that the prior green tests do not cover them. Later explained the proposed distinction between readiness, preparation and confirmed playback, fixed-target recovery and the still-unexecuted browser test.
+13. Created `tasks/plan.md` with source-grounded gap table, architecture and invariants, identity/operation/binding scopes, player states, prepare/commit/start sequence diagram, fixed-quorum/deadline rules, health/persistence design, navigation behavior, diagnostic contract, provisional timing values, dependency stages, acceptance metrics and migration/rollout/rollback gates. Proposed constants and metrics are explicitly unmeasured.
+14. Created `tasks/todo.md` with 23 uniquely identified tasks across four stages, each containing dependencies, scope, likely files, acceptance criteria and verification. All tasks remain unchecked. Included checkpoints and separate publication authorization. No task implementation was started.
+15. Asked the coordinator agent for a read-only critique of the drafted plan. That additional review failed at an account usage limit before returning critique. Earlier three review results had already completed and were incorporated. Root performed document consistency checks directly; no independent final document-review pass is claimed.
+16. User requested continuation. Announced continuing the handoff and unchanged-code verification without lifting the plan-only instruction.
+17. Created `docs/CRUNCHYROLL_HANDOFF.md`: latest user constraint, actual source/branch/publication state, live-page observation and confidence, complete earlier implementation inventory, chronological test/attempt ledger, all 21 covered player test cases and missing permutations, corrected harness assumptions, new review risks, candidate file inventory/hashes, dist/endpoint/runtime hazards, decision boundaries and exact continuation procedure.
+18. Ran document-only validation: all local links resolved, 23 task IDs were unique, no tasks were checked, and no em dashes appeared in the three new documents. Ran `git diff --check` successfully. No application tests/builds ran.
+19. Recomputed the 104-file non-Markdown inventory and compared hashes: no added, removed or changed file. Recorded this evidence in the handoff. The ignored dist directory is outside that inventory, but no build-producing command was run in this planning turn.
+20. Added two explicit plan rows for indefinitely pending play and context-refresh health inconsistency. Added a dated cross-reference near the top of the earlier analysis so readers see the new plan and handoff without erasing earlier verified results.
+21. Appended this checkpoint, preserving all earlier checkpoint content. The earlier checkpoint 31 assertion that only runtime acceptance remained is now superseded by the new source-level findings; its successful tests remain valid for the covered candidate cases.
+22. Ran the final document-only check after the last edits: 261 plan lines, 269 checklist lines and 304 handoff lines; 23 unique tasks, zero checked tasks, no unresolved local links or task references, no missing scope/dependency/verification sections, no unbalanced code fences and no em dashes in the new documents. `git diff --check` remained clean.
+23. Requested Codex file panels for the plan and handoff. Both requests returned `queued`, not confirmed visibly opened. Final response supplies direct file links regardless of panel state.
+
+### Confirmed Successful Results
+- Deeper plan saved at `tasks/plan.md`.
+- Twenty-three-task unexecuted checklist saved at `tasks/todo.md`.
+- Full investigation/test handoff saved at `docs/CRUNCHYROLL_HANDOFF.md`.
+- Earlier analysis links the newer plan/handoff; historical test evidence is preserved.
+- Documentation link/task/format checks passed, and `git diff --check` passed.
+- Before/after SHA-256 comparison of 104 non-Markdown, non-ignored tracked/untracked files confirmed no executable/test/configuration changes during planning.
+
+### Failed, Incomplete, or Unresolved Work
+- No additional implementation was performed; every task in the new checklist remains proposed.
+- New source risks are not newly reproduced tests or verified live causes. Stage A begins with reproduction after authorization.
+- The strengthened E2E still has no passing runtime result; earlier isolated-Chrome approval had hit an environment usage limit.
+- Authenticated two-account Crunchyroll acceptance and Safari runtime remain unperformed. Safari package conversion's prior staging-path failure is unresolved.
+- The final additional agent document critique failed because of account usage limits. Root's own review and automated document/preservation checks completed.
+- Provider-library version, full account rollout, protected decoding and black-output causes remain unknown.
+- No release or production change has occurred.
+
+### Decisions and Rationale
+- Treated the user's explicit no-implementation instruction as authoritative despite the opening mention of implementing fixes.
+- Preserved all previous local work; documentation distinguishes prior code changes from new proposed work.
+- Planned minimal testable modules and coordinated transactions within the existing application instead of a broad framework rewrite.
+- Prioritized cross-provider identity, operation ownership, fixed quorum and independent health deadlines before timeout tuning.
+- Separated hard safety conditions from normal seek usability; pausing safely on every ordinary seek would still fail the desired experience.
+- Kept native next-episode follow optional and disabled until tested, with manual shared-link readiness required throughout.
+- Used additive capability negotiation and staged client/backend compatibility; protocol version changes must not be implied to migrate themselves.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tasks/plan.md`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tasks/todo.md`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_HANDOFF.md`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CRUNCHYROLL_SYNC_ANALYSIS.md`, historical report plus new cross-reference
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+
+### Next Steps
+1. Complete final document-only validation and deliver the three linked artifacts to the user.
+2. Remain in planning scope until implementation is explicitly authorized.
+3. If authorized later, follow handoff continuation, start A01 reproductions and preserve the candidate rather than restarting from clean HEAD.
+
+### Historical Checkpoint Notes
+- This checkpoint contains no credentials, cookies, tokens, protected-media bytes, signed stream URLs or DRM information.
+- Old tests, new hypotheses, proposed work and release status remain separately labelled.
+
+## Checkpoint 33 - GitHub issue publication for the Crunchyroll remediation plan
+
+### Session Metadata
+- Task or project: Publish detailed GitHub issue trackers for every intended fix in the Crunchyroll remediation plan.
+- Checkpoint number: 33.
+- Date/time: 2026-09-20 00:07 Europe/Istanbul.
+- Coverage period: User authorization to create tracker issues after Checkpoint 32 through completed remote verification and temporary-script cleanup.
+- Current context status: Twenty-three plan tasks have verified GitHub trackers in milestone 1. Twenty-two issues were created and existing issue 33 was reused for CR-D04. No task implementation, source edit, pull request, commit, push, build, test suite, deployment or release was performed in this tracker-publication pass. Existing user-owned working-tree changes remain present.
+
+### User Objective and Requirements
+- User asked to open issues for each intended fix in the plan and to-do checklist, add detailed labels and other useful tracker information, and put every issue in a milestone so the issues are organized.
+- User explicitly limited the work to issues only: do not implement the tasks and do not open pull requests.
+- Preserve the 23 stable task IDs from `tasks/todo.md`, retain detailed acceptance and verification requirements, and avoid a duplicate when an existing issue already represents a planned task.
+
+### Complete Chronological Activity Log
+1. Resumed from the completed plan and handoff in Checkpoint 32. Announced that existing issues, labels and milestones would be audited before any write so task IDs could be mapped without duplication.
+2. Queried GitHub authentication and repository metadata for `muaz978/sync-your-joy`. Confirmed authenticated issue-write access, public repository, default branch `main`, and remote `https://github.com/muaz978/sync-your-joy.git`.
+3. Inspected milestones and found one applicable open milestone: number 1, `M3/M5: reliability and real-device validation`, at `https://github.com/muaz978/sync-your-joy/milestone/1`. Its description already covers provider, real-device and cross-browser validation, so no new milestone was created.
+4. Inspected open and closed issues. Open reliability trackers were issue 30 for commercial-provider E2E, issue 33 for real multi-device commercial-provider acceptance, issue 34 for two-device network chaos, and issue 35 for headed cross-platform verification. Closed issues 31 and 32 were unrelated.
+5. Used two read-only delegated audits. The taxonomy audit recommended a small reusable label set plus the repository's existing `bug` and `enhancement` labels. The duplicate audit concluded that CR-D04 substantially overlaps existing issue 33; the remaining 22 tasks are distinct enough to receive separate trackers. No delegated audit changed GitHub or local files.
+6. Created six reusable labels on GitHub: `initiative: crunchyroll-sync`, `area: extension`, `area: sync-engine`, `area: protocol`, `area: backend`, and `area: testing`. Colors and descriptions were selected to identify the initiative and affected component without adding redundant priority or stage labels.
+7. Re-read all 23 entries in `tasks/todo.md`. Each issue body was designed to include Summary, Problem and evidence, Scope, Acceptance criteria, Dependencies, Verification, Related issues and Boundaries. Bodies explicitly state that work is planned and not started.
+8. Re-read issue 33 before editing it. Its existing body already covered real multi-device commercial-provider testing, autoplay rejection, backward seeking and provider regressions, which confirmed the duplicate audit. The later edit retained and expanded those goals instead of opening another D04 issue.
+9. Created a temporary Node helper in `/private/tmp` with `apply_patch`. It parsed task titles, scope, expected files/artifacts, three acceptance checkboxes and verification text directly from `tasks/todo.md`; added source-grounded problem statements; created issue-to-issue dependency links in task order; applied labels and milestone 1; and treated issue 33 as the canonical D04 tracker. The helper used `gh` argument arrays rather than shell-interpolated multiline bodies.
+10. Ran `node --check` successfully before remote issue creation. Corrected the task-section end-of-input regular expression before executing the helper; the incorrect version was never used for a GitHub mutation.
+11. Executed the helper. It created CR-A01 through CR-C02 as issues 48 through 63, then created CR-C03 as 64, CR-C04 as 65, CR-D01 as 66, CR-D02 as 67, CR-D03 as 68 and CR-D05 as 69. It edited and relabeled existing issue 33 as `CR-D04: Execute two-account Crunchyroll and cross-provider acceptance`.
+12. GitHub numbering began at issue 48 because issue and pull-request numbers share one sequence. A later read-only pull-request listing confirmed numbers 36 through 47 were pre-existing repository pull requests created before this issue-publication pass. No pull request was created or modified by this work.
+13. Queried all issues and verified every CR tracker is open, assigned to milestone 1 and carries the initiative label plus its intended `bug` or `enhancement` and component labels. Existing umbrella issues 30, 34 and 35 remain open and are linked from relevant D-stage trackers rather than replaced.
+14. Inspected the full rendered Markdown bodies for CR-A01 issue 48, reused CR-D04 issue 33 and final release-gate CR-D05 issue 69. Confirmed the problem statement, exact checklist criteria, dependencies, verification instructions, related issue references and no-implementation status rendered correctly.
+15. Attempted one aggregate verification by parsing a large `gh api` response from tool output. The command output was prefixed with a truncation warning, so JSON parsing failed. This was a read-only verification failure and caused no GitHub change. The truncated output was not treated as evidence.
+16. Created a second temporary local verifier that consumed GitHub API data internally and printed only a compact report. It compared all remote titles and acceptance criteria with `tasks/todo.md`, checked exact labels, body sections, verification text, dependency links, task uniqueness, open state, milestone 1, D04 reuse of issue 33, label colors/descriptions and the milestone title/state.
+17. The final verifier passed with zero failures: 23 trackers, 23 unique task IDs, 69 acceptance checkboxes, six reusable label definitions, milestone 1 and complete mapping from A01 through D05.
+18. Queried current pull requests read-only. The latest open pull requests are pre-existing dependency-update pull requests 44 through 47 from 2026-09-19. No new pull request corresponds to this issue pass.
+19. Queried `git status --short`. Existing uncommitted Crunchyroll source, test, report and plan files remain. This pass made no executable source or test edit. The only workspace edit in this pass is this required chronological checkpoint.
+20. Deleted both temporary `/private/tmp` helper scripts with `apply_patch` after successful verification. No tracker helper was retained in the repository.
+
+### Confirmed Successful Results
+- All 23 intended tasks have one verified GitHub tracker in the correct milestone.
+- Twenty-two new issues were created: 48 through 69 inclusive. Existing issue 33 was reused for CR-D04, so no duplicate acceptance issue was opened.
+- All trackers are open and assigned to milestone 1, `M3/M5: reliability and real-device validation`.
+- Six reusable initiative/component labels were created and verified for exact name, color and description.
+- All 69 task acceptance checkboxes from `tasks/todo.md` are present remotely, along with problem evidence, scope, dependency links, verification, related issues and boundaries.
+- Final automated tracker audit result: PASS, with no missing task, duplicate task ID, incorrect label, incorrect milestone, missing body section, missing acceptance criterion or missing dependency link.
+- Issue mapping:
+  - A01 issue 48, A02 issue 49, A03 issue 50, A04 issue 51, A05 issue 52, A06 issue 53, A07 issue 54.
+  - B01 issue 55, B02 issue 56, B03 issue 57, B04 issue 58, B05 issue 59, B06 issue 60, B07 issue 61.
+  - C01 issue 62, C02 issue 63, C03 issue 64, C04 issue 65.
+  - D01 issue 66, D02 issue 67, D03 issue 68, D04 issue 33, D05 issue 69.
+- No source implementation, pull request, commit, push, build, deployment or release occurred.
+
+### Failed, Incomplete, or Unresolved Work
+- The first aggregate verifier could not parse console output because the tool inserted an output-truncation warning. It was replaced with a bounded-output verifier, which passed. No mutation depended on the failed verifier.
+- The issues are planning trackers only. None of the implementation, regression, browser, provider, packaging or release tasks has been executed by creating them.
+- Live two-account Crunchyroll acceptance, the strengthened browser matrix and release authorization remain future issue work.
+- Existing local source and test changes from the earlier investigation remain uncommitted and were not reviewed, modified or published in this pass.
+
+### Decisions and Rationale
+- Reused issue 33 for CR-D04 because it already represented the same real multi-device commercial-provider acceptance work. Editing it preserves history and prevents two competing acceptance trackers.
+- Retained issues 30, 34 and 35 as broader related validation trackers. The new D-stage issues link to them and specify the narrower evidence slices from the remediation plan.
+- Used one initiative label, component labels and existing `bug` or `enhancement` types. Task IDs and dependency links already express ordering, so no speculative priority or stage labels were added.
+- Added no assignees or project placement because existing reliability tracker conventions do not establish either, and the milestone provides the requested organization.
+- Kept every issue self-contained because the local plan and handoff may not be available to someone reading GitHub alone.
+
+### Files and Artifacts
+- GitHub milestone: `https://github.com/muaz978/sync-your-joy/milestone/1`.
+- GitHub tracker filter can use label `initiative: crunchyroll-sync`.
+- Source checklist used for exact acceptance text: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tasks/todo.md`.
+- Detailed design used for issue context: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tasks/plan.md`.
+- This chronological record: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`.
+- Temporary creation and verification scripts were removed from `/private/tmp` after the passing audit.
+
+### Assumptions and Uncertainties
+- GitHub issue and milestone state was verified at the timestamp above and can change later through repository activity.
+- The selected milestone has no due date. None was invented because the repository and plan provide no approved release date.
+- Labels classify scope and type, not scheduling priority or ownership.
+
+### Open Questions, Blockers, and Dependencies
+- No blocker remains for the requested issue-publication task.
+- Implementation remains gated by the dependency order and acceptance criteria in the issues.
+- CR-D04 still depends on authorized provider accounts/devices and the exact candidate build. CR-D05 still requires separate publication authorization and accepted A through D evidence.
+
+### Next Steps
+1. Use milestone 1 or the `initiative: crunchyroll-sync` label to review and prioritize the 23 trackers.
+2. Do not begin implementation merely because the issues exist. When implementation is authorized, start with CR-A01 issue 48 and follow the linked dependencies.
+3. Preserve separate evidence for source tests, real-browser behavior, live provider acceptance, packaging and deployment as required by the issue bodies.
+
+### Historical Checkpoint Notes
+- Checkpoint 32 remains authoritative for the unexecuted plan and handoff content. This checkpoint records only the later GitHub tracker publication and verification.
+- This checkpoint contains no credentials, access tokens, cookies, private keys, protected-media data, stream URLs or DRM material.
+
+## Checkpoint 34 - Preserve the candidate on a review branch
+
+### Session Metadata
+- Task or project: Commit and push the Crunchyroll candidate fixes, regression tests, plan, handoff, research, issue map, and tracker history to a dedicated branch.
+- Checkpoint number: 34.
+- Date/time: 2026-09-20, after the 00:16 source and browser verification run, Europe/Istanbul.
+- Coverage period: User authorization to publish the candidate branch after Checkpoint 33 through focused local commits, documentation reconciliation, and the pending remote publication attempt.
+- Current context status: Four focused code/test commits exist locally and remotely on `codex/crunchyroll-sync-hardening`. Documentation commit `bd64bf7` exists locally and awaits the final remote push, followed by this checkpoint commit. No production release or deployment occurred.
+
+### User Objective and Requirements
+- User asked to commit and push the created fixes and supporting documents to a branch so other contributors can inspect and work from the same candidate.
+- Preserve the current source and tests, publish the plan and handoff in a repository-visible path, and do not open a pull request unless separately requested.
+- Keep the candidate explicitly incomplete. The open CR issues remain the work plan and release gates; the branch is a review baseline, not a claim that Crunchyroll remediation is complete.
+
+### Complete Chronological Activity Log
+1. Announced that the current Crunchyroll fixes, tests, analysis, plan, handoff, and tracker record would be reviewed and placed on a dedicated branch. Announced use of the repository Git workflow skill for branch, commit, and push discipline.
+2. Delegated three read-only audits. The extension audit found no unrelated executable edits or sensitive collection but confirmed unresolved generic embedded identity, late seek attribution, timeout observation, and convergence gaps. The coordinator audit found no new blocker beyond late deadline ACK, shrinking required quorum, and total report-silence health detection. The repository audit found that `tasks/` had deliberately been retired by commit `d37bfd0` in favor of GitHub issues and that the public handoff still contained stale local-only wording.
+3. Read the Git workflow skill and searched the memory registry for the SyncYourJoy state-only boundary and evidence conventions. No source changes were made from memory; current repository state was verified directly.
+4. Confirmed `HEAD` and `origin/main` were both `1ac5b1c13ba21d93823c43c3b33f354ba5a9ac68`. The first default-sandbox `git fetch origin` failed because `.git/FETCH_HEAD` is protected. The escalated fetch succeeded and only added existing Dependabot remote refs; it did not change `origin/main`.
+5. Confirmed `codex/crunchyroll-sync-hardening` did not exist remotely, then created that local branch from the current main checkout. No branch was created on GitHub yet.
+6. Re-read the source and tests. The working tree contained the extension content script, player-tab and worker changes, coordinator and health changes, new content and room regression tests, and the strengthened two-profile browser test. The existing plan, handoff, analysis, research note, checkpoint and local tracker files were also present.
+7. Ran `npm run check` on the exact candidate. TypeScript and edge typecheck passed, 26 Vitest files and 189 tests passed, the room-service build passed, and the extension build passed.
+8. Ran `npm audit --omit=dev --audit-level=high`; it returned `found 0 vulnerabilities`. `git diff --check` passed.
+9. Ran `npm run test:e2e` in the normal sandbox. The room service and extension build completed, but isolated Chrome terminated before the scenario with SIGABRT/EPERM. This was an environment launch failure.
+10. Re-ran the same E2E with the required isolated Chrome process permission. One test passed in 6.9 seconds, with 4.4 seconds in the scenario. It exercised two profiles, the unpacked extension, the real local room service, visible frame progress, forward seeking, native backward seeking, and convergence on the short generic fixture. It did not exercise Crunchyroll accounts or protected playback.
+11. Initially staged the full code candidate and created local commit `c52ae31`, `fix: harden provider playback lifecycle handling`. Before pushing, the review audit recommended focused commits. Because that commit was unpushed and contained only current work, a non-destructive mixed reset preserved all files and removed that single commit from branch history.
+12. Created four focused local commits:
+   - `4debb78`, `fix: require explicit seek readiness and bound playback startup`, containing sync-engine room, health, and regression coverage.
+   - `9ae24a7`, `fix: harden player tab identity and binding recovery`, containing player-tab and service-worker behavior/tests.
+   - `0c13a28`, `fix: serialize adaptive player seek and play operations`, containing content-script behavior and its 21-test harness.
+   - `ded3527`, `test: verify rendered progress in two-profile synchronization`, containing the strengthened browser scenario.
+13. Reconciled the documentation with the now-published GitHub tracker. Moved the durable plan from the retired `tasks/plan.md` path to `docs/CRUNCHYROLL_REMEDIATION_PLAN.md`. Replaced the redundant unchecked `tasks/todo.md` with static `docs/CRUNCHYROLL_ISSUE_MAP.md`, which links all 23 canonical GitHub issues and states that GitHub is the live source of truth.
+14. Updated `docs/CRUNCHYROLL_HANDOFF.md` to remove workstation-specific public paths, identify the preservation branch and code commits, record the successful exact-candidate E2E, distinguish the remaining live-provider gaps, and explain how contributors should continue from the branch. Updated `docs/CRUNCHYROLL_SYNC_ANALYSIS.md` with the same E2E and branch evidence. Linked the plan, issue map and handoff from `docs/PRODUCT_PLAN.md`.
+15. The first escalated `git add` for the documentation commit was rejected by the automatic approval service because the session hit its usage limit. The command was not executed. A normal-sandbox retry failed with `fatal: Unable to create .git/index.lock: Operation not permitted`, confirming that Git metadata writes require the unavailable escalation. No bypass was attempted.
+16. The documentation and checkpoint remained as working-tree changes. A final staging, documentation commit, and documentation push remained necessary once Git metadata permission was available.
+17. Ran `git push --set-upstream origin codex/crunchyroll-sync-hardening` without escalation after the escalated staging path was rejected. GitHub accepted the four code/test commits and created the remote branch. The local command then failed only while writing `.git/config` and the local `origin` remote-tracking ref, so upstream configuration was not recorded locally. No documentation was included in that push because it was not staged.
+18. After the approval window reset, staged the exact six contributor-facing documentation files. Verified their local Markdown links, staged file list, whitespace, and a sensitive-pattern scan. Created local documentation commit `bd64bf7`, `docs: publish Crunchyroll remediation handoff`. It contains the durable plan, static GitHub issue map, handoff, analysis, source research, and product-plan entry point. The checkpoint remains unstaged for this final record.
+
+### Confirmed Successful Results
+- Branch `codex/crunchyroll-sync-hardening` exists locally and is based on the exact current `origin/main` commit before the candidate changes.
+- Four focused code/test commits exist locally: `4debb78`, `9ae24a7`, `0c13a28`, and `ded3527`.
+- GitHub accepted those four commits on remote branch `codex/crunchyroll-sync-hardening`; remote verification returned the code tip `ded3527` before the documentation commit.
+- Documentation commit `bd64bf7` was created locally after the approval reset and is ready to push.
+- `npm run check` passed with 26 test files and 189 tests, TypeScript validation, room-service build, and extension build.
+- `npm audit --omit=dev --audit-level=high` passed with zero vulnerabilities.
+- The strengthened exact-candidate two-profile E2E passed once after isolated Chrome permission was granted.
+- The documentation has been edited to remove the retired `tasks/` source-of-truth conflict. The planned durable files are `docs/CRUNCHYROLL_REMEDIATION_PLAN.md`, `docs/CRUNCHYROLL_ISSUE_MAP.md`, `docs/CRUNCHYROLL_HANDOFF.md`, `docs/CRUNCHYROLL_SYNC_ANALYSIS.md`, and `docs/research/crunchyroll-source-notes.md`.
+- The candidate still preserves the state-only boundary. No media bytes, credentials, cookies, protected stream URLs, DRM material, screen capture, or private provider API work was added.
+
+### Failed, Incomplete, or Unresolved Work
+- The code/test branch was pushed, but documentation commit `bd64bf7` and this checkpoint are not on the remote branch yet. Local upstream tracking was not written because `.git/config` and local remote-ref paths are protected.
+- No pull request was opened.
+- The candidate remains incomplete. The audits confirmed open CR-A02, CR-A03, CR-A05, CR-A06, CR-A07 and CR-B04 class gaps, plus the remaining protocol, edge, fixture, live-provider and release gates.
+- The E2E result is one generic local-fixture run. It does not prove Crunchyroll, DRM, adaptive loading, three-member quorum, headed browser behavior, cross-browser runtime, or visible-output correctness in a protected player.
+- Safari packaging remains blocked by the previously recorded staging-path restriction.
+
+### Decisions and Rationale
+- Used `codex/crunchyroll-sync-hardening` as the branch name and kept it separate from `main`.
+- Split the source candidate into four commits so a contributor can review or revert coordinator, binding, content lifecycle, and browser-test changes independently.
+- Moved the design plan under `docs/` and converted the checklist into a static issue map because commit `d37bfd0` established GitHub issues as the repository's canonical task tracker.
+- Kept the code candidate and the plan visibly incomplete. The presence of passing local tests does not close the open provider, silence, deadline, quorum, identity, or release issues.
+- Did not bypass the automatic approval review when the staging operation was rejected.
+
+### Files and Artifacts
+- Local branch: `codex/crunchyroll-sync-hardening`.
+- Code commits: `4debb78`, `9ae24a7`, `0c13a28`, `ded3527`.
+- Pending documentation files: `docs/CRUNCHYROLL_REMEDIATION_PLAN.md`, `docs/CRUNCHYROLL_ISSUE_MAP.md`, `docs/CRUNCHYROLL_HANDOFF.md`, `docs/CRUNCHYROLL_SYNC_ANALYSIS.md`, `docs/research/crunchyroll-source-notes.md`, `docs/PRODUCT_PLAN.md`.
+- Required final record: `context-checkpoint.md`.
+- Retired local tracker paths `tasks/plan.md` and `tasks/todo.md` are removed from the working tree; their durable replacements are under `docs/`.
+
+### Assumptions and Uncertainties
+- Remote branch state is not yet verified because the push has not succeeded.
+- The four local code commits were created before the documentation reconciliation and have not been rebased or amended after creation.
+- GitHub issue state can change independently. The issue map is a stable index, not a cached completion report.
+
+### Open Questions, Blockers, and Dependencies
+- Git metadata write permission is required to stage this updated checkpoint and create its final record commit. A normal `git push` can publish commits even though it cannot write local upstream tracking metadata.
+- After committing this checkpoint, push `bd64bf7` and the checkpoint commit, then verify the remote branch SHA.
+- No user decision is needed about issue scope. The only external blocker is the approval-service limit for the required Git metadata operation.
+
+### Next Steps
+1. Stage the updated checkpoint and review its focused diff.
+2. Commit the checkpoint record.
+3. Push `bd64bf7` and the checkpoint commit to `codex/crunchyroll-sync-hardening`, then verify the remote SHA and branch URL.
+4. Report the exact branch, commit list, verification results, and remaining release limitations.
+
+### Historical Checkpoint Notes
+- Checkpoint 33 records the completed GitHub issue publication: 23 trackers, 22 new issues, CR-D04 reused as issue 33, six reusable labels, and milestone 1.
+- This checkpoint records branch preparation and the current metadata-permission blocker. It contains no credentials, access tokens, cookies, private keys, protected-media bytes, stream URLs, or DRM material.
