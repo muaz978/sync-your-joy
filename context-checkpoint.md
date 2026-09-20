@@ -5610,3 +5610,307 @@
 - Checkpoints 1-63 remain intact. This checkpoint records the complete CR-A06 PR #80 review, merge, issue documentation and public project-state lifecycle.
 - Earlier records that described CR-A06 implementation as outstanding are superseded by the confirmed successful results in this checkpoint, while remaining external acceptance limitations are preserved.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+# Checkpoint 65 - CR-A07 lease-boundary fix, review, merge and verification
+
+## Session Metadata
+- Task or project: SyncYourJoy CR-A07 seek-barrier lifecycle
+- Checkpoint number: 65
+- Date and time: 2026-09-20 19:29 +03
+- Coverage period: From post-CR-A06 continuation into oldest next issue #54 through gap discovery, implementation, verification, PR #81 review and merge, issue documentation and project-state verification.
+- Current context status: CR-A07 deterministic lease-boundary gap is fixed and merged into `main`; issue #54 remains open in Verification; the working branch is clean and pushed.
+
+## User Objective and Requirements
+- Continue open PRs and then open issues systematically from oldest to newest.
+- Review every issue-specific PR before accepting or merging it.
+- Document every implementation, verification step, limitation and decision in the PR and issue.
+- Apply labels, assignee, milestone and public-project metadata to every future PR.
+- Treat the already signed-in Crunchyroll Edge session as available. Do not mark a task blocked merely because isolated provider storage-state files are not configured.
+- Do not close an issue until every applicable gate passes with direct evidence and no unexplained gap remains.
+- Commit and push all repository changes.
+- Do not bump a release for a single issue. Keep `0.2.4` until a coherent verified group and reserve `1.0.0` for milestone completion.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20 19:08-19:10 +03 - Next issue selection and source inspection
+- After completing the CR-A06/PR #80 lifecycle, selected the oldest next issue, #54, `CR-A07: Close the existing seek barrier's deadline and quorum holes`.
+- Read issue #54 and its prior comment. The issue body described exact-deadline ACK handling, fixed quorum and cancellation on membership, media or lease change. The prior comment stated that part of the work was included in CR-A01/PR #70 but the issue remained open pending review and merge.
+- Read PR #70 metadata and body. Confirmed PR #70 merge commit `7451307b86aa2a8ab4bef17a3e8bed6e4c05b4e9`, green remote checks, and detailed CR-A01 evidence for exact-deadline ACK, explicit required-member failure cancellation, fixed-target timeout pause and stale barrier handling.
+- Inspected current `packages/sync-engine/src/room.ts`, `room-streaming-regressions.test.ts`, `room.test.ts` and `room.fuzz.test.ts`.
+- Confirmed that joins, disconnects, readiness loss and shared-link changes called `pauseForMembershipChange()`, which clears `pendingSeek`. Confirmed that `transferControl()` changed the controller and lease epoch but did not call that boundary.
+- Determined that this was a real remaining correctness gap: `acknowledgeSeek()` compares its input to `pendingSeek.revision`, so incrementing the general room revision during a lease transfer did not invalidate the old barrier. Old ACKs could still complete the seek after control moved.
+
+### 2026-09-20 19:10-19:12 +03 - Issue classification and public project metadata
+- Posted issue comment `https://github.com/muaz978/sync-your-joy/issues/54#issuecomment-5750981559` explaining why PR #70 did not justify closure, identifying the lease-transfer gap, and documenting the planned regression and fix.
+- Updated the public project row for issue #54: assignee `muaz978`; status `In Progress`; priority `P1 High`; work type `Bug`; evidence `Partial`; acceptance gates `Unit tests`, `Integration tests`, `Browser test`, `User acceptance`; risk `High`; verification owner `muaz978`; blocked reason and target date blank because this was an implementation gap, not a missing-account or missing-device blocker.
+- Verified the issue retained labels `bug`, `initiative: crunchyroll-sync`, `area: sync-engine` and milestone `M3/M5: reliability and real-device validation`.
+
+### 2026-09-20 19:12 +03 - Branch creation and checkpoint continuity
+- Created branch `codex/issue-54-seek-barrier` from verified `origin/main` at merged CR-A06 state `583012165b477ba248789c8c42f4a14780426a42`.
+- Cherry-picked CR-A06 post-merge checkpoint commit `0fcb4ff` onto the new branch as `d1cf086`, preserving the full prior session record without mixing the new issue into the CR-A06 branch.
+
+### 2026-09-20 19:12-19:14 +03 - Red regression and implementation
+- Added a red regression to `packages/sync-engine/src/room-streaming-regressions.test.ts` named `cancels a pending seek when the controller lease changes`.
+- The regression starts a ready playing room, creates a seek barrier at target `120`, transfers control from `host` to `guest`, asserts lease epoch `2`, asserts paused position `120` with no pending seek, and proves old host and guest ACKs return `null`.
+- Updated `packages/sync-engine/src/room.ts` so `transferControl()` calls `pauseForMembershipChange()` only when a pending seek exists, before changing controller authority. This preserves normal transfer behavior without an active seek and invalidates an active barrier across a lease change.
+- Focused engine and room tests passed: 2 files, 55 tests. Room fuzz suite passed: 1 file, 3 tests.
+
+### 2026-09-20 19:14-19:17 +03 - Documentation and full local verification
+- Added `docs/CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md` with prior PR #70 evidence, the newly found gap, corrective implementation, criterion mapping, exact commands, privacy boundary, external acceptance limits and closure/release rules.
+- Added the CR-A07 acceptance-report link to `docs/TEST_GUIDE.md`.
+- Ran `npm run check`: 29 test files and 254 tests passed; typecheck, edge typecheck, room-service build and extension build passed.
+- Ran `npm audit --audit-level=high`: 0 vulnerabilities. Ran `git diff --check`: passed. Ran `npm run release:check-version`: `0.2.4`.
+- The normal browser-package smoke command initially failed because macOS Xcode's Safari packager could not access the sandbox temporary path. Reran with required filesystem approval and confirmed Chrome, Firefox and Safari package smoke all passed.
+- Built `/private/tmp/syj-release-cr-a07/sync-your-joy-extension.zip` with SHA-256 `837cfd67ff3eb08245243b0e273ce52aa89dde70a8e34ecd69305c5f64b8300c`.
+- Ran `npm run test:e2e`. The authenticated Crunchyroll two-profile test was skipped because isolated provider storage-state files are not configured. The generic two-profile test failed before scenario setup because isolated Chromium exited with `SIGABRT` and cleanup reported `EPERM`. This was recorded as an environment limitation, not source success or source failure.
+
+### 2026-09-20 19:17-19:20 +03 - Implementation and documentation commits
+- Committed source and regression as `8f8c416`, `fix: cancel seek barriers on lease transfer`.
+- Updated the acceptance report with implementation commit `8f8c416` and committed the report and test-guide link as `bffa5ac`, `docs: record CR-A07 acceptance evidence`.
+- Opened PR #81 at `https://github.com/muaz978/sync-your-joy/pull/81` with title `fix: close seek barrier lease holes`.
+- Updated the acceptance report with PR #81 identity and committed as `7c84be9`, `docs: identify CR-A07 acceptance report`.
+- Pushed branch `codex/issue-54-seek-barrier`. A normal push initially reported a local sandbox error updating `.git/config` and the remote-tracking ref after the remote branch had already been created. An approved fetch and upstream update confirmed the remote branch and clean local status.
+
+### 2026-09-20 19:20-19:23 +03 - PR metadata and public project classification
+- Applied PR #81 labels `bug`, `initiative: crunchyroll-sync`, `area: sync-engine` and `area: testing`.
+- Assigned PR #81 to `muaz978` and set milestone `M3/M5: reliability and real-device validation`.
+- Located the auto-added PR #81 row in the public project and set status `In review`, priority `P1 High`, work type `Bug`, evidence `Partial`, acceptance gates `Unit tests`, `Integration tests`, `Browser test`, `User acceptance`, risk `High` and verification owner `muaz978`.
+- Reloaded the project and visibly verified the PR #81 row with all requested metadata.
+
+### 2026-09-20 19:23-19:26 +03 - Remote checks, formal review and final documentation
+- Initial PR #81 checks passed at commit `7c84be9`: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim`, and Typecheck, test, and build.
+- Wrote `/private/tmp/syj-cr-a07-review.md` containing the exact diff review, prior evidence, gap analysis, source behavior, tests, security boundaries, external limits, metadata and release decision.
+- Attempted `gh pr review 81 --approve`. GitHub rejected it with `Review Can not approve your own pull request` because the authenticated account owns the PR.
+- Posted the same detailed review as a formal `COMMENTED` review. The review found no blocking correctness, security or documentation issue.
+- Added the review result to the checked-in acceptance report and committed as `21b5308`, `docs: record CR-A07 review result`.
+- Updated the report to identify the final documentation head and committed as `dd702d4`, `docs: record final CR-A07 check head`.
+- Pushed final branch head `dd702d415e8fe5cad47cd6a65d44c60b7f7952a6`. Fresh checks for the final head all passed.
+
+### 2026-09-20 19:26-19:29 +03 - Authorized merge and post-merge verification
+- Merged PR #81 through the authorized administrator path with squash merge and branch retention: `gh pr merge 81 --squash --admin --delete-branch=false`.
+- GitHub reported PR #81 as `MERGED` and closed at `2026-09-20T16:27:16Z`.
+- Verified merge commit `43a5557a7376a5014f252e5c05c48c4e594621c2` through GitHub CLI and verified `origin/main` resolves to exactly that SHA.
+- Re-read PR #81 checks after merge; all five remained passed.
+- Wrote and posted `/private/tmp/syj-cr-a07-issue-54-merge.md` to issue #54 at `https://github.com/muaz978/sync-your-joy/issues/54#issuecomment-5751079808`.
+- Reloaded the public project. PR #81 automatically showed `Done`; issue #54 was changed from `In Progress` to `Verification` and visibly verified with remaining metadata intact.
+- Queried issue #54 with GitHub CLI and verified it remains `OPEN`, has 3 comments, labels `bug`, `initiative: crunchyroll-sync`, `area: sync-engine`, assignee `muaz978` and milestone `M3/M5: reliability and real-device validation`.
+
+## Confirmed Successful Results
+- CR-A07's remaining deterministic lease-transfer gap is fixed in `8f8c416` and merged through PR #81 at `43a5557a7376a5014f252e5c05c48c4e594621c2`.
+- `origin/main` independently verifies the exact merge SHA and all five final remote checks passed.
+- Focused engine, room and fuzz tests passed; full repository check passed with 29 files and 254 tests. Audit reported 0 vulnerabilities, browser package smoke passed, and the candidate package checksum is recorded.
+- The exact source diff was reviewed and no blocking correctness, security or documentation issue was found. The owner self-approval restriction was documented and handled with a detailed `COMMENTED` review before authorized administrator merge.
+- Issue #54 has detailed classification and post-merge evidence comments, remains open, and is in project status `Verification`; PR #81 is `Done` with required metadata.
+- Repository version remains `0.2.4`; no release was bumped or published. The signed-in Crunchyroll session remains available for a future controlled headed gate.
+
+## Failed, Incomplete, or Unresolved Work
+- GitHub does not permit approval from the pull-request owner. The formal review is recorded as `COMMENTED`.
+- The authenticated Crunchyroll two-profile E2E remains skipped because isolated provider storage-state files are not configured. The generic two-profile E2E remains environment-failed before setup due Chromium `SIGABRT` and cleanup `EPERM`.
+- Live provider visible-output acceptance, two-profile or two-account acceptance, two-device acceptance, deployment verification and user acceptance remain outstanding.
+- Issue #54 must not be closed until every applicable gate is directly evidenced, and no release bump is justified for CR-A07 alone.
+
+## Decisions and Rationale
+- PR #70 was not treated as full closure evidence because source inspection found a remaining lease-boundary gap. The fix reused `pauseForMembershipChange()` and preserved normal lease-transfer behavior when no seek was pending.
+- Issue #54 moved to `Verification`, not closed, because deterministic source and review gates are complete but external provider, device, deployment and user-acceptance gates are not.
+- Account availability is not treated as a blocker, but one signed-in account does not satisfy two-account, two-device, deployment or user-acceptance gates.
+- No browser installation was requested because the deterministic engine fix and package smoke were verifiable without installing the candidate.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Source fix: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`
+- Regression: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room-streaming-regressions.test.ts`
+- Acceptance report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md`
+- Candidate package: `/private/tmp/syj-release-cr-a07/sync-your-joy-extension.zip`
+- PR #81: `https://github.com/muaz978/sync-your-joy/pull/81`
+- Issue #54: `https://github.com/muaz978/sync-your-joy/issues/54`
+- Issue post-merge comment: `https://github.com/muaz978/sync-your-joy/issues/54#issuecomment-5751079808`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+- Merge commit: `43a5557a7376a5014f252e5c05c48c4e594621c2`
+
+## Assumptions and Uncertainties
+- The GitHub project UI is authoritative for custom project fields because the available CLI token lacks project-read scope.
+- The public project automation changed PR #81 to `Done` after merge. This was verified after reload.
+- The package under `/private/tmp` is a local candidate artifact, not a published release.
+- The active signed-in Crunchyroll session is available, but no second account, second profile, second device, deployment target or user-acceptance result is inferred.
+
+## Open Questions, Blockers, and Dependencies
+- Next work item remains the oldest unprocessed issue after #54, subject to rechecking the issue queue and dependencies.
+- The controlled headed Crunchyroll observation may use the already signed-in Edge session when the appropriate gate is reached.
+- A second account, profile, device, deployment target or explicit user-acceptance action will be requested only when the exact gate requires it.
+
+## Next Steps
+1. Commit and push this checkpoint update.
+2. Re-scan the open issue queue and select the next oldest issue not already covered by a merged deterministic implementation.
+3. Keep the same per-issue process: classify metadata, inspect actual source behavior, add red regressions, implement, run exact checks, document evidence, commit, push, open a fully documented metadata-complete PR, review before merge, and keep the issue open until all applicable gates pass.
+4. Revisit release versioning only after a coherent verified group. Keep `1.0.0` reserved for milestone completion.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-64 remain intact. This checkpoint records the complete CR-A07 issue #54 and PR #81 lifecycle.
+- Earlier notes that treated CR-A07 as fully covered by PR #70 are superseded by the documented discovery of the lease-transfer gap and the confirmed PR #81 correction, while all valid prior evidence remains preserved.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+# Checkpoint 66 - CR-B01 operation contract review, merge and acceptance-state verification
+
+## Session Metadata
+- Task or project: SyncYourJoy CR-B01 operation identity and compatibility contract
+- Checkpoint number: 66
+- Date and time: 2026-09-20 20:13 +03
+- Coverage period: From continuation after CR-A07 and the user's release/install question through CR-B01 source review, final corrective change, remote checks, formal review, authorized merge, issue documentation, project-state update and checkpoint restoration.
+- Current context status: PR #82 is reviewed and merged into `main`; issue #55 remains open in `Verification`; final reviewed source head is `9c241dbb41cfcaf6241f5fc613099063095fd3f9`; merge commit is `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`; this checkpoint is pending its own commit and push on the retained PR branch.
+
+## User Objective and Requirements
+- Continue the systematic PR and issue workflow from oldest to newest.
+- Review every PR before accepting or merging it, and never close an issue until every applicable gate is directly evidenced.
+- Add detailed implementation, verification, security, external-limitation and release documentation to every issue-specific PR and issue lifecycle.
+- Add labels, assignee, milestone and public project custom-field metadata to each future PR.
+- Treat the already signed-in Crunchyroll account and Edge browser session as available. Do not infer that the account is missing merely because isolated automated storage-state files are not configured.
+- Bump a compatible release only after a coherent verified group. Reserve release `1.0.0` for milestone completion.
+- Commit and push all source and documentation changes.
+- For the current contract-only slice, determine whether a release bump or browser installation is actually required before the later controlled headed acceptance gate.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20 19:30 +03 - Continuation and release/install decision
+- Continued after the CR-A07 checkpoint and the user's question about whether the latest update required a new extension release or browser installation before testing.
+- Determined that CR-B01 is a protocol and stored-state contract slice. Its deterministic source, tests, builds and package smoke checks can be verified without installing the extension into the signed-in browser.
+- Recorded that the candidate remains ready for a later controlled headed gate using the existing signed-in Edge session. No release bump is justified for one contract issue, so the repository remains at `0.2.4` and `1.0.0` remains reserved for complete milestone acceptance.
+- Reconfirmed the standing requirement to commit and push the work and to request account, profile, device, deployment or user-acceptance help only when an exact gate requires it.
+
+### 2026-09-20 19:31 +03 - Initial CR-B01 branch and PR hygiene inspection
+- Selected issue #55, `CR-B01: Define operation identity and compatibility contracts`, as the next oldest unprocessed reliability issue after the CR-A07 lifecycle.
+- Read the issue scope and dependencies. The requested contract covers media epoch, operation identity, fixed required participants, preparation and start phases, binding and sample sequence evidence, bounded reason codes, snapshot-order separation, old-state defaults, capability negotiation and explicit legacy/unsupported-peer behavior. Dependencies include CR-A02, CR-A03, CR-A04 and CR-A07.
+- Posted the classification comment at `https://github.com/muaz978/sync-your-joy/issues/55#issuecomment-5751210013`, recording the existing protocol gap, contract-only boundary, dependency on CR-B02 and CR-B03, account availability and the decision to keep the issue open.
+- Updated and verified issue #55 metadata in the public delivery project: assignee `muaz978`, status `In Progress`, priority `P1 High`, work type `Security hardening`, evidence `Partial`, acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test`, `User acceptance`, risk `High`, verification owner `muaz978`, and blank blocked reason and target date.
+- Retained issue labels `enhancement`, `initiative: crunchyroll-sync`, `area: protocol` and `area: testing`, and milestone `M3/M5: reliability and real-device validation`.
+- Created branch `codex/issue-55-operation-contract`. An initial branch was accidentally based on prior CR-A07 history, causing PR #82 to include unrelated historical commits and show a dirty comparison with no checks. Corrected this without destructive reset: renamed the old local branch to `codex/issue-55-operation-contract-history`, created a fresh branch from `origin/main`, cherry-picked the CR-B01 commit, and force-updated the remote PR branch with `--force-with-lease`.
+- After cleanup, the PR contained exactly one CR-B01 commit on top of merged `origin/main`. The first clean head was `562cc45d48cd8d122b021c4780823736a10dfe7f`.
+
+### 2026-09-20 19:32-19:45 +03 - CR-B01 contract implementation and deterministic tests
+- Added shared operation and compatibility definitions to `packages/protocol/src/index.ts`: independent contract versioning; bounded participant and capability constants; legacy and transactional room modes; required capabilities; advertisements and negotiation; media epoch and opaque operation identities; binding/source/sample observation identities; operation kinds; preparation, commit, start and terminal phases; bounded reason codes; fixed participant quorum; acknowledgement validation; legacy defaults; optional create/join capability advertisements; identity comparison; snapshot ordering; capability normalization; fail-closed negotiation; operation validators; and safe stored-state restoration.
+- Added optional extension-owned contract state and restoration normalization to `apps/extension/src/internal.ts`. Pre-contract state defaults to legacy mode, no active operation, no binding, media epoch zero and zero counters. Invalid stored operations and bindings cannot become acknowledgement evidence after restart.
+- Added protocol coverage in `packages/protocol/src/index.test.ts` for identity/order separation, bounded quorum and terminal reasons, binding/sample acknowledgement validation, all-new versus mixed legacy negotiation, optional legacy messages and old or malformed state normalization.
+- Added extension storage migration coverage in `apps/extension/src/internal.test.ts`.
+- Added detailed documentation in `docs/CR_B01_OPERATION_CONTRACT.md` and linked it from `docs/TEST_GUIDE.md`. The document explicitly separates this schema gate from CR-B02 and CR-B03 runtime behavior and records security, privacy, E2E and release boundaries.
+- The initial implementation commit was `b447f56`; after clean branch correction it was recreated as `562cc45`.
+
+### 2026-09-20 19:46 +03 - Source review discovery and corrective amendment
+- Reviewed the exact clean diff, including protocol validators, extension restoration, tests and documentation. Found one consistency gap before merge: `normalizeRoomContractSnapshot()` could retain a structurally valid operation whose `mediaEpoch` did not match the restored room contract `mediaEpoch`.
+- Determined that this could preserve stale operation evidence across restoration, contradicting the contract's media-generation boundary. Treated it as an in-scope correctness issue and fixed it before formal review.
+- Updated `packages/protocol/src/index.ts` to retain a restored operation only when its media epoch matches the normalized room epoch.
+- Added a regression assertion in `packages/protocol/src/index.test.ts` for a cross-epoch operation being discarded.
+- Updated `docs/CR_B01_OPERATION_CONTRACT.md` to document the cross-epoch restoration rule.
+- Temporary amended head was `0b22f39b0645d30a339b18a757c0d2b4c47449d6`; `git diff --check` passed.
+
+### 2026-09-20 19:47-20:00 +03 - Local verification and final branch push
+- Ran `npm run check`: 30 test files and 263 tests passed; typecheck, edge-service typecheck, room-service build and extension build passed.
+- Ran `npm audit --audit-level=high`: `0 vulnerabilities`.
+- Ran `npm run release:check-version`: `0.2.4`.
+- Ran `git diff --check`: passed.
+- Ran the browser package smoke command normally. The macOS Safari converter could not access the sandbox temporary path and reported that it could not parse the temporary manifest. This was an environment permission failure, not a package-content failure.
+- Reran `npm run verify:browser-packages` with approved macOS filesystem access. Chrome manifest `0.2.4`, Firefox manifest `0.2.4` and the macOS Safari package smoke all passed.
+- The attempted `npm run test:e2e` result remains recorded in the PR and acceptance document: authenticated Crunchyroll was skipped because isolated provider storage-state files are not configured, and the generic two-profile scenario aborted before setup with Chromium `SIGABRT` and cleanup `EPERM`. No live-provider success or failure claim was made.
+- A normal `git commit --amend` initially failed because the sandbox could not create `.git/index.lock`. With the required approved Git write path, amended the final source commit as `9c241dbb41cfcaf6241f5fc613099063095fd3f9`.
+- Force-updated the retained PR branch with `git push --force-with-lease origin HEAD:codex/issue-55-operation-contract`. Verified the remote branch head is `9c241dbb41cfcaf6241f5fc613099063095fd3f9`.
+
+### 2026-09-20 20:01-20:04 +03 - Final remote checks and PR metadata
+- GitHub reran checks for final head `9c241db`. All five passed: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim`, and Typecheck, test, and build.
+- PR #82 is `https://github.com/muaz978/sync-your-joy/pull/82`, titled `feat: define operation identity and compatibility contracts`.
+- Verified PR #82 labels `enhancement`, `initiative: crunchyroll-sync`, `area: protocol` and `area: testing`, assignee `muaz978`, and milestone `M3/M5: reliability and real-device validation`.
+- Verified the detailed PR body in `/private/tmp/syj-cr-b01-pr.md` contains root cause, baseline, scope, implementation, file list, exact verification, E2E limitations, security/privacy boundaries, release policy and `Refs #55` without a closing keyword.
+- Confirmed the diff was limited to six files, and the final source review found no additional correctness or security blocker after the cross-epoch fix.
+
+### 2026-09-20 20:05-20:09 +03 - Formal review and authorized merge
+- Wrote `/private/tmp/syj-cr-b01-review.md` with exact final-head review, positive findings, explicit CR-B02/CR-B03 boundary, local and remote evidence, E2E limitations, security/privacy boundary and release decision.
+- Attempted `gh pr review 82 --approve --body-file /private/tmp/syj-cr-b01-review.md`. GitHub rejected it with `Review Can not approve your own pull request` because the authenticated account owns the PR.
+- Posted the same detailed review with `gh pr review 82 --comment --body-file /private/tmp/syj-cr-b01-review.md`. Verified the `COMMENTED` review is attached to commit `9c241db` and records no blocking finding for CR-B01.
+- Merged PR #82 using the authorized administrator path: `gh pr merge 82 --squash --admin --delete-branch=false`.
+- GitHub reported PR #82 as `MERGED` at `2026-09-20T17:09:51Z` with merge commit `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`.
+- Fetched `origin/main` with approved filesystem access and verified it resolves exactly to `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`.
+- Verified all five checks remained successful after merge. PR #82 automatically changed to `Done` in the public project while retaining labels, assignee, milestone and custom fields.
+
+### 2026-09-20 20:10-20:12 +03 - Issue documentation and project acceptance state
+- Wrote `/private/tmp/syj-cr-b01-issue-55-merge.md` with merge identity, exact source and check evidence, completed contract scope, remaining CR-B02/CR-B03 and external gates, signed-in-account clarification, release decision and explicit non-closure rationale.
+- Posted the detailed issue comment at `https://github.com/muaz978/sync-your-joy/issues/55#issuecomment-5751320979`.
+- Changed issue #55's public project status from `In Progress` to `Verification`. Visibly verified the row shows status `Verification`, assignee `muaz978`, P1 High, Security hardening, Partial evidence, Source review/Typecheck/Unit tests/Integration tests/Browser test/User acceptance gates, High risk, blank blocked reason and owner `muaz978`.
+- Verified issue #55 remains `OPEN` with expected labels and milestone. It was not closed because runtime consumers and external acceptance gates remain incomplete.
+
+### 2026-09-20 20:12-20:13 +03 - Checkpoint continuity restoration
+- Inspected persisted `context-checkpoint.md` and found it ended at Checkpoint 64. Complete CR-A07 Checkpoint 65 existed in prior branch commit `cb6937f` but was not included in current `origin/main` because it was a post-merge documentation commit on the retained PR branch.
+- Restored the complete Checkpoint 65 record into the current checkpoint file before adding this CR-B01 record. Earlier checkpoint content was preserved; no prior entry was overwritten.
+- This Checkpoint 66 is the exhaustive continuation record for the CR-B01 lifecycle and is pending its own commit and push.
+
+## Confirmed Successful Results
+- PR #82 was reviewed on exact final head `9c241dbb41cfcaf6241f5fc613099063095fd3f9` and merged into `main` at `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`.
+- `origin/main` independently verifies the exact merge SHA.
+- All five GitHub checks passed on the final reviewed head.
+- `npm run check` passed with 30 test files and 263 tests, including typecheck, edge-service typecheck, server build and extension build.
+- `npm audit --audit-level=high` passed with 0 vulnerabilities.
+- `npm run verify:browser-packages` passed with Chrome 0.2.4, Firefox 0.2.4 and macOS Safari package smoke.
+- `npm run release:check-version` passed at `0.2.4`.
+- The cross-epoch restoration guard was identified during review, implemented, tested and included before merge.
+- The issue-specific PR and issue contain detailed documentation, labels, assignee, milestone and public project metadata.
+- Issue #55 is open in project status `Verification`, not closed. PR #82 is `Done` in the public project.
+- No release bump was made, and no browser installation was requested for the deterministic contract slice. The signed-in Edge session remains available for a later controlled headed gate.
+- The complete CR-A07 Checkpoint 65 was restored into this file before this checkpoint was appended.
+
+## Failed, Incomplete, or Unresolved Work
+- GitHub cannot record an approved review from the pull-request owner. The exact review is preserved as `COMMENTED`, and administrator merge was performed only after source review and all checks passed.
+- Authenticated Crunchyroll E2E remains skipped because isolated provider storage-state files are not configured. This does not mean the signed-in account is absent.
+- Generic isolated two-profile E2E remains environment-failed before setup because Chromium exited with `SIGABRT` and cleanup reported `EPERM`.
+- CR-B02 coordinator transaction runtime behavior, CR-B03 extension transaction application, CR-B07 mixed-version and migration end-to-end behavior, deployment, live-provider visible output, two-account, two-device and user-acceptance gates remain incomplete.
+- Issue #55 must remain open until dependent runtime and acceptance gates are directly evidenced.
+- Release `0.2.4` remains current. No compatible release bump is justified for CR-B01 alone, and `1.0.0` remains reserved for complete milestone acceptance.
+- The current working branch has the CR-B01 source commit and the checkpoint file is modified for the pending Checkpoint 66 commit. The next action is to commit and push this checkpoint without changing `main`.
+
+## Decisions and Rationale
+- The first green CR-B01 candidate was not merged immediately because source review identified a stale cross-epoch restoration path. Correcting it before formal review preserves the no-gap standard.
+- The owner self-approval limitation was handled transparently with a detailed `COMMENTED` review and authorized administrator merge. The review state is a GitHub permission constraint, not a source-quality finding.
+- Issue #55 moved to `Verification`, not `Done` or closed, because the contract is implemented and verified while runtime consumers and external acceptance remain outstanding.
+- The public project remains authoritative for custom-field verification because the configured CLI token lacks project-read scope.
+- No browser installation was performed because the current work is deterministic protocol and state-contract validation. Installation will be requested only when the controlled headed provider gate is the next necessary evidence.
+- The signed-in Crunchyroll account is treated as available. Missing isolated storage-state files are recorded as an automation fixture limitation, not as an account blocker.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Protocol implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.ts`
+- Protocol tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.test.ts`
+- Extension state implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/internal.ts`
+- Extension state tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/internal.test.ts`
+- Acceptance documentation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B01_OPERATION_CONTRACT.md`
+- Test-guide link: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- PR body: `/private/tmp/syj-cr-b01-pr.md`
+- Review body: `/private/tmp/syj-cr-b01-review.md`
+- Issue merge documentation: `/private/tmp/syj-cr-b01-issue-55-merge.md`
+- PR #82: `https://github.com/muaz978/sync-your-joy/pull/82`
+- Issue #55: `https://github.com/muaz978/sync-your-joy/issues/55`
+- Classification comment: `https://github.com/muaz978/sync-your-joy/issues/55#issuecomment-5751210013`
+- Merge comment: `https://github.com/muaz978/sync-your-joy/issues/55#issuecomment-5751320979`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+- Final reviewed source head: `9c241dbb41cfcaf6241f5fc613099063095fd3f9`
+- Merge commit: `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`
+
+## Assumptions and Uncertainties
+- The GitHub project UI is authoritative for custom project values because the available CLI token lacks project-read scope.
+- The PR branch was intentionally retained after merge so the post-merge checkpoint can be committed and pushed without altering `main`.
+- Package and browser smoke results are deterministic package evidence, not live provider playback or deployment evidence.
+- The active signed-in Crunchyroll Edge session is available, but no second account, profile, device, deployment target or user-acceptance result is inferred.
+
+## Open Questions, Blockers, and Dependencies
+- CR-B02 is the next dependent runtime issue: `CR-B02: Prepare and commit playback in the coordinator`, issue #56.
+- CR-B03 depends on the contract and CR-B02: `CR-B03: Apply preparation and start confirmation through the extension`, issue #57.
+- CR-B07 must exercise mixed-version transport and stored-state migration end to end.
+- The controlled headed Crunchyroll test can use the already signed-in Edge session when its acceptance criteria are reached.
+- A second account, profile, device, deployment target or explicit user-acceptance action will be requested only when the exact gate requires it.
+
+## Next Steps
+1. Commit and push this complete Checkpoint 66 update on `codex/issue-55-operation-contract`.
+2. Verify the pushed checkpoint commit and current `origin/main` merge SHA without modifying `main`.
+3. Re-scan the open issue queue and continue with the next oldest unprocessed issue, CR-B02 #56, using the same source-first and evidence-gated process.
+4. For every new PR, apply labels, assignee, milestone and public project fields, write detailed documentation, perform the review before merge, and keep the issue open until all applicable gates pass.
+5. Revisit compatible release versioning only after a coherent verified group. Keep `1.0.0` reserved for milestone completion.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-65 remain intact. Checkpoint 65 was restored from prior CR-A07 branch history because it was not present in the current `origin/main` snapshot.
+- This checkpoint records CR-B01 implementation, branch cleanup, final corrective review, PR #82 metadata, checks, formal review, merge, issue documentation and project-state transition.
+- Earlier CR-B01 notes that described the branch as pending review are superseded by the confirmed merged state recorded here. The explicit scope boundary and unresolved runtime gates remain in force.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
