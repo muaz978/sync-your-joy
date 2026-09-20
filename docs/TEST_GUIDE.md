@@ -289,3 +289,9 @@ Use [`docs/SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md`](SYJ_TWO_DEVICE_NETW
 Issue [#35](https://github.com/muaz978/sync-your-joy/issues/35) is a separate headed-runtime gate. Headless Chromium CI and package-build checks do not establish open Shadow DOM behavior, same-element SPA changes, player-lock UI behavior, a real Firefox installation or a Safari conversion/runtime pass.
 
 Use [`docs/SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md`](SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md) for each claimed runtime. Record Chrome or Edge headed lifecycle evidence, Firefox installation and coordinator-origin smoke when claimed, and Safari conversion, Xcode and runtime evidence when claimed. An unavailable runtime must be marked blocked or not claimed, not passed by inference.
+
+### CR-A02 player identity acceptance
+
+Issue [#49](https://github.com/muaz978/sync-your-joy/issues/49) tracks the remaining identity acceptance boundary after the deterministic identity changes in PR #70. The content script and worker must make the same identity decision for top-document Crunchyroll, an origin-only Crunchyroll iframe, a generic nested embed and Qfilm. Commands, controller intents, samples and seek acknowledgements must remain bound to the selected player, while unrelated frames and known mismatches remain blocked.
+
+Use [`docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT_TEMPLATE.md`](CR_A02_IDENTITY_ACCEPTANCE_REPORT_TEMPLATE.md) for the report. The deterministic matrix in `apps/extension/src/content-script.test.ts` is supporting evidence only. A real headed nested-frame run is still required before issue #49 can be accepted for release.

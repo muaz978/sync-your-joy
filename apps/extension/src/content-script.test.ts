@@ -1,3 +1,4 @@
+import type { MediaFingerprint } from '@syncyourjoy/protocol'
 import type { ExtensionState, RuntimeEvent, RuntimeRequest } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -78,6 +79,92 @@ function statuses() {
   return messages.filter((message): message is Extract<RuntimeRequest, { type: 'PLAYER_STATUS' }> => message.type === 'PLAYER_STATUS')
 }
 
+const identityLayouts: Array<{
+  name: string
+  roomMedia: MediaFingerprint
+  playerUrl: string
+  referrer: string
+  nested: boolean
+  workerBoundMedia: MediaFingerprint | null
+}> = [
+  {
+    name: 'top-document Crunchyroll',
+    roomMedia: {
+      service: 'crunchyroll',
+      canonicalId: 'crunchyroll:GE00365016JAJP',
+      title: 'Episode',
+      durationSeconds: 1420,
+      pageUrl: 'https://www.crunchyroll.com/watch/GE00365016JAJP/episode',
+    },
+    playerUrl: 'https://www.crunchyroll.com/watch/GE00365016JAJP/episode',
+    referrer: '',
+    nested: false,
+    workerBoundMedia: null,
+  },
+  {
+    name: 'origin-only Crunchyroll iframe',
+    roomMedia: {
+      service: 'crunchyroll',
+      canonicalId: 'crunchyroll:GE00365016JAJP',
+      title: 'Episode',
+      durationSeconds: 1420,
+      pageUrl: 'https://www.crunchyroll.com/watch/GE00365016JAJP/episode',
+    },
+    playerUrl: 'https://static.crunchyroll.com/player/frame.html',
+    referrer: 'https://www.crunchyroll.com/',
+    nested: true,
+    workerBoundMedia: {
+      service: 'crunchyroll',
+      canonicalId: 'crunchyroll:GE00365016JAJP',
+      title: 'Episode',
+      durationSeconds: 1420,
+      pageUrl: 'https://www.crunchyroll.com/watch/GE00365016JAJP/episode',
+    },
+  },
+  {
+    name: 'generic nested embed',
+    roomMedia: {
+      service: 'html5',
+      canonicalId: 'page:https://watch.example/episode/42',
+      title: 'Episode 42',
+      durationSeconds: 120,
+      pageUrl: 'https://watch.example/episode/42',
+    },
+    playerUrl: 'https://player.example/embed/client-wrapper',
+    referrer: 'https://player.example/',
+    nested: true,
+    workerBoundMedia: {
+      service: 'html5',
+      canonicalId: 'page:https://watch.example/episode/42',
+      title: 'Episode 42',
+      durationSeconds: 120,
+      pageUrl: 'https://watch.example/episode/42',
+    },
+  },
+  {
+    name: 'nested Qfilm player',
+    roomMedia: {
+      service: 'qfilm',
+      canonicalId: 'qfilm:a0821a41c',
+      title: 'Qfilm movie',
+      durationSeconds: 120,
+      pageUrl: 'https://a.qfilm.tv/play.php?vid=a0821a41c',
+    },
+    playerUrl: 'https://player.qfilm.tv/embed.php?vid=a0821a41c',
+    referrer: 'https://a.qfilm.tv/play.php?vid=a0821a41c',
+    nested: true,
+    workerBoundMedia: null,
+  },
+]
+
+function configureIdentityLayout(layout: typeof identityLayouts[number]): void {
+  state.snapshot!.media = layout.roomMedia
+  state.currentMedia = layout.workerBoundMedia
+  vi.stubGlobal('location', new URL(layout.playerUrl))
+  Object.defineProperty(document, 'referrer', { configurable: true, value: layout.referrer })
+  Object.defineProperty(window, 'top', { configurable: true, value: layout.nested ? {} : window })
+}
+
 beforeEach(async () => {
   vi.resetModules()
   vi.useFakeTimers()
@@ -139,6 +226,54 @@ afterEach(() => {
 })
 
 describe('adaptive player lifecycle', () => {
+  it.each(identityLayouts)('keeps playback commands and samples bound to the $name identity', async (layout) => {
+    configureIdentityLayout(layout)
+    video.position = 120
+    apply('playing', 120)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(video.play).toHaveBeenCalledOnce()
+    expect(statuses().some(message => message.sample.positionSeconds >= 0)).toBe(true)
+  })
+
+  it.each(identityLayouts)('keeps controller play, pause and seek intents on the $name identity', async (layout) => {
+    configureIdentityLayout(layout)
+    state.participantId = 'host'
+    apply('paused')
+    messages.length = 0
+
+    video.play()
+    video.pause()
+    video.currentTime = 210
+    await vi.advanceTimersByTimeAsync(300)
+
+    expect(messages.filter(message => message.type === 'PLAYER_INTENT')).toEqual(expect.arrayContaining([
+      { type: 'PLAYER_INTENT', kind: 'play', positionSeconds: expect.any(Number) },
+      { type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: expect.any(Number) },
+      { type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: 210 },
+    ]))
+  })
+
+  it.each(identityLayouts)('emits a seek acknowledgement only after the $name identity is confirmed', async (layout) => {
+    configureIdentityLayout(layout)
+    state.snapshot!.seek = {
+      revision: 2,
+      positionSeconds: 120,
+      acknowledgedParticipantIds: [],
+      resumeWhenReady: true,
+      deadlineAtServerMs: Date.now() + 1_800,
+    }
+    video.position = 120
+    apply('paused', 120)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(messages.filter(message => message.type === 'SEEK_APPLIED')).toEqual([
+      { type: 'SEEK_APPLIED', revision: 2, positionSeconds: 120 },
+    ])
+  })
+
   it('does not repeatedly restart an in-flight seek as the room clock advances', async () => {
     apply('playing', 120)
     expect(video.writes).toEqual([120])
