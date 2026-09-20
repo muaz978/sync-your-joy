@@ -24,11 +24,25 @@ export interface ExtensionProfile {
   close: () => Promise<void>
 }
 
-export async function launchExtensionProfile(extensionDistDir: string, label: string): Promise<ExtensionProfile> {
+export interface ExtensionProfileOptions {
+  /**
+   * Optional Playwright storage-state JSON. It is intended for opt-in
+   * authenticated provider runs and must never be committed to the repo or
+   * printed in test output.
+   */
+  storageState?: string
+}
+
+export async function launchExtensionProfile(
+  extensionDistDir: string,
+  label: string,
+  options: ExtensionProfileOptions = {},
+): Promise<ExtensionProfile> {
   const userDataDir = await mkdtemp(join(tmpdir(), `syncyourjoy-e2e-${label}-`))
   const headed = process.env.SYNCYOURJOY_E2E_HEADED === '1'
 
   const context = await chromium.launchPersistentContext(userDataDir, {
+    ...(options.storageState ? { storageState: options.storageState } : {}),
     // Chrome's classic headless mode never loaded extensions. Chrome's
     // newer "--headless=new" mode does, so it is passed explicitly here
     // rather than relying on Playwright's own `headless: true` (which, at

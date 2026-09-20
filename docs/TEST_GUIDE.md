@@ -246,3 +246,28 @@ The test:
 This test is separate from `npm test` (Vitest) on purpose: it drives real browsers and a real extension, so it is slower and needs its own timeouts. It is not part of `.github/workflows/ci.yml` yet — wiring a dedicated, separately-tuned CI job for it is a deliberate follow-up, not an oversight.
 
 It drives the side panel's own HTML and JavaScript by opening `sidepanel.html` as an ordinary tab at its `chrome-extension://` URL rather than through Chrome's docked side-panel UI region, which Playwright cannot click into (that requires a real click on the browser's own toolbar icon). The panel's code has no dependency on being docked to run, so every button the test clicks runs the same real code path either way; see the comment at the bottom of `tests/e2e/two-profile-sync.spec.ts` for the full investigation, including why driving the extension purely through `chrome.runtime` messages to its service worker was not needed here.
+
+### Authenticated Crunchyroll two-profile E2E
+
+Issue [#30](https://github.com/muaz978/sync-your-joy/issues/30) adds an opt-in provider run beside the generic fixture. The spec is `tests/e2e/crunchyroll-two-profile.spec.ts`. It launches two isolated extension profiles, opens the same authorized Crunchyroll `/watch/` URL in both profiles, waits for a visible metadata-ready native video, and drives the real room flow through play, forward seek, native backward seek, frame-progress observation, convergence, and pause.
+
+The provider run is deliberately state-only. It does not read or print cookies, credentials, signed media URLs, media bytes, screenshots, page HTML, DRM data, or private player APIs. Its browser assertions are limited to native media state and frame-progress evidence. A passing provider run proves the tested URL, browser, account state, extension build, and coordinator combination for that run only. It does not prove every Crunchyroll title, locale, timed edition, browser, graphics path, or future provider deployment.
+
+The provider spec is skipped by the ordinary `npm run test:e2e` command unless all three variables below are supplied. This keeps normal contributor runs deterministic and prevents accidental use of a signed-in account:
+
+```bash
+export SYNCYOURJOY_CRUNCHYROLL_URL='https://www.crunchyroll.com/watch/REDACTED'
+export SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A='/secure/path/crunchyroll-a.json'
+export SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B='/secure/path/crunchyroll-b.json'
+npm run test:e2e -- --grep 'authenticated Crunchyroll'
+```
+
+The same run has a dedicated package script for CI and repeatable local use:
+
+```bash
+npm run test:e2e:crunchyroll
+```
+
+The two storage-state files are sensitive authentication material. Create them only in a protected local directory or a protected CI secret, never commit them, never paste them into an issue or pull request, and remove or rotate them after the acceptance run. Do not copy browser cookies manually from a daily-use profile. Use dedicated authorized test profiles and the normal Playwright storage-state format.
+
+The separately tuned manual CI workflow is `.github/workflows/e2e-crunchyroll.yml`. Run it from GitHub Actions with an HTTPS Crunchyroll `/watch/` URL and the two repository secrets `SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A_B64` and `SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B_B64`. The workflow decodes those secrets only into the ephemeral runner temp directory, validates that they are JSON, runs the provider spec, and never echoes their contents. It is manual by design because authenticated provider accounts and protected media must not be used on ordinary pull requests or fork builds.

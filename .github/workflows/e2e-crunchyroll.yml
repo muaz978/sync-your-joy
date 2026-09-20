@@ -1,0 +1,56 @@
+name: Authenticated Crunchyroll E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider_url:
+        description: HTTPS Crunchyroll /watch URL for the authorized acceptance run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  crunchyroll-two-profile:
+    name: Crunchyroll two-profile playback
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SYNCYOURJOY_CRUNCHYROLL_URL: ${{ inputs.provider_url }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Materialize protected browser state files
+        env:
+          STORAGE_STATE_A_B64: ${{ secrets.SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A_B64 }}
+          STORAGE_STATE_B_B64: ${{ secrets.SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$STORAGE_STATE_A_B64" || { echo 'Missing SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A_B64.' >&2; exit 1; }
+          test -n "$STORAGE_STATE_B_B64" || { echo 'Missing SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B_B64.' >&2; exit 1; }
+          printf '%s' "$STORAGE_STATE_A_B64" | base64 --decode > "$RUNNER_TEMP/syncyourjoy-crunchyroll-a.json"
+          printf '%s' "$STORAGE_STATE_B_B64" | base64 --decode > "$RUNNER_TEMP/syncyourjoy-crunchyroll-b.json"
+          node -e "for (const path of process.argv.slice(1)) JSON.parse(require('node:fs').readFileSync(path, 'utf8'))" \
+            "$RUNNER_TEMP/syncyourjoy-crunchyroll-a.json" \
+            "$RUNNER_TEMP/syncyourjoy-crunchyroll-b.json"
+
+      - name: Run authenticated Crunchyroll E2E
+        env:
+          SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A: ${{ runner.temp }}/syncyourjoy-crunchyroll-a.json
+          SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B: ${{ runner.temp }}/syncyourjoy-crunchyroll-b.json
+        run: npm run test:e2e:crunchyroll
