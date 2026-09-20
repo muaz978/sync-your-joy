@@ -6572,3 +6572,157 @@
 - This checkpoint records CR-B01 implementation, branch cleanup, final corrective review, PR #82 metadata, checks, formal review, merge, issue documentation and project-state transition.
 - Earlier CR-B01 notes that described the branch as pending review are superseded by the confirmed merged state recorded here. The explicit scope boundary and unresolved runtime gates remain in force.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+# Checkpoint 74 - CR-B05 local health deadlines review, merge and post-merge verification
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 74
+- Date and time: 2026-09-21, Europe/Istanbul
+- Coverage period: continuation after CR-B04 Checkpoint 73 through CR-B05 issue #59 metadata completion, implementation verification, final security-check correction, PR #87 review, authorized merge, remote verification and issue-state transition
+- Current context status: PR #87 is merged into `main` at `c2ea547d6fc42551a7290358203e052a5063e849`. Issue #59 remains open in public project status `Verification`. The retained implementation branch is `codex/issue-59-local-health-deadlines` at source head `d2c1f5ffa84683f2ed92204b53c04b2148246d6`. Version `0.2.4` remains current.
+
+## User Objective and Requirements
+- Continue the dependency-aware oldest-first workflow and act once the current work reaches the review stage.
+- Review every issue-specific PR before acceptance or merge, and do not close an issue until every applicable acceptance gate is directly evidenced.
+- Add detailed implementation, verification, security, external-limitation and release documentation to every issue-specific PR and issue lifecycle.
+- Add labels, assignee, milestone and complete public project custom-field metadata to each future PR.
+- Treat the already signed-in Crunchyroll account and Edge browser session as available. Do not infer that the account is missing because isolated automation storage-state files are unavailable.
+- Commit and push all repository changes.
+- Bump a compatible release only after a coherent verified group. Reserve release `1.0.0` for complete milestone acceptance.
+- Keep issue #59 open through post-merge verification because this local server slice does not prove live provider output, two-account, two-device, deployment or user acceptance.
+- Do not use em dashes in documentation or responses.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 - CR-B05 issue metadata and public tracking setup
+- Continued from CR-B04 Checkpoint 73 and selected issue #59, `CR-B05: Apply health deadlines in the local server`, as the next dependency-aware implementation slice.
+- Verified the issue dependency on CR-B04 #58 and the existing local-server acceptance criteria. The issue remained open and was not treated as blocked by the available signed-in Crunchyroll session.
+- Confirmed issue #59 metadata: labels `enhancement`, `initiative: crunchyroll-sync`, `area: backend` and `area: testing`; assignee `muaz978`; milestone `M3/M5: reliability and real-device validation`; public project `SyncYourJoy Delivery and Reliability`.
+- Posted the implementation plan at `https://github.com/muaz978/sync-your-joy/issues/59#issuecomment-5752762304`, recording the current 100 ms cleanup loop, the deadline-transition gap, the source-first investigation boundary, test scope, release boundary and non-closure policy.
+- Set issue #59's project status to `In Progress` and verified the custom fields through the public GitHub project UI: `P1 High`, `Feature`, `Partial`, gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests` and `Browser test`, risk `High`, blank blocked reason, no target date and verification owner `muaz978`.
+
+### 2026-09-21 - Baseline, source inspection and implementation
+- Created branch `codex/issue-59-local-health-deadlines` from verified `origin/main` at CR-B04 merge `c9149219c86a2c2c995c72e42a699640ed13b51f`.
+- Ran baseline `npx vitest run apps/room-service/src/server.test.ts`; the pre-change room-service suite passed 13 tests.
+- Inspected the complete local server lifecycle, cleanup timer, room expiry and disconnect/replacement paths together with the coordinator deadline methods. Confirmed that the server already called `releaseExpiredSeek`, `releaseExpiredOperation` and `evaluateHealth`, but evaluated and broadcast each result independently and had no dedicated socket-level proof that a connected silent player is paused by the timer without another inbound report.
+- Updated `apps/room-service/src/server.ts` so each cleanup-timer turn evaluates deadline methods in the established precedence order and uses null-coalescing to stop after the first state-changing result. At most one authoritative `room_snapshot` is broadcast per room per timer turn.
+- Added a real WebSocket regression to `apps/room-service/src/server.test.ts`. It creates a room, marks the controller ready, starts playback, sends one healthy progress sample, sends no further player messages, waits for `participant_playback_stalled`, verifies paused playback and one revision increment, and verifies no duplicate transition.
+- Preserved and reran negotiated transaction dispatch and participant replacement coverage.
+- Added `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B05_LOCAL_HEALTH_DEADLINES_REPORT.md` with root cause, changed files, acceptance mapping, security and privacy analysis, exact verification, external limits, evidence boundaries and release and closure decisions.
+
+### 2026-09-21 - Test correction and local verification
+- The first focused run failed because the synthetic room fixture used `HEALTH123`, a nine-character code rejected by protocol parsing. The failure was diagnosed from the received `error` message instead of the expected `room_joined` event.
+- Corrected the fixture to valid eight-character code `HEALTH12`. The focused room-service suite then passed 14 of 14 tests. This was a test-fixture correction, not a product defect.
+- Ran the focused coordinator and room-service command covering `playback-health.test.ts`, `room-streaming-regressions.test.ts`, `room.test.ts` and `server.test.ts`; four files and 88 tests passed.
+- Ran `npm run typecheck`; typecheck passed.
+- Ran `npm run check`; typecheck, 30 Vitest files with 280 tests, room-service build and extension build all passed.
+- Ran `git diff --check`; it passed. Ran `npm run release:check-version`; the repository version remained `0.2.4`.
+
+### 2026-09-21 - Restricted and host-environment verification
+- Restricted `npm run verify:browser-packages` failed at the Safari converter because it could not access the temporary staging path and could not parse the staged manifest. With approved host filesystem access, Chrome manifest `0.2.4`, Firefox manifest `0.2.4` and macOS Safari package smoke all passed.
+- Restricted `npm run test:e2e -- --grep "profile A creates a room"` failed before the assertion because Chromium aborted while launching its persistent extension profile. With approved host browser access, one generic local two-profile test passed in approximately 6.4 seconds.
+- Recorded the evidence boundary: this generic test proves local extension and room behavior only. It does not prove authenticated Crunchyroll visible output, two-account or two-device behavior, deployment, staged installation or user acceptance.
+
+### 2026-09-21 - Security warning investigation and correction
+- Initial PR head `e14acde` triggered GitHub Advanced Security and DevSkim on a helper passing caller-controlled `timeoutMs` to `setTimeout`.
+- Replaced the dynamic timeout with fixed literals in `5c1e382`; GitHub still reported two DevSkim comments because the scanner pattern matched the changed `setTimeout` construct.
+- Replaced the newly added direct calls with bounded `AbortSignal.timeout(4_000)` and `AbortSignal.timeout(300)` waits in `d2c1f5f`. An unchanged older `setTimeout(resolve, 220)` was outside the warning scope and was not modified.
+- Reran focused tests and full `npm run check` after the final security correction. They passed. Final PR CodeQL and DevSkim both report no new alerts in changed code, while the earlier bot comments remain fixed historical comments.
+- Separate optional Code scanning AI findings run `35539609649` failed before analysis because its external Copilot security detector rejected the configured model as unsupported. GitHub reported that the run could not be retried. It is not a required PR check and did not report a code finding.
+
+### 2026-09-21 - PR #87 metadata and exact-head review
+- Opened PR #87, `https://github.com/muaz978/sync-your-joy/pull/87`, titled `fix: make local health deadline transitions atomic`, with no automatic issue-closing keyword.
+- Confirmed the detailed PR body documents root cause, implementation, acceptance mapping, exact verification, security/privacy boundary, provider/browser limits, version policy and the requirement to keep issue #59 open.
+- Verified labels `enhancement`, `initiative: crunchyroll-sync`, `area: backend` and `area: testing`, assignee `muaz978`, milestone `M3/M5: reliability and real-device validation` and project membership.
+- Set PR project status to `In review` and verified `P1 High`, `Feature`, `Partial`, the five applicable gates, `High` risk, blank blocked reason, no target date and verification owner `muaz978`.
+- Prepared `/private/tmp/syj-cr-b05-final-review.md` for exact final head `d2c1f5ffa84683f2ed92204b53c04b2148246d6`, covering server logic, tests, documentation, security correction, required checks, the external AI limitation and release and closure boundaries.
+- Posted the detailed review comment against that exact head, recording no blocking or actionable source findings.
+
+### 2026-09-21 - Review limitation, authorized merge and remote verification
+- Attempted `gh pr review 87 --approve`; GitHub rejected it with `Review Can not approve your own pull request` because the authenticated account is the PR author and repository owner.
+- Preserved the detailed non-approval review comment rather than treating the owner permission rule as a source-quality problem.
+- Attached PR #87 to the Codex task as a pull-request artifact.
+- Rechecked the PR immediately before merge. Final head was `d2c1f5ffa84683f2ed92204b53c04b2148246d6f`; Analyze (javascript-typescript), Typecheck, test, and build, DevSkim, CodeQL and lowercase `devskim` were all successful. GitHub still reported only `REVIEW_REQUIRED` because approval from someone other than the last pusher was required.
+- Merged with the explicitly authorized administrative path `gh pr merge 87 --squash --admin --delete-branch=false`, preserving the source branch.
+- Confirmed PR #87 is `MERGED`, with merge time `2026-09-20T21:52:05Z` and merge commit `c2ea547d6fc42551a7290358203e052a5063e849`.
+- Fetched `origin/main` and verified `git rev-parse origin/main` resolves exactly to `c2ea547d6fc42551a7290358203e052a5063e849`.
+
+### 2026-09-21 - Issue #59 post-merge record and Verification transition
+- Created `/private/tmp/syj-cr-b05-issue59-merge.md` with exact source head, merge SHA, remote verification, completed local evidence, remaining closure gates, metadata values and explicit non-closure decision.
+- Posted the issue record at `https://github.com/muaz978/sync-your-joy/issues/59#issuecomment-5752940355`.
+- Changed issue #59's public project status from `In Progress` to `Verification` through the controlled Edge GitHub tab. The UI reported `Status Verification` and a list-updated notification.
+- Re-read issue metadata after the transition. The issue remains `Open`, assigned to `muaz978`, correctly labeled and milestoned, and attached to `SyncYourJoy Delivery and Reliability`. The project card shows `Verification`, `P1 High`, `Feature`, `Partial`, the five gates, `High`, blank blocked reason, no target date and verification owner `muaz978`.
+- Did not close the issue. Its acceptance checklist remains visible and broader live-provider, multi-account, multi-device, deployment and user-acceptance evidence remains outstanding.
+
+## Confirmed Successful Results
+- PR #87 was reviewed at exact final source head `d2c1f5ffa84683f2ed92204b53c04b2148246d6f` and merged into `main` at `c2ea547d6fc42551a7290358203e052a5063e849`.
+- `origin/main` independently resolves to the merge SHA.
+- All five required checks passed: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim` and Typecheck, test, and build.
+- CodeQL and DevSkim report no new alerts in code changed by PR #87.
+- The local room-service cleanup timer now emits at most one authoritative deadline transition per turn in the existing precedence order.
+- The real WebSocket silent-player regression proves timer-driven pause behavior, one revision increment and no duplicate transition.
+- Focused room-service suite: 14 tests passed. Focused coordinator/server suite: four files and 88 tests passed. Full repository check: 280 tests, typecheck and both builds passed.
+- Chrome, Firefox and Safari package smoke passed with host filesystem access. The generic local two-profile browser test passed with host browser access.
+- PR #87 contains labels, assignee, milestone, public project membership and complete custom-field metadata. Its project status was `In review` at merge time.
+- Issue #59 has a detailed post-merge record, remains `OPEN`, and is visibly in public project status `Verification` with complete tracking metadata.
+- The implementation report is in the merged source. No version bump was made. `0.2.4` remains current and `1.0.0` remains reserved for full milestone acceptance.
+- The working tree was clean before this checkpoint append, and implementation commits were already pushed.
+
+## Failed, Incomplete, or Unresolved Work
+- GitHub cannot record an approving self-review from the repository owner. The detailed `COMMENTED` review is preserved, and the merge used the authorized administrative path only after source review and green required checks.
+- The optional Code scanning AI findings workflow failed because its external detector requested an unsupported model. It is not a required PR check and did not produce a code finding.
+- The first restricted package smoke and generic E2E run failed because of host filesystem and persistent-browser environment restrictions. Approved host reruns passed. These failures are not source defects.
+- Authenticated Crunchyroll visible-output acceptance, two-account, two-device, deployment, staged installation and final user acceptance remain unverified. The available signed-in account is recorded as available for a headed provider gate when that scope is reached.
+- Issue #59 remains open in `Verification`; no issue closure or release bump is justified by this local server slice alone.
+- This checkpoint append is written but still needs its documentation commit and push.
+
+## Decisions and Rationale
+- Used the existing cleanup timer rather than introducing a new timer or protocol change because the source already owned the deadline lifecycle and the gap was atomic transition selection plus missing socket-level evidence.
+- Corrected the invalid fixture before treating the first failing test as a product defect.
+- Removed newly added dynamic and direct `setTimeout` patterns after security warnings, then reran focused and full checks and verified green CodeQL and DevSkim results.
+- Treated the external AI workflow failure as an infrastructure limitation because it occurred during model selection before detector analysis.
+- Used the public project UI as authoritative for custom-field verification because the configured CLI token lacks project-read scope.
+- Used the administrative merge path only because the user authorized acceptance and GitHub's owner self-approval rule prevented a normal approving review.
+- Kept issue #59 open and moved it to `Verification`, because the deterministic implementation is complete while provider, device, deployment and user-acceptance gates remain separate.
+- Kept version `0.2.4` and reserved `1.0.0` for milestone completion rather than releasing a single local-server slice.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Local server implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/room-service/src/server.ts`
+- Local server tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/room-service/src/server.test.ts`
+- Detailed acceptance report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B05_LOCAL_HEALTH_DEADLINES_REPORT.md`
+- PR body: `/private/tmp/syj-cr-b05-pr.md`
+- Final review body: `/private/tmp/syj-cr-b05-final-review.md`
+- Issue merge record: `/private/tmp/syj-cr-b05-issue59-merge.md`
+- PR #87: `https://github.com/muaz978/sync-your-joy/pull/87`
+- Issue #59: `https://github.com/muaz978/sync-your-joy/issues/59`
+- Issue plan comment: `https://github.com/muaz978/sync-your-joy/issues/59#issuecomment-5752762304`
+- Issue post-merge comment: `https://github.com/muaz978/sync-your-joy/issues/59#issuecomment-5752940355`
+- Public project: `https://github.com/users/muaz978/projects/1`
+- Final source head: `d2c1f5ffa84683f2ed92204b53c04b2148246d6f`
+- Merge commit: `c2ea547d6fc42551a7290358203e052a5063e849`
+- Implementation commits: `e14acde`, `5c1e382`, `d2c1f5f`
+
+## Assumptions and Uncertainties
+- The public GitHub project UI is authoritative for custom-field values because the configured CLI token lacks project-read scope.
+- The retained source branch is intentionally preserved after merge for traceability. `main` remains verified at the merge commit.
+- Package smoke and generic browser results are deterministic local evidence, not authenticated live-provider or deployment evidence.
+- The signed-in Crunchyroll Edge session is available. No second account, second device, deployment target or user-acceptance action is inferred.
+
+## Open Questions, Blockers, and Dependencies
+- Commit and push this Checkpoint 74 record on the retained CR-B05 branch.
+- Continue with the next dependency-aware issue, CR-B02 #56, while retaining issue #59 in `Verification` until remaining gates are directly evidenced.
+- The optional Code scanning AI workflow needs repository or service-owner maintenance if its unsupported model configuration is expected to become a required gate.
+- A headed Crunchyroll provider gate can use the already signed-in Edge session when a specific issue reaches that stage. Ask for another account, device, deployment target or explicit user-acceptance action only if the exact gate requires it.
+
+## Next Steps
+1. Commit and push this Checkpoint 74 documentation record.
+2. Re-scan the oldest open issue queue and continue with CR-B02 #56 using the same source-first, review-first, metadata-complete and evidence-gated process.
+3. Keep issue #59 open in `Verification` until remaining server, provider, device, deployment and user-acceptance gates are directly evidenced.
+4. Revisit a compatible release bump only after a coherent verified group, and reserve `1.0.0` for complete milestone acceptance.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-73 remain intact. This record appends the full CR-B05 implementation, security correction, review, merge and post-merge verification history without replacing earlier records.
+- Earlier CR-B05 notes that described PR #87 as pending review are superseded by the confirmed merged state recorded here. The evidence boundary and issue non-closure decision remain in force.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
