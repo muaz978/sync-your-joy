@@ -109,6 +109,37 @@ describe('adaptive streaming coordination regressions', () => {
     expect(room.acknowledgeSeek('backup', sought.snapshot.seek.revision, 120)).toBeNull()
   })
 
+  it('cancels a pending seek when the controller lease changes', () => {
+    let nowMs = 10_000
+    const room = readyRoom(() => nowMs)
+    control(room, 'play', 20)
+    const sought = room.control('host', {
+      actionId: 'lease-change-seek',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 120,
+    })
+    expect(sought).toMatchObject({ ok: true, snapshot: { seek: { positionSeconds: 120 } } })
+    if (!sought.ok || !sought.snapshot.seek)
+      throw new Error('Expected a pending seek.')
+
+    const pendingRevision = sought.snapshot.seek.revision
+    const transfer = room.transferControl('host', 'guest', sought.snapshot.controller.leaseEpoch)
+
+    expect(transfer).toMatchObject({
+      ok: true,
+      snapshot: {
+        controller: { participantId: 'guest', leaseEpoch: 2 },
+        playback: { status: 'paused', positionSeconds: 120 },
+        seek: null,
+      },
+    })
+    expect(room.acknowledgeSeek('host', pendingRevision, 120)).toBeNull()
+    expect(room.acknowledgeSeek('guest', pendingRevision, 120)).toBeNull()
+    expect(room.snapshot().playback.status).toBe('paused')
+  })
+
   it('waits for the controller to finish loading a seek even when the guest is already aligned', () => {
     let nowMs = 10_000
     const room = readyRoom(() => nowMs)

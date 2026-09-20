@@ -5466,3 +5466,147 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-61 remain intact. This checkpoint records CR-A06 classification and source-baseline inspection after the verified CR-A05 merge.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+---
+
+# Checkpoint 64 - CR-A06 PR review, merge and post-merge verification
+
+## Session Metadata
+- Task or project: SyncYourJoy CR-A06 health evidence lifecycle
+- Checkpoint number: 64
+- Date and time: 2026-09-20 19:05 +03
+- Coverage period: From completion of CR-A06 implementation checkpoint #63 through PR #80 review, merge, issue documentation and project-state verification.
+- Current context status: CR-A06 implementation is merged into `main`; issue #53 remains open in Verification; repository checkpoint documentation is ready to commit and push.
+
+## User Objective and Requirements
+- Continue the systematic open-PR and oldest-issue workflow.
+- Review every PR before accepting or merging it.
+- Include detailed documentation for every issue-specific PR and its verification limits.
+- Apply labels, assignee, milestone and public-project metadata to future PRs.
+- Treat the already signed-in Crunchyroll Edge session as available. Do not classify work as blocked merely because isolated provider storage-state files are not configured.
+- Do not close an issue until every applicable acceptance gate is directly evidenced and no known gap remains.
+- Commit and push repository changes.
+- Do not bump a release for one issue. Use a coherent verified group for a compatible release and reserve `1.0.0` for milestone completion.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20 18:58 +03 - Browser automation context restoration
+- After context compaction, restored the CUA browser documentation with `await cua.rewriteDocumentation()` as required.
+- Rebound the existing Edge project tab with provider tab ID `1711444390`.
+- Read the complete public `Evidence and acceptance` view for project `SyncYourJoy Delivery and Reliability`.
+- Located the auto-added PR #80 row, `fix: stabilize player health evidence`.
+- Before editing, the row showed assignee `muaz978`, status `Todo`, and blank custom fields for priority, work type, evidence, acceptance gates, risk and verification owner.
+
+### 2026-09-20 18:59-19:02 +03 - PR #80 public project classification
+- Changed PR #80 project status from `Todo` to `In review`.
+- Set priority to `P1 High`.
+- Set work type to `Bug`.
+- Set evidence state to `Partial`.
+- Selected acceptance gates `Unit tests`, `Integration tests`, `Browser test` and `User acceptance`.
+- Set risk to `High`.
+- Set verification owner to `muaz978`.
+- Left blocked reason and target date blank because the deterministic implementation was not blocked on an absent account, profile or device. The remaining external gates are unverified rather than falsely marked as passed.
+- Reloaded the project view and visibly verified the PR #80 row with all of the requested values, including assignee, status, priority, work type, evidence, acceptance gates, risk and owner.
+
+### 2026-09-20 19:02 +03 - Repository and remote PR gate inspection
+- Confirmed the local worktree was clean on branch `codex/issue-53-health-evidence`, tracking `origin/codex/issue-53-health-evidence`.
+- Read PR #80 metadata with GitHub CLI. Confirmed the PR was open, non-draft, mergeable, assigned to `muaz978`, labeled `bug`, `initiative: crunchyroll-sync`, `area: extension` and `area: testing`, and assigned milestone `M3/M5: reliability and real-device validation`.
+- Confirmed the PR body contained detailed root cause, baseline, implementation, changed files, acceptance mapping, exact verification commands and counts, package checksum, external limitations, security boundaries, review conditions and release decision.
+- Confirmed the diff contained 12 files, 833 insertions and 140 deletions. The changes covered the pure health model and tests, content-script integration and tests, protocol validation, worker and side-panel diagnostics, the acceptance report template, test-guide link and this checkpoint history.
+- Ran `git diff --check origin/main...HEAD`, which passed.
+- Read the exact source and documentation diff. Review focus included single-snapshot ownership, frame and clock evidence distinction, zero and reset counters, seek exclusion, visibility rebasing, source and command reset paths, buffering persistence, browser play-start failure persistence, protocol validation, diagnostics propagation and privacy boundaries.
+- Identified no blocking correctness, security or documentation finding.
+
+### 2026-09-20 19:03 +03 - Remote checks and formal review
+- Read `gh pr checks 80`. All five remote checks passed:
+  - Analyze (javascript-typescript)
+  - CodeQL
+  - DevSkim
+  - lowercase `devskim`
+  - Typecheck, test, and build
+- Wrote `/private/tmp/syj-cr-a06-review.md` with the formal review result, reviewed invariants, exact verification evidence, remaining external limitations, project metadata and release decision.
+- Attempted `gh pr review 80 --approve --body-file /private/tmp/syj-cr-a06-review.md`.
+- GitHub rejected approval because the authenticated account owns the pull request: `Review Can not approve your own pull request`.
+- Posted the same detailed review through `gh pr review 80 --comment --body-file /private/tmp/syj-cr-a06-review.md`.
+- Verified the review was recorded on commit `6e71ff5` with state `COMMENTED`, and that GitHub still reported `REVIEW_REQUIRED` because owner self-approval is not allowed. The comment explicitly recorded no blocking finding and the evidence-based merge decision.
+
+### 2026-09-20 19:03 +03 - Authorized PR merge
+- Merged PR #80 through the authorized administrator path with squash merge and branch retention: `gh pr merge 80 --squash --admin --delete-branch=false`.
+- GitHub reported PR #80 as `MERGED` and closed at `2026-09-20T16:03:15Z`.
+- Verified merge commit `583012165b477ba248789c8c42f4a14780426a42` through `gh pr view`.
+- A first verification query incorrectly requested unsupported GitHub CLI JSON field `merged`; this was corrected to `mergedAt`, `mergeCommit`, `state` and related supported fields. This was a query error only and did not affect the merge.
+- A normal sandboxed `git fetch origin main` could not write `.git/FETCH_HEAD` due filesystem permission. Reran the same read-only fetch with the required approved escalation.
+- Verified `origin/main` resolves to exactly `583012165b477ba248789c8c42f4a14780426a42`, matching the PR merge commit.
+- Re-read `gh pr checks 80`; all five remote checks remained passed.
+
+### 2026-09-20 19:04 +03 - Detailed issue #53 post-merge documentation
+- Wrote `/private/tmp/syj-cr-a06-issue-53-merge.md` containing change identity, root cause, implemented behavior, exact deterministic checks, package checksum, review and merge result, external evidence limits, privacy boundaries and closure decision.
+- Posted the documentation to issue #53 at `https://github.com/muaz978/sync-your-joy/issues/53#issuecomment-5750934660`.
+- The comment records that the active signed-in Crunchyroll Edge session is available for later controlled headed observation and that no credentials, cookies, storage state, account name, viewing history, protected media, signed URLs, DRM data or private provider APIs were accessed, copied or recorded.
+- The comment explicitly keeps issue #53 open because live provider, two-profile or two-account, two-device, deployment and user-acceptance evidence remains unverified.
+
+### 2026-09-20 19:04-19:05 +03 - Post-merge public project state
+- Opened the issue #53 project status selector and changed it from `In Progress` to `Verification`.
+- PR #80 automatically changed from `In review` to `Done` after merge. The row was visibly checked after reload.
+- Reloaded the public project view and verified issue #53 row values: status `Verification`, assignee `muaz978`, priority `P1 High`, work type `Bug`, evidence `Partial`, acceptance gates `Unit tests`, `Integration tests`, `Browser test`, `User acceptance`, risk `High`, blank blocked reason and verification owner `muaz978`.
+- Verified the PR #80 row values after merge: status `Done`, assignee `muaz978`, priority `P1 High`, work type `Bug`, evidence `Partial`, acceptance gates `Unit tests`, `Integration tests`, `Browser test`, `User acceptance`, risk `High` and verification owner `muaz978`.
+- Queried issue #53 with GitHub CLI and verified `state: OPEN`, labels `bug`, `initiative: crunchyroll-sync`, `area: extension`, `area: testing`, assignee `muaz978`, milestone `M3/M5: reliability and real-device validation` and two comments.
+
+## Confirmed Successful Results
+- PR #80 is merged into `main` at `583012165b477ba248789c8c42f4a14780426a42`.
+- `origin/main` was fetched and independently verified to resolve to the exact merge SHA.
+- All five remote PR checks passed.
+- The complete source diff and detailed acceptance documentation were reviewed. No blocking correctness, security or documentation issue was found.
+- The owner self-approval restriction was handled transparently by recording a formal detailed `COMMENTED` review, followed by the authorized administrator merge after all checks passed.
+- Issue #53 has a detailed post-merge evidence comment and remains open.
+- Issue #53 project status is `Verification`, not closed.
+- PR #80 project status is `Done` and its labels, assignee, milestone and custom metadata are visible in the public project.
+- Repository version remains `0.2.4`; no release was bumped or published.
+- The CR-A06 candidate package remains available at `/private/tmp/syj-release-cr-a06/sync-your-joy-extension.zip` with SHA-256 `e43949018f09dfdb929f1bdc47d3316217aec7679e26b3576a78c281e3637eaf`.
+
+## Failed, Incomplete, or Unresolved Work
+- GitHub cannot record an approved review from the pull-request owner. The actual review is recorded as `COMMENTED`, and this limitation is documented in the PR and issue.
+- The isolated authenticated Crunchyroll E2E remains skipped because provider storage-state files are not configured.
+- The generic isolated two-profile E2E failed before scenario setup because Chromium exited with `SIGABRT`, with `EPERM` during Playwright cleanup. This remains an environment limitation and is not presented as source success.
+- Live provider playback, visible-output acceptance, two-profile or two-account acceptance, two-device acceptance, deployment verification and user acceptance remain outstanding.
+- Issue #53 must not be closed until the remaining applicable gates are directly evidenced and the acceptance report is completed.
+- No release bump is justified by CR-A06 alone. Continue with the next oldest issue and reconsider a compatible release only after a coherent verified group.
+
+## Decisions and Rationale
+- Merge was permitted only after exact diff review, green remote checks, detailed review documentation and complete PR metadata. The owner self-approval restriction was a GitHub policy limitation, not a source-quality finding.
+- The issue moved to `Verification` because deterministic implementation, tests, package smoke and review are complete, while external provider and device gates are not.
+- The issue remains open because account availability alone does not satisfy a two-account or two-device gate, and a package smoke check does not prove live provider visible output.
+- The active signed-in Crunchyroll session is treated as available for the next controlled headed observation. No browser installation was performed during this lifecycle because it was not required for the completed deterministic checks.
+
+## Files and Artifacts
+- Repository checkpoint being updated: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- PR review body used: `/private/tmp/syj-cr-a06-review.md`
+- Issue post-merge body used: `/private/tmp/syj-cr-a06-issue-53-merge.md`
+- Acceptance report template: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A06_HEALTH_EVIDENCE_ACCEPTANCE_REPORT_TEMPLATE.md`
+- Candidate package: `/private/tmp/syj-release-cr-a06/sync-your-joy-extension.zip`
+- PR #80: `https://github.com/muaz978/sync-your-joy/pull/80`
+- Issue #53: `https://github.com/muaz978/sync-your-joy/issues/53`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+- Merge commit: `583012165b477ba248789c8c42f4a14780426a42`
+
+## Assumptions and Uncertainties
+- The GitHub project UI is authoritative for custom project-field values because the available CLI token lacks the project-read scope.
+- The public project automation added PR #80 automatically and changed its status to `Done` on merge. This was visibly verified after reload.
+- The package path under `/private/tmp` is a local candidate artifact, not a published release.
+- The active signed-in Crunchyroll session is available, but no claim is made about a second account, second profile, second device, deployment target or final user acceptance.
+
+## Open Questions, Blockers, and Dependencies
+- Next work item remains the oldest unprocessed issue, CR-A07 issue #54, after the open PR lifecycle for #80 is complete.
+- Controlled headed Crunchyroll observation may use the already signed-in Edge session when the applicable acceptance step is reached.
+- A second account, profile, device, deployment target or explicit user-acceptance action will be requested only when the exact gate requires it.
+
+## Next Steps
+1. Commit and push this checkpoint update.
+2. Begin systematic investigation of issue #54, CR-A07, from its current source and acceptance criteria.
+3. Preserve the same per-issue process: classify metadata, inspect the baseline, implement and test, document exact evidence, commit, push, open a fully documented PR with labels, assignee, milestone and project fields, review before merge, and keep the issue open until all applicable gates pass.
+4. Revisit release versioning only after a coherent verified group. Keep `1.0.0` reserved for milestone completion.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-63 remain intact. This checkpoint records the complete CR-A06 PR #80 review, merge, issue documentation and public project-state lifecycle.
+- Earlier records that described CR-A06 implementation as outstanding are superseded by the confirmed successful results in this checkpoint, while remaining external acceptance limitations are preserved.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
