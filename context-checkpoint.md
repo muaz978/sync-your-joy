@@ -3988,6 +3988,200 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+## Checkpoint 48
+
+### Session Metadata
+- Task or project: SyncYourJoy open-issue queue, issue #35 headed-browser and cross-platform verification support.
+- Checkpoint number: 48.
+- Date and time: 2026-09-20 15:39:17 +03 (Europe/Istanbul).
+- Coverage period: After Checkpoint 47 through the issue #35 documentation and project-classification milestone.
+- Current context status: Issue #35 documentation is prepared locally and classified as an open external verification gate. The PR for this work has not yet been opened.
+
+### User Objective and Requirements
+- Continue the oldest-to-newest issue queue after the already reviewed and merged PRs.
+- Do not close an issue until the complete required behavior is actually verified with no gap.
+- Keep contributor-visible project tracking accurate, including status, priority, work type, evidence state, acceptance gates, risk, blocker reason and verification owner.
+- For every issue-specific PR, include detailed documentation of the baseline, scope, implementation, evidence, tests, limitations and closure decision.
+- Preserve the state-only boundary. Browser and provider reports may record native player state, visible progress and sanitized diagnostics, but must not record credentials, cookies, storage-state contents, signed URLs, protected media or DRM data.
+
+### Current State
+- Issue #35 is the next oldest open issue after the completed documentation milestones for issues #33 and #34.
+- Issue #35 was created at `2026-09-18T17:24:55Z` with title `Headed-browser cross-platform verification pass`.
+- Its body identifies verification gaps that headless Chrome CI cannot establish: real headed behavior, open Shadow-DOM player discovery, same-element SPA URL changes, player-lock UI, real Firefox installation with `build:extension:firefox`, and real Safari conversion/runtime behavior.
+- Existing repository evidence reviewed for this issue includes `docs/STORE_SUBMISSION.md`, `docs/GATE_1_3_CLOSEOUT.md`, `docs/TEST_FIXTURE.md`, `docs/CODE_AUDIT.md`, `docs/CRUNCHYROLL_HANDOFF.md` and `docs/PRODUCT_PLAN.md`. These documents consistently state that package/source checks are not a substitute for real Firefox or Safari runtime acceptance.
+- Branch `codex/issue-35-cross-platform` was created from verified `origin/main` at merge commit `8a1b405de68c5b3cf4ce89b50a6c063c84c53884`.
+
+### Complete Chronological Activity Log
+
+#### 2026-09-20 - Issue #35 inspection and evidence decision
+- User request or relevant context: Continue systematically from the oldest open issue and document every issue-specific change. The project must show what is done, what is blocked and what remains for contributors.
+- Action taken: Confirmed issue #35 as a runtime-acceptance task rather than an immediately justified source-code defect. Reviewed its issue body and the existing documentation and test-fixture evidence listed above.
+- Result: The repository already has useful source and package evidence, but no verified headed Chrome/Edge run, real Firefox installation run or Safari conversion/Xcode/runtime run for this issue.
+- Follow-up or change caused by this event: The correct in-scope contribution is a durable report template and test-guide entry. No completion claim or source behavior change is justified from the available evidence.
+
+#### 2026-09-20 - Documentation skill and report structure
+- Action taken: Used the documentation-and-ADRs guidance because this task adds a repeatable evidence workflow. Applied its requirements to document context, evidence distinctions, limitations, decisions and operational gotchas. No ADR was created because this adds no architecture or public API decision.
+- Result: The report design separates source/package, browser lifecycle, native player, extension diagnostics, coordinator state and human visible-motion evidence. It also makes `PASS`, `FAIL`, `BLOCKED`, `NOT CLAIMED` and `UNRESOLVED` explicit.
+- Follow-up: The report can be completed later by an operator with the required real runtimes without rewriting the acceptance method.
+
+#### 2026-09-20 - Added headed cross-platform report template
+- Action taken: Added `docs/SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md` with 178 lines of operational guidance and structured tables.
+- Result: The template now records report identity, candidate and package hashes, coordinator deployment identity, browser and operating-system versions, headed runtime matrix, generic fixture lifecycle cases, Firefox real-install checks, Safari conversion/Xcode/runtime checks, evidence classes, sanitized failure records, completion gates and operator privacy confirmation.
+- Important boundary: The template explicitly says that headless Chromium, package creation, source inspection and unit tests are supporting evidence only. Firefox is not supported by package creation alone, and Safari is not supported by conversion alone. Missing runtimes must be marked `BLOCKED` or `NOT CLAIMED`, never passed by inference.
+
+#### 2026-09-20 - Updated test guide
+- Action taken: Appended a `Headed-browser and cross-platform acceptance` section to `docs/TEST_GUIDE.md`.
+- Result: The guide links issue #35 to the new template and explains that headless CI and package builds do not establish open Shadow DOM, same-element SPA changes, player-lock UI, real Firefox or Safari runtime acceptance.
+
+#### 2026-09-20 - Updated issue metadata
+- Action taken: Ran `gh issue edit 35 --add-assignee muaz978 --add-label 'documentation,initiative: crunchyroll-sync,area: testing'`.
+- Result: Issue #35 is assigned to `muaz978` and has labels `documentation`, `initiative: crunchyroll-sync` and `area: testing`, while preserving its existing labels.
+
+#### 2026-09-20 - Classified issue #35 in the public project
+- Action taken: Used the public GitHub project UI because the CLI token lacks `read:project` scope. Set the issue row fields through the project controls and then opened the issue details to set the verification owner.
+- Result: The issue #35 row now reads: assignee `muaz978`; status `Blocked`; priority `P1 High`; work type `Manual acceptance`; evidence `Not started`; acceptance gates `Browser test`, `Deployment`, `User acceptance`; risk `High`; blocked reason `Missing device`; verification owner `muaz978`.
+- Rationale: The required real headed browser/runtime and packaging environments are not verified in this session. The issue must remain open and blocked until direct evidence exists. The selected gates are the minimum gates described by the issue body and current documentation; they do not claim live-provider or two-account acceptance that issue #35 does not itself define.
+
+#### 2026-09-20 - Local validation before PR creation
+- Action taken: Ran `git diff --check` and inspected the new template and test-guide diff.
+- Result: `git diff --check` passed. The working tree contains only the intended checkpoint update, test-guide addition and new issue #35 report template at this stage.
+- Current limitation: The local documentation has not yet been committed or pushed, and no PR review or remote check has occurred for this milestone.
+
+### Confirmed Successful Results
+- `docs/SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md` exists locally and contains the complete headed-browser, Firefox-installation and Safari-conversion evidence workflow.
+- `docs/TEST_GUIDE.md` contains the issue #35 cross-platform acceptance link and evidence distinction.
+- `git diff --check` passed for the current changes.
+- Issue #35 is assigned to `muaz978` and has the required tracking labels.
+- Issue #35 public-project fields were verified through the project row: Blocked, P1 High, Manual acceptance, Not started, Browser test plus Deployment plus User acceptance, High, Missing device and verification owner `muaz978`.
+- No claim was made that headed Chromium, Firefox or Safari behavior passed.
+
+### Failed, Incomplete, or Unresolved Work
+- No PR has been opened yet for issue #35. Therefore no remote CI, formal review, merge or post-merge issue comment exists for this milestone yet.
+- Real headed Chrome/Edge lifecycle evidence remains unrun.
+- Real Firefox package installation, coordinator-origin connection and playback smoke remain unrun.
+- Safari conversion, Xcode build/signing and Safari runtime evidence remain unrun.
+- The issue remains open and blocked by design. It must not be closed by the documentation PR.
+- The PR project item has not yet been created or classified because the PR does not exist yet.
+
+### Decisions and Rationale
+- Treat issue #35 as a documentation-backed external acceptance gate, not as a source fix, because the identified gap is missing runtime evidence and environment coverage.
+- Use `Blocked` with `Missing device` because the missing evidence requires real headed browser/runtime environments and package installation. This does not assert that the product is defective; it records that the required acceptance evidence is unavailable.
+- Keep all browser claims runtime-specific. Headless Chrome, build output and source checks cannot be promoted to Firefox or Safari acceptance.
+- Use a template that requires visible motion to be checked separately from room counters and diagnostics, preserving the project’s state-only synchronization boundary.
+- The future PR must use `Relates to #35` and wording such as `Issue #35 remains open` rather than a GitHub closing keyword, because this contribution cannot satisfy the external runtime gates.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md` - new 178-line headed-browser and cross-platform acceptance report template.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` - new issue #35 acceptance section.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md` - this checkpoint, appended after Checkpoint 47.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+- Issue #35: `https://github.com/muaz978/sync-your-joy/issues/35`.
+
+### Assumptions and Uncertainties
+- The public project custom fields and issue metadata observed through the browser are authoritative for this session; CLI project reads remain unavailable because the token lacks project-read scope.
+- The chosen `Missing device` blocker is a tracking classification for unavailable real runtime evidence. If a later run shows the primary blocker is conversion tooling or deployment, update the project field with that direct evidence.
+- No provider account, protected media, storage state or Safari environment was inspected or recorded during this milestone.
+
+### Open Questions, Blockers, and Dependencies
+- Which real headed browser and operating-system combinations are available for the acceptance run?
+- Is the Firefox build installable in a real profile and able to connect with the actual Firefox origin?
+- Is the Safari conversion toolchain and Xcode signing environment available?
+- Can the generic fixture complete all open Shadow DOM, SPA replacement, multiple-player and player-lock cases in a headed window?
+- These questions are intentionally left for the later manual acceptance run. The documentation PR should not resolve them by assumption.
+
+### Next Steps
+1. Review the new template and test-guide diff, commit them on `codex/issue-35-cross-platform`, and push the branch.
+2. Open a detailed PR using `Relates to #35`, attach it to the Codex task, and apply assignee, labels, milestone and public-project fields.
+3. Wait for all required remote checks, review the exact diff and post a formal review record before administrator squash merge.
+4. Verify the remote merge, keep issue #35 open, add a comment with the exact merge commit and remaining runtime gates, and verify the public project leaves issue #35 Blocked while the merged PR item becomes Done.
+5. Only after that milestone is complete, inspect the next oldest open issue, #49, without closing #35.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-47 remain intact. This checkpoint records issue #35 classification and documentation preparation and supersedes no earlier result.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 47 - Two-device network-chaos documentation merged and issue #35 selected
+
+### Session Metadata
+- Task or project: Continue the oldest-open-issue workflow after preparing and accepting the issue #34 real-device network-chaos evidence workflow.
+- Checkpoint number: 47.
+- Date/time: 2026-09-20, Europe/Istanbul.
+- Coverage period: Issue #34 documentation commit, PR #74 metadata and project fields, remote checks, formal review, merge, issue comment, post-merge project verification and transition to issue #35.
+- Current context status: PR #74 is merged into `origin/main` at `8a1b405de68c5b3cf4ce89b50a6c063c84c53884`. Issue #34 remains OPEN and Blocked. Branch `codex/issue-35-cross-platform` starts from that verified main.
+
+### User Objective and Requirements
+- Continue from oldest to newest open issue after processing the PR queue.
+- Review and document every issue-specific PR before acceptance.
+- Keep manual or external issues open until the required evidence is actually collected.
+- Keep the public project synchronized with the real status, risk, blocker and remaining gates.
+
+### Complete Chronological Activity Log
+
+1. Committed issue #34 support as `95e1192`, including `docs/SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md`, the `docs/TEST_GUIDE.md` link and Checkpoint 46. The diff passed `git diff --check`.
+
+2. Pushed `codex/issue-34-network-chaos`, opened PR #74, attached it to the Codex task and applied assignee `muaz978`, labels `documentation`, `initiative: crunchyroll-sync`, `area: testing`, and milestone `M3/M5: reliability and real-device validation`.
+
+3. Added PR #74 to the public project through the open-PR workflow. Set its item to In review, P1 High, Documentation, Partial evidence, Browser test plus Two-device plus Deployment plus User acceptance, High risk and Missing device blocker. Issue #34 was classified as Blocked, P1 High, Manual acceptance, Not started, the same four gates, High risk, Missing device and owner `muaz978`.
+
+4. Waited for PR #74 remote checks. Analyze (javascript-typescript), CodeQL, DevSkim, Typecheck/test/build and lowercase `devskim` all passed.
+
+5. Reviewed the full documentation diff and confirmed that it distinguishes deterministic protocol simulation from OS-level network and physical-device evidence, requires sanitized room/player/visible-motion evidence, and preserves blocked and unresolved outcomes. Posted a formal no-blocker review record.
+
+6. Accepted PR #74 with administrator squash merge. GitHub produced merge commit `8a1b405de68c5b3cf4ce89b50a6c063c84c53884`. The CLI again printed a local fast-forward warning after the remote merge, but GitHub state and `origin/main` were independently verified.
+
+7. Verified issue #34 remained OPEN with the correct assignee, labels and milestone. Posted the issue status comment at `https://github.com/muaz978/sync-your-joy/issues/34#issuecomment-5749770855`, recording the merged template, exact commit and remaining physical-device gates.
+
+8. Refreshed the public project. The merged PR item is Done. Issue #34 remains Blocked, P1 High, Manual acceptance, Not started, with Browser test, Two-device, Deployment and User acceptance gates, High risk, Missing device blocker and verification owner `muaz978`.
+
+9. Created branch `codex/issue-35-cross-platform` from `origin/main` at `8a1b405` for the next oldest open issue.
+
+### Confirmed Successful Results
+- PR #74 was reviewed, all five remote checks passed and it was accepted.
+- The two-device network-chaos report template and test-guide link are merged into main.
+- Issue #34 stayed OPEN and its project item accurately represents a blocked, not-started physical-device gate.
+- The public project distinguishes the completed report artifact from the incomplete real-device acceptance issue.
+- The issue comment preserves the exact follow-up prerequisites and evidence boundary.
+- The next issue branch starts from verified `origin/main`.
+
+### Failed, Incomplete, or Unresolved Work
+- No physical two-device network-chaos or reconnect run occurred.
+- Sleep/wake, OS-level throttling, offline/online and user-acceptance evidence remain pending.
+- The CLI fast-forward warning after remote merge is expected from the local divergent branch identity; remote merge and main advancement were verified.
+- Verification owner was confirmed for issue #34; the merged PR item text owner field was not confirmed through the PR sidebar UI.
+
+### Decisions and Rationale
+- Accept PR #74 because the documentation workflow is complete, reviewed and fully checked, while issue #34 remains blocked until external hardware evidence exists.
+- Treat the deterministic tests as supporting evidence only, not as a substitute for the physical-device gate.
+- Start issue #35 from `origin/main` after verifying the merge.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md` - merged issue #34 runbook.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` - merged network-chaos link.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+- Issue #34: `https://github.com/muaz978/sync-your-joy/issues/34`.
+- PR #74: `https://github.com/muaz978/sync-your-joy/pull/74`.
+- PR #74 merge commit: `8a1b405de68c5b3cf4ce89b50a6c063c84c53884`.
+- Issue #34 status comment: `https://github.com/muaz978/sync-your-joy/issues/34#issuecomment-5749770855`.
+
+### Assumptions and Uncertainties
+- Issue #35 may be fully manual, or it may have a deterministic browser/extension lifecycle preparation task. Its exact body and repository evidence must be inspected.
+- Any cross-browser claim must be separated by browser and runtime; generic Chromium evidence cannot establish headed Edge, Firefox or Safari behavior.
+
+### Open Questions, Blockers, and Dependencies
+- What browsers, headed UI paths, Shadow DOM/SPA cases and player-lock behavior does issue #35 require?
+- Are Firefox/Safari support and device environments actually available, or should the issue be classified as blocked?
+- Is a report template the only safe local contribution, or is a deterministic test harness addition justified?
+
+### Next Steps
+1. Inspect issue #35's body, comments, dependencies and relevant source/test/docs evidence.
+2. Classify it in the public project with accurate owner, risk, evidence, blocker and gates.
+3. Add only justified deterministic support or documentation, then open a detailed issue-specific PR with no completion claim unless every gate is verified.
+4. Preserve the queue and verify issue/project state after every merge.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-46 remain intact. This checkpoint records the merged issue #34 documentation milestone and transition to issue #35.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 ## Checkpoint 46 - Issue #34 network-chaos acceptance support prepared
 
 ### Session Metadata
@@ -4156,4 +4350,55 @@
 
 ### Historical Checkpoint Notes
 - Checkpoints 1-44 remain intact. This checkpoint records the completed issue #33 documentation milestone and transitions the working queue to issue #34.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 49
+
+### Session Metadata
+- Task or project: SyncYourJoy issue #35 documentation PR review and acceptance preparation.
+- Checkpoint number: 49.
+- Date and time: 2026-09-20 15:55 +03 (Europe/Istanbul).
+- Coverage period: PR #75 creation, metadata, public-project classification, remote checks, exact diff review and review-record handling.
+- Current context status: PR #75 is open and all configured remote checks pass. The PR author cannot self-approve it through GitHub, so a formal review comment was posted and administrator merge remains pending.
+
+### Complete Chronological Activity Log
+- Committed issue #35 support as `d6e3785` with `docs/SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md`, the `docs/TEST_GUIDE.md` section and the full issue #35 checkpoint.
+- Pushed branch `codex/issue-35-cross-platform` and opened PR #75 at `https://github.com/muaz978/sync-your-joy/pull/75`.
+- Attached PR #75 to the Codex task.
+- Applied PR metadata: assignee `muaz978`; labels `documentation`, `initiative: crunchyroll-sync` and `area: testing`; milestone `M3/M5: reliability and real-device validation`.
+- Added the PR to the public project and set its item to In review, P1 High, Documentation, Partial, Browser test plus Deployment plus User acceptance, High risk and Missing device.
+- Confirmed the issue #35 project row remains Blocked, P1 High, Manual acceptance, Not started, with the same three issue gates, High risk, Missing device and verification owner `muaz978`.
+- Waited for the configured remote checks. Analyze (javascript-typescript), CodeQL, DevSkim, Typecheck/test/build and lowercase `devskim` all passed.
+- The first exact-diff inspection command attempted the unsupported `gh pr diff --stat` flag and failed without changing state. Re-ran with `gh pr diff --name-only --patch`, which succeeded and reviewed all three changed files.
+- The diff review confirmed the report template is documentation-only, enforces runtime-specific evidence and protects secrets and protected media. It also confirmed the PR body uses `Relates to #35` and leaves issue #35 open.
+- Attempted `gh pr review 75 --approve`. GitHub rejected it with `Review Can not approve your own pull request (addPullRequestReview)` because the current authenticated user is the PR author.
+- Re-ran the same complete review as `gh pr review 75 --comment`. The formal review comment was recorded on the PR with the exact diff scope, security review, five check results, project state and acceptance boundary.
+- Verified PR #75 through `gh pr view`: state OPEN, review decision REVIEW_REQUIRED, all five checks successful, and the review comment present under author `muaz978`.
+
+### Confirmed Successful Results
+- PR #75 exists with the required detailed body, attached artifact, assignee, labels and milestone.
+- The public project item has the required issue-specific tracking fields.
+- All five configured remote checks passed.
+- The exact PR diff was reviewed and the formal review comment was successfully recorded.
+- The review explicitly states that PR #75 does not complete issue #35 and that Firefox/Safari and headed runtime acceptance remain unverified.
+
+### Failed, Incomplete, or Unresolved Work
+- GitHub does not permit the PR author to self-approve, so there is no `APPROVED` review state from this account. The completed review is recorded as a formal comment and administrator merge is required.
+- PR #75 remains OPEN and has not yet been merged.
+- Issue #35 remains OPEN and Blocked. No browser/runtime acceptance has been claimed.
+
+### Decisions and Rationale
+- Treat the failed self-approval as a GitHub permission limitation, not as a code or documentation failure.
+- Preserve the review record as a comment because it contains the complete review evidence and no blocking finding remains.
+- Use the administrator merge path only after the exact diff and all checks are confirmed, while leaving issue #35 open.
+
+### Next Steps
+1. Accept PR #75 with administrator squash merge.
+2. Verify the remote merge commit and `origin/main`, noting any local fast-forward warning separately from the remote result.
+3. Add an issue #35 comment with the exact merge commit, documentation paths and remaining headed, Firefox and Safari gates.
+4. Verify the public project marks PR #75 Done while issue #35 remains Blocked and open.
+5. Continue to issue #49 only after this milestone is recorded.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-48 remain intact. This checkpoint records PR #75 review handling and supersedes no prior result.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.

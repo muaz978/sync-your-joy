@@ -283,3 +283,9 @@ Use [`docs/CRUNCHYROLL_CRD04_ACCEPTANCE_REPORT_TEMPLATE.md`](CRUNCHYROLL_CRD04_A
 Issue [#34](https://github.com/muaz978/sync-your-joy/issues/34) is a separate physical-device gate. The deterministic `network-chaos.test.ts` and room fuzz harness cover protocol delay, reordering and duplication, but they do not prove OS-level throttling, offline/online transitions, sleep/wake or browser reconnect behavior.
 
 Use [`docs/SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md`](SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md) for each controlled run. It records the exact candidate and deployment, two-device baseline, fault profile, room revision, connection and lease state, readiness, native playback, aggregate progress, visible motion and safe recovery outcome. A WebSocket reconnect or advancing counter alone is not proof that the real player recovered.
+
+### Headed-browser and cross-platform acceptance
+
+Issue [#35](https://github.com/muaz978/sync-your-joy/issues/35) is a separate headed-runtime gate. Headless Chromium CI and package-build checks do not establish open Shadow DOM behavior, same-element SPA changes, player-lock UI behavior, a real Firefox installation or a Safari conversion/runtime pass.
+
+Use [`docs/SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md`](SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md) for each claimed runtime. Record Chrome or Edge headed lifecycle evidence, Firefox installation and coordinator-origin smoke when claimed, and Safari conversion, Xcode and runtime evidence when claimed. An unavailable runtime must be marked blocked or not claimed, not passed by inference.
