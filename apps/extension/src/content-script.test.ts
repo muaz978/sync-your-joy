@@ -1,5 +1,5 @@
 import type { MediaFingerprint } from '@syncyourjoy/protocol'
-import type { ExtensionState, RuntimeEvent, RuntimeRequest } from './internal.ts'
+import type { ContentRequest, ExtensionState, RuntimeEvent, RuntimeRequest } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Exercise the actual content-script listeners and timers. The fake media
@@ -34,7 +34,8 @@ class FakeVideo extends FakeElement {
   paused = true
   ended = false
   seeking = false
-  playbackRate = 1
+  rateMode: 'accept' | 'ignore' | 'reset' = 'accept'
+  private appliedPlaybackRate = 1
   position = 0
   writes: number[] = []
   seekable = { length: 1, start: () => 0, end: () => 1420 }
@@ -51,6 +52,12 @@ class FakeVideo extends FakeElement {
     this.dispatchEvent(new Event('pause'))
   })
   get currentTime() { return this.position }
+  get playbackRate() { return this.appliedPlaybackRate }
+  set playbackRate(value: number) {
+    if (this.rateMode === 'ignore')
+      return
+    this.appliedPlaybackRate = this.rateMode === 'reset' ? 1 : value
+  }
   set currentTime(value: number) {
     this.writes.push(value)
     this.position = value
@@ -66,7 +73,7 @@ class FakeVideo extends FakeElement {
 let video: FakeVideo
 let state: ExtensionState
 let messages: RuntimeRequest[]
-let listener: (message: RuntimeEvent) => void
+let listener: (message: RuntimeEvent | ContentRequest, sender?: unknown, sendResponse?: (response: unknown) => void) => void
 
 function apply(status: 'paused' | 'playing', positionSeconds = 0) {
   state = structuredClone(state)
@@ -77,6 +84,20 @@ function apply(status: 'paused' | 'playing', positionSeconds = 0) {
 
 function statuses() {
   return messages.filter((message): message is Extract<RuntimeRequest, { type: 'PLAYER_STATUS' }> => message.type === 'PLAYER_STATUS')
+}
+
+function establishSoftCorrection(rateMode: FakeVideo['rateMode'] = 'accept'): void {
+  video.position = 10
+  video.paused = false
+  apply('playing', 10)
+  state.snapshot!.playback.effectiveAtServerMs = Date.now() - 3_000
+  video.position = 13.2
+  video.totalFrames += 12
+  listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+  video.position = 10.2
+  video.rateMode = rateMode
+  state.snapshot!.playback.effectiveAtServerMs = Date.now() - 400
+  listener({ type: 'APPLY_ROOM_STATE', state })
 }
 
 const identityLayouts: Array<{
@@ -366,6 +387,88 @@ describe('adaptive player lifecycle', () => {
     await Promise.resolve()
     expect(video.writes).toEqual([120])
     expect(video.play).toHaveBeenCalledOnce()
+  })
+
+  it('requires recent rendered progress before applying an accepted soft rate', () => {
+    video.position = 10
+    video.paused = false
+    apply('playing', 10)
+    expect(video.playbackRate).toBe(1)
+
+    establishSoftCorrection()
+
+    expect(video.playbackRate).toBe(1.02)
+  })
+
+  it('stops a soft rate correction immediately when buffering starts', () => {
+    establishSoftCorrection()
+    expect(video.playbackRate).toBe(1.02)
+
+    video.dispatchEvent(new Event('waiting'))
+
+    expect(video.playbackRate).toBe(1)
+  })
+
+  it('stops a soft rate correction immediately on a native seek', () => {
+    establishSoftCorrection()
+    expect(video.playbackRate).toBe(1.02)
+
+    video.dispatchEvent(new Event('seeking'))
+
+    expect(video.playbackRate).toBe(1)
+  })
+
+  it('stops a soft rate correction when playback pauses', () => {
+    establishSoftCorrection()
+    expect(video.playbackRate).toBe(1.02)
+
+    video.paused = true
+    video.dispatchEvent(new Event('pause'))
+
+    expect(video.playbackRate).toBe(1)
+  })
+
+  it('stops a soft rate correction when the media source changes', () => {
+    establishSoftCorrection()
+    expect(video.playbackRate).toBe(1.02)
+
+    video.currentSrc = 'blob:replacement'
+    video.dispatchEvent(new Event('emptied'))
+
+    expect(video.playbackRate).toBe(1)
+  })
+
+  it.each([
+    ['ignore', 800],
+    ['ignore', 1_200],
+    ['ignore', 2_000],
+    ['reset', 800],
+    ['reset', 1_200],
+    ['reset', 2_000],
+  ] as const)('falls back to one hard correction when the player %s the requested rate after a %sms seek delay', async (rateMode, delayMs) => {
+    establishSoftCorrection(rateMode)
+
+    expect(video.playbackRate).toBe(1)
+    expect(video.writes).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(delayMs)
+    video.seeking = false
+    video.dispatchEvent(new Event('seeked'))
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(video.writes).toHaveLength(1)
+    expect(video.paused).toBe(true)
+    expect(statuses().some(message => message.sample.buffering)).toBe(true)
+  })
+
+  it('lets a newer room command retire the previous soft correction', () => {
+    establishSoftCorrection()
+    expect(video.playbackRate).toBe(1.02)
+
+    apply('playing', 400)
+
+    expect(video.playbackRate).toBe(1)
+    expect(video.writes).toHaveLength(1)
   })
 
   it.each([800, 1_200, 2_000])('bounds hard corrections during a %sms seek and 30 seconds of stalled playback', async (delayMs) => {

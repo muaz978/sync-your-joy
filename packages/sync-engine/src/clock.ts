@@ -57,6 +57,28 @@ export type DriftCorrection =
   | { kind: 'rate'; driftSeconds: number; playbackRate: number }
   | { kind: 'seek'; driftSeconds: number; positionSeconds: number }
 
+export interface SoftDriftCorrectionEligibility {
+  playing: boolean
+  buffering: boolean
+  seeking: boolean
+  hasPendingOperation: boolean
+  hasRecentProgress: boolean
+}
+
+export function canApplySoftDriftCorrection(input: SoftDriftCorrectionEligibility): boolean {
+  return input.playing
+    && !input.buffering
+    && !input.seeking
+    && !input.hasPendingOperation
+    && input.hasRecentProgress
+}
+
+export function isPlaybackRateAccepted(requestedRate: number, observedRate: number, tolerance = 0.005): boolean {
+  return Number.isFinite(requestedRate)
+    && Number.isFinite(observedRate)
+    && Math.abs(requestedRate - observedRate) <= tolerance
+}
+
 export function expectedPosition(playback: PlaybackState, estimatedServerNowMs: number, durationSeconds?: number | null): number {
   if (playback.status === 'paused')
     return playback.positionSeconds
