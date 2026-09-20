@@ -5917,3 +5917,190 @@
 - This checkpoint records CR-B01 implementation, branch cleanup, final corrective review, PR #82 metadata, checks, formal review, merge, issue documentation and project-state transition.
 - Earlier CR-B01 notes that described the branch as pending review are superseded by the confirmed merged state recorded here. The explicit scope boundary and unresolved runtime gates remain in force.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+# Checkpoint 67 - CR-A02 headed-gate investigation, documentation PR and merge
+
+## Session Metadata
+- Task or project: SyncYourJoy CR-A02 player identity acceptance and headed-browser gate
+- Checkpoint number: 67
+- Date and time: 2026-09-20 21:32 +03
+- Coverage period: From the user's confirmation to follow the recommended dependency-first path through the candidate package check, browser-control limitation, deterministic and local browser verification, acceptance-report creation, PR #83 review and merge, issue #49 documentation and project-state transition.
+- Current context status: CR-A02 implementation and deterministic evidence are complete; documentation PR #83 is reviewed and merged; issue #49 remains open in project status `Verification`; the required headed nested-frame/provider rows remain unverified because the controlled browser surface rejects Edge internal extension-management navigation.
+
+## User Objective and Requirements
+- Continue the recommended dependency-first process and do not skip the older acceptance gates.
+- Treat the signed-in Crunchyroll account in the controlled Edge browser as available. Do not classify the issue as blocked by a missing account.
+- Review every PR before accepting or merging it.
+- Add detailed documentation for every issue-specific PR and issue lifecycle, including implementation scope, evidence, failed attempts, security boundary, external limitations and closure decision.
+- Apply labels, assignee, milestone and public-project metadata to each future PR.
+- Do not close issue #49 until the real headed nested-frame and provider acceptance rows pass with no unexplained gap.
+- Commit and push every repository change.
+- Keep version `0.2.4` until a coherent verified issue group justifies the next compatible release. Reserve `1.0.0` for milestone completion.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20 21:14 +03 - Approved headed-gate continuation
+- Continued from Checkpoint 66 after the user confirmed the recommended path. The next required gate was CR-A02 issue #49, whose deterministic implementation had already merged through PR #76 but whose real headed nested-frame/provider acceptance remained open.
+- Announced the intended evidence boundary: load the exact 0.2.4 candidate into the signed-in Edge profile, verify the fresh load, run the generic fixture first, then run the requested identity layouts and record only sanitized identity, binding, native-state and visible-motion evidence.
+
+### 2026-09-20 21:15 +03 - Browser-control policy blocked the planned Edge installation page
+- Attempted to open Edge's internal extension-management page through the controlled browser surface.
+- The browser-control URL policy rejected `edge://extensions` before an internal page was opened. No alternate URL, indirect UI route, raw CDP, shell browser command or policy circumvention was attempted.
+- Recorded the result as a control-surface limitation. It did not show a Crunchyroll failure, an account failure, a malformed extension, a provider failure, a DRM problem or a security check failure.
+- The user's existing signed-in Crunchyroll tab remained available and was not treated as missing authentication.
+
+### 2026-09-20 21:15-21:17 +03 - Repository setup and skill-guided review scope
+- Inspected the repository state. The retained CR-B01 branch was clean and three commits ahead of the then-current `origin/main`, with the source tree already matching `origin/main` apart from post-merge checkpoint documentation.
+- Read the applicable code-review, security-hardening, git-workflow/versioning and documentation/ADR skill instructions. Applied their review axes, privacy checks, atomic commit discipline and evidence-focused documentation requirements.
+- Inspected the package scripts, Playwright configuration, extension profile launcher, provider-playback helper, generic fixture and CR-A02 deterministic test matrix.
+- Confirmed the repository has separate deterministic, local browser, authenticated-provider and packaging evidence classes. Confirmed the Crunchyroll E2E requires protected storage-state files and is not a substitute for the signed-in Edge session.
+
+### 2026-09-20 21:17 +03 - CR-A02 deterministic verification
+- Ran:
+
+  ```text
+  npm test -- --run apps/extension/src/player-identity.test.ts apps/extension/src/content-script.test.ts apps/extension/src/player-tab.test.ts apps/extension/src/service-worker.test.ts apps/extension/src/media-fingerprint.test.ts
+  ```
+
+- Result: **PASS**, 5 test files and 91 tests.
+- Verified that the matrix covers top-document Crunchyroll, origin-only Crunchyroll iframe, generic nested embed and nested Qfilm for incoming playback, samples, controller intents and seek acknowledgement after native readiness.
+- Confirmed the supporting tests cover same-tab/frame binding, stale replacement, wrong media, observed episode identity, stale-room protection and Crunchyroll/Qfilm normalization.
+
+### 2026-09-20 21:17-21:18 +03 - First repository verification and package-smoke failure
+- Ran `npm run typecheck` and `npm run build:extension`. Both passed and rebuilt `apps/extension/dist` at version `0.2.4`.
+- Ran `npm run verify:browser-packages` inside the restricted execution environment. Chrome and Firefox manifest checks completed, but Apple's `safari-web-extension-packager` failed before packaging with `Unable to parse manifest.json` from its temporary staging path and exit code 65.
+- Inspected `scripts/verify-browser-packages.mjs`, the generated manifest and the source manifest. Node parsed the generated manifest successfully; it contained MV3, side-panel, service-worker and expected permission fields. The failure was therefore not treated as a manifest defect.
+- Reran `npm run verify:browser-packages` with the required host-level filesystem access. Result: **PASS** for Chrome MV3, Firefox sidebar and Safari macOS package smoke. The generated result recorded version `0.2.4` for Chrome and Firefox and an Xcode project for Safari.
+
+### 2026-09-20 21:18 +03 - Candidate package identity
+- Reconfirmed the prepared candidate package `/private/tmp/syj-release-cr-a02/sync-your-joy-extension.zip`.
+- Recorded package SHA-256 `205d12330370a643e8f3e81ff603730a00cc8b597036aade828fc491740fcc69`.
+- Recorded source baseline `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`, package version `0.2.4`, macOS `27.0` build `26A428`, and that the controlled Edge surface did not expose a browser-version value.
+- No credentials, cookies, storage-state contents, signed URLs, token-bearing URLs, media bytes, provider HAR files, screenshots or recordings were copied or written.
+
+### 2026-09-20 21:18-21:19 +03 - Local two-profile browser gate
+- Ran the real local browser flow:
+
+  ```text
+  npm run test:e2e -- --grep "profile A creates a room"
+  ```
+
+- The first restricted run aborted the Playwright Chromium process with `SIGABRT` during persistent-context launch, before the extension or fixture was opened. This was recorded as an environment failure, not a source failure.
+- Reran the same command with host-level access. Result: **PASS**, 1 test passed in 5.5 seconds.
+- The successful run exercised the actual unpacked extension, two isolated profiles, real side-panel HTML and messaging, the real local room-service coordinator, real local video elements, play, pause, forward seek, native backward seek, frame progress and timeline convergence.
+- Explicitly did not infer Crunchyroll, cross-origin nested-frame or protected-media acceptance from this local fixture run.
+- Restored the canonical production extension build after the ephemeral room-service test so `apps/extension/dist` was not left configured for the temporary test port.
+
+### 2026-09-20 21:19-21:20 +03 - Full local verification
+- Ran the full Vitest suite. Result: **PASS**, 30 test files and 263 tests.
+- Ran `npm run typecheck`. Result: **PASS**, including root and edge-service TypeScript checks.
+- Ran `npm run build:extension`. Result: **PASS**, canonical Chrome build at version `0.2.4`.
+- A combined restricted run again reproduced Apple's staging-path access failure for Safari packaging. The earlier host-level rerun had already passed the complete browser-package smoke, so this repeat was recorded as the same environment limitation rather than a new product defect.
+- Maintained a clean source diff apart from the planned issue-specific acceptance report after preparing the branch.
+
+### 2026-09-20 21:20-21:22 +03 - Acceptance report branch and report creation
+- Created branch `codex/issue-49-headed-identity`. The first branch-ref write was rejected by the workspace Git permission boundary; the normal `git switch -c` operation succeeded with required host-level Git access.
+- Created `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT.md` with report ID `SYJ-CR-A02-20260920-001`.
+- The report documents candidate identity, package hash, deterministic matrix, full-suite checks, host-level local E2E, privacy/state-only rules, explicit `BLOCKED` and `NOT CLAIMED` rows, the Edge internal-page limitation, issue non-closure and release non-authorization.
+- The report explicitly states that the account is available and that no account, provider, DRM, credential or network cause was inferred.
+- Committed the report as `0a4d1f44883880a3ce2d3b3ba403e88f5cd7ef19`, `docs: record CR-A02 acceptance evidence`.
+- Pushed the branch to `origin/codex/issue-49-headed-identity`.
+
+### 2026-09-20 21:22-21:24 +03 - PR #83 creation and metadata
+- Created PR #83, `docs: record CR-A02 acceptance evidence`, from `codex/issue-49-headed-identity` into `main`.
+- The first PR view showed a noisy ancestry diff because the branch originated from the retained post-merge CR-B01 branch while `main` used a squash merge. Read-only tree comparison confirmed the actual content difference was only `context-checkpoint.md` and the new CR-A02 report.
+- Merged current `origin/main` into the documentation branch with `git merge origin/main --no-edit`, producing branch head `e24dc3915b392d59723d43b11f8d6317ff93a350`. Pushed normally without rewriting history. The PR then showed exactly two changed files and 451 additions: 307 checkpoint lines and 144 report lines.
+- Applied PR labels `documentation`, `initiative: crunchyroll-sync` and `area: testing`.
+- Assigned PR #83 to `muaz978` and set milestone `M3/M5: reliability and real-device validation`.
+- Used the signed-in GitHub browser surface because the configured CLI token lacks the `read:project` scope. Verified the PR was attached to public project `SyncYourJoy Delivery and Reliability`.
+- Set project status `In review`, priority `P2 Normal`, work type `Documentation`, evidence state `Partial`, acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test`, `Live provider`, `Two-account`, `Two-device`, `Deployment` and `User acceptance`, risk `High`, and verification owner `muaz978`.
+- Left the blocked-reason field blank intentionally. Available categories included missing account and missing device, neither of which is accurate. The report records the actual browser-control limitation instead.
+
+### 2026-09-20 21:24-21:26 +03 - PR checks and formal review
+- Ran `gh pr checks 83 --watch --interval 5`. All five remote checks passed: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim` and Typecheck, test, and build.
+- Reviewed the final two-file diff against `origin/main` across correctness/evidence, readability/maintainability, security/privacy, scope and release boundaries.
+- Posted the formal `COMMENTED` review on PR #83. The review found no blocking correctness, security, scope or documentation finding, confirmed the checks and stated that the merge would not close #49 or authorize a release.
+- Attempted `gh pr review 83 --approve`. GitHub rejected it with `Review Can not approve your own pull request` because the authenticated account owns the PR. This was recorded as a GitHub permission constraint, not a source-quality finding.
+
+### 2026-09-20 21:26-21:30 +03 - Authorized PR merge and post-merge verification
+- Merged PR #83 through the authorized administrator path with `gh pr merge 83 --squash --admin --delete-branch=false` after review and all checks passed.
+- GitHub reported PR #83 `MERGED` at `2026-09-20T18:30:06Z` with merge commit `c3fc7bc2a618f9fb0a5032698204c346209b4cfe`.
+- Fetched `origin/main` and verified it resolves exactly to `c3fc7bc2a618f9fb0a5032698204c346209b4cfe`.
+- Re-read PR #83 metadata. It retained the labels, assignee, milestone and all five successful checks. The merged PR does not contain an issue-closing keyword and issue #49 remained open.
+- Posted the detailed post-merge comment to issue #49 at `https://github.com/muaz978/sync-your-joy/issues/49#issuecomment-5751767441`. The comment links the merged report, source/package identities, test counts, host-level pass, privacy boundary, browser-control limitation and explicit non-closure decision.
+
+### 2026-09-20 21:30-21:32 +03 - Issue #49 project-state transition
+- Opened the signed-in GitHub issue page for #49 and verified the issue is still `OPEN`, assigned to `muaz978`, labeled `bug`, `initiative: crunchyroll-sync`, `area: extension` and `area: testing`, and attached to milestone `M3/M5: reliability and real-device validation`.
+- Changed public project status from `In Progress` to `Verification` and visibly verified the update.
+- Expanded the project fields and verified existing issue metadata: priority `P1 High`, work type `Bug`, evidence state `Partial`, acceptance gates `Browser test`, `Integration tests`, `Unit tests` and `User acceptance`, risk `High`, blank blocked reason, no target date and verification owner `muaz978`.
+- Kept the blocked-reason field blank because the actual remaining gate is the browser-control policy, not a missing account, device, deployment or security check.
+- Confirmed the issue remains open. No issue closure, release bump or browser installation was performed.
+
+## Confirmed Successful Results
+- CR-A02 deterministic implementation remains present in `main` from PR #76, and the issue-specific acceptance matrix passed with 5 files and 91 tests.
+- The full local repository suite passed with 30 files and 263 tests. Typecheck and canonical extension build passed.
+- Host-level browser-package smoke passed Chrome MV3, Firefox sidebar and Safari macOS packaging. The temporary restricted-runtime packager failure was resolved by approved host-level execution and was not a manifest defect.
+- The host-level real two-profile local browser E2E passed in 5.5 seconds and verified real local extension, room, side-panel, play, pause, seek, frame-progress and convergence behavior.
+- Detailed acceptance report `docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT.md` is merged into `main` by PR #83 at merge commit `c3fc7bc2a618f9fb0a5032698204c346209b4cfe`.
+- PR #83 was reviewed, all five remote checks passed, the owner self-approval restriction was documented, and the authorized administrator merge completed successfully.
+- PR #83 has the required labels, assignee, milestone and public-project metadata. Its project status was `In review` before merge.
+- Issue #49 has a detailed post-merge comment, remains `OPEN`, and is now in public-project status `Verification` with its acceptance fields preserved.
+- `origin/main` verifies the exact PR #83 squash merge SHA. No source secrets or protected provider data were recorded.
+- Repository version remains `0.2.4`; no release was bumped and `1.0.0` remains reserved for the end-of-milestone gate.
+
+## Failed, Incomplete, or Unresolved Work
+- Edge internal extension-management navigation is blocked by the browser-control URL policy. The exact candidate was not freshly loaded into the signed-in Edge profile, so the headed top-document Crunchyroll, origin-only iframe, generic nested-frame and Qfilm rows remain `NOT CLAIMED` or `BLOCKED`.
+- The first restricted Safari package-smoke run and first restricted local Chromium E2E run failed at environment access/process launch boundaries. Both were rerun with host-level access and passed. The failure logs are retained in this activity record; neither is treated as a source defect.
+- GitHub does not permit the pull-request owner to submit an approving review. The detailed review is preserved as `COMMENTED`, followed by authorized administrator merge after all checks passed.
+- Issue #49 remains open. No issue closure, release authorization, live-provider claim, deployment claim, two-account claim, two-device claim or user-acceptance claim is inferred.
+- Project fields do not offer a category for this exact browser-control limitation. The blocked-reason field is intentionally blank to avoid incorrectly labeling the issue as missing account, missing device or missing deployment.
+
+## Decisions and Rationale
+- CR-A02 is in `Verification`, not `Done` or closed, because deterministic and local browser evidence is complete while the required live headed nested-frame/provider evidence is not.
+- The signed-in Crunchyroll account is treated as available. The remaining blocker is the control surface needed to load the candidate, not authentication.
+- The acceptance report was merged as a documentation PR because no new runtime code was required after PR #76. Its purpose is to make the verified boundary and remaining gate durable and reviewable.
+- The PR project status was set to `In review` before merge, and the issue project status was set to `Verification` after merge. This distinguishes documentation review from issue acceptance.
+- No available blocker category was selected because each would misstate the cause. The exact cause is recorded in the acceptance report and issue comment.
+- No release bump was made. CR-A02 alone does not form a coherent verified release group, and `1.0.0` remains the separately reserved milestone-end release.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Acceptance report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT.md`
+- Acceptance report template: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT_TEMPLATE.md`
+- Candidate package: `/private/tmp/syj-release-cr-a02/sync-your-joy-extension.zip`
+- Candidate package SHA-256: `205d12330370a643e8f3e81ff603730a00cc8b597036aade828fc491740fcc69`
+- PR #83: `https://github.com/muaz978/sync-your-joy/pull/83`
+- Issue #49: `https://github.com/muaz978/sync-your-joy/issues/49`
+- Issue merge comment: `https://github.com/muaz978/sync-your-joy/issues/49#issuecomment-5751767441`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+- Source baseline and current main before documentation merge: `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`
+- PR #83 merge commit: `c3fc7bc2a618f9fb0a5032698204c346209b4cfe`
+- Documentation branch head after ancestry cleanup: `e24dc3915b392d59723d43b11f8d6317ff93a350`
+
+## Assumptions and Uncertainties
+- The signed-in Crunchyroll account is available because the controlled Edge tab visibly showed the authenticated account surface. No credential or storage-state contents were read or recorded.
+- The controlled browser surface did not expose a browser-version value. The environment record therefore identifies Edge by browser family and records macOS version only.
+- Public-project custom-field state was verified through the signed-in GitHub browser surface because the configured CLI token lacks `read:project` scope.
+- The local two-profile E2E is strong real-browser evidence for the local fixture, but it is not a commercial-provider or cross-origin nested-frame claim.
+- The package in `/private/tmp` is a local candidate artifact, not a published release.
+
+## Open Questions, Blockers, and Dependencies
+- The exact candidate still needs to be loaded into the signed-in Edge profile through an allowed browser UI action before the headed D02/D03 matrix can be claimed.
+- Issue #49 remains dependent on the headed nested-frame/provider gate and related validation work in #35.
+- The next dependency-first implementation issue after the completed deterministic slices is CR-B02, issue #56, subject to a fresh open-issue scan.
+- CR-B03 #57 depends on CR-B02. Later mixed-version, deployment, two-account, two-device and user-acceptance claims remain separate gates.
+- A second account, profile, device, deployment target or explicit user-acceptance action will be requested only when an exact acceptance criterion requires it.
+
+## Next Steps
+1. Commit and push this Checkpoint 67 update without changing `main` or issue #49's open state.
+2. Re-scan open PRs and issues after the PR #83 merge. Confirm there are no open PRs, then select the next oldest unprocessed dependency issue, expected to be CR-B02 #56.
+3. Continue the same process: inspect source, classify the issue, add a red regression, implement the smallest complete fix, run focused and full checks, document every result, commit and push, open a metadata-complete PR, review before merge, and leave the issue open until every applicable gate passes.
+4. When the allowed browser surface can load the candidate, return to issue #49 and complete the headed matrix without recording protected data.
+5. Revisit compatible release versioning only after a coherent verified group. Keep `1.0.0` reserved for milestone completion.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-66 remain intact. This checkpoint appends the complete CR-A02 acceptance documentation and merge lifecycle without deleting or rewriting earlier history.
+- Earlier entries that described CR-A02 as having only a template or deterministic evidence are superseded by the confirmed merged acceptance report, while the headed/provider limitation remains unresolved.
+- The issue's earlier project status `In Progress` is superseded by the confirmed `Verification` status after PR #83 merged.
+- The absence of a blocked-reason category is intentional and does not mean the remaining browser-control gate was forgotten.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
