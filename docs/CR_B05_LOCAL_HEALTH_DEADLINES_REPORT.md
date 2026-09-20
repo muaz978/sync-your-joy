@@ -44,7 +44,7 @@ The issue was therefore not treated as permission to rewrite the coordinator or 
 | File | Change | Purpose |
 | --- | --- | --- |
 | `apps/room-service/src/server.ts` | Replaced three independent deadline result checks with a null-coalescing, ordered deadline evaluation and one broadcast | Ensures a timer turn publishes at most one authoritative `room_snapshot` transition per room |
-| `apps/room-service/src/server.test.ts` | Added a real WebSocket timer-driven silent-player regression, one-transition assertion and configurable message wait helpers | Proves local server behavior without requiring an inbound report at the failure boundary |
+| `apps/room-service/src/server.test.ts` | Added a real WebSocket timer-driven silent-player regression, one-transition assertion and bounded message wait helpers | Proves local server behavior without requiring an inbound report at the failure boundary |
 | `docs/CR_B05_LOCAL_HEALTH_DEADLINES_REPORT.md` | Added this report | Records root cause, implementation, evidence, security analysis, external limits and closure boundary |
 
 No private provider API, Crunchyroll credential, cookie, signed media URL, DRM material, media byte, screenshot or arbitrary page-execution capability was added. No extension player logic, protocol schema or edge Durable Object code was changed in this slice because those responsibilities were already covered by the preceding CR-B02, CR-B03 and CR-B04 work and are outside this local-server issue's minimal change.

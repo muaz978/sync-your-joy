@@ -559,11 +559,17 @@ async function connect(url: string): Promise<WebSocket> {
 
 async function nextMessage(socket: WebSocket): Promise<ServerMessage> {
   return new Promise<ServerMessage>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Timed out waiting for server message.')), 4_000)
-    socket.once('message', (data) => {
-      clearTimeout(timer)
+    const timeout = AbortSignal.timeout(4_000)
+    const onAbort = () => {
+      socket.off('message', onMessage)
+      reject(new Error('Timed out waiting for server message.'))
+    }
+    const onMessage = (data: Buffer) => {
+      timeout.removeEventListener('abort', onAbort)
       resolve(JSON.parse(data.toString()) as ServerMessage)
-    })
+    }
+    timeout.addEventListener('abort', onAbort, { once: true })
+    socket.once('message', onMessage)
   })
 }
 
@@ -582,10 +588,16 @@ async function expectNoMessage(socket: WebSocket): Promise<void> {
 
 async function nextMessageForAbsence(socket: WebSocket): Promise<ServerMessage> {
   return new Promise<ServerMessage>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Timed out waiting for server message.')), 300)
-    socket.once('message', (data) => {
-      clearTimeout(timer)
+    const timeout = AbortSignal.timeout(300)
+    const onAbort = () => {
+      socket.off('message', onMessage)
+      reject(new Error('Timed out waiting for server message.'))
+    }
+    const onMessage = (data: Buffer) => {
+      timeout.removeEventListener('abort', onAbort)
       resolve(JSON.parse(data.toString()) as ServerMessage)
-    })
+    }
+    timeout.addEventListener('abort', onAbort, { once: true })
+    socket.once('message', onMessage)
   })
 }
