@@ -4475,3 +4475,67 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-50 remain intact. This checkpoint records the new release instruction and the issue #49 coverage milestone preparation.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 52
+
+### Session Metadata
+- Task or project: SyncYourJoy issue #49 CR-A02 deterministic identity coverage after PR #76.
+- Checkpoint number: 52.
+- Date and time: 2026-09-20 16:24 +03 (Europe/Istanbul).
+- Coverage period: PR #76 metadata, public-project classification, remote checks, exact diff review, self-approval limitation, administrator merge, issue comment and post-merge project verification.
+- Current context status: PR #76 is merged into `origin/main` at `d4974732647a2490f8ca6604a3ade3ddef972eed`. Issue #49 remains OPEN and In Progress. The next oldest open issue is #55.
+
+### Complete Chronological Activity Log
+- Committed issue #49 work as `088d76b` and pushed `codex/issue-49-identity-matrix`.
+- Opened PR #76, attached it to the Codex task, and applied assignee `muaz978`, labels `bug`, `initiative: crunchyroll-sync`, `area: extension`, `area: testing`, and milestone `M3/M5: reliability and real-device validation`.
+- Added PR #76 to the public project and set its item to In review, P1 High, Test coverage, Partial, Unit tests plus Integration tests plus Browser test plus User acceptance, High risk and Missing device. The issue #49 item was already In Progress, P1 High, Bug, Partial, with the same four gates, High risk and owner `muaz978`.
+- Waited for PR #76 checks. Analyze (javascript-typescript), CodeQL, DevSkim, Typecheck/test/build and lowercase `devskim` all passed.
+- Reviewed the exact five-file diff. Confirmed the four-layout matrix, deterministic evidence limits, release policy, issue checkpoint and non-closing PR body were internally consistent.
+- Attempted `gh pr review 76 --approve`. GitHub rejected self-approval because the current account owns the PR. Posted the complete review as a formal comment, verified it through `gh pr view`, and documented the limitation.
+- Administrator-squash-merged PR #76. GitHub produced merge commit `d4974732647a2490f8ca6604a3ade3ddef972eed`; `origin/main` advanced to the same SHA.
+- Posted issue #49 merge-status comment `https://github.com/muaz978/sync-your-joy/issues/49#issuecomment-5750062765` with the exact commit, deterministic evidence, remaining headed nested-frame gate and no-release boundary.
+- Verified issue #49 through `gh issue view`: state `OPEN`, assignee `muaz978`, labels `bug`, `initiative: crunchyroll-sync`, `area: extension`, `area: testing`, milestone `M3/M5: reliability and real-device validation`, and both the historical partial-evidence comment and new merge comment.
+- Verified the public project UI: PR #76 is Done with its fields intact; issue #49 is In Progress, P1 High, Bug, Partial, Unit tests plus Integration tests plus Browser test plus User acceptance, High risk, owner `muaz978`, and no incorrect closure.
+
+### Confirmed Successful Results
+- PR #76 was fully checked, reviewed through a formal comment and administrator-squash-merged.
+- `origin/main` matches the verified merge commit.
+- Four-layout identity state-path coverage and CR-A02 acceptance documentation are merged.
+- Release policy now documents compatible issue-group releases and the separate milestone-end `v1.0.0` gate.
+- Issue #49 remains open with contributor-visible evidence status and no premature release claim.
+
+### Failed, Incomplete, or Unresolved Work
+- GitHub self-approval is unavailable to the PR author; the completed review remains recorded as a formal comment, not an approval state.
+- No real headed D02/D03 nested-frame run occurred.
+- Authenticated provider acceptance, deployment evidence and user acceptance remain unclaimed.
+- No version was bumped because no coherent release group has complete evidence yet.
+
+### Decisions and Rationale
+- Accept PR #76 as deterministic coverage and documentation while keeping issue #49 open for the real headed gate.
+- Keep release version `0.2.4` unchanged until a complete issue group earns the next compatible version. Reserve `1.0.0` for the end-of-milestone gate.
+- Continue oldest-to-newest issue processing. Issue #55 is next, after #50 through #54 were not present as open items in the current queue output and the public issue list begins at #55.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts` - merged four-layout CR-A02 matrix.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT_TEMPLATE.md` - merged report template.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/RELEASING.md` - merged milestone release policy.
+- PR #76: `https://github.com/muaz978/sync-your-joy/pull/76`.
+- PR #76 merge commit: `d4974732647a2490f8ca6604a3ade3ddef972eed`.
+- Issue #49 status comment: `https://github.com/muaz978/sync-your-joy/issues/49#issuecomment-5750062765`.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+
+### Open Questions, Blockers, and Dependencies
+- Which exact D02/D03 headed nested-frame environment will be used for issue #49?
+- What coherent issue group will qualify for the next compatible release after all source, test, browser, deployment and user-acceptance gates pass?
+- Which milestone acceptance record and rollback evidence will be required before `v1.0.0`?
+
+### Next Steps
+1. Inspect issue #55 as the next oldest open issue, including its body, comments, dependencies and current implementation evidence.
+2. Classify issue #55 in the public project before implementation.
+3. Continue detailed issue-specific PR documentation, review, metadata, checks and post-merge verification.
+4. Keep issue #49 open until its headed nested-frame acceptance is directly run and documented.
+5. Do not bump a release until the first coherent group satisfies the new release policy.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-51 remain intact. This checkpoint records the completed PR #76 milestone and transition to issue #55.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
