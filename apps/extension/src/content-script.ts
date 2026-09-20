@@ -1,10 +1,10 @@
 import type { MediaFingerprint, PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { mediaMatches } from '@syncyourjoy/protocol'
 import { canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
+import { decidePlayerIdentity } from './player-identity.ts'
 import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
 import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
@@ -1023,11 +1023,13 @@ function currentEpisodeMatchesRoom(): boolean {
   if (!video || !activeState?.snapshot?.media)
     return true
   const actual = createMediaFingerprint(video)
-  // A cross-origin legacy frame can have an origin-only referrer. Its
-  // episode identity is established by the worker using the outer tab URL.
-  if (actual.service === 'crunchyroll' && !/^crunchyroll:[a-z0-9]+$/i.test(actual.canonicalId))
-    return true
-  return mediaMatches(activeState.snapshot.media, actual)
+  const decision = decidePlayerIdentity({
+    roomMedia: activeState.snapshot.media,
+    localMedia: actual,
+    workerBoundMedia: activeState.currentMedia,
+    nested: window.top !== window,
+  })
+  return decision === 'match'
 }
 
 function forceSyncToRoom(fromUserGesture: boolean): void {
