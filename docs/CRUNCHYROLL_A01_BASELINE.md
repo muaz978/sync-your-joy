@@ -107,7 +107,8 @@ The following candidate fixes were then applied on the same branch:
 - `fa1891c` gives strong provider identities and current worker bindings an authoritative three-way identity decision for nested players.
 - `ca74ac6` rejects delayed worker context results after tab, frame or binding-generation changes.
 - `023816f` bounds repeated hard seek corrections and reports bounded recovery for persistent slow-player drift.
-- The current uncommitted health increment adds `nextHealthDeadlineMs()` and `evaluateHealth()` to terminate silent startup and post-start report silence, and wires both backend timer paths to that deadline.
+- The pre-merge review correction revalidates the captured tab, frame and context generation before clearing a binding on a stale no-media result or a stale context-read rejection. Its regression test uses an initialized worker refresh and a same-tab replacement binding, rather than attempting to send messages while restore initialization is intentionally blocked.
+- The health increment adds `nextHealthDeadlineMs()` and `evaluateHealth()` to terminate silent startup and post-start report silence, and wires both backend timer paths to that deadline.
 
 Focused verification after those fixes:
 
@@ -118,8 +119,11 @@ npm exec vitest run packages/sync-engine/src/room-streaming-regressions.test.ts 
 npm exec vitest run apps/extension/src/content-script.test.ts apps/extension/src/player-identity.test.ts apps/extension/src/service-worker.test.ts
 3 files passed, 33 tests passed
 
+npm exec vitest run apps/extension/src/service-worker.test.ts
+1 file passed, 10 tests passed
+
 npm run check
-27 Vitest files passed, 204 tests passed
+27 Vitest files passed, 205 tests passed
 TypeScript and edge typecheck passed
 room-service build passed
 extension build passed

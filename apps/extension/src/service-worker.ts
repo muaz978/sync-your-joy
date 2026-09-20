@@ -907,12 +907,12 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
       { type: 'GET_PLAYER_CONTEXT' } satisfies ContentRequest,
       { frameId },
     ) as PlayerContext
+    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
+      return false
     if (!context?.media) {
       clearPlayerTab()
       return false
     }
-    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
-      return false
     const tab = await chrome.tabs.get(tabId)
     if (state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
       return false
@@ -924,7 +924,8 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
     return true
   }
   catch {
-    clearPlayerTab()
+    if (state.playerTabId === tabId && state.playerFrameId === frameId && playerContextGeneration === contextGeneration)
+      clearPlayerTab()
     return false
   }
 }

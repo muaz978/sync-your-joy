@@ -481,6 +481,34 @@ describe('service worker observed episode identity', () => {
     expect(response.state.currentMedia).toBeNull()
   })
 
+  it('does not clear a replacement binding when an old context read returns no media', async () => {
+    const { fake, request } = await resumeAtPage(sharedUrl)
+    const sendToTab = fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>
+    sendToTab.mockClear()
+    let resolveContext: (context: unknown) => void = () => {}
+    const contextGate = new Promise<unknown>(resolve => { resolveContext = resolve })
+    sendToTab.mockImplementation(async (_tabId: number, message: RuntimeEvent | ContentRequest) => {
+      if (message.type === 'GET_PLAYER_CONTEXT')
+        return contextGate
+      return undefined
+    })
+
+    const refreshPromise = request({ type: 'UNLOCK_PLAYER' })
+    await vi.waitFor(() => expect(sendToTab).toHaveBeenCalledWith(42, { type: 'GET_PLAYER_CONTEXT' }, { frameId: 0 }))
+
+    const replacement = await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000 }, {
+      tab: { id: 42, active: true, url: sharedUrl }, frameId: 0, url: sharedUrl,
+    } as chrome.runtime.MessageSender)
+    expect(replacement.state.playerFrameId).toBe(0)
+
+    resolveContext({ media: null, diagnostics: null, sample: null })
+    await refreshPromise
+
+    const response = await request({ type: 'GET_STATE' })
+    expect(response.state.playerFrameId).toBe(0)
+    expect(response.state.currentMedia).toMatchObject(oldMedia)
+  })
+
   it('includes playback progress and start evidence in validated diagnostic events', async () => {
     const { request } = await resumeAtPage(sharedUrl)
     vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })

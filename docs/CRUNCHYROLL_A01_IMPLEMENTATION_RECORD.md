@@ -2,9 +2,9 @@
 
 Prepared: 2026-09-20, Europe/Istanbul
 
-This record accompanies the issue-specific pull request for GitHub issue [#48](https://github.com/muaz978/sync-your-joy/issues/48). It documents the work performed on `codex/crunchyroll-sync-hardening`, including failed attempts and the boundary between verified local behavior and external acceptance.
+This record accompanies the issue-specific pull request for GitHub issue [#48](https://github.com/muaz978/sync-your-joy/issues/48). It documents the work performed on `codex/crunchyroll-sync-hardening`, including failed attempts and the boundary between verified local behavior and external acceptance. This pull request intentionally does not close issue #48 because its authenticated provider and multi-device acceptance gates remain open.
 
-Closes #48 when merged. Related implementation evidence is also relevant to #49, #50, #51, #52, #54 and the missing-report portion of #58; those issues are not claimed closed by this pull request.
+Relates to #48. Related implementation evidence is also relevant to #49, #50, #51, #52, #54 and the missing-report portion of #58; those issues are not claimed closed by this pull request.
 
 ## Scope
 
@@ -47,6 +47,12 @@ The work also implemented the directly dependent deterministic fixes that were u
 
 13. The complete candidate branch was published to `origin/codex/crunchyroll-sync-hardening`. No issue-specific pull request existed before this record was prepared.
 
+14. During the requested pre-merge review, `refreshBoundPlayerTab()` was inspected across its asynchronous `GET_PLAYER_CONTEXT`, `tabs.get`, no-media and rejection paths. The review found that an old refresh could clear a newer replacement binding if its context read returned no media or rejected after a replacement had already incremented `playerContextGeneration`. That was a Required correctness issue because it violated CR-A04's stale-result protection.
+
+15. The first attempted regression test for that finding was rejected as invalid. It held the service worker's initial restore-time context read open and then tried to send a replacement runtime message, but runtime requests are intentionally gated until initialization completes. The test timed out after five seconds, so it was not retained as evidence.
+
+16. The regression was redesigned around the initialized worker path. It resumes a stored room at the shared page, starts `UNLOCK_PLAYER` so the real worker refresh is in flight, replaces the same tab and frame through `MEDIA_DETECTED`, then resolves the older refresh with a no-media context. The corrected worker now revalidates the binding generation before clearing on no media and before clearing on rejection, and the replacement binding remains active. The focused service-worker suite passes 10 tests.
+
 ## Verification commands and results
 
 The following commands passed after the implementation work:
@@ -58,8 +64,11 @@ npm exec vitest run packages/sync-engine/src/room-streaming-regressions.test.ts 
 npm exec vitest run apps/extension/src/content-script.test.ts apps/extension/src/player-identity.test.ts apps/extension/src/service-worker.test.ts
 3 files passed, 33 tests passed
 
+npm exec vitest run apps/extension/src/service-worker.test.ts
+1 file passed, 10 tests passed
+
 npm run check
-27 Vitest files passed, 204 tests passed
+27 Vitest files passed, 205 tests passed
 TypeScript and edge typecheck passed
 room-service build passed
 extension build passed
@@ -81,11 +90,11 @@ The existing content-script test `acknowledges a ready seek after data arrives` 
 - `apps/extension/src/content-script.ts`, operation attribution, identity and bounded correction behavior.
 - `apps/extension/src/content-script.test.ts`, late completion, slow seek, delayed readiness and nested identity coverage.
 - `apps/extension/src/player-identity.ts` and `player-identity.test.ts`, the three-way identity contract.
-- `apps/extension/src/service-worker.ts` and `service-worker.test.ts`, delayed binding revalidation.
+- `apps/extension/src/service-worker.ts` and `service-worker.test.ts`, delayed binding revalidation, including stale no-media and rejection results after same-tab replacement.
 - [context-checkpoint.md](../context-checkpoint.md), the append-only chronological session record.
 
 ## Known limits and unresolved gates
 
 The green results are source, deterministic, synthetic-provider, typecheck and local build evidence. They do not prove authenticated two-account Crunchyroll behavior, real two-device network chaos, headed cross-platform compatibility, deployment, UYAP or provider acceptance, or release readiness. Issues #30, #33, #34 and #35 remain dependent on those external environments. Edge persistence and rehydration need a Cloudflare-compatible storage and alarm harness before CR-B06 can be accepted.
 
-This record does not claim that every open issue is complete. It documents the first issue tranche and the exact evidence available for review.
+This record does not claim that every open issue is complete, and it intentionally does not close #48 on merge. It documents the first issue tranche and the exact evidence available for review.
