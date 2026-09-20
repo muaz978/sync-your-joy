@@ -5756,7 +5756,7 @@
 - Checkpoint number: 66
 - Date and time: 2026-09-20 20:13 +03
 - Coverage period: From continuation after CR-A07 and the user's release/install question through CR-B01 source review, final corrective change, remote checks, formal review, authorized merge, issue documentation, project-state update and checkpoint restoration.
-- Current context status: PR #82 is reviewed and merged into `main`; issue #55 remains open in `Verification`; final reviewed source head is `9c241dbb41cfcaf6241f5fc613099063095fd3f9`; merge commit is `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`; this checkpoint is pending its own commit and push on the retained PR branch.
+- Current context status: PR #82 is reviewed and merged into `main`; issue #55 remains open in `Verification`; final reviewed source head is `9c241dbb41cfcaf6241f5fc613099063095fd3f9`; merge commit is `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`; checkpoint commit `e4bc3b99c2ed8bac0c7e0bf66341150a829e5186` is pushed to the retained PR branch.
 
 ## User Objective and Requirements
 - Continue the systematic PR and issue workflow from oldest to newest.
@@ -5837,7 +5837,12 @@
 ### 2026-09-20 20:12-20:13 +03 - Checkpoint continuity restoration
 - Inspected persisted `context-checkpoint.md` and found it ended at Checkpoint 64. Complete CR-A07 Checkpoint 65 existed in prior branch commit `cb6937f` but was not included in current `origin/main` because it was a post-merge documentation commit on the retained PR branch.
 - Restored the complete Checkpoint 65 record into the current checkpoint file before adding this CR-B01 record. Earlier checkpoint content was preserved; no prior entry was overwritten.
-- This Checkpoint 66 is the exhaustive continuation record for the CR-B01 lifecycle and is pending its own commit and push.
+- This Checkpoint 66 is the exhaustive continuation record for the CR-B01 lifecycle.
+
+### 2026-09-20 20:14 +03 - Checkpoint commit and push confirmation
+- Committed the restored Checkpoint 65 and complete Checkpoint 66 as `e4bc3b99c2ed8bac0c7e0bf66341150a829e5186`, `docs: record CR-B01 lifecycle checkpoint`.
+- Pushed the commit with `git push --force-with-lease origin HEAD:codex/issue-55-operation-contract`.
+- Verified the local HEAD and remote branch both resolve to `e4bc3b99c2ed8bac0c7e0bf66341150a829e5186`, `git diff --check` passes, and `origin/main` remains the verified merge commit `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`.
 
 ## Confirmed Successful Results
 - PR #82 was reviewed on exact final head `9c241dbb41cfcaf6241f5fc613099063095fd3f9` and merged into `main` at `d3053f2fcb5e1c4affd298c2e1d0180f1e05e014`.
@@ -5860,7 +5865,7 @@
 - CR-B02 coordinator transaction runtime behavior, CR-B03 extension transaction application, CR-B07 mixed-version and migration end-to-end behavior, deployment, live-provider visible output, two-account, two-device and user-acceptance gates remain incomplete.
 - Issue #55 must remain open until dependent runtime and acceptance gates are directly evidenced.
 - Release `0.2.4` remains current. No compatible release bump is justified for CR-B01 alone, and `1.0.0` remains reserved for complete milestone acceptance.
-- The current working branch has the CR-B01 source commit and the checkpoint file is modified for the pending Checkpoint 66 commit. The next action is to commit and push this checkpoint without changing `main`.
+- The retained working branch now has the pushed CR-B01 source and checkpoint commits. It is intentionally separate from `main`, which remains at the verified merge commit.
 
 ## Decisions and Rationale
 - The first green CR-B01 candidate was not merged immediately because source review identified a stale cross-epoch restoration path. Correcting it before formal review preserves the no-gap standard.
@@ -5903,11 +5908,9 @@
 - A second account, profile, device, deployment target or explicit user-acceptance action will be requested only when the exact gate requires it.
 
 ## Next Steps
-1. Commit and push this complete Checkpoint 66 update on `codex/issue-55-operation-contract`.
-2. Verify the pushed checkpoint commit and current `origin/main` merge SHA without modifying `main`.
-3. Re-scan the open issue queue and continue with the next oldest unprocessed issue, CR-B02 #56, using the same source-first and evidence-gated process.
-4. For every new PR, apply labels, assignee, milestone and public project fields, write detailed documentation, perform the review before merge, and keep the issue open until all applicable gates pass.
-5. Revisit compatible release versioning only after a coherent verified group. Keep `1.0.0` reserved for milestone completion.
+1. Re-scan the open issue queue and continue with the next oldest unprocessed issue, CR-B02 #56, using the same source-first and evidence-gated process.
+2. For every new PR, apply labels, assignee, milestone and public project fields, write detailed documentation, perform the review before merge, and keep the issue open until all applicable gates pass.
+3. Revisit compatible release versioning only after a coherent verified group. Keep `1.0.0` reserved for milestone completion.
 
 ## Historical Checkpoint Notes
 - Checkpoints 1-65 remain intact. Checkpoint 65 was restored from prior CR-A07 branch history because it was not present in the current `origin/main` snapshot.
