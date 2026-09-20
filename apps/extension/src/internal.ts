@@ -1,4 +1,5 @@
-import type { ClientRoomState, ControlKind, MediaFingerprint, PlayerSample, ProgressEvidenceQuality } from '@syncyourjoy/protocol'
+import type { ClientCapabilities, ClientRoomState, ControlKind, MediaFingerprint, OperationIdentity, PlayerSample, ProgressEvidenceQuality, RoomMode } from '@syncyourjoy/protocol'
+import { LEGACY_CLIENT_CAPABILITIES, OPERATION_CONTRACT_VERSION, normalizeRoomContractSnapshot } from '@syncyourjoy/protocol'
 
 export type PlayerOrigin = 'light-dom' | 'open-shadow-dom'
 
@@ -19,6 +20,85 @@ export interface PlayerDiagnostics {
   locked?: boolean
 }
 
+/**
+ * Extension-owned contract state. It is optional on ExtensionState so older
+ * in-memory/test messages remain readable, but any restored value should pass
+ * through normalizeStoredContractState before it is used for acknowledgements.
+ */
+export interface ExtensionContractState {
+  mode: RoomMode
+  capabilities: ClientCapabilities
+  mediaEpoch: number
+  operation: OperationIdentity | null
+  bindingId: string | null
+  sourceGeneration: number
+  sampleSequence: number
+}
+
+export const LEGACY_EXTENSION_CONTRACT_DEFAULTS: ExtensionContractState = {
+  mode: 'legacy',
+  capabilities: { ...LEGACY_CLIENT_CAPABILITIES },
+  mediaEpoch: 0,
+  operation: null,
+  bindingId: null,
+  sourceGeneration: 0,
+  sampleSequence: 0,
+}
+
+/**
+ * Restores the safe defaults for pre-CR-B01 session records. In particular,
+ * an old operation is never treated as current preparation evidence after a
+ * service-worker restart, and a missing binding starts at sequence zero.
+ */
+export function normalizeStoredContractState(value: unknown): ExtensionContractState {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    return cloneLegacyContractDefaults()
+
+  const stored = value as Record<string, unknown>
+  const snapshot = normalizeRoomContractSnapshot({
+    mode: stored.mode,
+    mediaEpoch: stored.mediaEpoch,
+    sharedCapabilities: stored.capabilities && typeof stored.capabilities === 'object'
+      ? (stored.capabilities as Record<string, unknown>).capabilities
+      : stored.capabilities,
+    operation: stored.operation,
+  })
+  const capabilities = stored.capabilities && typeof stored.capabilities === 'object'
+    ? stored.capabilities as Record<string, unknown>
+    : null
+  const contractVersion = capabilities?.contractVersion
+  const normalizedCapabilities: ClientCapabilities = Number.isSafeInteger(contractVersion)
+    && contractVersion === OPERATION_CONTRACT_VERSION
+    ? {
+        contractVersion,
+        capabilities: snapshot.sharedCapabilities,
+      }
+    : { ...LEGACY_CLIENT_CAPABILITIES }
+
+  return {
+    mode: snapshot.mode,
+    capabilities: normalizedCapabilities,
+    mediaEpoch: snapshot.mediaEpoch,
+    operation: snapshot.operation
+      ? { mediaEpoch: snapshot.operation.mediaEpoch, operationId: snapshot.operation.operationId }
+      : null,
+    bindingId: typeof stored.bindingId === 'string' && /^[a-zA-Z0-9_-]{6,80}$/.test(stored.bindingId) ? stored.bindingId : null,
+    sourceGeneration: boundedCounter(stored.sourceGeneration),
+    sampleSequence: boundedCounter(stored.sampleSequence),
+  }
+}
+
+function cloneLegacyContractDefaults(): ExtensionContractState {
+  return {
+    ...LEGACY_EXTENSION_CONTRACT_DEFAULTS,
+    capabilities: { ...LEGACY_EXTENSION_CONTRACT_DEFAULTS.capabilities },
+  }
+}
+
+function boundedCounter(value: unknown): number {
+  return Number.isSafeInteger(value) && typeof value === 'number' && value >= 0 ? value : 0
+}
+
 export interface ExtensionState extends ClientRoomState {
   displayName: string
   playerTabId: number | null
@@ -32,6 +112,7 @@ export interface ExtensionState extends ClientRoomState {
   connectionQuality: 'unknown' | 'good' | 'degraded' | 'offline'
   roundTripMs: number | null
   lastPongAtMs: number
+  contract?: ExtensionContractState
 }
 
 export type RuntimeRequest =

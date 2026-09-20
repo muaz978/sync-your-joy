@@ -13,6 +13,8 @@ For the CR-A06 health-evidence acceptance record, use [`CR_A06_HEALTH_EVIDENCE_A
 
 For the CR-A07 seek-barrier acceptance record, use [`CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md`](CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md). It documents deadline receipt checks, fixed-target timeout pause, fixed quorum behavior, membership/media/lease cancellation and stale acknowledgement rejection.
 
+For the CR-B01 operation contract record, use [`CR_B01_OPERATION_CONTRACT.md`](CR_B01_OPERATION_CONTRACT.md). It defines the media epoch, operation identity, fixed participant quorum, binding/sample evidence, fail-closed capability negotiation and safe defaults for older stored state. It is a schema gate for CR-B02 and CR-B03, not proof of their runtime behavior.
+
 ## Before the session
 
 Each tester needs:

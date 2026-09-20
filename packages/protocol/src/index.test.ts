@@ -1,6 +1,6 @@
 import type { MediaFingerprint } from './index.ts'
 import { describe, expect, it } from 'vitest'
-import { generateRoomCode, isAllowedOrigin, mediaMatches, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, parseClientMessage, ROOM_CODE_ALPHABET } from './index.ts'
+import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomOperation, mediaMatches, negotiateRoomMode, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
 
 describe('media identity matching', () => {
   it('does not treat two missing players as a video match', () => {
@@ -257,5 +257,123 @@ describe('origin allowlist', () => {
 
   it('rejects a disallowed origin', () => {
     expect(isAllowedOrigin('https://evil.example')).toBe(false)
+  })
+})
+
+describe('operation identity and compatibility contract', () => {
+  const operation = {
+    mediaEpoch: 3,
+    operationId: 'operation_seek_123456',
+  }
+
+  it('keeps operation validity separate from snapshot ordering', () => {
+    expect(isCurrentOperation(operation, { ...operation })).toBe(true)
+    expect(isCurrentOperation(operation, { ...operation, operationId: 'operation_seek_654321' })).toBe(false)
+    expect(isCurrentOperation(operation, { ...operation, mediaEpoch: 4 })).toBe(false)
+  })
+
+  it('requires fixed, bounded participant evidence and terminal reasons', () => {
+    const valid = {
+      ...operation,
+      kind: 'seek',
+      phase: 'preparing',
+      requiredParticipantIds: ['participant_host', 'participant_guest'],
+      preparedParticipantIds: [],
+      startedParticipantIds: [],
+      targetPositionSeconds: 120,
+      effectiveAtServerMs: null,
+      deadlineAtServerMs: 10_000,
+    }
+    expect(isRoomOperation(valid)).toBe(true)
+    expect(isRoomOperation({ ...valid, preparedParticipantIds: ['participant_unknown'] })).toBe(false)
+    expect(isRoomOperation({ ...valid, phase: 'cancelled' })).toBe(false)
+    expect(isRoomOperation({ ...valid, phase: 'cancelled', reason: 'deadline-expired' })).toBe(true)
+    expect(isRoomOperation({ ...valid, requiredParticipantIds: Array.from({ length: 11 }, (_, index) => `participant_${index}`) })).toBe(false)
+  })
+
+  it('accepts current binding/sample acknowledgements and rejects stale-shaped data', () => {
+    const acknowledgement = parseOperationAcknowledgement({
+      ...operation,
+      phase: 'prepared',
+      participantId: 'participant_guest',
+      bindingId: 'binding_123456',
+      sourceGeneration: 2,
+      sampleSequence: 9,
+      observedPositionSeconds: 120,
+      observedAtLocalMs: 50_000,
+    })
+    expect(acknowledgement).toMatchObject({ phase: 'prepared', sampleSequence: 9 })
+    expect(parseOperationAcknowledgement({
+      ...acknowledgement,
+      mediaEpoch: -1,
+    })).toBeNull()
+    expect(parseOperationAcknowledgement({
+      ...acknowledgement,
+      bindingId: 'bad!',
+    })).toBeNull()
+    expect(parseOperationAcknowledgement({
+      ...acknowledgement,
+      sampleSequence: Number.MAX_SAFE_INTEGER + 1,
+    })).toBeNull()
+  })
+
+  it('fails closed when every peer does not advertise the transaction contract', () => {
+    const transactional = negotiateRoomMode([
+      { participantId: 'participant_host', capabilities: CURRENT_CLIENT_CAPABILITIES },
+      { participantId: 'participant_guest', capabilities: CURRENT_CLIENT_CAPABILITIES },
+    ])
+    expect(transactional).toMatchObject({ mode: 'transactional', incompatibleParticipantIds: [] })
+    expect(canAcknowledgeOperation('transactional', transactional.sharedCapabilities, operation)).toBe(true)
+
+    const legacy = negotiateRoomMode([
+      { participantId: 'participant_host', capabilities: CURRENT_CLIENT_CAPABILITIES },
+      { participantId: 'participant_old', capabilities: { contractVersion: 0, capabilities: [] } },
+    ])
+    expect(legacy.mode).toBe('legacy')
+    expect(legacy.incompatibleParticipantIds).toEqual(['participant_old'])
+    expect(canAcknowledgeOperation(legacy.mode, legacy.sharedCapabilities, operation)).toBe(false)
+  })
+
+  it('accepts legacy create/join messages without silently upgrading them', () => {
+    const legacy = parseClientMessage({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_guest', name: 'Rana', code: 'ABCDEFGH', media: null,
+    })
+    expect(legacy).not.toBeNull()
+    expect(parseClientMessage({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_guest', name: 'Rana', code: 'ABCDEFGH', media: null,
+      capabilities: { contractVersion: 1, capabilities: ['unsupported-feature'] },
+    })).toBeNull()
+  })
+
+  it('restores old or malformed contract state to paused-safe legacy defaults', () => {
+    expect(normalizeRoomContractSnapshot(undefined)).toEqual({
+      mode: 'legacy', mediaEpoch: 0, sharedCapabilities: [], operation: null,
+    })
+    expect(normalizeRoomContractSnapshot({
+      mode: 'transactional', mediaEpoch: 4, sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities], operation: { bad: true },
+    })).toEqual({
+      mode: 'transactional', mediaEpoch: 4, sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities], operation: null,
+    })
+    expect(normalizeRoomContractSnapshot({
+      mode: 'transactional', mediaEpoch: 4, sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities], operation: {
+        mediaEpoch: 3,
+        operationId: 'operation_seek_123456',
+        kind: 'seek',
+        phase: 'preparing',
+        requiredParticipantIds: ['participant_host'],
+        preparedParticipantIds: [],
+        startedParticipantIds: [],
+        targetPositionSeconds: 120,
+        effectiveAtServerMs: null,
+        deadlineAtServerMs: 10_000,
+      },
+    })).toEqual({
+      mode: 'transactional', mediaEpoch: 4, sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities], operation: null,
+    })
+    expect(normalizeRoomContractSnapshot({
+      mode: 'transactional', mediaEpoch: 4, sharedCapabilities: ['unknown'], operation: null,
+    })).toEqual({
+      mode: 'legacy', mediaEpoch: 4, sharedCapabilities: [], operation: null,
+    })
   })
 })
