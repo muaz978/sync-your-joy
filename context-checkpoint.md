@@ -3988,6 +3988,83 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+## Checkpoint 61
+
+### Session Metadata
+- Task or project: SyncYourJoy oldest-first issue processing, CR-A05 PR review, merge and acceptance-state synchronization.
+- Checkpoint number: 61.
+- Date and time: 2026-09-20 18:23 +03 (Europe/Istanbul).
+- Coverage period: CR-A05 PR opening through metadata, remote checks, formal review, administrator merge, issue comment, project verification and repository-state confirmation.
+- Current context status: PR #79 is merged into `origin/main` at `f03f4c4470837e3c700948ed89c7657696fe444e`. Issue #52 remains open in Verification. The next oldest open issue is #53.
+
+### User Objective and Requirements
+- Continue oldest-first issue processing, review before accepting or merging, document every issue PR in detail, retain labels/assignee/milestone/project metadata, do not close an issue before all applicable gates pass, do not assume the signed-in Crunchyroll account is missing, and commit and push all work.
+- Keep release `0.2.4` until a coherent verified group qualifies. Reserve `1.0.0` for the end of the milestone.
+
+### Complete Chronological Activity Log
+
+#### 2026-09-20 18:16-18:19 +03 - PR #79 opened and metadata applied
+- Opened PR #79, `https://github.com/muaz978/sync-your-joy/pull/79`, title `fix: bound drift correction convergence`, from `codex/issue-52-drift-convergence` into `main`.
+- The PR body records the root cause, implementation, acceptance mapping, exact local checks, package checksum, E2E limitations, security boundary, release boundary and the non-closing relationship `Relates to #52`.
+- Attached PR #79 to the Codex task.
+- Applied GitHub labels `bug`, `initiative: crunchyroll-sync`, `area: extension`, `area: sync-engine` and `area: testing`; assigned `muaz978`; set milestone `M3/M5: reliability and real-device validation`.
+- Updated the public project PR row to In review, P1 High, Bug, Partial, Unit tests, Integration tests, Browser test, User acceptance, High risk and verification owner `muaz978`. The project row was re-read and the values were visibly confirmed.
+
+#### 2026-09-20 18:19-18:21 +03 - PR review
+- Initial `gh pr diff --stat` inspection was rejected because this GitHub CLI version does not support `--stat` for `gh pr diff`. The exact diff was then reviewed locally with `git diff --stat`, `git diff --name-only` and the full source/test diff against `origin/main`.
+- Confirmed remote Analyze, CodeQL, DevSkim, lowercase `devskim` and Typecheck/test/build checks all passed.
+- Confirmed GitHub reported the PR mergeable but review-required.
+- Posted the formal review comment on PR #79 at commit `f72a55308f1cf478b22a12483afd074102652c03`: no blocking deterministic correctness or security finding; exact local and remote evidence; authenticated-provider skip; isolated Chromium launch limitation; active signed-in Edge availability; no release or live-provider claim; issue remains open.
+- GitHub recorded the author review as `COMMENTED` because the PR author cannot approve their own pull request. This is not represented as an approval.
+
+#### 2026-09-20 18:21-18:22 +03 - Merge and main verification
+- Merged PR #79 with administrator authorization after the exact diff, formal review comment and all remote checks were inspected.
+- Verified PR state `MERGED`, merge commit `f03f4c4470837e3c700948ed89c7657696fe444e`, base `main`, labels, assignee and milestone.
+- Fetched `origin/main` and verified it resolves to `f03f4c4470837e3c700948ed89c7657696fe444e`.
+- Posted merge evidence to issue #52 at `https://github.com/muaz978/sync-your-joy/issues/52#issuecomment-5750710592`, preserving the issue as open and documenting the checks, package checksum, E2E limitation, signed-in session availability, remaining acceptance gates and no-release decision.
+
+#### 2026-09-20 18:22-18:23 +03 - Issue and project state
+- Verified issue #52 is still `OPEN` with all five labels, assignee `muaz978` and milestone M3/M5.
+- Updated the public project issue #52 row from In Progress to Verification. Verified the row retains P1 High, Bug, Partial, Unit tests, Integration tests, Browser test, User acceptance, High risk, blank blocked reason and owner `muaz978`.
+- Verified the public project PR #79 row is `Done` with P1 High, Bug, Partial, Unit tests, Integration tests, Browser test, User acceptance, High risk, assignee `muaz978` and verification owner `muaz978`.
+- Verified the local issue branch has no uncommitted changes and tracks its pushed remote SHA `f72a55308f1cf478b22a12483afd074102652c03`. The merged main SHA is separately verified as `f03f4c4470837e3c700948ed89c7657696fe444e`.
+
+### Confirmed Successful Results
+- CR-A05 implementation is committed, pushed, reviewed, merged and present on `origin/main` at `f03f4c4470837e3c700948ed89c7657696fe444e`.
+- PR #79 has the required detailed body, labels, assignee, milestone, review comment, remote checks and public-project metadata.
+- Issue #52 is intentionally open in Verification. It has not been falsely closed while controlled browser, accepted live-provider, two-profile/two-account, two-device, deployment and user-acceptance gates remain.
+- The public project accurately shows issue #52 as Verification and PR #79 as Done.
+- Repository version remains `0.2.4`; no release was bumped or published.
+
+### Failed, Incomplete, or Unresolved Work
+- GitHub self-approval remains unavailable by policy. The review is a formal `COMMENTED` review, followed by administrator merge after checks and exact diff inspection.
+- Authenticated Crunchyroll E2E remains skipped because isolated provider storage state is not configured. Generic isolated two-profile E2E remains an environment failure before scenario setup.
+- The next issue is #53, `CR-A06: Make health evidence stable and consistent`.
+
+### Decisions and Rationale
+- Keep #52 in Verification rather than closing it because deterministic source evidence and merge completion do not establish live-provider, device, deployment or user-acceptance behavior.
+- Do not request a new release installation for CR-A05 alone. A later coherent verified group or release-candidate gate can produce an installable version, and the user will be told exactly when a headed browser installation is required.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- PR #79: `https://github.com/muaz978/sync-your-joy/pull/79`
+- PR #79 merge commit: `f03f4c4470837e3c700948ed89c7657696fe444e`
+- Issue #52 merge evidence: `https://github.com/muaz978/sync-your-joy/issues/52#issuecomment-5750710592`
+- Public project: `https://github.com/users/muaz978/projects/1`
+
+### Open Questions, Blockers, and Dependencies
+- The exact live/provider and device acceptance gates remain external dependencies for #52, but the signed-in Crunchyroll Edge session is available for a controlled headed observation.
+- Issue #53 requires source/comment inspection and project classification before implementation.
+
+### Next Steps
+1. Commit and push this post-merge checkpoint documentation.
+2. Start the next oldest issue, #53, from the verified `origin/main` state after classification.
+3. Repeat the documented implementation, testing, PR metadata, review, merge and acceptance-state workflow.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-60 remain intact. This checkpoint records the complete CR-A05 PR lifecycle and supersedes only the pre-merge status statements in checkpoint #60.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 ## Checkpoint 60
 
 ### Session Metadata
