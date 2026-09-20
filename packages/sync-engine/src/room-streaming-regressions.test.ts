@@ -47,6 +47,68 @@ function sample(atMs: number, positionSeconds: number, overrides: Partial<Player
 }
 
 describe('adaptive streaming coordination regressions', () => {
+  it('does not accept a seek acknowledgement at the exact barrier deadline', () => {
+    let nowMs = 10_000
+    const room = readyRoom(() => nowMs)
+    control(room, 'play', 20)
+    const sought = room.control('host', {
+      actionId: 'deadline-seek',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 120,
+    })
+    expect(sought.ok).toBe(true)
+    if (!sought.ok || !sought.snapshot.seek)
+      throw new Error('Expected a pending seek.')
+
+    nowMs = sought.snapshot.seek.deadlineAtServerMs
+    const result = room.acknowledgeSeek('host', sought.snapshot.seek.revision, 120)
+
+    expect(result).toMatchObject({
+      ok: true,
+      reason: 'seek_timeout_paused',
+      snapshot: { playback: { status: 'paused', positionSeconds: 120 }, seek: null },
+    })
+  })
+
+  it('cancels a seek when a required participant explicitly fails instead of shrinking the quorum', () => {
+    let nowMs = 10_000
+    const room = readyRoom(() => nowMs)
+    room.join({ id: 'backup', name: 'Backup', media })
+    room.respondToJoin('host', room.snapshot().controller.leaseEpoch, 'backup', true)
+    room.setReady('backup', true, media)
+    control(room, 'play', 20)
+    const sought = room.control('host', {
+      actionId: 'failed-member-seek',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 120,
+    })
+    expect(sought.ok).toBe(true)
+    if (!sought.ok || !sought.snapshot.seek)
+      throw new Error('Expected a pending seek.')
+
+    nowMs += 100
+    const failure = room.updatePlayerStatus('guest', sought.snapshot.revision, sample(nowMs, 120, {
+      paused: true,
+      playbackStarted: false,
+      playbackStartFailed: true,
+    }))
+
+    expect(failure).toMatchObject({ reason: 'participant_playback_blocked' })
+    expect(room.snapshot()).toMatchObject({
+      playback: { status: 'paused', positionSeconds: 120 },
+      seek: null,
+      participants: expect.arrayContaining([
+        expect.objectContaining({ id: 'guest', ready: false }),
+      ]),
+    })
+    expect(room.acknowledgeSeek('host', sought.snapshot.seek.revision, 120)).toBeNull()
+    expect(room.acknowledgeSeek('backup', sought.snapshot.seek.revision, 120)).toBeNull()
+  })
+
   it('waits for the controller to finish loading a seek even when the guest is already aligned', () => {
     let nowMs = 10_000
     const room = readyRoom(() => nowMs)

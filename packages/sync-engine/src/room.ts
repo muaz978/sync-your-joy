@@ -355,8 +355,17 @@ export class RoomCoordinator {
 
   acknowledgeSeek(participantId: string, revision: number, positionSeconds: number): RoomResult | null {
     const pending = this.pendingSeek
+    if (!pending || revision !== pending.revision)
+      return null
+    // The alarm is a delivery mechanism, not the correctness boundary. A
+    // packet that arrives at or after the deadline must not revive the
+    // operation merely because the scheduler has not run its callback yet.
+    const nowMs = this.now()
+    if (nowMs >= pending.deadlineAtServerMs)
+      return this.releaseExpiredSeek(nowMs)
+
     const participant = this.participants.get(participantId)
-    if (!pending || revision !== pending.revision || !participant)
+    if (!participant)
       return null
     if (!participant.connected || !participant.ready || !participant.mediaMatches)
       return null
@@ -513,9 +522,18 @@ export class RoomCoordinator {
         || (sample.buffering && sample.playbackStarted !== false && isPlaybackPastStartupGrace(this.playback, nowMs))
         || stalled
         || startupTimedOut)) {
+      const failedSeekTarget = this.pendingSeek?.revision === basedOnRevision
+        ? this.pendingSeek.positionSeconds
+        : null
+      // A required member that explicitly failed cannot be removed from the
+      // seek quorum while the old operation remains live. Cancel the barrier
+      // and preserve its fixed target, so late ACKs become stale and cannot
+      // restart the room with a smaller membership set.
+      if (failedSeekTarget !== null)
+        this.pendingSeek = null
       this.playback = {
         status: 'paused',
-        positionSeconds: this.clampToMediaDuration(Math.max(0, sample.positionSeconds)),
+        positionSeconds: this.clampToMediaDuration(Math.max(0, failedSeekTarget ?? sample.positionSeconds)),
         effectiveAtServerMs: nowMs,
         playbackRate: 1,
       }
