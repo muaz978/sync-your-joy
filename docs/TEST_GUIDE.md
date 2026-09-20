@@ -9,6 +9,8 @@ This guide is for two or more people testing the extension on separate devices a
 
 The side panel can report an aligned timeline even when a provider has stopped progressing its real video element. Every pass decision in this guide must therefore check the visible video and its native current time, not only the room label.
 
+For the CR-A06 health-evidence acceptance record, use [`CR_A06_HEALTH_EVIDENCE_ACCEPTANCE_REPORT_TEMPLATE.md`](CR_A06_HEALTH_EVIDENCE_ACCEPTANCE_REPORT_TEMPLATE.md). It defines the `frames`, `clock` and `unknown` evidence vocabulary, the hidden or visible restoration checks, hidden-iframe and Picture-in-Picture boundaries, context-refresh checks, and the distinction between counter progress and visible output.
+
 ## Before the session
 
 Each tester needs:

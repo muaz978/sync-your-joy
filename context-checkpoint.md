@@ -5260,6 +5260,123 @@
 - Checkpoints 1-57 remain intact. This checkpoint is appended as a new chronological record and does not supersede earlier entries except where this entry explicitly records the verified newer state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+## Checkpoint 63
+
+### Session Metadata
+- Task or project: SyncYourJoy oldest-first issue processing, CR-A06 implementation, deterministic verification and package candidate.
+- Checkpoint number: 63.
+- Date and time: 2026-09-20 18:53 +03 (Europe/Istanbul).
+- Coverage period: CR-A06 branch creation through shared health-state implementation, protocol and UI integration, focused tests, full repository checks, browser-package smoke, E2E attempt, package candidate and release decision.
+- Current context status: CR-A06 source and documentation are complete locally on `codex/issue-53-health-evidence`. The work is not committed or pushed yet. Issue #53 remains open in project status In Progress. No release version was bumped.
+
+### User Objective and Requirements
+- Continue from the oldest open issue, implement the complete fix, document every issue-specific action, review and merge the PR only after exact checks, preserve issue/project metadata and do not close the issue until every applicable gate passes.
+- Commit and push all changes.
+- Treat the active signed-in Crunchyroll Edge session as available. Do not label this issue blocked on credentials. Ask only for a missing second account/profile, second device, deployment or explicit user-acceptance action if the selected gate requires it.
+- Keep repository version `0.2.4` for this single issue. Consider a compatible release only after a coherent verified group, and reserve `1.0.0` for milestone completion.
+
+### Complete Chronological Activity Log
+
+#### 2026-09-20 18:35-18:37 +03 - Checkpoint carry and branch creation
+- Committed the CR-A06 classification checkpoint on the previous branch as `238161b`, subject `docs: record CR-A06 classification`, and pushed it to `origin/codex/issue-52-drift-convergence`.
+- Refreshed `origin/main`, created `codex/issue-53-health-evidence` from the verified merged main state, and cherry-picked the classification checkpoint as `74bcc0b`.
+- The new branch initially contained only the checkpoint documentation and was clean before implementation edits.
+
+#### 2026-09-20 18:37-18:43 +03 - Source inspection and health-model design
+- Inspected the existing progress and stall variables, `reportPlayerStatus`, `currentPlayerContext`, `playerDiagnostics`, service-worker refresh handling, protocol validation, diagnostics UI and existing content tests.
+- Confirmed the pre-change problem: periodic reports maintained separate observation and report baselines, while `currentPlayerContext()` rebuilt a weaker sample with `buffering: false` and `progressed: false`. A service-worker context refresh could therefore overwrite known buffering, progress evidence or a browser permission failure.
+- Chose a pure local `player-health.ts` model with explicit `frames`, `clock` and `unknown` evidence quality. The model keeps observation cursors, progress timestamps, counter-reset handling, buffering state, real-progress history and persistent synchronized-play failure state.
+- Chose optional protocol compatibility for the new `PlayerSample.progressEvidence` field and an optional internal diagnostics health object, so stored state from older extension versions remains readable.
+
+#### 2026-09-20 18:43-18:49 +03 - Implementation and regression coverage
+- Added `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-health.ts` with pure create, observe, reset, buffering and play-failure operations.
+- Replaced the content script’s duplicated progress, report, frame and buffering variables with the shared health state.
+- Routed periodic status reports, context refresh, player diagnostics, side-panel diagnostics and worker diagnostic events through the shared snapshot.
+- Preserved known buffering immediately on waiting or stalled events, preserved health signals while rebasing visibility restoration, and cleared source-specific signals on command or source resets.
+- Added protocol validation for `progressEvidence` and rejected malformed evidence values.
+- Added diagnostics UI rows for progress evidence, rendered progress and play-start failure.
+- Added `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-health.test.ts` covering absent or unavailable counters, zero counters, advancing counters, counter resets, seek exclusion, stalled playback, visibility rebasing, buffering persistence and permission-failure reset behavior.
+- Extended content-script integration tests to verify context refresh preserves buffering and permission failure and to verify hidden rendering uses clock evidence without erasing the shared state.
+- Extended protocol tests to accept valid evidence quality and reject an invalid value.
+- Added `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A06_HEALTH_EVIDENCE_ACCEPTANCE_REPORT_TEMPLATE.md` with evidence vocabulary, deterministic gates, controlled-browser checks, hidden iframe and Picture-in-Picture boundaries, privacy limits, closure rules and release impact.
+- Linked the CR-A06 report template from `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`.
+
+#### 2026-09-20 18:44-18:50 +03 - Focused verification and correction
+- First focused run passed 81 tests and typecheck, but the newly added hidden-to-visible integration assertion was too entangled with the existing simulated room seek lifecycle.
+- Instrumented the failing test temporarily to identify that the fake player had a pending seek and paused/seeking state during the visible phase. The source logged correct visible frame-counter input, but the test was asserting a state that the room simulation had intentionally excluded.
+- Removed the temporary debug logs from source and tests. Reframed the content integration assertion to verify that visibility restoration preserves explicit clock evidence, and moved the counter-rebase-to-frame-evidence proof into the pure health-model test.
+- The corrected focused run passed 85 tests across the health model, protocol and content-script suites. `npx tsc --noEmit` and `git diff --check` passed.
+
+#### 2026-09-20 18:50-18:52 +03 - Full repository and package verification
+- Ran `npm run check`: typecheck passed, all 29 Vitest files passed with 253 tests, room-service build passed and Chrome extension build passed.
+- Ran `npm audit --audit-level=high`: `found 0 vulnerabilities`.
+- Ran `git diff --check`: passed.
+- Ran `npm run release:check-version`: repository version remains `0.2.4`.
+- The first normal `npm run verify:browser-packages` attempt reached Safari packaging but failed because the managed sandbox denied Xcode access to its temporary path. No source or package assertion failed.
+- Re-ran `npm run verify:browser-packages` with the required Xcode filesystem permission. Chrome, Firefox and Safari macOS package smoke all passed. Safari reported the generated temporary project path `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/.browser-package-smoke-8aEn4u/safari-project`.
+
+#### 2026-09-20 18:52-18:53 +03 - E2E boundary and package candidate
+- Ran `npm run test:e2e`. The authenticated Crunchyroll two-profile test was skipped because isolated provider storage-state files were not configured.
+- The generic two-profile test failed before scenario setup while Chromium launched its isolated persistent profile. The browser process exited with `SIGABRT`; Playwright cleanup also reported `EPERM` while attempting to terminate the process. This is recorded as an environment limitation, not as a source pass or source failure.
+- Built the local candidate with `RELEASE_OUTPUT_DIR=/private/tmp/syj-release-cr-a06 npm run release:package`.
+- ZIP integrity passed. Candidate path: `/private/tmp/syj-release-cr-a06/sync-your-joy-extension.zip`. Candidate SHA-256: `e43949018f09dfdb929f1bdc47d3316217aec7679e26b3576a78c281e3637eaf`.
+- The candidate manifest version is `0.2.4`, with the Chrome worker `service-worker.js`, side panel and content script present. No release tag, GitHub release or version bump was created.
+
+### Confirmed Successful Results
+- CR-A06 implementation and deterministic integration are complete locally, including the shared health snapshot, explicit evidence quality, counter-reset handling, seek exclusion, visibility rebasing, source/command resets, buffering persistence and permission-failure persistence.
+- Focused verification passed 85 tests. Full verification passed 253 tests across 29 files, typecheck, room-service build and extension build.
+- `npm audit --audit-level=high` reported 0 vulnerabilities.
+- Chrome, Firefox and Safari macOS package smoke passed after the required Xcode-permission rerun.
+- The local extension package was created and integrity-checked at `/private/tmp/syj-release-cr-a06/sync-your-joy-extension.zip` with SHA-256 `e43949018f09dfdb929f1bdc47d3316217aec7679e26b3576a78c281e3637eaf`.
+- CR-A06 acceptance documentation and the contributor-guide link are present locally.
+- No credentials, cookies, storage-state contents, account name, viewing history, protected media, private provider API or DRM data were accessed or stored.
+
+### Failed, Incomplete, or Unresolved Work
+- The CR-A06 source and documentation are not yet committed or pushed after implementation. The required next action is to inspect, commit and push them.
+- PR #80 has not yet been opened, reviewed, metadata-tagged, merged or attached to the Codex task.
+- Issue #53 remains open and is not ready for closure. Controlled browser, live provider, two-profile/two-account, two-device, deployment and explicit user-acceptance evidence remain separate gates.
+- The authenticated Crunchyroll E2E was skipped because dedicated isolated provider storage states are not configured. The active signed-in Edge session remains available for a controlled headed observation and is not a blocker for this deterministic implementation.
+- The generic two-profile E2E remains an environment failure before scenario setup due isolated Chromium `SIGABRT` and cleanup `EPERM`.
+
+### Decisions and Rationale
+- Keep issue #53 in project status In Progress until the PR lifecycle is complete. After merge, move it to Verification rather than closing it unless all applicable external gates are directly evidenced.
+- Do not ask the user to install a new release for CR-A06 alone. The package is a local candidate for later controlled browser work, not a published release.
+- Do not classify CR-A06 as blocked by missing Crunchyroll credentials. The signed-in session is available. Any later missing account/profile, device, deployment or acceptance dependency will be recorded separately.
+- Keep version `0.2.4`. A compatible bump requires a coherent verified issue group. `1.0.0` remains reserved for the completed milestone.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-health.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-health.test.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/internal.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/sidepanel.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.test.ts`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A06_HEALTH_EVIDENCE_ACCEPTANCE_REPORT_TEMPLATE.md`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Local candidate: `/private/tmp/syj-release-cr-a06/sync-your-joy-extension.zip`
+- Issue #53: `https://github.com/muaz978/sync-your-joy/issues/53`
+- Public project: `https://github.com/users/muaz978/projects/1`
+
+### Open Questions, Blockers, and Dependencies
+- The PR must use a non-closing relationship to issue #53, include the detailed acceptance report and exact evidence, receive the metadata fields, undergo exact diff and checks review, and be merged only after that review.
+- The issue must remain open after merge if live/provider, device, deployment or user-acceptance gates remain.
+- A controlled headed browser check may use the active signed-in Crunchyroll session. A second profile/account, second device, deployment identity or explicit user acceptance will be requested only when the selected gate is ready and needs it.
+
+### Next Steps
+1. Review the complete staged diff, including the new health model and acceptance documentation.
+2. Commit and push the CR-A06 implementation and documentation branch.
+3. Open PR #80 with detailed root-cause, implementation, verification, limitation, security and release documentation. Apply labels, assignee, milestone and public-project metadata.
+4. Inspect all remote checks and the exact PR diff, post a formal review result, and merge only after the review and checks pass.
+5. Verify `origin/main`, update issue #53 and the project to Verification without closing the issue, then continue oldest-first.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-62 remain intact. This checkpoint records the complete local CR-A06 implementation and verification phase after the CR-A06 classification checkpoint.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 ## Checkpoint 62
 
 ### Session Metadata

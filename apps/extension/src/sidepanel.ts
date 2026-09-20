@@ -491,6 +491,7 @@ function localSyncControls(hasLocalPlayer: boolean, roomHasMedia: boolean): stri
 function playerDiagnosticsCard(current: ExtensionState): string {
   const diagnostics = current.playerDiagnostics
   const sample = current.lastPlayerSample
+  const health = diagnostics?.health
   const frame = current.playerFrameId === null ? 'Not bound' : current.playerFrameId === 0 ? 'Top page' : `Embedded frame ${current.playerFrameId}`
   const source = diagnostics?.currentSrcKind ?? 'none'
   return `
@@ -503,6 +504,9 @@ function playerDiagnosticsCard(current: ExtensionState): string {
         <span class="color-fade">Position</span><span class="text-right font-mono tabular-nums">${sample ? formatTime(sample.positionSeconds) : '—'}</span>
         <span class="color-fade">Paused</span><span class="text-right">${sample ? sample.paused ? 'Yes' : 'No' : '—'}</span>
         <span class="color-fade">Buffering</span><span class="text-right">${sample ? sample.buffering ? 'Yes' : 'No' : '—'}</span>
+        <span class="color-fade">Progress evidence</span><span class="text-right">${escapeHtml(sample?.progressEvidence ?? health?.progressEvidence ?? 'unknown')}</span>
+        <span class="color-fade">Rendered progress</span><span class="text-right">${sample ? sample.progressed ? 'Yes' : 'No' : health?.hasRealPlaybackProgress ? 'Observed' : 'Not observed'}</span>
+        <span class="color-fade">Play start failure</span><span class="text-right">${sample ? sample.playbackStartFailed ? 'Yes' : 'No' : health?.playbackStartFailed ? 'Yes' : 'No'}</span>
         <span class="color-fade">Ready state</span><span class="text-right font-mono">${diagnostics?.readyState ?? '—'}</span>
         <span class="color-fade">Network state</span><span class="text-right font-mono">${diagnostics?.networkState ?? '—'}</span>
         <span class="color-fade">Duration</span><span class="text-right font-mono tabular-nums">${sample?.durationSeconds == null ? '—' : formatTime(sample.durationSeconds)}</span>

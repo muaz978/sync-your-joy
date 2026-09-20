@@ -121,12 +121,17 @@ describe('media identity matching', () => {
     expect(parseClientMessage({
       type: 'player_status',
       basedOnRevision: 4,
-      sample: { ...sample, progressed: true, playbackStarted: true, playbackStartFailed: false },
-    })).toMatchObject({ sample: { progressed: true, playbackStarted: true } })
+      sample: { ...sample, progressed: true, progressEvidence: 'frames', playbackStarted: true, playbackStartFailed: false },
+    })).toMatchObject({ sample: { progressed: true, progressEvidence: 'frames', playbackStarted: true } })
     expect(parseClientMessage({
       type: 'player_status',
       basedOnRevision: 4,
       sample: { ...sample, progressed: 'yes' },
+    })).toBeNull()
+    expect(parseClientMessage({
+      type: 'player_status',
+      basedOnRevision: 4,
+      sample: { ...sample, progressEvidence: 'pixels' },
     })).toBeNull()
   })
 

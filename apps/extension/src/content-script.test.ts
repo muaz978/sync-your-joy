@@ -379,6 +379,53 @@ describe('adaptive player lifecycle', () => {
     expect(statuses().some(message => message.sample.progressed)).toBe(false)
   })
 
+  it('keeps a known buffering signal when the worker refreshes player context', async () => {
+    apply('playing')
+    state.snapshot!.playback.effectiveAtServerMs = Date.now() - 3_000
+    video.dispatchEvent(new Event('waiting'))
+    await vi.advanceTimersByTimeAsync(700)
+
+    let context: unknown
+    listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, response => { context = response })
+    expect(context).toMatchObject({
+      sample: { buffering: true },
+      diagnostics: { health: { buffering: true } },
+    })
+  })
+
+  it('keeps a known permission failure when the worker refreshes player context', async () => {
+    video.play.mockRejectedValue(new DOMException('User activation required', 'NotAllowedError'))
+    apply('playing')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    let context: unknown
+    listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, response => { context = response })
+    expect(context).toMatchObject({
+      sample: { playbackStartFailed: true },
+      diagnostics: { health: { playbackStartFailed: true } },
+    })
+  })
+
+  it('switches evidence quality after hidden playback returns to visible rendering', async () => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    apply('playing')
+    state.snapshot!.playback.effectiveAtServerMs = Date.now() - 3_000
+    for (let i = 1; i <= 2; i++) {
+      video.position = i
+      await vi.advanceTimersByTimeAsync(1_000)
+    }
+    expect(statuses().some(message => message.sample.progressEvidence === 'clock')).toBe(true)
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    let context: unknown
+    listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, response => { context = response })
+    expect(context).toMatchObject({
+      diagnostics: { health: { progressEvidence: 'clock' } },
+    })
+  })
+
   it('starts playback after a slow correction before trying another hard seek', async () => {
     apply('playing', 120)
     await vi.advanceTimersByTimeAsync(1200)

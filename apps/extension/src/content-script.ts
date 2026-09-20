@@ -5,6 +5,7 @@ import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
 import { PlayerOperations, type OperationToken } from './player-operations.ts'
+import { clearPlaybackStartFailed, createPlayerHealthState, markPlaybackStartFailed, markPlayerHealthBuffering, observePlayerHealth, resetPlayerHealthBaseline, type PlayerHealthState } from './player-health.ts'
 import { decidePlayerIdentity } from './player-identity.ts'
 import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
 import { miniControllerView } from './mini-controller-state.ts'
@@ -52,19 +53,9 @@ let lastControllerSeekPosition: number | null = null
 let lastControllerSeekSentAt = 0
 let seekIntentTimer: ReturnType<typeof setTimeout> | null = null
 let pendingControllerSeekTarget: number | null = null
-let lastProgressPosition = 0
-let lastProgressAt = performance.now()
-let lastReportedPosition: number | null = null
-let lastReportedAt = performance.now()
-let lastReportedFrames: number | null = null
-let lastProgressFrames: number | null = null
-let hasRealPlaybackProgress = false
-let lastSampleBuffering = false
+let playerHealth: PlayerHealthState = createPlayerHealthState({ nowMs: performance.now(), positionSeconds: 0, frames: null })
 const playerOperations = new PlayerOperations()
 let playbackStarted = false
-let playbackStartFailedUntil = 0
-let unexpectedPauseSince = 0
-let stallNoticeShown = false
 let siteBootstrapAttempts = 0
 let lastSiteBootstrapAt = 0
 let playerScanTimer: ReturnType<typeof setTimeout> | null = null
@@ -365,7 +356,7 @@ const sampleIntervalId = setInterval(() => {
 }, SAMPLE_INTERVAL_MS)
 
 function recoverAfterPageVisibilityChange(): void {
-  resetPlaybackHealthBaseline()
+  resetPlaybackHealthBaseline(true)
   schedulePlayerScan()
   if (video) {
     void reportMedia(video)
@@ -486,6 +477,7 @@ function observePageIdentity(): void {
     return
   lastObservedPageIdentity = currentIdentity
   resetPlayerOperations()
+  resetPlaybackHealthBaseline()
   lastFingerprintKey = ''
   lastMediaReportAt = 0
   if (video) {
@@ -556,11 +548,7 @@ function videoCandidateScore(target: HTMLVideoElement): number {
 }
 
 function attachPlayer(target: HTMLVideoElement): void {
-  lastProgressPosition = finiteOrZero(target.currentTime)
-  lastProgressAt = performance.now()
-  lastReportedPosition = finiteOrZero(target.currentTime)
   playbackStarted = !target.paused && target.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
-  playbackStartFailedUntil = 0
   resetPlaybackHealthBaseline()
   target.addEventListener('play', handlePlay)
   target.addEventListener('pause', handlePause)
@@ -608,7 +596,7 @@ function detachPlayer(target: HTMLVideoElement | null): void {
 function invalidatePlayRequest(): void {
   playerOperations.retirePlay()
   expectedPlayUntil = 0
-  playbackStartFailedUntil = 0
+  playerHealth = clearPlaybackStartFailed(playerHealth)
 }
 
 function invalidateRoomOperations(sourceChanged = false): void {
@@ -649,8 +637,6 @@ function resetPlayerOperations(): void {
   seekAckInFlightRevision = 0
   lastControllerSeekPosition = null
   playbackStarted = false
-  playbackStartFailedUntil = 0
-  lastReportedPosition = null
   clearSeekCompletionTimer()
   clearSeekAckRetryTimer()
   resetCorrectionBudget()
@@ -683,7 +669,7 @@ function handlePlay(): void {
     return
   resetPlaybackHealthBaseline()
   playbackStarted = false
-  playbackStartFailedUntil = 0
+  playerHealth = clearPlaybackStartFailed(playerHealth)
   const expected = consumeExpectedPlay()
   if (!expected && video && isLocalController() && activeState?.snapshot?.seek) {
     expectPauseEvent()
@@ -808,6 +794,7 @@ function handleEnded(): void {
 
 function handleBuffering(): void {
   restorePlaybackRate()
+  playerHealth = markPlayerHealthBuffering(playerHealth)
   if (bufferingTimer)
     clearTimeout(bufferingTimer)
   bufferingTimer = setTimeout(() => {
@@ -824,7 +811,7 @@ function handleCanPlay(): void {
   bufferingTimer = null
   if (video && !video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
     playbackStarted = true
-    playbackStartFailedUntil = 0
+    playerHealth = clearPlaybackStartFailed(playerHealth)
   }
   maybeCompletePendingSeek()
   applyAuthoritativeState()
@@ -853,31 +840,26 @@ async function reportPlayerStatus(buffering: boolean): Promise<void> {
   if (!video || !snapshot || !currentEpisodeMatchesRoom())
     return
   const seekPendingTooLong = pendingSeek !== null && performance.now() - pendingSeek.since >= 1_500
-  const inferredBuffering = detectPlaybackStall(video, buffering || seekPendingTooLong)
-  lastSampleBuffering = inferredBuffering
-  const positionSeconds = finiteOrZero(video.currentTime)
-  const frames = presentedFrameCount(video)
-  const progressed = !video.paused
-    && !inferredBuffering
-    && !video.seeking && pendingSeek === null && !localSeeking
-    && lastReportedPosition !== null
-    && (frames !== null && lastReportedFrames !== null
-      ? frames > lastReportedFrames
-      : positionSeconds - lastReportedPosition >= 0.05
-        && positionSeconds - lastReportedPosition <= Math.max(0.25, (performance.now() - lastReportedAt) / 1000 * video.playbackRate * 1.5 + 0.25))
-  const sample: PlayerSample = {
-    positionSeconds,
-    durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
+  const previousBuffering = playerHealth.buffering
+  playerHealth = observePlayerHealth(playerHealth, {
+    nowMs: performance.now(),
+    positionSeconds: finiteOrZero(video.currentTime),
+    frames: presentedFrameCount(video),
     paused: video.paused,
-    buffering: inferredBuffering,
-    sampledAtLocalMs: Date.now(),
-    progressed,
-    playbackStartFailed: Date.now() < playbackStartFailedUntil,
-    playbackStarted: playbackStarted || (!video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA),
+    seeking: video.seeking,
+    localSeeking: localSeeking || pendingSeek !== null,
+    roomPlaying: snapshot.playback.status === 'playing',
+    playShouldHaveStarted: isPlaybackPastStartupGrace(snapshot.playback, Date.now() + (activeState?.serverOffsetMs ?? 0)),
+    lacksPlayableData: video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA,
+    explicitlyBuffering: buffering || seekPendingTooLong,
+    localIntentHold: isLocalController() && performance.now() < localIntentHoldUntil,
+  })
+  if (playerHealth.buffering && !previousBuffering) {
+    showNotice(video.paused || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+      ? 'This player stopped. The room is pausing, press Sync to recover without refreshing.'
+      : 'Playback stopped advancing. The room is pausing, press Sync to recover.')
   }
-  lastReportedPosition = positionSeconds
-  lastReportedFrames = frames
-  lastReportedAt = performance.now()
+  const sample = currentPlayerSample(video)
   renderPill()
   await sendRuntime({ type: 'PLAYER_STATUS', basedOnRevision: snapshot.revision, sample })
 }
@@ -888,15 +870,21 @@ function currentPlayerContext(): PlayerContext {
   return {
     media: createMediaFingerprint(video),
     diagnostics: playerDiagnostics(video),
-    sample: {
-      positionSeconds: finiteOrZero(video.currentTime),
-      durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
-      paused: video.paused,
-      buffering: false,
-      sampledAtLocalMs: Date.now(),
-      progressed: false,
-      playbackStarted: playbackStarted || (!video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA),
-    },
+    sample: currentPlayerSample(video),
+  }
+}
+
+function currentPlayerSample(target: HTMLVideoElement): PlayerSample {
+  return {
+    positionSeconds: finiteOrZero(target.currentTime),
+    durationSeconds: Number.isFinite(target.duration) ? target.duration : null,
+    paused: target.paused,
+    buffering: playerHealth.buffering,
+    sampledAtLocalMs: Date.now(),
+    progressed: playerHealth.progressed,
+    progressEvidence: playerHealth.progressEvidence,
+    playbackStartFailed: playerHealth.playbackStartFailed,
+    playbackStarted: playbackStarted || (!target.paused && target.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA),
   }
 }
 
@@ -924,6 +912,12 @@ function playerDiagnostics(target: HTMLVideoElement): PlayerDiagnostics {
     networkState: target.networkState,
     currentSrcKind,
     hasSourceObject: target.srcObject !== null,
+    health: {
+      buffering: playerHealth.buffering,
+      progressEvidence: playerHealth.progressEvidence,
+      hasRealPlaybackProgress: playerHealth.hasRealPlaybackProgress,
+      playbackStartFailed: playerHealth.playbackStartFailed,
+    },
     locked: lockedVideo === target,
   }
 }
@@ -1004,7 +998,7 @@ function applyAuthoritativeState(): void {
       && !softCorrectionAttempted
       && canApplySoftDriftCorrection({
           playing: !video.paused,
-          buffering: lastSampleBuffering,
+          buffering: playerHealth.buffering,
           seeking: video.seeking || localSeeking,
           hasPendingOperation: pendingSeek !== null,
           hasRecentProgress: hasRecentPlaybackProgress(),
@@ -1152,7 +1146,9 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string): void {
     const name = error instanceof Error ? error.name : ''
     if (name === 'AbortError')
       return
-    playbackStartFailedUntil = name === 'NotAllowedError' ? Date.now() + 5_000 : 0
+    playerHealth = name === 'NotAllowedError'
+      ? markPlaybackStartFailed(playerHealth)
+      : clearPlaybackStartFailed(playerHealth)
     renderPill()
     showNotice(name === 'NotAllowedError' ? blockedNotice : 'The video could not start. Check the player, then press Sync to retry.')
     void reportPlayerStatus(true)
@@ -1213,8 +1209,7 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
   }
 
   requestVideoPlay(() => {
-    lastProgressPosition = finiteOrZero(video?.currentTime ?? 0)
-    lastProgressAt = performance.now()
+    playerHealth = clearPlaybackStartFailed(playerHealth)
     renderPill()
     showNotice('Playback aligned with the room.')
     void reportPlayerStatus(false)
@@ -1263,7 +1258,7 @@ function renderPill(): void {
   const playbackBlocked = Boolean(video?.paused)
     && snapshot.playback.status === 'playing'
     && estimatedServerNowMs > snapshot.playback.effectiveAtServerMs + 300
-  const playerBuffering = snapshot.playback.status === 'playing' && lastSampleBuffering
+  const playerBuffering = snapshot.playback.status === 'playing' && playerHealth.buffering
   const catchingUp = snapshot.playback.status === 'playing' && video !== null
     && Math.abs(video.currentTime - expectedPosition(snapshot.playback, estimatedServerNowMs)) > 0.6
 
@@ -1318,74 +1313,8 @@ function holdLocalControllerIntent(): void {
 }
 
 function hasRecentPlaybackProgress(): boolean {
-  return hasRealPlaybackProgress
-    && performance.now() - lastProgressAt < SOFT_CORRECTION_MAX_MS
-}
-
-function detectPlaybackStall(target: HTMLVideoElement, explicitlyBuffering: boolean): boolean {
-  const now = performance.now()
-  const position = finiteOrZero(target.currentTime)
-  const playback = activeState?.snapshot?.playback
-  const roomIsPlaying = playback?.status === 'playing'
-  const estimatedServerNowMs = Date.now() + (activeState?.serverOffsetMs ?? 0)
-  const playShouldHaveStarted = playback !== undefined
-    && isPlaybackPastStartupGrace(playback, estimatedServerNowMs)
-  // A provider's player can keep re-issuing play() (this content script does
-  // exactly that, once a second, whenever it still sees target.paused) while
-  // the element never actually accumulates enough data to play -- each call
-  // sets .paused = false per spec the instant it's invoked, so a HAVE_METADATA
-  // player that keeps failing to progress can make target.paused flicker
-  // false and back to true within a single sampling window. Relying on
-  // target.paused alone let that flicker reset unexpectedPauseSince every
-  // time, so this never accumulated the 1.5s needed to report buffering: true
-  // -- a real friend's session got stuck this way for its entire runtime,
-  // through three separate play commands, with the room never told anything
-  // was wrong because every sample kept reporting buffering: false.
-  const lacksPlayableData = target.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
-
-  if (roomIsPlaying && !playShouldHaveStarted) {
-    unexpectedPauseSince = 0
-    lastProgressPosition = position
-    lastProgressAt = now
-    return false
-  }
-
-  if (playShouldHaveStarted && (target.paused || lacksPlayableData) && !(isLocalController() && now < localIntentHoldUntil)) {
-    if (unexpectedPauseSince === 0)
-      unexpectedPauseSince = now
-    const stalled = explicitlyBuffering || now - unexpectedPauseSince >= 1_500
-    if (stalled && !stallNoticeShown) {
-      stallNoticeShown = true
-      showNotice('This player stopped. The room is pausing—press Sync to recover without refreshing.')
-    }
-    return stalled
-  }
-
-  unexpectedPauseSince = 0
-  if (!roomIsPlaying || target.paused || target.seeking || localSeeking) {
-    if (!roomIsPlaying)
-      stallNoticeShown = false
-    lastProgressPosition = position
-    lastProgressAt = now
-    return explicitlyBuffering
-  }
-  const frames = presentedFrameCount(target)
-  const advanced = frames !== null && lastProgressFrames !== null
-    ? frames > lastProgressFrames
-    : position - lastProgressPosition >= 0.12
-  if (advanced) {
-    lastProgressPosition = position
-    lastProgressAt = now
-    hasRealPlaybackProgress = true
-    stallNoticeShown = false
-  }
-  lastProgressFrames = frames
-  const stalled = explicitlyBuffering || now - lastProgressAt >= 2_500
-  if (stalled && !stallNoticeShown) {
-    stallNoticeShown = true
-    showNotice('Playback stopped advancing. The room is pausing—press Sync to recover.')
-  }
-  return stalled
+  return playerHealth.hasRealPlaybackProgress
+    && performance.now() - playerHealth.lastProgressAtMs < SOFT_CORRECTION_MAX_MS
 }
 
 function playbackCommandChanged(
@@ -1400,20 +1329,15 @@ function playbackCommandChanged(
     || previous.playbackRate !== next.playbackRate
 }
 
-function resetPlaybackHealthBaseline(): void {
+function resetPlaybackHealthBaseline(preserveCurrentSignal = false): void {
   if (bufferingTimer)
     clearTimeout(bufferingTimer)
   bufferingTimer = null
-  unexpectedPauseSince = 0
-  stallNoticeShown = false
-  lastSampleBuffering = false
-  lastProgressPosition = finiteOrZero(video?.currentTime ?? 0)
-  lastProgressAt = performance.now()
-  hasRealPlaybackProgress = false
-  lastProgressFrames = video ? presentedFrameCount(video) : null
-  lastReportedFrames = lastProgressFrames
-  lastReportedPosition = video ? finiteOrZero(video.currentTime) : null
-  lastReportedAt = performance.now()
+  playerHealth = resetPlayerHealthBaseline(playerHealth, {
+    nowMs: performance.now(),
+    positionSeconds: finiteOrZero(video?.currentTime ?? 0),
+    frames: video ? presentedFrameCount(video) : null,
+  }, preserveCurrentSignal)
 }
 
 function presentedFrameCount(target: HTMLVideoElement): number | null {
