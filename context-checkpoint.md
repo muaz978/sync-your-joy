@@ -6712,13 +6712,13 @@
 
 ## Open Questions, Blockers, and Dependencies
 - Commit and push this Checkpoint 74 record on the retained CR-B05 branch.
-- Continue with the next dependency-aware issue, CR-B02 #56, while retaining issue #59 in `Verification` until remaining gates are directly evidenced.
+- Continue with the next dependency-aware implementation issue, CR-B06 #60, while retaining issues #30, #33, #34, #35 and #49 through #59 in their appropriate verification states until remaining gates are directly evidenced.
 - The optional Code scanning AI workflow needs repository or service-owner maintenance if its unsupported model configuration is expected to become a required gate.
 - A headed Crunchyroll provider gate can use the already signed-in Edge session when a specific issue reaches that stage. Ask for another account, device, deployment target or explicit user-acceptance action only if the exact gate requires it.
 
 ## Next Steps
 1. Commit and push this Checkpoint 74 documentation record.
-2. Re-scan the oldest open issue queue and continue with CR-B02 #56 using the same source-first, review-first, metadata-complete and evidence-gated process.
+2. Re-scan the oldest open issue queue and continue with CR-B06 #60, the next unimplemented dependency after the already merged CR-B02 through CR-B05 slices, using the same source-first, review-first, metadata-complete and evidence-gated process.
 3. Keep issue #59 open in `Verification` until remaining server, provider, device, deployment and user-acceptance gates are directly evidenced.
 4. Revisit a compatible release bump only after a coherent verified group, and reserve `1.0.0` for complete milestone acceptance.
 
