@@ -197,6 +197,60 @@ describe('room service', () => {
     friend.close()
   })
 
+  it('pauses a connected silent player from the cleanup timer and broadcasts one transition', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const media = {
+      service: 'youtube',
+      canonicalId: 'youtube:timer-health',
+      title: 'Timer health test video',
+      durationSeconds: 600,
+    }
+
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'HEALTH12', media,
+    }))
+    const created = await nextMessage(host)
+    expect(created.type).toBe('room_joined')
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+
+    host.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    await expect(nextRoomSnapshot(host, 'participant_ready')).resolves.toMatchObject({
+      snapshot: { participants: [expect.objectContaining({ id: 'participant_host', ready: true, mediaMatches: true })] },
+    })
+
+    const pendingPlay = nextRoomSnapshot(host, 'control_play')
+    host.send(JSON.stringify({
+      type: 'control', actionId: 'action_timer_health_play', basedOnRevision: created.snapshot.revision + 1, leaseEpoch: 1, kind: 'play', positionSeconds: 20,
+    }))
+    const play = await pendingPlay
+    expect(play.snapshot.playback.status).toBe('playing')
+
+    // One healthy sample establishes a progress baseline. The test then sends
+    // no more messages. The service cleanup timer must evaluate the deadline
+    // and publish the pause independently of an inbound player report.
+    host.send(JSON.stringify({
+      type: 'player_status',
+      basedOnRevision: play.snapshot.revision,
+      sample: {
+        positionSeconds: 20,
+        durationSeconds: media.durationSeconds,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: Date.now(),
+        progressed: true,
+        playbackStarted: true,
+      },
+    }))
+
+    const health = await nextRoomSnapshot(host, 'participant_playback_stalled', 4_000)
+    expect(health.snapshot.playback).toMatchObject({ status: 'paused' })
+    expect(health.snapshot.revision).toBe(play.snapshot.revision + 1)
+    await expectNoMessage(host, 300)
+    host.close()
+  })
+
   it('lets the controller deny a pending join request; the denied socket is told and dropped from the room', async () => {
     service = await createRoomService({ port: 0 })
     const host = await connect(service.url)
@@ -503,9 +557,9 @@ async function connect(url: string): Promise<WebSocket> {
   return socket
 }
 
-async function nextMessage(socket: WebSocket): Promise<ServerMessage> {
+async function nextMessage(socket: WebSocket, timeoutMs = 2_000): Promise<ServerMessage> {
   return new Promise<ServerMessage>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Timed out waiting for server message.')), 2_000)
+    const timer = setTimeout(() => reject(new Error('Timed out waiting for server message.')), timeoutMs)
     socket.once('message', (data) => {
       clearTimeout(timer)
       resolve(JSON.parse(data.toString()) as ServerMessage)
@@ -513,11 +567,15 @@ async function nextMessage(socket: WebSocket): Promise<ServerMessage> {
   })
 }
 
-async function nextRoomSnapshot(socket: WebSocket, reason: string): Promise<Extract<ServerMessage, { type: 'room_snapshot' }>> {
+async function nextRoomSnapshot(socket: WebSocket, reason: string, timeoutMs = 2_000): Promise<Extract<ServerMessage, { type: 'room_snapshot' }>> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const message = await nextMessage(socket)
+    const message = await nextMessage(socket, timeoutMs)
     if (message.type === 'room_snapshot' && message.reason === reason)
       return message
   }
   throw new Error(`Timed out waiting for room snapshot: ${reason}`)
+}
+
+async function expectNoMessage(socket: WebSocket, timeoutMs: number): Promise<void> {
+  await expect(nextMessage(socket, timeoutMs)).rejects.toThrow('Timed out waiting for server message.')
 }
