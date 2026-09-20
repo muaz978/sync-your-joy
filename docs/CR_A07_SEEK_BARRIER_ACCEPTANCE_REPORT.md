@@ -9,7 +9,7 @@ It records the existing evidence from CR-A01/PR #70, the remaining lease-boundar
 | Field | Value |
 | --- | --- |
 | Issue | #54, CR-A07 |
-| Pull request | To be filled when the issue-specific PR is opened |
+| Pull request | #81, https://github.com/muaz978/sync-your-joy/pull/81 |
 | Implementation commit | `8f8c416` (`fix: cancel seek barriers on lease transfer`) |
 | Repository version | 0.2.4 unless a later release decision is separately documented |
 | Verification owner | muaz978 |
