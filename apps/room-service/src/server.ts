@@ -443,6 +443,9 @@ export async function createRoomService(options: { port?: number; host?: string 
       const expiredSeek = room.coordinator.releaseExpiredSeek(nowMs)
       if (expiredSeek?.ok)
         broadcast(room, { type: 'room_snapshot', reason: expiredSeek.reason, snapshot: expiredSeek.snapshot })
+      const health = room.coordinator.evaluateHealth(nowMs)
+      if (health?.ok)
+        broadcast(room, { type: 'room_snapshot', reason: health.reason, snapshot: health.snapshot })
       if (room.emptySinceMs !== null && nowMs - room.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
         rooms.delete(code)
         releaseRoomIpSlot(room.creatorIp)

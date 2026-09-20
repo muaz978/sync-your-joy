@@ -10,7 +10,7 @@ import type {
 } from '@syncyourjoy/protocol'
 import { mediaMatches, normalizePageUrl } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, PLAYBACK_REPORT_SILENCE_TIMEOUT_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
@@ -323,9 +323,7 @@ export class RoomCoordinator {
         effectiveAtServerMs: nowMs + leadMs,
         playbackRate: 1,
       }
-      for (const participant of this.participants.values()) {
-        participant.lastProgressAtServerMs = this.playback.effectiveAtServerMs
-      }
+      this.resetPlaybackHealth(this.playback.effectiveAtServerMs)
     }
     else {
       const resumeWhenReady = this.pendingSeek?.resumeWhenReady ?? this.playback.status === 'playing'
@@ -388,6 +386,7 @@ export class RoomCoordinator {
         effectiveAtServerMs: this.now() + this.commandLeadMs(),
         playbackRate: 1,
       }
+      this.resetPlaybackHealth(this.playback.effectiveAtServerMs)
     }
     this.revision += 1
     return this.success(pending.resumeWhenReady ? 'seek_aligned_play_scheduled' : 'seek_aligned_paused')
@@ -411,6 +410,56 @@ export class RoomCoordinator {
 
   pendingSeekDeadlineMs(): number | null {
     return this.pendingSeek?.deadlineAtServerMs ?? null
+  }
+
+  nextHealthDeadlineMs(): number | null {
+    if (this.playback.status !== 'playing')
+      return null
+
+    const startupDeadlineMs = this.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+    let nextDeadlineMs: number | null = null
+    for (const participant of this.participants.values()) {
+      if (!participant.connected || !participant.ready || !participant.mediaMatches)
+        continue
+
+      const deadlineMs = participant.lastSample === null
+        ? startupDeadlineMs
+        : (participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs) + PLAYBACK_REPORT_SILENCE_TIMEOUT_MS
+      if (nextDeadlineMs === null || deadlineMs < nextDeadlineMs)
+        nextDeadlineMs = deadlineMs
+    }
+    return nextDeadlineMs
+  }
+
+  evaluateHealth(nowMs: number = this.now()): RoomResult | null {
+    if (this.playback.status !== 'playing')
+      return null
+
+    for (const participant of this.participants.values()) {
+      if (!participant.connected || !participant.ready || !participant.mediaMatches)
+        continue
+
+      const silentSinceMs = participant.lastSample === null
+        ? this.playback.effectiveAtServerMs
+        : participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs
+      const timeoutMs = participant.lastSample === null
+        ? PLAYBACK_STARTUP_TIMEOUT_MS
+        : PLAYBACK_REPORT_SILENCE_TIMEOUT_MS
+      if (nowMs - silentSinceMs < timeoutMs)
+        continue
+
+      this.playback = {
+        status: 'paused',
+        positionSeconds: this.clampToMediaDuration(Math.max(0, expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null))),
+        effectiveAtServerMs: nowMs,
+        playbackRate: 1,
+      }
+      this.revision += 1
+      this.markStateBarrier()
+      return this.success('participant_playback_silent')
+    }
+
+    return null
   }
 
   transferControl(fromParticipantId: string, toParticipantId: string, leaseEpoch: number): RoomResult {
@@ -655,6 +704,14 @@ export class RoomCoordinator {
       positionSeconds: expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null),
       effectiveAtServerMs: nowMs,
       playbackRate: 1,
+    }
+  }
+
+  private resetPlaybackHealth(effectiveAtServerMs: number): void {
+    for (const participant of this.participants.values()) {
+      participant.lastSample = null
+      participant.lastSampleReceivedAtMs = effectiveAtServerMs
+      participant.lastProgressAtServerMs = effectiveAtServerMs
     }
   }
 

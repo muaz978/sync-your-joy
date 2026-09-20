@@ -7,6 +7,11 @@ export const PLAYBACK_PROGRESS_TIMEOUT_MS = 1_800
 // license. Give it a bounded startup window without mislabeling that delay as
 // a browser gesture rejection.
 export const PLAYBACK_STARTUP_TIMEOUT_MS = 10_000
+// A player that was reporting status and then goes completely silent cannot
+// be distinguished from a frozen or disconnected player after this interval.
+// Keep this separate from the shorter progress deadline, which is evaluated
+// only while status reports are still arriving.
+export const PLAYBACK_REPORT_SILENCE_TIMEOUT_MS = 5_000
 
 export function isPlaybackPastStartupGrace(playback: PlaybackState, serverNowMs: number): boolean {
   return playback.status === 'playing'
