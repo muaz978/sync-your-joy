@@ -3988,6 +3988,169 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+---
+
+# Checkpoint 68
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 68
+- Date and time: 2026-09-20, Europe/Istanbul
+- Coverage period: continuation after Checkpoint 67 through CR-B02 merge and CR-B03 kickoff
+- Current context status: CR-B02 is merged and documented; CR-B03 branch is created from verified `origin/main`; implementation has not started
+
+## User Objective and Requirements
+- Continue the recommended dependency-first path through the open issues.
+- Review every PR before merging, record a detailed review, and merge only after source and remote evidence pass.
+- Add detailed documentation for every issue-specific PR and issue comment.
+- Keep labels, assignee, milestone and public project metadata complete on every future PR and issue.
+- Do not assume the signed-in Crunchyroll account is absent. Request user help only when a specific external gate requires it.
+- Do not close an issue until the complete applicable implementation, browser, provider, deployment and user-acceptance gates are evidenced.
+- Commit and push all repository changes.
+- Keep release `1.0.0` reserved for completion of the milestone. Do not bump a release for an incomplete downstream slice.
+- Do not use the account state or UI attachment as a substitute for live-provider acceptance evidence.
+
+## Current State
+- `origin/main` is `f540b41bb9a3d88204c0a3005db395b409f92b35`, the verified squash merge of PR #84.
+- CR-B02 issue #56 is OPEN and its public project status is `Verification`; its custom fields remain evidence `Partial`, risk `High`, acceptance gates selected for source review, typecheck, unit tests, integration tests and browser test, and verification owner `muaz978`.
+- PR #84 is MERGED at `2026-09-20T19:14:23Z`; its merge commit is `f540b41bb9a3d88204c0a3005db395b409f92b35`. Its retained source branch is `codex/issue-56-prepare-commit`.
+- The current local branch is `codex/issue-57-extension-ack`, based on `origin/main`, and is clean immediately after branch creation.
+- Issue #57, CR-B03, is OPEN, unassigned at the time of inspection, labeled `enhancement`, `initiative: crunchyroll-sync` and `area: extension`, and assigned to milestone `M3/M5: reliability and real-device validation`.
+- CR-B03 depends on #55, #56, #50, #51, #52 and #53. The #55 and #56 implementation slices are merged, but their external/runtime acceptance remains separate.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20 22:10 +03 - Review finding identified
+- User direction in force: continue the recommended path, review before merge, document every action, and preserve systematic issue sequencing.
+- Inspected the CR-B02 worktree. The branch `codex/issue-56-prepare-commit` was clean at commit `cb582b3abcf385d97eb30535a5eef76edc34bfff` before the final review correction.
+- Inspected `docs/CR_B02_COORDINATOR_TRANSACTION_REPORT.md` and `packages/sync-engine/src/room.ts`.
+- Found a narrow fail-closed edge case in `acknowledgeOperation()`: after a participant had prepared, an ACK arriving after operation cancellation or failure could reach the duplicate-preparation path. It could not revive the operation, but accepting it as a duplicate was weaker and less explicit than rejecting it.
+- Also found three Markdown hard-break trailing spaces in the report header when comparing the committed PR diff with `git diff --check`.
+
+### 2026-09-20 22:10 +03 - Final CR-B02 correction
+- Added an explicit early return for `cancelled` and `failed` operation phases in `packages/sync-engine/src/room.ts`.
+- Added a regression setup in `packages/sync-engine/src/room.test.ts` that prepares the host, transfers control to cancel the operation, and verifies the late prepare ACK is rejected.
+- Removed the three trailing Markdown hard-break spaces from the first three metadata lines in `docs/CR_B02_COORDINATOR_TRANSACTION_REPORT.md`.
+- The report already documented that late acknowledgements cannot revive cancelled or failed operations, so the code correction brought the implementation in line with the written security and state-machine claim.
+
+### 2026-09-20 22:10-22:11 +03 - Local verification after correction
+- Ran `npm test -- --run packages/protocol/src/index.test.ts packages/sync-engine/src/room.test.ts`; 2 files and 73 tests passed.
+- The first parallel command output showed the two focused Vitest processes and typecheck still starting because they were launched with a short wait. A follow-up run waited for completion and confirmed the result.
+- Ran `git diff --check origin/main`; it initially still reported the old committed report lines because that command compared only the committed range and did not include the uncommitted cleanup. Ran `git diff --check` against the working tree after the patch; it passed.
+- Ran `npm run typecheck`; root and Edge Durable Object checks passed.
+- Ran `npm run check`; typecheck passed, the full Vitest suite passed with 30 files and 268 tests, the room-service bundle passed, and the extension build passed.
+- Verified `git status --short` contained only the intended report, coordinator test and coordinator source changes.
+
+### 2026-09-20 22:11 +03 - Commit and push
+- Attempted the normal commit command. The restricted filesystem denied creation of `.git/index.lock` until elevated filesystem access was granted.
+- With the user-authorized repository workflow and escalated filesystem access, committed the correction as `a75ff027ff30b5df6f8d4a4e072ff337324ddaa4`, message `fix: reject acknowledgements after cancellation`.
+- Pushed `codex/issue-56-prepare-commit` to origin. The remote advanced from `cb582b3` to `a75ff02`.
+- No generated build output or unrelated file was included.
+
+### 2026-09-20 22:11-22:12 +03 - PR metadata and remote check refresh
+- Refreshed the controlled Edge browser context with `cua.rewriteDocumentation()` and inspected PR #84.
+- The PR showed two commits, with the final correction at `a75ff02`.
+- GitHub initially showed the new CodeQL and DevSkim runs pending, and the required review still missing. The UI explicitly stated that the PR owner could not satisfy the required approval and that code scanning was waiting for results.
+- Changed the public project status for PR #84 from `In Progress` to `In review` through the GitHub UI. Verified the field visibly showed `In review`.
+- Existing PR metadata remained present and verified: labels `enhancement`, `initiative: crunchyroll-sync`, `area: sync-engine`, `area: testing`; assignee `muaz978`; milestone `M3/M5: reliability and real-device validation`; project `SyncYourJoy Delivery and Reliability`; priority `P1 High`; work type `Feature`; evidence state `Partial`; all five selected acceptance gates; risk `High`; blank blocked reason; blank target date; verification owner `muaz978`.
+- Ran `gh pr checks 84 --watch --interval 5`. The final results were successful for CodeQL, DevSkim, devskim and Typecheck, test, and build. The stale pending CodeQL entry resolved to pass.
+
+### 2026-09-20 22:13 +03 - Formal PR review
+- Posted a detailed `COMMENTED` review on PR #84 at the final head `a75ff027ff30b5df6f8d4a4e072ff337324ddaa4`.
+- The review covered the complete coordinator, protocol, backend scheduling, persistence, tests, documentation and security boundary.
+- Review findings: no blocking correctness or security findings in CR-B02 scope.
+- Review evidence listed the local check, full tests, builds, browser package host rerun, two-profile E2E host rerun, diff check and all GitHub checks.
+- Review explicitly stated that CR-B03 extension acknowledgement wiring, authenticated Crunchyroll playback, deployment and user acceptance were not claimed, so issue #56 must remain open.
+- Verified through `gh pr view 84 --json ...` that the review exists with state `COMMENTED` and commit `a75ff02`. GitHub reports `REVIEW_REQUIRED` because self-approval is not permitted; this is a repository permission constraint, not an unreviewed source state.
+- Attached PR #84 to the Codex task using the Codex app artifact tool.
+
+### 2026-09-20 22:14 +03 - Authorized administrator merge
+- Because the user explicitly requested review followed by acceptance, and the owner account cannot create an approving review, ran `gh pr merge 84 --squash --admin --delete-branch=false` after the formal review and passing checks.
+- Verified PR #84 is `MERGED` at `2026-09-20T19:14:23Z`, with head `a75ff02` and merge commit `f540b41bb9a3d88204c0a3005db395b409f92b35`.
+- Fetched origin and verified `origin/main` resolves exactly to `f540b41bb9a3d88204c0a3005db395b409f92b35`.
+- Retained the source branch to preserve review and evidence history.
+
+### 2026-09-20 22:15 +03 - Issue #56 completion record without closure
+- Posted a detailed issue #56 comment at `https://github.com/muaz978/sync-your-joy/issues/56#issuecomment-5752016512`.
+- The comment documented delivered behavior, the report path, local and remote evidence, the self-review limitation, merge identity and the explicit non-closure boundary.
+- Through the controlled Edge UI, changed issue #56's public project status from `In Progress` to `Verification` and verified the field visibly shows `Verification`.
+- Left issue #56 OPEN. CR-B03 must add the extension and wire-level prepare/start application and acknowledgement path, followed by browser, authenticated Crunchyroll, deployment and user-acceptance evidence.
+- Did not mark release or issue closure. Release `0.2.4` remains current and `1.0.0` remains reserved for complete milestone acceptance.
+
+### 2026-09-20 22:16 +03 - CR-B03 discovery and branch setup
+- Inspected issue #57 with `gh issue view 57 --json number,title,body,state,labels,assignees,milestone,url`.
+- Confirmed title `CR-B03: Apply preparation and start confirmation through the extension`, state OPEN, labels `enhancement`, `initiative: crunchyroll-sync`, `area: extension`, milestone `M3/M5: reliability and real-device validation`, and no assignee yet.
+- Read the issue acceptance criteria: forward validated operation and binding identity; align once and ACK only when current media and target data are prepared; send started confirmation only from the current play attempt and useful progress; reject pending promises or `paused=false` alone; preserve direct in-page gesture recovery; cancel scheduled work on pause or superseding media or operation.
+- Confirmed verification asks for content/worker suites and a local integrated scenario, with real default-autoplay behavior reserved for D03/D04 rather than inferred from mocked errors.
+- Confirmed the stated primary files: `apps/extension/src/internal.ts`, `service-worker.ts`, `service-worker.test.ts`, `content-script.ts`, and `content-script.test.ts`.
+- Attempted to create `codex/issue-57-extension-ack` without escalation. Git denied `.git/index.lock` creation under the restricted filesystem.
+- Repeated the branch creation with approved elevated filesystem access. The branch was created successfully from verified `origin/main`.
+
+## Confirmed Successful Results
+- CR-B02 final correction is committed as `a75ff027ff30b5df6f8d4a4e072ff337324ddaa4` and pushed to its retained remote branch.
+- The corrected CR-B02 source passes focused tests, full `npm run check`, typecheck, build and `git diff --check`.
+- PR #84 has a formal detailed `COMMENTED` review at the final head, all required GitHub checks pass, and the PR is merged through the authorized administrator path.
+- `origin/main` is verified at merge commit `f540b41bb9a3d88204c0a3005db395b409f92b35`.
+- PR #84 metadata is complete and its public project status is `In review` before merge. The merged PR and issue records retain labels, assignee, milestone and project association.
+- Issue #56 has a detailed implementation and review comment, remains OPEN, and its public project status is `Verification`.
+- Issue #57 has been inspected and the next branch `codex/issue-57-extension-ack` has been created from the verified main line.
+
+## Failed, Incomplete, or Unresolved Work
+- GitHub did not permit an approving review by the PR owner. The review is preserved as `COMMENTED`; no false approval is claimed.
+- The PR initially showed pending checks after the final commit. CodeQL and DevSkim subsequently passed, and no final check failure remains.
+- The normal branch creation attempt was blocked by restricted `.git` filesystem permissions; the elevated retry succeeded.
+- CR-B03 implementation has not started in this checkpoint.
+- Issue #56 remains open because coordinator-only implementation does not establish extension application, live Crunchyroll behavior, deployment or user acceptance.
+- No release was bumped. `0.2.4` remains current and `1.0.0` remains reserved for full milestone completion.
+- No issue was closed.
+
+## Decisions and Rationale
+- Added and tested the explicit cancelled/failed ACK rejection because the code must fail closed after state invalidation, even when a participant had previously prepared.
+- Posted a formal comment review instead of claiming approval because GitHub disallows self-approval. Used administrator merge only after source review, local verification and all remote checks passed.
+- Moved issue #56 to `Verification` rather than `Done` because CR-B03 and external acceptance gates are still required.
+- Started CR-B03 from `origin/main` after CR-B02 merged, preserving the dependency order and avoiding work based on the unmerged feature branch.
+- The signed-in Crunchyroll account remains available for the future controlled headed gate. No isolated storage-state file, second account, second device or deployment result is inferred from that availability.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- CR-B02 report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B02_COORDINATOR_TRANSACTION_REPORT.md`
+- CR-B02 coordinator source: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`
+- CR-B02 coordinator tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.test.ts`
+- PR #84: `https://github.com/muaz978/sync-your-joy/pull/84`
+- PR #84 formal review: recorded as a GitHub `COMMENTED` review on final head `a75ff02`
+- Issue #56: `https://github.com/muaz978/sync-your-joy/issues/56`
+- Issue #56 merge record: `https://github.com/muaz978/sync-your-joy/issues/56#issuecomment-5752016512`
+- Issue #57: `https://github.com/muaz978/sync-your-joy/issues/57`
+- Current branch: `codex/issue-57-extension-ack`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+
+## Assumptions and Uncertainties
+- GitHub's public project UI is the authoritative source for custom project fields because the available CLI token does not expose the required project read/write scope.
+- The retained PR branch is intentionally preserved for evidence. The new CR-B03 branch is based on `origin/main`, not the retained PR branch.
+- Deterministic coordinator tests and generic extension playback do not establish transactional live-provider output. Those evidence classes remain separate.
+- The current issue #57 assignment and project custom fields have not yet been configured in this checkpoint. They must be set before or immediately after implementation begins.
+
+## Open Questions, Blockers, and Dependencies
+- CR-B03 must consume the CR-B02 coordinator contract without advertising support before the extension can send valid acknowledgements.
+- The exact existing extension player-binding lifecycle must be inspected before implementation, especially content-script to service-worker message validation and cancellation paths.
+- A headed Crunchyroll test is available later using the user-signed Edge session, but it should be requested only when the implementation reaches the applicable live-provider gate.
+- CR-B04, CR-C04, CR-D05 and the remaining older issue queue remain after CR-B03 according to the dependency plan.
+
+## Next Steps
+1. Inspect the current extension internal state, content-script, service-worker message schema and tests on `codex/issue-57-extension-ack`.
+2. Configure issue #57 assignee, public project entry and custom fields before implementation evidence is recorded.
+3. Implement CR-B03 in small source and test changes, preserving the state-only media boundary and legacy compatibility.
+4. Add and run focused tests, full repository checks, browser-package verification and the local integrated scenario. Record restricted-runtime failures separately from host reruns.
+5. Commit and push, open a detailed PR with labels, assignee, milestone, project fields and report documentation.
+6. Review the final PR head, record a formal review, merge only after all checks pass, then move issue #57 to `Verification` without closing it unless every applicable downstream gate is actually complete.
+7. Continue oldest-to-newest through the dependency queue and defer the next coherent release bump until the release group and milestone gates are complete.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-67 remain intact and were not rewritten.
+- Checkpoint 68 supersedes the earlier next-step statement that CR-B02 was pending. CR-B02 is now merged; the current next issue is CR-B03 #57.
+- Earlier PR #84 pending-check observations are superseded by the confirmed final success state recorded above.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 ## Checkpoint 60
 
 ### Session Metadata
