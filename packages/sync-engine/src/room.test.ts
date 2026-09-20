@@ -1073,6 +1073,7 @@ describe('RoomCoordinator', () => {
       const room = createTransactionalRoom(() => nowMs)
       controlTransactional(room, 'play', 55)
       const pendingOperation = room.snapshot().contract!.operation!
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 55, 1))
       const transferred = room.transferControl('participant_host', 'participant_friend', room.snapshot().controller.leaseEpoch)
       expect(transferred).toMatchObject({ ok: true, snapshot: { contract: { operation: { phase: 'cancelled', reason: 'superseded' } } } })
       expect(room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 55, 1))).toBeNull()

@@ -410,6 +410,8 @@ export class RoomCoordinator {
       || !isCurrentOperation(operation, acknowledgement)
       || !supportsTransactionalOperations(this.participantCapabilities(participantId).capabilities))
       return null
+    if (operation.phase === 'cancelled' || operation.phase === 'failed')
+      return null
 
     const participant = this.participants.get(participantId)
     if (!participant || !participant.connected || !participant.ready || !participant.mediaMatches

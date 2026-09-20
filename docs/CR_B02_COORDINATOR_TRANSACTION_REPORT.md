@@ -1,8 +1,8 @@
 # CR-B02 coordinator prepare and commit transaction report
 
-Issue: [#56](https://github.com/muaz978/sync-your-joy/issues/56)  
-Depends on: [CR-B01 / #55](https://github.com/muaz978/sync-your-joy/issues/55)  
-Scope: coordinator and backend persistence/scheduling only  
+Issue: [#56](https://github.com/muaz978/sync-your-joy/issues/56)
+Depends on: [CR-B01 / #55](https://github.com/muaz978/sync-your-joy/issues/55)
+Scope: coordinator and backend persistence/scheduling only
 Status: implementation and repository verification complete locally; review, merge, release and issue-closure decisions remain separate gates.
 
 ## 1. Problem and acceptance interpretation
