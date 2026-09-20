@@ -23,7 +23,7 @@ import {
   supportsTransactionalOperations,
 } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_REPORT_SILENCE_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
@@ -595,15 +595,14 @@ export class RoomCoordinator {
     if (this.playback.status !== 'playing')
       return null
 
-    const startupDeadlineMs = this.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
     let nextDeadlineMs: number | null = null
     for (const participant of this.participants.values()) {
       if (!participant.connected || !participant.ready || !participant.mediaMatches)
         continue
 
-      const deadlineMs = participant.lastSample === null
-        ? startupDeadlineMs
-        : (participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs) + PLAYBACK_REPORT_SILENCE_TIMEOUT_MS
+      const deadlineMs = this.participantHealthDeadlineMs(participant)
+      if (deadlineMs === null)
+        continue
       if (nextDeadlineMs === null || deadlineMs < nextDeadlineMs)
         nextDeadlineMs = deadlineMs
     }
@@ -618,27 +617,83 @@ export class RoomCoordinator {
       if (!participant.connected || !participant.ready || !participant.mediaMatches)
         continue
 
-      const silentSinceMs = participant.lastSample === null
-        ? this.playback.effectiveAtServerMs
-        : participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs
-      const timeoutMs = participant.lastSample === null
-        ? PLAYBACK_STARTUP_TIMEOUT_MS
-        : PLAYBACK_REPORT_SILENCE_TIMEOUT_MS
-      if (nowMs - silentSinceMs < timeoutMs)
+      const failureReason = this.participantHealthFailureReason(participant, nowMs)
+      if (failureReason === null)
         continue
 
+      const activeOperation = this.contract.mode === 'transactional'
+        && this.contract.operation
+        && this.contract.operation.phase !== 'cancelled'
+        && this.contract.operation.phase !== 'failed'
+        ? this.contract.operation
+        : null
+      const recoveryPosition = activeOperation?.phase === 'started'
+        ? expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
+        : activeOperation?.targetPositionSeconds ?? expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
+      if (activeOperation)
+        this.cancelOperation('manual-recovery', nowMs, false)
       this.playback = {
         status: 'paused',
-        positionSeconds: this.clampToMediaDuration(Math.max(0, expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null))),
+        positionSeconds: this.clampToMediaDuration(Math.max(0, recoveryPosition)),
         effectiveAtServerMs: nowMs,
         playbackRate: 1,
       }
       this.revision += 1
       this.markStateBarrier()
-      return this.success('participant_playback_silent')
+      return this.success(failureReason)
     }
 
     return null
+  }
+
+  private participantHealthDeadlineMs(participant: InternalParticipant): number | null {
+    if (participant.lastSample === null || participant.lastSample.playbackStarted === false)
+      return playbackStartupDeadlineMs(this.playback)
+
+    const deadlines = [playbackReportSilenceDeadlineMs(
+      this.playback,
+      participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs,
+    )]
+    if (!participant.lastSample.paused && !participant.lastSample.buffering) {
+      const lastProgressAtServerMs = participant.lastProgressAtServerMs ?? this.playback.effectiveAtServerMs
+      let progressDeadlineMs = playbackProgressDeadlineMs(this.playback, lastProgressAtServerMs)
+      if (this.isAwaitingTransactionalStart(participant.id))
+        progressDeadlineMs = Math.max(progressDeadlineMs, this.playback.effectiveAtServerMs + PLAYBACK_STARTUP_GRACE_MS)
+      deadlines.push(progressDeadlineMs)
+    }
+    return Math.min(...deadlines)
+  }
+
+  private participantHealthFailureReason(participant: InternalParticipant, nowMs: number): string | null {
+    if (participant.lastSample === null)
+      return nowMs >= playbackStartupDeadlineMs(this.playback) ? 'participant_playback_silent' : null
+    if (participant.lastSample.playbackStarted === false)
+      return nowMs >= playbackStartupDeadlineMs(this.playback) ? 'participant_playback_startup_timeout' : null
+
+    const lastSampleReceivedAtMs = participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs
+    if (nowMs >= playbackReportSilenceDeadlineMs(this.playback, lastSampleReceivedAtMs)
+      && (participant.lastSample.paused || participant.lastSample.buffering))
+      return 'participant_playback_silent'
+
+    if (!participant.lastSample.paused && !participant.lastSample.buffering) {
+      const lastProgressAtServerMs = participant.lastProgressAtServerMs ?? this.playback.effectiveAtServerMs
+      const progressDeadlineMs = this.isAwaitingTransactionalStart(participant.id)
+        ? Math.max(playbackProgressDeadlineMs(this.playback, lastProgressAtServerMs), this.playback.effectiveAtServerMs + PLAYBACK_STARTUP_GRACE_MS)
+        : playbackProgressDeadlineMs(this.playback, lastProgressAtServerMs)
+      if (nowMs >= progressDeadlineMs)
+        return 'participant_playback_stalled'
+    }
+
+    return nowMs >= playbackReportSilenceDeadlineMs(this.playback, lastSampleReceivedAtMs)
+      ? 'participant_playback_silent'
+      : null
+  }
+
+  private isAwaitingTransactionalStart(participantId: string): boolean {
+    const operation = this.contract.operation
+    return this.contract.mode === 'transactional'
+      && operation?.phase === 'committed'
+      && !operation.startedParticipantIds.includes(participantId)
   }
 
   transferControl(fromParticipantId: string, toParticipantId: string, leaseEpoch: number): RoomResult {
