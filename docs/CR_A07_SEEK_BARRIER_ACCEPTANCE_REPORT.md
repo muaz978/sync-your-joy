@@ -83,7 +83,15 @@ Full candidate verification completed locally:
 - Candidate package SHA-256: `837cfd67ff3eb08245243b0e273ce52aa89dde70a8e34ecd69305c5f64b8300c`.
 - `npm run test:e2e`: the authenticated Crunchyroll two-profile test was skipped because isolated provider storage-state files are not configured; the generic two-profile test failed before scenario setup because the isolated Chromium process exited with `SIGABRT` and cleanup reported `EPERM`. This is an environment limitation, not a source-level CR-A07 failure.
 
-Remote PR checks and review result must be appended after the issue-specific PR is opened. A test or external check that was not run is not a pass.
+Remote PR checks for PR #81 at commit `7c84be9` all passed:
+
+- Analyze (javascript-typescript)
+- CodeQL
+- DevSkim
+- lowercase `devskim`
+- Typecheck, test, and build
+
+The complete diff was reviewed. GitHub rejected an approval attempt because the authenticated account owns PR #81, so the detailed review was recorded as a formal `COMMENTED` review. The review found no blocking correctness, security or documentation issue and authorized the merge decision subject to the repository policy. A test or external check that was not run is not a pass.
 
 ## Privacy and security boundaries
 
