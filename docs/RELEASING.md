@@ -84,3 +84,26 @@ For normal one-click installation and automatic updates on Windows and macOS, pu
 - Major: incompatible protocol, stored-state, or installation changes.
 
 Because streaming platforms change outside this repository, compatibility statements must remain precise and evidence-based even when the extension version does not change.
+
+## Milestone release policy
+
+Issue and pull-request completion does not automatically authorize a release. Use the public delivery project to show which work is complete, which evidence is partial, and which runtime or deployment gates remain blocked.
+
+### Release after a verified issue group
+
+After a coherent group of issues is fixed and its required source, test, browser, deployment and user-acceptance gates are verified, publish the next compatible semantic version. Starting from the current `0.2.4` line, a compatible bug-fix group should use `0.2.5`; a backward-compatible user-facing capability may use the next minor version instead. The exact version must be chosen in the release PR and recorded in `CHANGELOG.md`.
+
+Before tagging the group release:
+
+1. Confirm every included issue and PR has a documented acceptance result and no unresolved blocker.
+2. Update `package.json`, `apps/extension/package.json` and `apps/extension/static/manifest.json` to the same version.
+3. Add only verified behavior to `CHANGELOG.md`, including the exact commit and known compatibility limits.
+4. Run `npm run release:check-version`, `npm run check`, `npm run verify:browser-packages`, the production dependency audit and the release package checksum verification.
+5. Merge the version and changelog PR, wait for required checks, then create the annotated `vMAJOR.MINOR.PATCH` tag from the verified `main` commit.
+6. Verify the GitHub Release assets, checksum, manifest version, coordinator endpoint and extracted extension smoke result.
+
+Do not publish a group release while an included issue is only source-reviewed, only headless-tested, or explicitly blocked on deployment, a real device, a provider account or user acceptance.
+
+### Milestone-end `1.0.0` gate
+
+At the end of the current milestone, `1.0.0` is a separate release gate, not an automatic consequence of a patch release. Tag `v1.0.0` only after the milestone acceptance record confirms that the approved scope is complete, all required external gates are either passed or explicitly removed from the claimed scope, deployment identity is verified, rollback is understood, and the release artifacts have passed the same workflow above. The `1.0.0` release PR must link the milestone evidence and must not claim support for browsers, providers or deployments that were not directly tested.

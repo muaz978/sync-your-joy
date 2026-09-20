@@ -4402,3 +4402,76 @@
 ### Historical Checkpoint Notes
 - Checkpoints 1-48 remain intact. This checkpoint records PR #75 review handling and supersedes no prior result.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 51
+
+### Session Metadata
+- Task or project: SyncYourJoy issue #49 identity coverage and milestone release policy.
+- Checkpoint number: 51.
+- Date and time: 2026-09-20 16:15 +03 (Europe/Istanbul).
+- Coverage period: User release-version instruction, release-state inspection, issue #49 inspection and classification, deterministic identity coverage additions and release documentation.
+- Current context status: Branch `codex/issue-49-identity-matrix` starts from verified `origin/main` at `6d0d0097a43595358fa421efd472591c1e29e954`. Issue #49 is In Progress in the public project. New deterministic tests and documentation are uncommitted.
+
+### User Objective and Requirements
+- Continue the oldest-to-newest issue queue after issue #35.
+- Do not treat partial implementation evidence as complete issue acceptance.
+- When a coherent group of issues is fully fixed and verified, bump a compatible new release. At the end of the milestone, use a separate, fully verified `1.0.0` release gate.
+- Keep release claims tied to source, test, browser, deployment and user-acceptance evidence.
+
+### Complete Chronological Activity Log
+- Inspected issue #49, `CR-A02: Give all player layouts one identity decision`, created at `2026-09-19T21:04:22Z`. Confirmed its dependency on #48, its four acceptance criteria and its explicit requirement for focused identity/content/worker tests plus a D02/D03 real-browser nested-frame case.
+- Read issue #49's existing comment and PR #70 evidence. PR #70 already contains the deterministic three-way identity decision, worker-bound nested-player authority, same-tab generation protection and a generic nested wrapper test, but its own review record explicitly leaves cross-provider and headed-browser acceptance open.
+- Inspected current `player-identity.ts`, `content-script.ts`, `service-worker.ts`, `player-tab.ts`, their tests and media-fingerprint tests. Confirmed the code gates incoming commands, controller intents, samples and seek acknowledgements through the same identity decision and bound tab/frame checks, but the four-layout state-path matrix was not represented in one repeatable test.
+- Confirmed the public release state. The root and extension version and manifest are `0.2.4`; GitHub releases include `v0.2.4` as Latest. The release workflow is tag-driven and already verifies source, tests, browser packages, dependency audit, package checksum and manifest/version alignment.
+- Updated issue #49 metadata with assignee `muaz978` and label `area: testing`, preserving `bug`, `initiative: crunchyroll-sync` and `area: extension`.
+- Classified issue #49 in the public project as In Progress, P1 High, Bug, Partial, Unit tests plus Integration tests plus Browser test plus User acceptance, High risk, owner `muaz978`. The issue remains open and no blocker reason was assigned while deterministic coverage is being added.
+- Created `apps/extension/src/content-script.test.ts` four-layout coverage for top-document Crunchyroll, origin-only Crunchyroll iframe, generic nested embed and nested Qfilm. Each layout now checks incoming playback application and samples, controller play/pause/seek intents, and seek acknowledgement after matching native readiness.
+- The first run of the new playback-command test failed in all four cases because the fixture started at position zero and correctly entered the native seek path instead of playing immediately. Updated the test to position the fake player at the expected room target before asserting the playback command path. The targeted suite then passed 3 files and 49 tests.
+- Added `docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT_TEMPLATE.md` with candidate identity, privacy boundary, four-layout identity matrix, command/intent/sample/ACK matrix, deterministic evidence references, headed-browser gate, sanitized failure records and release boundary.
+- Updated `docs/TEST_GUIDE.md` with the CR-A02 acceptance section and template link.
+- Updated `docs/RELEASING.md` with the explicit verified issue-group release policy, current `0.2.4` to compatible next patch guidance, and the separate milestone-end `1.0.0` gate. The policy prohibits releases based only on source review, headless tests or blocked external evidence.
+
+### Confirmed Successful Results
+- The next oldest open issue after #35 is #49, and it is now visibly assigned and tracked as In Progress.
+- Existing PR #70 evidence was distinguished from the remaining issue acceptance gate rather than silently treating the issue as complete.
+- The new four-layout deterministic content-script matrix passes for playback commands, samples, controller intents and seek acknowledgements.
+- The release repository state is verified as version `0.2.4`, latest GitHub release `v0.2.4`, with an existing tag-driven verification workflow.
+- The release policy now explicitly reserves `v1.0.0` for end-of-milestone acceptance and requires a compatible interim version only after a verified issue group.
+
+### Failed, Incomplete, or Unresolved Work
+- Issue #49 has not yet received a PR for these changes.
+- The new changes are not committed or pushed.
+- The real headed nested-frame D02/D03 acceptance case remains unrun.
+- Authenticated provider acceptance, deployment evidence and user acceptance remain unclaimed.
+- No release version was bumped or tagged because the issue group and milestone gates are not complete.
+
+### Decisions and Rationale
+- Treat issue #49 as partially implemented and coverage-incomplete, not as a new source defect without evidence. Add deterministic state-path coverage and a report workflow first.
+- Keep issue #49 open until the explicitly claimed headed nested-frame matrix passes.
+- Use `0.2.5` as the documented example for the next compatible bug-fix group from the current `0.2.4` line, while selecting a minor version if the verified group introduces a backward-compatible user-facing capability.
+- Treat `1.0.0` as a separate milestone-end gate requiring complete scope evidence, deployment identity, rollback understanding and release artifact verification.
+
+### Files and Artifacts
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts` - new four-layout identity state-path tests.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT_TEMPLATE.md` - new issue #49 report template.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md` - CR-A02 acceptance link.
+- `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/RELEASING.md` - verified issue-group and milestone-end release policy.
+- Issue #49: `https://github.com/muaz978/sync-your-joy/issues/49`.
+- Public project: `https://github.com/users/muaz978/projects/1`.
+
+### Open Questions, Blockers, and Dependencies
+- Which headed browser and nested-frame fixture are available for the D02/D03 run?
+- Can the generic fixture and a provider-authorized run show the selected frame, native state, room state and visible motion agreeing?
+- Which coherent group of issues will be the first verified interim release group, and does its scope require a patch or minor version?
+- What exact milestone evidence will be required before tagging `v1.0.0`?
+
+### Next Steps
+1. Run the full local check, inspect the exact test and documentation diff, commit and push the issue #49 branch.
+2. Open a detailed non-closing PR, apply labels, assignee, milestone and public-project fields, then wait for all checks.
+3. Review and accept the PR only after the exact diff and checks pass, keep issue #49 open if the headed gate remains pending, and record the merge evidence.
+4. Continue the oldest-to-newest issue queue. Do not bump a release until a coherent included issue group has complete evidence.
+5. At the end of the milestone, prepare a dedicated `1.0.0` release PR and tag only from the verified main commit after all release gates pass.
+
+### Historical Checkpoint Notes
+- Checkpoints 1-50 remain intact. This checkpoint records the new release instruction and the issue #49 coverage milestone preparation.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
