@@ -3988,6 +3988,132 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+---
+
+# Checkpoint 73 - CR-B04 PR metadata, review, merge, issue verification and CR-B05 transition
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 73
+- Date and time: 2026-09-21, Europe/Istanbul
+- Coverage period: continuation after CR-B04 implementation and PR #86 preparation through public project metadata, formal review verification, merge, issue #58 verification state and transition planning for CR-B05 #59
+- Current context status: CR-B04 PR #86 is merged into `main` at `c9149219c86a2c2c995c72e42a699640ed13b51f`. Issue #58 remains open in public project status `Verification`. The next implementation slice is CR-B05 issue #59. Version `0.2.4` remains current.
+
+## User Objective and Requirements
+- Continue the dependency-aware systematic path after the user authorized proceeding without another confirmation.
+- Apply the complete public project metadata to the PR before acceptance, including status, priority, work type, evidence state, acceptance gates, risk, blocked reason, target date and verification owner.
+- Review PR #86 before merging it, preserve detailed documentation for the issue-specific work, and do not treat the owner self-approval limitation as a source-quality failure.
+- Keep issue #58 open until downstream runtime, provider, device, deployment and user-acceptance gates are separately evidenced.
+- Commit and push repository documentation changes, keep release `0.2.4` until a coherent verified group, and reserve `1.0.0` for complete milestone acceptance.
+- Continue to treat the signed-in Crunchyroll Edge session as available. A missing isolated Playwright storage-state fixture is an automation limitation, not an account blocker.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 - Context restoration and pre-merge checkpoint inspection
+- Read the current `context-checkpoint.md` tail and repository state. The working branch was `codex/issue-58-health-deadlines`, at source commit `7145d8831ae5046165f2d355b88a9563e30fcda9`, tracking the retained PR branch. `origin/main` was still at the CR-B03 merge before PR #86 was accepted.
+- Searched the checkpoint file for the CR-B04 records and confirmed the detailed CR-B04 implementation and verification material was present. The file also contains historical entries in append history order from earlier runs; no existing Checkpoint 73 was present. Earlier content was preserved.
+- Refreshed the CUA documentation before using the browser UI.
+
+### 2026-09-21 - PR tab recovery and project metadata preparation
+- Attempted to reacquire the earlier PR tab by URL and received `Tab not found in browser 1`, so no stale tab handle was reused.
+- Listed the current Edge tabs. The previous PR tab was not present, while the existing signed-in Crunchyroll tab remained available at provider tab `1711444487` and the GitHub issues tab was present.
+- Attempted to create a visible Edge tab for PR #86. The first call failed because the extension backend did not support the requested `visibility` option. Retried without that option and successfully opened PR #86 in tab `1711444597`.
+- Inspected the full PR accessibility tree and confirmed the reviewed source head `7145d8831ae5046165f2d355b88a9563e30fcda9`, five successful checks, the owner `COMMENTED` review, labels, assignee, milestone and public project membership. The project status was initially `Todo`.
+- Changed the public project status from `Todo` to `In review`. The GitHub timeline recorded the status transition.
+- Expanded the project fields and set the values visible in the PR sidebar:
+  - Priority: `P1 High`
+  - Work type: `Feature`
+  - Evidence state: `Partial`
+  - Acceptance gates: `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test`
+  - Risk: `High`
+  - Blocked reason: blank
+  - Target date: blank
+  - Verification owner: `muaz978`
+- Re-read the visible sidebar and screenshot. The project card showed `In review`, `P1 High`, `Feature`, `Partial`, the five selected gates, `High`, blank blocked/date fields and `muaz978` as verification owner. Existing labels, assignee and milestone remained visible.
+
+### 2026-09-21 - Exact-head review and authorized merge
+- Sent the user-facing progress update explaining that the project metadata was complete, all five checks passed, no CodeQL/DevSkim or inline security finding was present, and GitHub self-approval was unavailable for the PR owner.
+- Merged PR #86 with `gh pr merge 86 --squash --admin --delete-branch=false` through the authorized administrator path. The command completed successfully without deleting the retained source branch.
+- Queried GitHub after the merge. Confirmed PR #86 state `MERGED`, source head `7145d8831ae5046165f2d355b88a9563e30fcda9`, merge time `2026-09-20T21:18:50Z`, merge commit `c9149219c86a2c2c995c72e42a699640ed13b51f`, and `REVIEW_REQUIRED` as the repository policy result because no owner self-approval can exist.
+- Confirmed every final remote check remained successful on the reviewed head: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim`, and Typecheck, test, and build.
+- Fetched `origin/main` and verified `git rev-parse origin/main` equals `c9149219c86a2c2c995c72e42a699640ed13b51f`.
+
+### 2026-09-21 - Detailed issue record and non-closure state
+- Created `/private/tmp/syj-cr-b04-issue-58-merge.md` with `apply_patch`. It records the exact reviewed source head, merge SHA, local and remote verification, the implementation boundary, security/privacy scope, the owner review limitation, provider/browser/device/deployment limits, release decision and the requirement that issue #58 remains open.
+- Posted the issue record to issue #58. GitHub returned `https://github.com/muaz978/sync-your-joy/issues/58#issuecomment-5752737355`.
+- Opened issue #58 in the controlled Edge GitHub tab and inspected the issue body, timeline and metadata. The issue was still `Open`, assigned to `muaz978`, labeled `enhancement`, `initiative: crunchyroll-sync`, `area: sync-engine` and `area: testing`, and assigned to milestone `M3/M5: reliability and real-device validation`.
+- The issue project card was still `In Progress`, so changed the public project status to `Verification` through the visible project menu. The UI reported `Status Verification` and a `List updated` notification.
+- Ran `gh issue view 58` after the UI action. Confirmed state `OPEN`, exact title, expected four labels, assignee `muaz978`, milestone `M3/M5: reliability and real-device validation`, and the posted merge record as the latest comment.
+- No issue was closed. CR-B04 is implemented and merged, but CR-B05 local timer/socket behavior, CR-B06 edge alarm/rehydration behavior, authenticated provider output, two-account/two-device, deployment, migration, release packaging and user acceptance remain separate gates.
+
+### 2026-09-21 - Next-step decision
+- Selected CR-B05 issue #59 as the next implementation slice because it is the next dependency after CR-B04 and is required before the downstream CR-B06 and later reliability work can be assessed. Older verification/provider/device issues remain tracked and are not skipped.
+- No release bump was made. The repository remains at `0.2.4`, and `1.0.0` remains reserved for complete milestone acceptance.
+
+## Confirmed Successful Results
+- PR #86 is merged into `main` with merge commit `c9149219c86a2c2c995c72e42a699640ed13b51f`.
+- `origin/main` independently resolves to the exact PR #86 merge commit.
+- All five remote checks on reviewed head `7145d8831ae5046165f2d355b88a9563e30fcda9` passed.
+- PR #86 has the complete requested issue/PR metadata: labels, assignee, milestone, public project membership, `In review` status, `P1 High`, `Feature`, `Partial`, five applicable acceptance gates, `High` risk, blank blocked/date fields and `muaz978` verification owner.
+- The formal review is preserved as a detailed `COMMENTED` review because GitHub disallows the PR owner from approving their own pull request. The merge was performed only after source review and successful checks.
+- The detailed issue merge record is posted at issue-comment `5752737355`.
+- Issue #58 remains `OPEN` with project status `Verification`, correct labels, assignee and milestone.
+- The signed-in Crunchyroll Edge session was not treated as missing or blocked.
+- No release version was changed. `0.2.4` remains current and `1.0.0` remains reserved for milestone completion.
+
+## Failed, Incomplete, or Unresolved Work
+- The first attempt to reacquire the old PR tab failed because its tab was stale and no longer existed. A fresh PR tab was opened successfully.
+- The first attempt to create a visible browser tab failed because the backend did not support the `visibility` option. The retry without that option succeeded.
+- GitHub's `REVIEW_REQUIRED` result remains a policy consequence of the owner self-approval restriction, not an unreviewed source finding. The exact review is preserved as a comment and the administrator merge path is documented.
+- Issue #58 remains open because downstream runtime consumers and external acceptance evidence are not complete.
+- No authenticated Crunchyroll visible-output, two-account, two-device, deployment, migration or user-acceptance result is claimed by CR-B04.
+- The checkpoint documentation change itself has not yet been committed or pushed. The retained CR-B04 branch must receive the checkpoint commit before CR-B05 branch work begins.
+
+## Decisions and Rationale
+- Proceeded with the public project metadata and merge after the user's explicit instruction to act once the interview/review stage was reached.
+- Used the project UI as the authoritative source for custom fields because the configured GitHub CLI token lacks project-read scope.
+- Kept issue #58 open and moved it to `Verification`, which accurately represents a merged deterministic implementation with downstream and external gates outstanding.
+- Kept the retained PR branch rather than deleting it so post-merge checkpoint documentation can be committed and pushed without altering `main`.
+- Selected CR-B05 #59 next by dependency order. This is consistent with the user's requirement to finish each actionable slice systematically while retaining older verification-gated issues in the queue.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- CR-B04 source/report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B04_HEALTH_DEADLINES_REPORT.md`
+- PR body: `/private/tmp/syj-cr-b04-pr.md`
+- Formal review body: `/private/tmp/syj-cr-b04-review.md`
+- Issue merge record: `/private/tmp/syj-cr-b04-issue-58-merge.md`
+- PR #86: `https://github.com/muaz978/sync-your-joy/pull/86`
+- Issue #58: `https://github.com/muaz978/sync-your-joy/issues/58`
+- Issue merge comment: `https://github.com/muaz978/sync-your-joy/issues/58#issuecomment-5752737355`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+- Reviewed source head: `7145d8831ae5046165f2d355b88a9563e30fcda9`
+- CR-B04 merge commit: `c9149219c86a2c2c995c72e42a699640ed13b51f`
+- Next issue: `https://github.com/muaz978/sync-your-joy/issues/59`
+
+## Assumptions and Uncertainties
+- The project UI values visible after each change are treated as authoritative custom-field evidence.
+- The retained CR-B04 branch is intentionally separate from `main`; `main` must remain at the verified merge SHA while documentation and later issue work proceed on new branches.
+- CR-B05 may require a new local-server test harness or timer injection; the exact implementation scope must be confirmed from the current source before coding.
+
+## Open Questions, Blockers, and Dependencies
+- Commit and push this Checkpoint 73 record on the retained CR-B04 branch.
+- Create the CR-B05 branch from verified `origin/main` at the CR-B04 merge commit.
+- Classify issue #59 and apply the same labels, assignee, milestone and public project fields before implementation.
+- Inspect `apps/room-service/src/server.ts` and `apps/room-service/src/server.test.ts` to determine the precise gap between the existing cleanup loop and the CR-B05 socket-level acceptance criteria.
+- Request an external account/device/deployment action only when the specific acceptance gate requires it. The current CR-B05 deterministic server work does not require a Crunchyroll account action.
+
+## Next Steps
+1. Commit and push the Checkpoint 73 documentation on `codex/issue-58-health-deadlines`.
+2. Create `codex/issue-59-local-health-deadlines` from verified `origin/main` at `c9149219c86a2c2c995c72e42a699640ed13b51f`.
+3. Classify issue #59, set its complete metadata and project fields, post the detailed plan, and inspect the room-service timer and message paths.
+4. Implement CR-B05 with focused timer-driven socket tests, full checks and a detailed acceptance report. Keep the issue open after merge unless every applicable gate is directly evidenced.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-72 remain intact. This record appends the complete CR-B04 PR #86 acceptance and issue-state transition after the CR-B04 source implementation checkpoint.
+- Earlier entries that described PR #86 as open or project status `Todo` are superseded by the confirmed merged state and `In review` metadata transition recorded here.
+- The source and issue closure boundaries remain unchanged: merged deterministic implementation is not equivalent to live provider, device, deployment or user acceptance.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 72 - CR-B04 health deadlines implementation and final local verification
 
 ## Session Metadata
