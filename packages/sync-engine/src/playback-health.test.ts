@@ -1,6 +1,6 @@
 import type { PlaybackState } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
-import { hasPlaybackApplicationFailed, hasPlaybackProgressStalled, isPlaybackPastStartupGrace, PLAYBACK_APPLICATION_GRACE_MS, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS } from './playback-health.ts'
+import { hasPlaybackApplicationFailed, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, PLAYBACK_APPLICATION_GRACE_MS, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 
 const playback: PlaybackState = {
   status: 'playing',
@@ -33,5 +33,14 @@ describe('playback health timing', () => {
     const deadline = playback.effectiveAtServerMs + PLAYBACK_PROGRESS_TIMEOUT_MS
     expect(hasPlaybackProgressStalled(playback, playback.effectiveAtServerMs, deadline - 1)).toBe(false)
     expect(hasPlaybackProgressStalled(playback, playback.effectiveAtServerMs, deadline)).toBe(true)
+  })
+
+  it('bounds a never-started player separately from ordinary playback stalls', () => {
+    const deadline = playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+    expect(hasPlaybackStartupTimedOut(playback, false, deadline - 1)).toBe(false)
+    expect(hasPlaybackStartupTimedOut(playback, false, deadline)).toBe(true)
+    expect(hasPlaybackStartupTimedOut(playback, true, deadline)).toBe(false)
+    expect(hasPlaybackStartupTimedOut(playback, undefined, deadline)).toBe(false)
+    expect(hasPlaybackStartupTimedOut({ ...playback, status: 'paused' }, false, deadline)).toBe(false)
   })
 })

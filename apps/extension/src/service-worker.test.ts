@@ -18,6 +18,7 @@
 // service-worker-restart simulation is impractical (see the note at the
 // bottom of this file for why that path was not taken).
 import type { RoomSnapshot } from '@syncyourjoy/protocol'
+import type { ContentRequest, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const SESSION_STATE_KEY = 'syncYourJoySessionState'
@@ -85,6 +86,7 @@ interface FakeChromeOptions {
 interface FakeChrome {
   chrome: typeof chrome
   messageListener: (request: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void) => boolean
+  updatedListener: (tabId: number, changeInfo: { status?: chrome.tabs.Tab['status'] }) => void
   sessionSetMock: ReturnType<typeof vi.fn>
   sendMessageMock: ReturnType<typeof vi.fn>
 }
@@ -93,6 +95,7 @@ interface FakeChrome {
  * touches at import time and during the scenarios below. */
 function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
   let messageListener: FakeChrome['messageListener'] = () => false
+  let updatedListener: FakeChrome['updatedListener'] = () => {}
   const sessionSetMock = vi.fn(async (values: Record<string, unknown>) => {
     await options.sessionSet?.(values)
   })
@@ -127,7 +130,7 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
     },
     tabs: {
       onRemoved: { addListener: vi.fn() },
-      onUpdated: { addListener: vi.fn() },
+      onUpdated: { addListener: vi.fn((listener: FakeChrome['updatedListener']) => { updatedListener = listener }) },
       sendMessage: vi.fn(async () => {
         throw new Error('no such tab in this test')
       }),
@@ -142,6 +145,9 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
     chrome: fakeChrome as unknown as typeof chrome,
     get messageListener() {
       return messageListener
+    },
+    get updatedListener() {
+      return updatedListener
     },
     sessionSetMock,
     sendMessageMock,
@@ -331,6 +337,197 @@ describe('service worker player-status persistence', () => {
       if (!sessionSetMock.mock.results.at(-1))
         throw new Error('missing result')
     })
+  })
+})
+
+describe('service worker observed episode identity', () => {
+  const sharedUrl = 'https://www.crunchyroll.com/watch/GE00365016JAJP/extreme-level-3-situation'
+  const nextUrl = 'https://www.crunchyroll.com/watch/GE00365017JAJP/next-episode'
+  const oldMedia = {
+    service: 'crunchyroll',
+    canonicalId: 'crunchyroll:GE00365016JAJP',
+    pageUrl: sharedUrl,
+    title: 'Episode',
+    durationSeconds: 1440,
+  }
+  const nextMedia = { ...oldMedia, canonicalId: 'crunchyroll:GE00365017JAJP', pageUrl: nextUrl }
+
+  async function resumeAtPage(currentUrl: string) {
+    const snapshot = buildRoomSnapshot({
+      media: oldMedia,
+      navigation: { revision: 5, url: sharedUrl, effectiveAtServerMs: 0 },
+    })
+    const fake = buildFakeChrome({ sessionState: {
+      participantId: 'participant_resumed',
+      sessionToken: 'session_resumed',
+      snapshot,
+      playerTabId: 42,
+      playerFrameId: 0,
+      playerAreaPixels: 500_000,
+      currentMedia: oldMedia,
+      lastOpenedNavigationRevision: 5,
+    } })
+    ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      media: currentUrl === nextUrl ? nextMedia : oldMedia,
+      diagnostics: null,
+      sample: null,
+    })
+    ;(fake.chrome.tabs.get as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 42, url: currentUrl })
+    vi.stubGlobal('chrome', fake.chrome)
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    await import('./service-worker.ts')
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+    FakeWebSocket.instances[0]!.simulateOpen()
+    const request = (message: RuntimeRequest, sender: chrome.runtime.MessageSender = {}) =>
+      new Promise<RuntimeResponse>((resolve) => {
+        fake.messageListener(message, sender, response => resolve(response as RuntimeResponse))
+      })
+    await request({ type: 'GET_STATE' })
+    FakeWebSocket.instances[0]!.simulateMessage({
+      type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot,
+    })
+    await request({ type: 'GET_STATE' })
+    return { fake, request }
+  }
+
+  it('keeps the observed episode when resuming a worker after native next-episode navigation', async () => {
+    const { request } = await resumeAtPage(nextUrl)
+    const response = await request({ type: 'GET_STATE' })
+    expect(response.state.currentMedia).toMatchObject(nextMedia)
+    expect(response.state.snapshot?.media).toMatchObject(oldMedia)
+  })
+
+  it('does not relabel a new episode report as the previous shared navigation target', async () => {
+    const { request } = await resumeAtPage(sharedUrl)
+    const response = await request({ type: 'MEDIA_DETECTED', media: nextMedia, areaPixels: 500_000 }, {
+      tab: { id: 42, active: true, url: nextUrl }, frameId: 0, url: nextUrl,
+    } as chrome.runtime.MessageSender)
+    expect(response.state.currentMedia).toMatchObject(nextMedia)
+    expect(response.state.snapshot?.media).toMatchObject(oldMedia)
+  })
+
+  it('clears unreachable player state and tells the room that the player is no longer ready', async () => {
+    const { fake, request } = await resumeAtPage(sharedUrl)
+    ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('The frame was removed.'))
+    const response = await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000 }, {
+      tab: { id: 42, active: true, url: sharedUrl }, frameId: 0, url: sharedUrl,
+    } as chrome.runtime.MessageSender)
+    expect(response.state.playerFrameId).toBeNull()
+    expect(response.state.currentMedia).toBeNull()
+    expect(response.state.playerTabId).toBe(42)
+    expect(FakeWebSocket.instances[0]!.sentMessages).toContainEqual({ type: 'set_ready', ready: false, media: null })
+  })
+
+  it('ignores an old document delivery failure after a replacement binds the same tab and frame', async () => {
+    const { fake, request } = await resumeAtPage(sharedUrl)
+    const sendToTab = fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>
+    sendToTab.mockClear()
+    let rejectOldDelivery: (error: Error) => void = () => {}
+    sendToTab.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectOldDelivery = reject
+    }))
+    const sender = { tab: { id: 42, active: true, url: sharedUrl }, frameId: 0, url: sharedUrl } as chrome.runtime.MessageSender
+    const report: RuntimeRequest = { type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000 }
+    const oldReport = request(report, sender)
+    await vi.waitFor(() => expect(sendToTab).toHaveBeenCalledTimes(1))
+
+    // Main-frame navigations reuse frameId 0. A fresh content script can
+    // report itself before Chrome rejects the old document's message port.
+    await request(report, sender)
+    const sentBeforeRejection = FakeWebSocket.instances[0]!.sentMessages.length
+    rejectOldDelivery(new Error('The old document was removed.'))
+    const response = await oldReport
+    expect(response.state.playerFrameId).toBe(0)
+    expect(response.state.currentMedia).toMatchObject(oldMedia)
+    expect(FakeWebSocket.instances[0]!.sentMessages.slice(sentBeforeRejection))
+      .not.toContainEqual({ type: 'set_ready', ready: false, media: null })
+  })
+
+  it('does not restore a delayed context after the bound tab starts a new navigation', async () => {
+    let resolveTab: (tab: unknown) => void = () => {}
+    const tabGate = new Promise<unknown>(resolve => { resolveTab = resolve })
+    const fake = buildFakeChrome({ sessionState: {
+      participantId: 'participant_resumed',
+      sessionToken: 'session_resumed',
+      snapshot: buildRoomSnapshot({ media: oldMedia }),
+      playerTabId: 42,
+      playerFrameId: 0,
+      playerAreaPixels: 500_000,
+      playerLastSeenAtMs: Date.now(),
+      currentMedia: oldMedia,
+      lastOpenedNavigationRevision: 5,
+    } })
+    ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(async (_tabId: number, message: RuntimeEvent | ContentRequest) => {
+      if (message.type === 'GET_PLAYER_CONTEXT')
+        return { media: oldMedia, diagnostics: null, sample: null }
+      return undefined
+    })
+    ;(fake.chrome.tabs.get as ReturnType<typeof vi.fn>).mockReturnValue(tabGate)
+    vi.stubGlobal('chrome', fake.chrome)
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    await import('./service-worker.ts')
+
+    await vi.waitFor(() => expect(fake.chrome.tabs.get).toHaveBeenCalledWith(42))
+    fake.updatedListener(42, { status: 'loading' })
+    resolveTab({ id: 42, url: nextUrl })
+
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+    FakeWebSocket.instances[0]!.simulateOpen()
+    const response = await new Promise<RuntimeResponse>((resolve) => {
+      fake.messageListener({ type: 'GET_STATE' }, {}, result => resolve(result as RuntimeResponse))
+    })
+
+    expect(response.state.playerFrameId).toBeNull()
+    expect(response.state.currentMedia).toBeNull()
+  })
+
+  it('does not clear a replacement binding when an old context read returns no media', async () => {
+    const { fake, request } = await resumeAtPage(sharedUrl)
+    const sendToTab = fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>
+    sendToTab.mockClear()
+    let resolveContext: (context: unknown) => void = () => {}
+    const contextGate = new Promise<unknown>(resolve => { resolveContext = resolve })
+    sendToTab.mockImplementation(async (_tabId: number, message: RuntimeEvent | ContentRequest) => {
+      if (message.type === 'GET_PLAYER_CONTEXT')
+        return contextGate
+      return undefined
+    })
+
+    const refreshPromise = request({ type: 'UNLOCK_PLAYER' })
+    await vi.waitFor(() => expect(sendToTab).toHaveBeenCalledWith(42, { type: 'GET_PLAYER_CONTEXT' }, { frameId: 0 }))
+
+    const replacement = await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000 }, {
+      tab: { id: 42, active: true, url: sharedUrl }, frameId: 0, url: sharedUrl,
+    } as chrome.runtime.MessageSender)
+    expect(replacement.state.playerFrameId).toBe(0)
+
+    resolveContext({ media: null, diagnostics: null, sample: null })
+    await refreshPromise
+
+    const response = await request({ type: 'GET_STATE' })
+    expect(response.state.playerFrameId).toBe(0)
+    expect(response.state.currentMedia).toMatchObject(oldMedia)
+  })
+
+  it('includes playback progress and start evidence in validated diagnostic events', async () => {
+    const { request } = await resumeAtPage(sharedUrl)
+    vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+    const sender = { tab: { id: 42 }, frameId: 0 } as chrome.runtime.MessageSender
+    const sample = { positionSeconds: 12, durationSeconds: 1440, paused: false, buffering: false, sampledAtLocalMs: Date.now() }
+    await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { ...sample, progressed: false, playbackStarted: true, playbackStartFailed: false } }, sender)
+    await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample }, sender)
+    const socket = FakeWebSocket.instances[0]!
+    socket.simulateMessage({ type: 'diagnostics_requested', reportId: 'report_player_health' })
+    expect(socket.sentMessages).toContainEqual(expect.objectContaining({
+      type: 'diagnostics_response',
+      reportId: 'report_player_health',
+      report: expect.objectContaining({
+        events: expect.arrayContaining([
+          expect.objectContaining({ message: 'player_status', details: expect.objectContaining({ progressed: false, playbackStarted: true, playbackStartFailed: false }) }),
+          expect.objectContaining({ message: 'player_status', details: expect.objectContaining({ progressed: null, playbackStarted: null, playbackStartFailed: null }) }),
+        ]),
+      }),
+    }))
   })
 })
 

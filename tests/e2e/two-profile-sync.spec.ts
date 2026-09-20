@@ -24,7 +24,7 @@
 // bottom of this file for exactly what that gap does and does not mean in
 // practice, and docs/TEST_GUIDE.md for a plain-English summary and how to
 // run this.
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { launchExtensionProfile, type ExtensionProfile } from './extension-profile.ts'
@@ -121,10 +121,7 @@ test.describe('two-profile playback synchronization', () => {
 
     // --- Controller (profile A) plays; profile B's real video mirrors it ---
     await profileA.panel.click('#primary-control')
-    await profileAVideoPage.waitForFunction(() => document.querySelector('video')?.paused === false, { timeout: 10_000 })
-    await profileBVideoPage.waitForFunction(() => document.querySelector('video')?.paused === false, { timeout: 15_000 })
-
-    await profileAVideoPage.waitForTimeout(2_000)
+    await assertBothPlayersAdvance(profileAVideoPage, profileBVideoPage)
     await assertPositionsConverge(profileAVideoPage, profileBVideoPage)
 
     // --- Controller seeks forward; profile B's real video follows -----------
@@ -132,6 +129,10 @@ test.describe('two-profile playback synchronization', () => {
     // controllerControls()): a genuine seek command through the product's
     // own UI, not a synthetic one.
     const positionBeforeSeek = await profileAVideoPage.evaluate(() => document.querySelector('video')?.currentTime ?? 0)
+    const duration = await profileAVideoPage.evaluate(() => document.querySelector('video')?.duration ?? 0)
+    // The checked-in fixture is 20 seconds long. Leave enough footage after
+    // the +10s seek to prove playback, rather than accidentally testing EOF.
+    expect(positionBeforeSeek + 10).toBeLessThan(duration - 2)
     await profileA.panel.locator('[data-seek]').last().click()
     await profileAVideoPage.waitForFunction(
       before => (document.querySelector('video')?.currentTime ?? 0) > before + 2,
@@ -143,6 +144,28 @@ test.describe('two-profile playback synchronization', () => {
       positionBeforeSeek,
       { timeout: 15_000 },
     )
+    await assertBothPlayersAdvance(profileAVideoPage, profileBVideoPage)
+    await assertPositionsConverge(profileAVideoPage, profileBVideoPage)
+
+    // --- A backward native-media seek travels through the content script --
+    // Assigning the real element's currentTime lets the browser emit seeking
+    // and seeked. No extension CONTROL message or mocked event is injected.
+    const backwardTarget = 3
+    await profileAVideoPage.evaluate((target) => {
+      const video = document.querySelector('video')
+      if (!video)
+        throw new Error('Controller video is missing.')
+      video.currentTime = target
+    }, backwardTarget)
+    await Promise.all([profileAVideoPage, profileBVideoPage].map(page => page.waitForFunction(
+      target => {
+        const video = document.querySelector('video')
+        return !!video && !video.seeking && video.currentTime >= target - 0.5 && video.currentTime < target + 2
+      },
+      backwardTarget,
+      { timeout: 15_000 },
+    )))
+    await assertBothPlayersAdvance(profileAVideoPage, profileBVideoPage)
     await assertPositionsConverge(profileAVideoPage, profileBVideoPage)
 
     // --- Controller pauses; profile B's real video pauses too ---------------
@@ -150,20 +173,55 @@ test.describe('two-profile playback synchronization', () => {
     // it to settle back to a clickable play/pause state first.
     await profileA.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 10_000 })
     await profileA.panel.click('#primary-control')
-    await profileAVideoPage.waitForFunction(() => document.querySelector('video')?.paused === true, { timeout: 10_000 })
-    await profileBVideoPage.waitForFunction(() => document.querySelector('video')?.paused === true, { timeout: 15_000 })
+    await profileAVideoPage.waitForFunction(() => document.querySelector('video')?.paused === true, undefined, { timeout: 10_000 })
+    await profileBVideoPage.waitForFunction(() => document.querySelector('video')?.paused === true, undefined, { timeout: 15_000 })
     await assertPositionsConverge(profileAVideoPage, profileBVideoPage)
   })
 })
 
-async function assertPositionsConverge(pageA: import('@playwright/test').Page, pageB: import('@playwright/test').Page): Promise<void> {
-  const [timeA, timeB] = await Promise.all([
-    pageA.evaluate(() => document.querySelector('video')?.currentTime ?? Number.NaN),
-    pageB.evaluate(() => document.querySelector('video')?.currentTime ?? Number.NaN),
-  ])
-  expect(Number.isNaN(timeA)).toBe(false)
-  expect(Number.isNaN(timeB)).toBe(false)
-  expect(Math.abs(timeA - timeB)).toBeLessThanOrEqual(SYNC_TOLERANCE_SECONDS)
+async function assertBothPlayersAdvance(...pages: Page[]): Promise<void> {
+  await Promise.all(pages.map(page => page.evaluate(() => new Promise<void>((resolveProgress, rejectProgress) => {
+    const video = document.querySelector('video')
+    if (!video || typeof video.requestVideoFrameCallback !== 'function') {
+      rejectProgress(new Error('A real video with frame callbacks is required.'))
+      return
+    }
+    let baseline: { mediaTime: number, position: number, presentedFrames: number } | null = null
+    let callbackId = 0
+    const timeout = window.setTimeout(() => {
+      video.cancelVideoFrameCallback(callbackId)
+      rejectProgress(new Error(`Playback did not advance media time and presented frames: ${JSON.stringify({
+        currentTime: video.currentTime, paused: video.paused, seeking: video.seeking, readyState: video.readyState,
+      })}`))
+    }, 10_000)
+    const observe: VideoFrameRequestCallback = (_now, frame) => {
+      if (video.paused || video.seeking) {
+        baseline = null
+      }
+      else {
+        baseline ??= { mediaTime: frame.mediaTime, position: video.currentTime, presentedFrames: frame.presentedFrames }
+        if (frame.mediaTime - baseline.mediaTime >= 0.6
+          && video.currentTime - baseline.position >= 0.6
+          && frame.presentedFrames - baseline.presentedFrames >= 3) {
+          window.clearTimeout(timeout)
+          resolveProgress()
+          return
+        }
+      }
+      callbackId = video.requestVideoFrameCallback(observe)
+    }
+    callbackId = video.requestVideoFrameCallback(observe)
+  }))))
+}
+
+async function assertPositionsConverge(pageA: Page, pageB: Page): Promise<void> {
+  await expect.poll(async () => {
+    const [timeA, timeB] = await Promise.all([
+      pageA.evaluate(() => document.querySelector('video')?.currentTime ?? Number.NaN),
+      pageB.evaluate(() => document.querySelector('video')?.currentTime ?? Number.NaN),
+    ])
+    return Number.isFinite(timeA) && Number.isFinite(timeB) ? Math.abs(timeA - timeB) : Infinity
+  }, { message: 'Both real video timelines should converge.' }).toBeLessThanOrEqual(SYNC_TOLERANCE_SECONDS)
 }
 
 // --- Why the panel is opened as a tab ---------------------------------------

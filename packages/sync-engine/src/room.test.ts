@@ -181,11 +181,12 @@ describe('RoomCoordinator', () => {
       ok: true,
       snapshot: {
         playback: { status: 'paused', positionSeconds: 120 },
-        seek: { positionSeconds: 120, resumeWhenReady: true, acknowledgedParticipantIds: ['participant_host'] },
+        seek: { positionSeconds: 120, resumeWhenReady: true, acknowledgedParticipantIds: [] },
       },
     })
     const seekRevision = sought.snapshot.revision
     nowMs = 11_000
+    room.acknowledgeSeek('participant_host', seekRevision, 120)
     const allAligned = room.acknowledgeSeek('participant_friend', seekRevision, 119.9)
     expect(allAligned).toMatchObject({
       ok: true,
@@ -214,9 +215,9 @@ describe('RoomCoordinator', () => {
       leaseEpoch: room.snapshot().controller.leaseEpoch, kind: 'seek', positionSeconds: 180,
     })
 
-    expect(second.snapshot.seek).toMatchObject({ positionSeconds: 180, resumeWhenReady: true, acknowledgedParticipantIds: ['participant_host'] })
+    expect(second.snapshot.seek).toMatchObject({ positionSeconds: 180, resumeWhenReady: true, acknowledgedParticipantIds: [] })
     expect(room.acknowledgeSeek('participant_friend', first.snapshot.revision, 60)).toBeNull()
-    expect(room.snapshot().seek?.acknowledgedParticipantIds).toEqual(['participant_host'])
+    expect(room.snapshot().seek?.acknowledgedParticipantIds).toEqual([])
     room.acknowledgeSeek('participant_host', second.snapshot.revision, 180)
     const completed = room.acknowledgeSeek('participant_friend', second.snapshot.revision, 180)
     expect(completed).toMatchObject({ snapshot: { playback: { status: 'playing', positionSeconds: 180 }, seek: null } })
@@ -809,6 +810,7 @@ describe('RoomCoordinator', () => {
     room.setReady('participant_extra', true, media)
     expect(room.snapshot().revision).toBeGreaterThan(seekRevision)
     expect(room.snapshot().seek).toMatchObject({ revision: seekRevision })
+    room.acknowledgeSeek('participant_host', seekRevision, 100)
 
     const friendAck = room.acknowledgeSeek('participant_friend', seekRevision, 100)
     expect(friendAck).toMatchObject({ ok: true, reason: 'seek_participant_aligned' })

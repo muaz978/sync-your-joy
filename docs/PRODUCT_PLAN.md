@@ -14,6 +14,8 @@ As of the next patch after v0.2.2, the concurrently-open-room cap has been added
 
 The remaining concrete work is tracked as GitHub issues under the [M3/M5: reliability and real-device validation](https://github.com/muaz978/sync-your-joy/milestone/1) milestone, since all of it needs real devices, real provider accounts, or a headed browser rather than more code in this repository: real multi-device/multi-provider acceptance testing (including verifying the v0.2.2 autoplay-block fix against a real provider), real two-device network-chaos and reconnect testing, extending real E2E coverage to a commercial provider, and a headed-browser cross-platform pass (Shadow DOM/SPA lifecycle, the player-lock UI, and real Firefox/Safari runs).
 
+The deeper Crunchyroll-specific investigation and candidate branch are indexed in [the remediation plan](CRUNCHYROLL_REMEDIATION_PLAN.md), [the GitHub issue map](CRUNCHYROLL_ISSUE_MAP.md), and [the investigation handoff](CRUNCHYROLL_HANDOFF.md). The live GitHub issues remain the source of truth for task state and acceptance.
+
 ## 1. Product promise
 
 SyncYourJoy lets two or more people watch the same title together while each person streams from their own account and device. One authoritative controller drives playback for the room, and the system continuously detects and corrects drift.

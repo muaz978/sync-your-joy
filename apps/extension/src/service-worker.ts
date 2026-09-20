@@ -76,6 +76,9 @@ let pendingMediaMismatchObservedAtMs: number | null = null
 // runs, so a service-worker restart during the deferred delay causes the
 // navigation to be retried rather than silently dropped.
 let pendingNavigationRevision: number | null = null
+// A main-frame reload reuses frameId 0. Track the accepted context itself so
+// a delayed delivery failure from the previous document cannot retire it.
+let playerContextGeneration = 0
 
 const initialized = initialize()
 
@@ -111,6 +114,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
   if (changeInfo.status !== 'loading')
     return
+  playerContextGeneration += 1
   state.playerFrameId = null
   state.playerAreaPixels = 0
   state.playerLastSeenAtMs = 0
@@ -201,7 +205,10 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     case 'MEDIA_DETECTED':
       if (isLikelyAdvertisingUrl(sender.url))
         return success()
-      const candidateMedia = bindMediaToSharedPage(request.media, state.snapshot?.navigation?.url ?? sender.tab?.url)
+      // The room URL is an intended destination, not proof of the media
+      // currently playing. Native next-episode/SPA navigation can leave it
+      // behind; using it first would relabel the next episode as the old one.
+      const candidateMedia = bindMediaToSharedPage(request.media, sender.tab?.url ?? state.snapshot?.navigation?.url)
       if (!acceptMediaSender(sender, request.areaPixels, candidateMedia))
         return success()
       if (sender.tab?.id !== undefined && sender.frameId !== undefined)
@@ -268,6 +275,9 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         positionSeconds: request.sample.positionSeconds,
         paused: request.sample.paused,
         buffering: request.sample.buffering,
+        progressed: typeof request.sample.progressed === 'boolean' ? request.sample.progressed : null,
+        playbackStarted: typeof request.sample.playbackStarted === 'boolean' ? request.sample.playbackStarted : null,
+        playbackStartFailed: typeof request.sample.playbackStartFailed === 'boolean' ? request.sample.playbackStartFailed : null,
       })
       sendToServer({ type: 'player_status', basedOnRevision: request.basedOnRevision, sample: request.sample })
       // Fire-and-forget, matching the 'pong' handler below: this fires on a
@@ -888,25 +898,34 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
     clearPlayerTab()
     return false
   }
+  const tabId = state.playerTabId
+  const frameId = state.playerFrameId
+  const contextGeneration = playerContextGeneration
   try {
     const context = await chrome.tabs.sendMessage(
-      state.playerTabId,
+      tabId,
       { type: 'GET_PLAYER_CONTEXT' } satisfies ContentRequest,
-      { frameId: state.playerFrameId },
+      { frameId },
     ) as PlayerContext
+    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
+      return false
     if (!context?.media) {
       clearPlayerTab()
       return false
     }
-    const tab = await chrome.tabs.get(state.playerTabId)
-    state.currentMedia = bindMediaToSharedPage(context.media, state.snapshot?.navigation?.url ?? tab.url)
+    const tab = await chrome.tabs.get(tabId)
+    if (state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
+      return false
+    playerContextGeneration += 1
+    state.currentMedia = bindMediaToSharedPage(context.media, tab.url ?? state.snapshot?.navigation?.url)
     state.playerDiagnostics = context.diagnostics
     state.lastPlayerSample = context.sample
     state.playerLastSeenAtMs = Date.now()
     return true
   }
   catch {
-    clearPlayerTab()
+    if (state.playerTabId === tabId && state.playerFrameId === frameId && playerContextGeneration === contextGeneration)
+      clearPlayerTab()
     return false
   }
 }
@@ -960,6 +979,7 @@ async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snaps
 }
 
 function clearPlayerTab(): void {
+  playerContextGeneration += 1
   state.playerTabId = null
   state.playerFrameId = null
   state.playerAreaPixels = 0
@@ -973,6 +993,7 @@ function clearPlayerTab(): void {
 async function bindPlayerContext(tabId: number, frameId: number | null, areaPixels: number): Promise<void> {
   const previousTabId = state.playerTabId
   const previousFrameId = state.playerFrameId
+  playerContextGeneration += 1
   state.playerTabId = tabId
   state.playerFrameId = frameId
   state.playerAreaPixels = Math.max(0, areaPixels)
@@ -1011,14 +1032,23 @@ async function sendToPlayerTab(message: RuntimeEvent): Promise<void> {
     return
   const tabId = state.playerTabId
   const frameId = state.playerFrameId
+  const contextGeneration = playerContextGeneration
   const delivered = await sendToTab(tabId, message, frameId)
-  if (delivered || state.playerTabId !== tabId || state.playerFrameId !== frameId)
+  if (delivered || state.playerTabId !== tabId || state.playerFrameId !== frameId || playerContextGeneration !== contextGeneration)
     return
+  playerContextGeneration += 1
   state.playerFrameId = null
   state.playerAreaPixels = 0
   state.playerLastSeenAtMs = 0
+  state.currentMedia = null
+  state.playerDiagnostics = null
   state.lastPlayerSample = null
+  clearPendingMediaMismatch()
+  recordDiagnostic('player', 'player_unreachable', { frameId })
+  if (state.snapshot)
+    sendToServer({ type: 'set_ready', ready: false, media: null })
   await persistState()
+  notifyExtensionViews()
 }
 
 async function sendToTab(tabId: number, message: RuntimeEvent, frameId?: number): Promise<boolean> {

@@ -10,7 +10,7 @@ import type {
 } from '@syncyourjoy/protocol'
 import { mediaMatches, normalizePageUrl } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { hasPlaybackProgressStalled, isPlaybackPastStartupGrace } from './playback-health.ts'
+import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, PLAYBACK_REPORT_SILENCE_TIMEOUT_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
@@ -297,6 +297,8 @@ export class RoomCoordinator {
 
     if (intent.kind === 'play' && !this.everyoneReady())
       return this.failure('participants_not_ready', 'Everyone must be ready before playback starts.')
+    if (intent.kind === 'play' && this.pendingSeek)
+      return this.failure('seek_in_progress', 'Wait for every player to finish the current seek before starting playback.')
 
     this.rememberAction(intent.actionId)
 
@@ -321,9 +323,7 @@ export class RoomCoordinator {
         effectiveAtServerMs: nowMs + leadMs,
         playbackRate: 1,
       }
-      for (const participant of this.participants.values()) {
-        participant.lastProgressAtServerMs = this.playback.effectiveAtServerMs
-      }
+      this.resetPlaybackHealth(this.playback.effectiveAtServerMs)
     }
     else {
       const resumeWhenReady = this.pendingSeek?.resumeWhenReady ?? this.playback.status === 'playing'
@@ -339,13 +339,10 @@ export class RoomCoordinator {
         positionSeconds,
         resumeWhenReady,
         deadlineAtServerMs: nowMs + SEEK_BARRIER_MAX_WAIT_MS,
-        // A controller seek request is emitted after the controller has chosen
-        // the target in its own player, so the controller is already the
-        // source of truth for this side of the barrier. Every guest still
-        // has to acknowledge independently before playback can resume.
-        acknowledgedParticipantIds: participantId === this.controllerId
-          ? [participantId]
-          : [],
+        // A scrub or skip button can report its target before the controller
+        // finishes fetching and decoding the target segment. Every player,
+        // including the controller, must confirm that its seek completed.
+        acknowledgedParticipantIds: [],
       }
       return this.success('control_seek_pending')
     }
@@ -356,8 +353,17 @@ export class RoomCoordinator {
 
   acknowledgeSeek(participantId: string, revision: number, positionSeconds: number): RoomResult | null {
     const pending = this.pendingSeek
+    if (!pending || revision !== pending.revision)
+      return null
+    // The alarm is a delivery mechanism, not the correctness boundary. A
+    // packet that arrives at or after the deadline must not revive the
+    // operation merely because the scheduler has not run its callback yet.
+    const nowMs = this.now()
+    if (nowMs >= pending.deadlineAtServerMs)
+      return this.releaseExpiredSeek(nowMs)
+
     const participant = this.participants.get(participantId)
-    if (!pending || revision !== pending.revision || !participant)
+    if (!participant)
       return null
     if (!participant.connected || !participant.ready || !participant.mediaMatches)
       return null
@@ -380,6 +386,7 @@ export class RoomCoordinator {
         effectiveAtServerMs: this.now() + this.commandLeadMs(),
         playbackRate: 1,
       }
+      this.resetPlaybackHealth(this.playback.effectiveAtServerMs)
     }
     this.revision += 1
     return this.success(pending.resumeWhenReady ? 'seek_aligned_play_scheduled' : 'seek_aligned_paused')
@@ -403,6 +410,56 @@ export class RoomCoordinator {
 
   pendingSeekDeadlineMs(): number | null {
     return this.pendingSeek?.deadlineAtServerMs ?? null
+  }
+
+  nextHealthDeadlineMs(): number | null {
+    if (this.playback.status !== 'playing')
+      return null
+
+    const startupDeadlineMs = this.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+    let nextDeadlineMs: number | null = null
+    for (const participant of this.participants.values()) {
+      if (!participant.connected || !participant.ready || !participant.mediaMatches)
+        continue
+
+      const deadlineMs = participant.lastSample === null
+        ? startupDeadlineMs
+        : (participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs) + PLAYBACK_REPORT_SILENCE_TIMEOUT_MS
+      if (nextDeadlineMs === null || deadlineMs < nextDeadlineMs)
+        nextDeadlineMs = deadlineMs
+    }
+    return nextDeadlineMs
+  }
+
+  evaluateHealth(nowMs: number = this.now()): RoomResult | null {
+    if (this.playback.status !== 'playing')
+      return null
+
+    for (const participant of this.participants.values()) {
+      if (!participant.connected || !participant.ready || !participant.mediaMatches)
+        continue
+
+      const silentSinceMs = participant.lastSample === null
+        ? this.playback.effectiveAtServerMs
+        : participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs
+      const timeoutMs = participant.lastSample === null
+        ? PLAYBACK_STARTUP_TIMEOUT_MS
+        : PLAYBACK_REPORT_SILENCE_TIMEOUT_MS
+      if (nowMs - silentSinceMs < timeoutMs)
+        continue
+
+      this.playback = {
+        status: 'paused',
+        positionSeconds: this.clampToMediaDuration(Math.max(0, expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null))),
+        effectiveAtServerMs: nowMs,
+        playbackRate: 1,
+      }
+      this.revision += 1
+      this.markStateBarrier()
+      return this.success('participant_playback_silent')
+    }
+
+    return null
   }
 
   transferControl(fromParticipantId: string, toParticipantId: string, leaseEpoch: number): RoomResult {
@@ -479,7 +536,9 @@ export class RoomCoordinator {
 
   updatePlayerStatus(participantId: string, basedOnRevision: number, sample: PlayerSample): RoomResult | null {
     const participant = this.participants.get(participantId)
-    if (!participant)
+    // A queued report from a superseded command must not overwrite the
+    // current sample or reset the progress deadline before it is rejected.
+    if (!participant || basedOnRevision !== this.revision)
       return null
 
     const priorSample = participant.lastSample
@@ -487,7 +546,10 @@ export class RoomCoordinator {
       return null
 
     const nowMs = this.now()
-    const progressed = sample.progressed === true || (priorSample !== null
+    // Explicit progress evidence is authoritative. currentTime can advance
+    // due to correction seeks even when an adaptive player decodes no frames.
+    // Keep the positional fallback only for clients that omit this field.
+    const progressed = sample.progressed ?? (priorSample !== null
       && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= 0.12)
     participant.lastSample = sample
     participant.lastSampleReceivedAtMs = nowMs
@@ -495,7 +557,11 @@ export class RoomCoordinator {
       participant.lastProgressAtServerMs = nowMs
     const stalled = !sample.paused
       && !sample.buffering
+      && sample.playbackStarted !== false
       && hasPlaybackProgressStalled(this.playback, participant.lastProgressAtServerMs, nowMs)
+    const startupTimedOut = !progressed
+      && hasPlaybackStartupTimedOut(this.playback, sample.playbackStarted, nowMs)
+      && nowMs - participant.lastProgressAtServerMs >= PLAYBACK_STARTUP_TIMEOUT_MS
     const explicitPlaybackFailure = sample.playbackStartFailed === true
     if (basedOnRevision === this.revision
       && participant.connected
@@ -503,10 +569,20 @@ export class RoomCoordinator {
       && participant.mediaMatches
       && (explicitPlaybackFailure
         || (sample.buffering && sample.playbackStarted !== false && isPlaybackPastStartupGrace(this.playback, nowMs))
-        || stalled)) {
+        || stalled
+        || startupTimedOut)) {
+      const failedSeekTarget = this.pendingSeek?.revision === basedOnRevision
+        ? this.pendingSeek.positionSeconds
+        : null
+      // A required member that explicitly failed cannot be removed from the
+      // seek quorum while the old operation remains live. Cancel the barrier
+      // and preserve its fixed target, so late ACKs become stale and cannot
+      // restart the room with a smaller membership set.
+      if (failedSeekTarget !== null)
+        this.pendingSeek = null
       this.playback = {
         status: 'paused',
-        positionSeconds: this.clampToMediaDuration(Math.max(0, sample.positionSeconds)),
+        positionSeconds: this.clampToMediaDuration(Math.max(0, failedSeekTarget ?? sample.positionSeconds)),
         effectiveAtServerMs: nowMs,
         playbackRate: 1,
       }
@@ -524,7 +600,8 @@ export class RoomCoordinator {
         participant.ready = false
       return this.success(explicitPlaybackFailure
         ? 'participant_playback_blocked'
-        : stalled ? 'participant_playback_stalled' : 'participant_buffering')
+        : startupTimedOut ? 'participant_playback_startup_timeout'
+          : stalled ? 'participant_playback_stalled' : 'participant_buffering')
     }
 
     return null
@@ -627,6 +704,14 @@ export class RoomCoordinator {
       positionSeconds: expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null),
       effectiveAtServerMs: nowMs,
       playbackRate: 1,
+    }
+  }
+
+  private resetPlaybackHealth(effectiveAtServerMs: number): void {
+    for (const participant of this.participants.values()) {
+      participant.lastSample = null
+      participant.lastSampleReceivedAtMs = effectiveAtServerMs
+      participant.lastProgressAtServerMs = effectiveAtServerMs
     }
   }
 

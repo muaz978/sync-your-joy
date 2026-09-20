@@ -75,6 +75,41 @@ describe('room player tab binding', () => {
       senderAreaPixels: 20_000,
     })).toBe(false)
   })
+
+  it('recovers an equally sized replacement frame after the old player becomes unready', () => {
+    const replacement = {
+      ...base,
+      hasRoom: true,
+      boundTabId: 13,
+      boundFrameId: 2,
+      boundAreaPixels: 500_000,
+      boundLastSeenAtMs: 1_000,
+      participantReady: false,
+      senderTabId: 13,
+      senderFrameId: 7,
+      senderAreaPixels: 500_000,
+      senderMediaMatchesRoom: true,
+      nowMs: 4_000,
+    }
+    expect(shouldAcceptPlayerContext(replacement)).toBe(true)
+    expect(shouldAcceptPlayerContext({ ...replacement, nowMs: 2_000 })).toBe(false)
+    expect(shouldAcceptPlayerContext({ ...replacement, senderMediaMatchesRoom: false })).toBe(false)
+    expect(shouldAcceptPlayerContext({ ...replacement, senderAreaPixels: 20_000 })).toBe(false)
+  })
+
+  it('recovers a stale equally sized embedded frame before joining a room', () => {
+    expect(shouldAcceptPlayerContext({
+      ...base,
+      boundTabId: 13,
+      boundFrameId: 2,
+      boundAreaPixels: 500_000,
+      senderTabId: 13,
+      senderFrameId: 7,
+      senderIsActive: true,
+      senderAreaPixels: 500_000,
+      nowMs: 4_000,
+    })).toBe(true)
+  })
 })
 
 describe('shared navigation tab reuse', () => {
@@ -89,5 +124,18 @@ describe('shared navigation tab reuse', () => {
   it('opens a new tab when there is no bound tab or the video page differs', () => {
     expect(shouldReusePlayerTabForNavigation(null, 'https://video.example/watch/42', 'https://video.example/watch/42')).toBe(false)
     expect(shouldReusePlayerTabForNavigation(12, 'https://video.example/watch/41', 'https://video.example/watch/42')).toBe(false)
+  })
+
+  it('reuses the current Crunchyroll episode across localized watch URLs', () => {
+    expect(shouldReusePlayerTabForNavigation(
+      12,
+      'https://www.crunchyroll.com/ar/watch/GE00345558JAJP/localized-title',
+      'https://crunchyroll.com/watch/GE00345558JAJP/original-title',
+    )).toBe(true)
+    expect(shouldReusePlayerTabForNavigation(
+      12,
+      'https://www.crunchyroll.com/ar/watch/GOTHER123456/next-episode',
+      'https://crunchyroll.com/watch/GE00345558JAJP/original-title',
+    )).toBe(false)
   })
 })
