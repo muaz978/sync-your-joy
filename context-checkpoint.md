@@ -3988,6 +3988,138 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 72 - CR-B04 health deadlines implementation and final local verification
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 72
+- Date and time: 2026-09-21, Europe/Istanbul
+- Coverage period: CR-B04 issue metadata setup, source implementation, focused test corrections, final repository checks, browser-package verification and generic E2E smoke
+- Current context status: CR-B04 source, tests and acceptance report are complete and locally verified on `codex/issue-58-health-deadlines`. Commit, push, PR publication, remote checks, review, merge and post-merge issue verification remain outstanding.
+
+## User Objective and Requirements
+- Continue the dependency-aware oldest-first workflow after CR-B03, finish the current issue before moving on, and preserve a complete chronological audit trail.
+- Document every issue-specific PR in detail, review the exact PR before acceptance, apply labels, assignee, milestone and public project fields, commit and push all repository work, and do not close an issue until all applicable gates are directly evidenced.
+- Treat the signed-in Crunchyroll account as available. Do not mark this deterministic issue as blocked because isolated provider storage state is absent.
+- Keep version `0.2.4` until a coherent release group is verified. Reserve `1.0.0` for complete milestone acceptance.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20 23:50-23:55 +03 - CR-B04 issue classification and tracking setup
+- Restored browser automation documentation after context continuation and opened issue #58 in the signed-in Edge GitHub session.
+- Read the issue body, dependencies and current metadata. Issue #58 was open, assigned to nobody, labeled `enhancement`, `initiative: crunchyroll-sync` and `area: sync-engine`, and attached to milestone `M3/M5: reliability and real-device validation`. Its public project entry was present with status `Todo`.
+- Created `/private/tmp/syj-cr-b04-plan.md` containing the root cause, partial CR-A01 baseline, implementation scope, exact evidence classes, state-only security boundary, project-state decision and non-release/non-closure decision.
+- Added `area: testing`, assigned `muaz978`, and posted the plan at `https://github.com/muaz978/sync-your-joy/issues/58#issuecomment-5752573905`.
+- Updated the public project entry through the GitHub UI: status `In Progress`, priority `P1 High`, work type `Feature`, evidence state `Partial`, acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests` and `Browser test`, risk `High`, blank blocked reason, no target date, and verification owner `muaz978`.
+- Chose work type `Feature` because this issue completes a planned coordinator health contract and its safety behavior, while the issue remains an enhancement in the remediation plan. The risk remains `High` because timer-driven failure behavior affects shared playback safety.
+
+### 2026-09-20 23:55-00:05 +03 - Source and dependency inspection
+- Inspected `packages/sync-engine/src/room.ts`, `packages/sync-engine/src/playback-health.ts`, `packages/sync-engine/src/playback-health.test.ts`, `packages/sync-engine/src/room-streaming-regressions.test.ts`, `packages/sync-engine/src/room.test.ts`, the local room-service cleanup timer, the edge alarm path and relevant protocol types.
+- Confirmed CR-A01 already supplied partial missing-report health behavior, CR-B02 supplied operation preparation/start deadlines, and the backend timer paths already invoked the coordinator methods.
+- Confirmed the remaining gaps: no timer-driven no-progress evaluation when reports stop, explicit `playbackStarted: false` was classified as ordinary silence, and health recovery could leave a live transactional operation active.
+- Read `docs/CRUNCHYROLL_REMEDIATION_PLAN.md` and verified the intended separation between preparation, observed start, sample silence, no-progress, state-only behavior and later CR-B05/CR-B06 transport work.
+- Preserved the existing stale revision, local sample ordering, server receipt time, operation identity and upstream binding validation boundaries.
+
+### CR-B04 implementation
+- Added pure server-clock deadline helpers to `packages/sync-engine/src/playback-health.ts`:
+  - `playbackStartupDeadlineMs`;
+  - `playbackProgressDeadlineMs`;
+  - `playbackReportSilenceDeadlineMs`.
+- Reused the centralized progress and startup deadline arithmetic in the existing health predicates.
+- Updated `RoomCoordinator.nextHealthDeadlineMs()` to derive the earliest missing-sample, explicit never-started, report-silence or no-progress deadline for all connected, ready and media-matching participants.
+- Added a shared coordinator classification path so `nextHealthDeadlineMs()` and `evaluateHealth()` agree about which deadline is due.
+- Made explicit `playbackStarted: false` use the startup/observed-start deadline.
+- Added no-progress detection for non-paused, non-buffering samples without requiring a new incoming report. Transactional participants waiting for started evidence cannot be classified as stalled before startup grace.
+- Made health recovery cancel a still-active transactional operation with `manual-recovery`, then pause at the fixed operation target for a preparing/committed operation or at the authoritative coordinator projection for started/steady playback.
+- Preserved one pause, one revision and one state barrier per failure episode. Repeated evaluator calls after the room is paused return `null`.
+- Did not change room-service or edge-service source because their existing timer and alarm paths already call operation expiry and health evaluation. CR-B05 and CR-B06 remain responsible for transport-level deadline and durable rehydration acceptance.
+
+### First focused test run and correction
+- Ran the focused sync-engine suite after the first implementation. The new health tests passed, but three existing streaming tests failed with `ReferenceError: PLAYBACK_STARTUP_TIMEOUT_MS is not defined` because the import cleanup removed a constant still used by `updatePlayerStatus()`.
+- Restored the required constant import.
+- Added a startup classification regression. Its first fixture failed because the host participant had no sample and was correctly evaluated before the guest, returning generic silence. A second fixture using buffering caused the existing buffering failure path to pause the room before the timer test. The fixture was corrected to give the host a recent paused, non-buffering sample, making the guest's explicit observed-start deadline the first due health event.
+- Final focused result after these corrections: 3 files passed, 74 tests passed.
+
+### Tests and acceptance report
+- Added helper boundary tests in `packages/sync-engine/src/playback-health.test.ts` for startup, progress and report-silence deadlines and client-clock independence.
+- Added streaming regressions for duplicate timer execution, buffering report silence, explicit never-started silence, no-progress expiry without a new report, and backward client sample timestamps.
+- Added a transactional room regression proving timer-driven no progress cancels a started operation with `manual-recovery` and pauses at the authoritative position.
+- Created and completed `docs/CR_B04_HEALTH_DEADLINES_REPORT.md` with baseline, acceptance interpretation, implementation, exact files, deadline matrix, security/privacy boundary, test evidence, external limits and non-closure/release decisions.
+
+### Final repository and browser verification
+- `npm run check` passed:
+  - root and edge-service typecheck passed;
+  - 30 Vitest files passed with 279 tests;
+  - room-service bundle passed;
+  - Chrome extension build passed.
+- `npm run release:check-version` passed and printed `0.2.4`.
+- `git diff --check` passed.
+- Restricted `npm run verify:browser-packages` reproduced the known macOS Safari converter failure because the sandbox could not grant the converter access to its temporary staging directory. The converter reported that it could not parse `manifest.json` at the denied path.
+- Approved host-level rerun of `npm run verify:browser-packages` passed Chrome manifest `0.2.4` with `service-worker.js`, Firefox manifest `0.2.4` with `sidepanel.html`, and Safari macOS package smoke.
+- Approved host-level `npm run test:e2e -- --grep "profile A creates a room"` passed one two-profile local extension test in 6.2 seconds. This is generic local browser evidence, not authenticated Crunchyroll visible-output evidence.
+- No browser installation, provider account action or protected-media access was required for CR-B04.
+
+## Confirmed Successful Results
+- Issue #58 is open, assigned to `muaz978`, labeled with `enhancement`, `initiative: crunchyroll-sync`, `area: sync-engine` and `area: testing`, and milestoned to `M3/M5: reliability and real-device validation`.
+- The public project entry is `In Progress` with P1 High, Feature, Partial evidence, five deterministic gates, High risk, blank blocked reason, no target date and verification owner `muaz978`.
+- CR-B04 source changes and regression tests are complete in the working tree.
+- Focused sync-engine verification passed 3 files and 74 tests.
+- Full repository verification passed 30 files and 279 tests, typecheck, room-service bundle and extension build.
+- Browser package host verification passed Chrome, Firefox and Safari macOS package smoke at version `0.2.4`.
+- Generic two-profile extension E2E passed one test in 6.2 seconds.
+- Detailed report exists at `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B04_HEALTH_DEADLINES_REPORT.md`.
+- No release bump was made. `0.2.4` remains current and `1.0.0` remains reserved.
+
+## Failed, Incomplete, or Unresolved Work
+- The first focused run failed three tests because of a removed import. The import was restored and the final focused run passed.
+- The first explicit startup test fixture returned the host's generic silence reason, then a buffering fixture triggered the existing report failure path. Both were test-fixture issues, corrected before final verification.
+- Restricted Safari packaging failed due to temporary filesystem permission. The approved host rerun passed and the limitation is documented.
+- The CR-B04 branch has not yet been committed, pushed, published as a PR, reviewed, merged or reflected as `Verification` in the public project.
+- Authenticated Crunchyroll output, headed provider behavior, two-account, two-device, deployment, CR-B05 local timer socket behavior, CR-B06 edge persistence/rehydration and user acceptance remain separate gates.
+- Issue #58 must remain open after merge until all applicable downstream and external gates are evidenced.
+
+## Decisions and Rationale
+- CR-B04 was implemented as a deterministic sync-engine slice and did not duplicate local server or edge transport work owned by CR-B05 and CR-B06.
+- Server receipt time remains authoritative for elapsed health; client timestamps are used only for monotonic ordering.
+- No-progress is classified as `participant_playback_stalled`; missing or silent evidence remains `participant_playback_silent`; explicit never-started evidence is `participant_playback_startup_timeout`.
+- An active transactional operation is cancelled during timer-driven health recovery so later acknowledgements cannot make a failed playback episode appear successful.
+- The host-level browser smoke was run to catch regressions but is not used as a live Crunchyroll or visible-output claim.
+- No version or release bump is justified for this single deterministic slice.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Health helpers: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/playback-health.ts`
+- Coordinator: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`
+- Health tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/playback-health.test.ts`
+- Streaming regressions: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room-streaming-regressions.test.ts`
+- Coordinator tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.test.ts`
+- Acceptance report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B04_HEALTH_DEADLINES_REPORT.md`
+- Issue plan: `/private/tmp/syj-cr-b04-plan.md`
+- Issue #58: `https://github.com/muaz978/sync-your-joy/issues/58`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+
+## Assumptions and Uncertainties
+- The signed-in Crunchyroll account remains available in the controlled Edge session. No account absence is inferred from the deterministic test environment.
+- Package smoke and generic E2E confirm local artifacts and the generic local flow only. They do not prove live provider visible output.
+- The exact final PR and merge SHAs do not exist yet and must be added in the next checkpoint after publication and merge.
+
+## Open Questions, Blockers, and Dependencies
+- Commit and push the clean CR-B04 branch, then open the detailed issue-specific PR.
+- Apply PR labels, assignee, milestone and public project fields, wait for remote checks, inspect any Advanced Security advisory, and record the formal review before merge.
+- After merge, verify `origin/main`, post the detailed issue merge comment, move #58 to `Verification`, and keep it open.
+- Continue to CR-B05 #59 only after the CR-B04 PR lifecycle is complete.
+
+## Next Steps
+1. Inspect the final diff and commit source, tests, report and checkpoint.
+2. Push `codex/issue-58-health-deadlines` and verify the remote SHA.
+3. Open a detailed PR referencing #58 without an automatic closing keyword, apply all metadata and attach the artifact.
+4. Review the exact final head and all remote checks, then merge only after the documented review has no blocking finding.
+5. Verify the merge, update #58 to `Verification` without closing it, append the post-merge checkpoint, and proceed to CR-B05.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-71 remain intact. This checkpoint appends the complete CR-B04 classification, implementation, debugging, verification and evidence history.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 69 - CR-B03 implementation, integration debugging, and final pre-PR state
 
 ## Session Metadata
@@ -4157,6 +4289,196 @@
 - Checkpoints 1-68 remain intact above. This checkpoint appends the full CR-B03 implementation and debugging history without deleting or rewriting prior records.
 - Temporary debug instrumentation was used only for diagnosis and was removed. It must not be included in the PR.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes, or DRM data were recorded.
+
+# Checkpoint 70 - CR-B03 publication, security review, merge, and issue verification state
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 70
+- Date and time: 2026-09-20, Europe/Istanbul
+- Coverage period: continuation after Checkpoint 69 through CR-B03 final verification, PR publication, security review, merge, and issue-state update
+- Current context status: CR-B03 is merged into `origin/main` at `b36d33d`; issue #57 remains open in `Verification`; no release bump was made.
+
+## User Objective and Requirements
+- Continue the dependency-aware oldest-first plan, finish the current issue before moving to the next one, and do not close an issue until all applicable acceptance gates are directly evidenced.
+- Review each PR before accepting it, preserve detailed documentation, apply labels, assignee, milestone, and public project metadata, and commit and push every repository change.
+- Treat the signed-in Crunchyroll account as available. Do not classify missing isolated Playwright storage state as a missing account or as a live-provider failure.
+- Keep release `1.0.0` reserved for complete milestone acceptance and avoid a release bump for a single incomplete verification slice.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20 20:15-20:25 +03 - CR-B03 final source verification and documentation
+- Ran the final `npm run check` after the coordinator corrections. Typecheck, 30 Vitest files, 274 tests, room-service bundle, and extension build passed.
+- Ran `git diff --check`; no whitespace errors were reported.
+- Reran browser-package verification in the restricted environment. The macOS Safari converter failed because the sandbox could not access the temporary staging path and reported that it could not parse `manifest.json`. This was recorded as a filesystem permission limitation.
+- Reran `npm run verify:browser-packages` with approved host-level filesystem access. Chrome package, Firefox package, and Safari macOS package smoke passed, and the manifests reported version `0.2.4`.
+- Reran the clean integrated scenario `npm run test:e2e -- --grep "profile A creates a room"` with host-level access. One test passed in 16.7 seconds, with 8.7 seconds test execution time.
+- Updated `docs/CR_B03_EXTENSION_ACK_REPORT.md` with the final test count, package verification result, clean integrated result, security review boundary, and remaining external gates.
+
+### 2026-09-20 20:25-20:29 +03 - CR-B03 commit and PR publication
+- Committed the source, tests, acceptance report, and checkpoint changes as `94185b75ad4fafcd4670c001a0caa6d1c282d608`, subject `feat: wire transactional acknowledgements in extension`.
+- Pushed the branch `codex/issue-57-extension-ack` and verified the remote head.
+- Opened PR #85, `https://github.com/muaz978/sync-your-joy/pull/85`, with a detailed body covering root cause, baseline, implementation, file list, exact checks, security and privacy boundary, live-provider limitations, release policy, `Refs #57`, and dependency references. The body deliberately avoided an automatic issue-closing keyword.
+- Added and verified PR labels `enhancement`, `initiative: crunchyroll-sync`, `area: extension`, `area: sync-engine`, and `area: testing`.
+- Added and verified assignee `muaz978` and milestone `M3/M5: reliability and real-device validation`.
+- Linked and verified the public project entry. The project fields were set to status `In review`, priority `P1 High`, work type `Feature`, evidence state `Partial`, acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, and `Browser test`, risk `High`, blank blocked reason, no target date, and verification owner `muaz978`.
+- Attached PR #85 to the Codex task through the artifact tool.
+
+### 2026-09-20 20:29-20:34 +03 - Remote checks and Advanced Security review
+- Verified the final remote checks for the reviewed head. Analyze (javascript-typescript) / CodeQL, CodeQL, DevSkim, lowercase `devskim`, and Typecheck, test, and build all passed.
+- Inspected the GitHub Advanced Security inline advisory at `apps/extension/src/content-script.ts:1261-1263`, rule `DS172411`. The advisory warned generically about untrusted data in `setTimeout`.
+- Reviewed the actual code and traced the data flow. The callback is a literal function, the delay is numeric and clamped with `Math.min(Math.max(0, delayMs), 1_000)`, server timing affects only that numeric delay, and the callback clears the timer and calls the existing state application path. No string evaluation or attacker-controlled code execution is present.
+- Confirmed cancellation clears the timer and that current snapshot and player identity are revalidated before state application. The advisory is a non-actionable manual-review heuristic for this code, not an exploitable vulnerability in the reviewed path.
+- Wrote the formal review in `/private/tmp/syj-cr-b03-review.md`, posted it as a detailed PR comment because the authenticated account owns the PR, replied directly to the advisory, and resolved the review thread. The direct advisory reply is `https://github.com/muaz978/sync-your-joy/pull/85#discussion_r4058019409`.
+- Attempted `gh pr review 85 --approve --body-file /private/tmp/syj-cr-b03-review.md`; GitHub rejected self-approval with `Review Can not approve your own pull request`. The detailed `COMMENTED` review was preserved on exact head `94185b7` and found no blocking issue.
+
+### 2026-09-20 20:34-20:38 +03 - Authorized merge and post-merge verification
+- Merged PR #85 with the authorized administrator squash path after source review and all remote checks passed.
+- Verified PR #85 is `MERGED` at `2026-09-20T20:36:34Z` with merge commit `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`.
+- Fetched and verified `origin/main` resolves exactly to `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`.
+- Verified the PR retained labels, assignee, milestone and public project metadata. No release version was changed; the extension remains at `0.2.4`.
+- Wrote and posted the detailed issue merge comment at `https://github.com/muaz978/sync-your-joy/issues/57#issuecomment-5752504185`, documenting the merged scope, exact checks, security advisory analysis, external acceptance gates, and explicit non-closure rationale.
+- Changed issue #57's public project status from `In Progress` to `Verification` through the project UI and verified that the issue itself remains `OPEN`, with labels, assignee, milestone, custom fields and verification owner intact.
+
+## Confirmed Successful Results
+- CR-B03 was reviewed on exact final source head `94185b75ad4fafcd4670c001a0caa6d1c282d608` and merged into `origin/main` at `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`.
+- The final local check passed with 30 files and 274 tests, typecheck, builds, browser package host verification, and the clean generic two-profile integrated scenario.
+- All five remote checks passed.
+- The Advanced Security warning was investigated and classified as a non-actionable heuristic. No code change was needed for that advisory, and the review thread was resolved with the reasoning recorded.
+- PR and issue documentation, labels, assignee, milestone, and public project metadata were applied and verified.
+- Issue #57 remains open in `Verification`. It was not closed because authenticated provider playback, deployment, user acceptance, and other downstream gates are not yet evidenced.
+- No release bump was made. Version `0.2.4` remains current and `1.0.0` remains reserved for milestone completion.
+
+## Failed, Incomplete, or Unresolved Work
+- Owner self-approval remains impossible under the current GitHub permissions. The detailed comment review and authorized merge are the recorded review path.
+- The restricted Safari packaging command failed only because of temporary filesystem permissions; the approved host-level rerun passed.
+- The generic integrated test does not establish authenticated Crunchyroll playback, two-account, two-device, deployment or user-acceptance evidence.
+- Issues #49 and #50-#57 remain open where their implementation or external acceptance gates are incomplete. They must not be closed by merge automation alone.
+- The post-merge checkpoint documentation commit is intentionally on the retained CR-B03 branch, not in `main`. The next implementation branch must start from verified `origin/main` and carry a new checkpoint record.
+
+## Decisions and Rationale
+- The Advanced Security warning was not treated as a reason to block the merge because the actual callback and delay flow cannot execute attacker-supplied code, and all remote security checks passed.
+- The PR was merged only after the exact final head was inspected, checks passed, the security advisory was reviewed, and the self-approval limitation was explicitly recorded.
+- Issue #57 moved to `Verification`, not `Done` or closed, because the deterministic implementation is complete while live-provider and deployment gates remain separate.
+- No browser installation was requested for this deterministic slice. A controlled headed run will be used when it is the next necessary evidence gate.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Acceptance report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B03_EXTENSION_ACK_REPORT.md`
+- PR #85: `https://github.com/muaz978/sync-your-joy/pull/85`
+- Issue #57: `https://github.com/muaz978/sync-your-joy/issues/57`
+- Issue merge comment: `https://github.com/muaz978/sync-your-joy/issues/57#issuecomment-5752504185`
+- Formal review body: `/private/tmp/syj-cr-b03-review.md`
+- Source commit: `94185b75ad4fafcd4670c001a0caa6d1c282d608`
+- Merge commit: `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`
+
+## Assumptions and Uncertainties
+- The signed-in Crunchyroll account remains available in the controlled Edge session. The missing isolated provider storage-state fixture is an automation setup limitation, not evidence that the account is absent.
+- Browser package smoke and generic two-profile success remain distinct from live authenticated provider acceptance.
+
+## Open Questions, Blockers, and Dependencies
+- CR-B04 #58 is the next unimplemented dependency in the issue queue. CR-B05 #59 and CR-B06 #60 depend on its health/deadline contract.
+- Provider, headed-browser, two-account, two-device and deployment gates remain scheduled for the applicable older and downstream issues.
+- Release grouping remains pending a coherent verified set of issues.
+
+## Next Steps
+1. Scan the current open issue queue after the CR-B03 merge.
+2. Choose the next actionable issue by dependency order, while preserving older issues that are already in verification or require external gates.
+3. Create a new branch from verified `origin/main`, classify the issue and project fields, implement with tests and detailed documentation, and repeat review, merge and non-closure verification.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-69 remain intact. This checkpoint restores the complete CR-B03 post-PR lifecycle that was recorded on the retained PR branch but was not present in the merge commit used for the next branch.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+# Checkpoint 71 - CR-B04 queue selection, branch kickoff, and baseline inspection
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 71
+- Date and time: 2026-09-20, Europe/Istanbul
+- Coverage period: after CR-B03 merge verification through open-issue queue scan, CR-B04 selection, branch creation and source baseline inspection
+- Current context status: CR-B04 issue #58 is selected as the next implementation slice. Branch `codex/issue-58-health-deadlines` is based on verified `origin/main` at `b36d33d`. No CR-B04 source changes have been made yet.
+
+## User Objective and Requirements
+- Continue with the recommended dependency-aware path, finish each implementation slice before moving on, and preserve a complete audit trail.
+- Work the older issues systematically, but respect actual dependencies and distinguish implementation work from provider, device, headed-browser, deployment and user-acceptance gates.
+- Review before merge, document every issue-specific PR in detail, apply labels, assignee, milestone and public project metadata, commit and push everything, and do not close issues prematurely.
+- Do not assume the signed-in Crunchyroll account is missing. Ask only for a genuinely required external action when a specific acceptance gate is reached.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20 after CR-B03 merge - Open issue queue scan
+- Ran `gh issue list --state open --limit 100 --json number,title,state,createdAt,labels,assignees,milestone` after verifying the CR-B03 merge.
+- The current open queue included #69 CR-D05 package/stage/release, #68 CR-D03 complete local browser matrix, #67 CR-D02 controlled adaptive loading and lifecycle fixtures, #66 CR-D01 isolate E2E builds/failure artifacts, #65 CR-C04 navigation transaction, #64 CR-C03 waiting/recovery UX, #63 CR-C02 diagnostic reports, #62 CR-C01 explicit Sync recovery, #61 CR-B07 mixed versions/state migration, #60 CR-B06 edge alarms/rehydration, #59 CR-B05 local server health deadlines, #58 CR-B04 evaluate player silence/health without incoming reports, #57 CR-B03 merged and still open for verification, #56 and #55 merged implementations still open for verification, #54-#49 merged implementations still open for verification, and older provider/device issues #35, #34, #33 and #30.
+- Inspected the bodies and dependencies for #30, #33, #34, #35, #49, #58, #59, #60 and #61. The older items are primarily verification or externally gated work, while #58 is the next unimplemented runtime contract and is a dependency for #59 and #60.
+- Decision: work CR-B04 #58 next. This preserves dependency order without claiming that older external-gate issues are forgotten or complete.
+
+### CR-B04 issue interpretation and dependency review
+- Issue #58 title: `CR-B04: Evaluate player silence/health without incoming reports`.
+- Issue #58 depends on merged CR-B02 #56. It requires deterministic next deadlines and evaluation for preparation, observed start, missing samples and sustained no progress; validation of sample sequence, media and binding before freshness changes; retention of valid evidence when unrelated revisions arrive; and one pause/reason per failure episode, including no new media sample while the live socket remains connected.
+- Issue #59 depends on #58 and will add local room-server health deadlines. Issue #60 depends on #58 and will add edge alarms and rehydration. Therefore the engine contract must be made deterministic before those consumers are changed.
+- The signed-in Crunchyroll account is not a blocker for this deterministic engine slice. No provider credentials or media data are needed to implement or test it.
+
+### CR-B04 branch preparation
+- Created `codex/issue-58-health-deadlines` from the verified `origin/main` at `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`.
+- Verified the new branch starts clean at that merge state. No unrelated changes were carried from the retained CR-B03 documentation branch.
+
+### CR-B04 source baseline inspection
+- Inspected `packages/sync-engine/src/playback-health.ts`, `packages/sync-engine/src/room.ts`, `packages/sync-engine/src/room-streaming-regressions.test.ts`, `packages/sync-engine/src/playback-health.test.ts`, and the room-service cleanup loop.
+- Confirmed CR-A01 already added a partial health implementation. It defines startup grace `2500 ms`, application grace `500 ms`, progress timeout `1800 ms`, startup timeout `10000 ms`, and report silence timeout `5000 ms`, plus helper predicates for startup, explicit failure, progress stall and startup timeout.
+- Confirmed `room.ts` already has transactional deadline release, seek deadline release, `nextHealthDeadlineMs()` and `evaluateHealth(nowMs)`. The existing next-deadline method considers only silence for eligible connected ready participants. It does not combine all relevant operation, preparation, startup, no-progress and health deadlines into one deterministic decision.
+- Confirmed `evaluateHealth(nowMs)` can pause once when silence is detected because pausing makes later calls inert, but the current method does not fully classify no-progress episodes or expose all deterministic deadlines required by #58.
+- Confirmed `updatePlayerStatus()` already rejects stale revisions and out-of-order local sample timestamps before changing freshness, and already tracks `lastSample`, `lastSampleReceivedAtMs`, `lastProgressAtServerMs`, startup state, buffering and stall state. The implementation must preserve these guards.
+- Confirmed the room-service cleanup loop already runs every 100 ms and calls seek expiry, operation expiry and `evaluateHealth`; CR-B04 should improve the engine contract without duplicating CR-B05 server deadline work.
+- Confirmed existing regression tests cover exact seek deadlines, explicit failure, lease transfer, corrective jumps, stale reports, pending startup, slow startup, no startup reports, report silence, player restart and pending seek. The new work must add the missing combined-deadline, no-progress and failure-episode coverage rather than duplicate existing cases.
+
+## Confirmed Successful Results
+- The current issue queue was scanned after the CR-B03 merge.
+- CR-B04 #58 was selected for a documented dependency reason and not merely because it had the next number.
+- Branch `codex/issue-58-health-deadlines` was created from verified `origin/main` at the CR-B03 merge commit and is clean before implementation.
+- The existing implementation and tests were inspected, and the partial CR-A01 behavior and precise CR-B04 gaps were recorded.
+
+## Failed, Incomplete, or Unresolved Work
+- Issue #58 metadata classification, implementation, tests, acceptance report, commit, push, PR, review, merge and issue verification state remain outstanding.
+- No conclusion has been reached about whether the final health API should extend `nextHealthDeadlineMs()` or introduce a combined deadline method. That decision requires inspection of all relevant room state and protocol types before coding.
+- The existing partial implementation does not yet prove the CR-B04 acceptance criteria.
+
+## Decisions and Rationale
+- Work CR-B04 before older provider and device issues because it is the next unimplemented runtime dependency and is required by CR-B05 and CR-B06.
+- Preserve older issues in their current open verification or externally gated states. Queue order does not justify closing or bypassing them.
+- Treat CR-B04 as deterministic engine work. No browser installation or Crunchyroll account action is needed at this stage.
+- Preserve the existing stale-revision, sample-order, media-epoch and binding guards. Any health deadline change that weakens those checks would be a regression.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Coordinator: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`
+- Health helpers: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/playback-health.ts`
+- Coordinator regressions: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room-streaming-regressions.test.ts`
+- Health tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/playback-health.test.ts`
+- Room service cleanup: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/room-service/src/server.ts`
+- Issue #58: `https://github.com/muaz978/sync-your-joy/issues/58`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+
+## Assumptions and Uncertainties
+- The project UI remains authoritative for custom project fields because the configured CLI token lacks project-read scope.
+- The exact failure reason names must be confirmed from the protocol types before implementation. No new reason is assumed in this checkpoint.
+- The room-server cleanup timer is deliberately outside the CR-B04 implementation boundary except for compatibility with the improved engine methods.
+
+## Open Questions, Blockers, and Dependencies
+- Confirm issue #58 current labels, assignee, milestone and project fields, then set the issue to `In Progress` with partial evidence and the appropriate acceptance gates.
+- Decide whether to classify the work type as `Feature` or `Security hardening` based on the actual failure-closed health contract. Record the rationale in the issue and PR documentation.
+- Inspect the complete health state and protocol reason unions before writing tests or changing the API.
+
+## Next Steps
+1. Update issue #58 labels, assignee, milestone and public project fields, and post the detailed implementation plan without closing the issue.
+2. Finish the source and protocol inspection, then implement deterministic combined health deadlines and one-pause-per-failure-episode behavior.
+3. Add focused regressions, run full checks and browser/package evidence proportionate to the engine slice, write the CR-B04 report, commit and push.
+4. Open the detailed PR, apply metadata, review the exact head, resolve any security advisory, merge only after checks pass, and move #58 to `Verification` while keeping it open for downstream gates.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-70 remain intact. Checkpoint 70 is included here because its post-merge documentation lived on the retained PR branch rather than on the verified `origin/main` merge commit.
+- This checkpoint records the queue scan and branch kickoff only. No CR-B04 implementation is represented as complete.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
 ---
 

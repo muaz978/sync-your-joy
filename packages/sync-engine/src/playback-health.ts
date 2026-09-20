@@ -13,6 +13,24 @@ export const PLAYBACK_STARTUP_TIMEOUT_MS = 10_000
 // only while status reports are still arriving.
 export const PLAYBACK_REPORT_SILENCE_TIMEOUT_MS = 5_000
 
+export function playbackStartupDeadlineMs(playback: PlaybackState): number {
+  return playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+}
+
+export function playbackProgressDeadlineMs(playback: PlaybackState, lastProgressAtServerMs: number): number {
+  return Math.max(
+    playback.effectiveAtServerMs + PLAYBACK_PROGRESS_TIMEOUT_MS,
+    lastProgressAtServerMs + PLAYBACK_PROGRESS_TIMEOUT_MS,
+  )
+}
+
+export function playbackReportSilenceDeadlineMs(playback: PlaybackState, lastSampleReceivedAtMs: number): number {
+  return Math.max(
+    playback.effectiveAtServerMs,
+    lastSampleReceivedAtMs,
+  ) + PLAYBACK_REPORT_SILENCE_TIMEOUT_MS
+}
+
 export function isPlaybackPastStartupGrace(playback: PlaybackState, serverNowMs: number): boolean {
   return playback.status === 'playing'
     && serverNowMs >= playback.effectiveAtServerMs + PLAYBACK_STARTUP_GRACE_MS
@@ -26,12 +44,11 @@ export function hasPlaybackApplicationFailed(playback: PlaybackState, paused: bo
 
 export function hasPlaybackProgressStalled(playback: PlaybackState, lastProgressAtServerMs: number, serverNowMs: number): boolean {
   return playback.status === 'playing'
-    && serverNowMs >= playback.effectiveAtServerMs + PLAYBACK_PROGRESS_TIMEOUT_MS
-    && serverNowMs - lastProgressAtServerMs >= PLAYBACK_PROGRESS_TIMEOUT_MS
+    && serverNowMs >= playbackProgressDeadlineMs(playback, lastProgressAtServerMs)
 }
 
 export function hasPlaybackStartupTimedOut(playback: PlaybackState, playbackStarted: boolean | undefined, serverNowMs: number): boolean {
   return playback.status === 'playing'
     && playbackStarted === false
-    && serverNowMs >= playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+    && serverNowMs >= playbackStartupDeadlineMs(playback)
 }

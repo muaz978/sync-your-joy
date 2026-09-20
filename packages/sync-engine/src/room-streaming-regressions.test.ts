@@ -255,16 +255,19 @@ describe('adaptive streaming coordination regressions', () => {
       reason: 'participant_playback_silent',
       snapshot: { playback: { status: 'paused', positionSeconds: 30 } },
     })
+    const revisionAfterFailure = room.snapshot().revision
+    expect(room.evaluateHealth()).toBeNull()
+    expect(room.snapshot().revision).toBe(revisionAfterFailure)
   })
 
-  it('pauses a participant after its status stream goes silent', () => {
+  it('pauses a buffering participant after its status stream goes silent', () => {
     let nowMs = 10_000
     const room = readyRoom(() => nowMs)
     control(room, 'play', 20)
     const state = room.snapshot()
 
     nowMs = state.playback.effectiveAtServerMs + 100
-    room.updatePlayerStatus('guest', state.revision, sample(nowMs, 20, { progressed: true, playbackStarted: true }))
+    room.updatePlayerStatus('guest', state.revision, sample(nowMs, 20, { buffering: true, progressed: false, playbackStarted: true }))
     const deadline = nowMs + PLAYBACK_REPORT_SILENCE_TIMEOUT_MS
     expect(room.nextHealthDeadlineMs()).toBe(deadline)
     nowMs = deadline - 1
@@ -276,6 +279,73 @@ describe('adaptive streaming coordination regressions', () => {
       reason: 'participant_playback_silent',
       snapshot: { playback: { status: 'paused' } },
     })
+  })
+
+  it('uses the observed-start deadline for a player that reports never-started and then goes silent', () => {
+    let nowMs = 10_000
+    const room = readyRoom(() => nowMs)
+    control(room, 'play', 20)
+    const state = room.snapshot()
+
+    nowMs = state.playback.effectiveAtServerMs + 9_000
+    room.updatePlayerStatus('host', state.revision, sample(nowMs, 20, {
+      paused: true,
+      buffering: false,
+      progressed: false,
+      playbackStarted: true,
+    }))
+    room.updatePlayerStatus('guest', state.revision, sample(nowMs, 20, {
+      paused: true,
+      buffering: true,
+      progressed: false,
+      playbackStarted: false,
+    }))
+    const deadline = state.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+    expect(room.nextHealthDeadlineMs()).toBe(deadline)
+    nowMs = deadline
+    expect(room.evaluateHealth()).toMatchObject({
+      reason: 'participant_playback_startup_timeout',
+      snapshot: { playback: { status: 'paused' } },
+    })
+  })
+
+  it('pauses a player for sustained no progress without waiting for another report', () => {
+    let nowMs = 10_000
+    const room = readyRoom(() => nowMs)
+    control(room, 'play', 20)
+    const state = room.snapshot()
+
+    nowMs = state.playback.effectiveAtServerMs + 100
+    room.updatePlayerStatus('guest', state.revision, sample(nowMs, 20, { progressed: true, playbackStarted: true }))
+    const deadline = nowMs + 1_800
+    expect(room.nextHealthDeadlineMs()).toBe(deadline)
+    nowMs = deadline - 1
+    expect(room.evaluateHealth()).toBeNull()
+    nowMs = deadline
+    const result = room.evaluateHealth()
+
+    expect(result).toMatchObject({
+      reason: 'participant_playback_stalled',
+      snapshot: { playback: { status: 'paused' } },
+    })
+    const revisionAfterFailure = room.snapshot().revision
+    expect(room.evaluateHealth()).toBeNull()
+    expect(room.snapshot().revision).toBe(revisionAfterFailure)
+  })
+
+  it('keeps health deadlines on server receipt time when client timestamps move backward', () => {
+    let nowMs = 10_000
+    const room = readyRoom(() => nowMs)
+    control(room, 'play', 20)
+    const state = room.snapshot()
+
+    nowMs = state.playback.effectiveAtServerMs + 100
+    room.updatePlayerStatus('guest', state.revision, sample(900_000, 20, { progressed: true, playbackStarted: true }))
+    const acceptedDeadline = nowMs + 1_800
+    nowMs += 100
+    expect(room.updatePlayerStatus('guest', state.revision, sample(899_999, 20.1, { progressed: true, playbackStarted: true }))).toBeNull()
+    expect(room.exportState().participants.find(participant => participant.id === 'guest')?.lastSample?.sampledAtLocalMs).toBe(900_000)
+    expect(room.nextHealthDeadlineMs()).toBe(acceptedDeadline)
   })
 
   it('does not treat a transient player restart as ten seconds without progress', () => {

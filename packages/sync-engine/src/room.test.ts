@@ -1049,6 +1049,44 @@ describe('RoomCoordinator', () => {
       })).toMatchObject({ reason: 'participant_playback_stalled', snapshot: { playback: { status: 'paused' } } })
     })
 
+    it('cancels a started transaction once timer-driven health detects no progress', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+
+      nowMs = committed.snapshot.contract.operation.effectiveAtServerMs
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40, 2))
+      room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40, 2))
+      const startedRevision = room.snapshot().revision
+      nowMs += 100
+      room.updatePlayerStatus('participant_host', startedRevision, {
+        positionSeconds: 40,
+        durationSeconds: 600,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: 1,
+        progressed: true,
+        playbackStarted: true,
+      })
+      const healthDeadline = nowMs + 1_800
+
+      nowMs = healthDeadline - 1
+      expect(room.evaluateHealth()).toBeNull()
+      nowMs = healthDeadline
+      expect(room.evaluateHealth()).toMatchObject({
+        ok: true,
+        reason: 'participant_playback_stalled',
+        snapshot: {
+          playback: { status: 'paused' },
+          contract: { operation: { phase: 'cancelled', reason: 'manual-recovery' } },
+        },
+      })
+    })
+
     it('keeps a paused seek committed at its fixed target and rejects stale or duplicate operation evidence', () => {
       let nowMs = 10_000
       const room = createTransactionalRoom(() => nowMs)
