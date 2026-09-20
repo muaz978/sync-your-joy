@@ -183,6 +183,16 @@ describe('adaptive player lifecycle', () => {
     expect(messages.some(message => message.type === 'SEEK_APPLIED')).toBe(false)
   })
 
+  it('accepts a generic nested player when the worker-bound outer tab matches the room', () => {
+    state.currentMedia = state.snapshot!.media
+    Object.defineProperty(window, 'top', { configurable: true, value: {} })
+    vi.stubGlobal('location', new URL('https://player.example/embed/client-wrapper'))
+    video.position = 120
+    apply('playing', 120)
+
+    expect(video.play).toHaveBeenCalledOnce()
+  })
+
   it('detects frozen frames even if the media clock advances', async () => {
     apply('playing')
     for (let i = 1; i <= 5; i++) {
