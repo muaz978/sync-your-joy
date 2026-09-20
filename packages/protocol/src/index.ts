@@ -1,5 +1,124 @@
 export const PROTOCOL_VERSION = 1 as const
 
+/**
+ * Version of the operation/compatibility contract carried by the room
+ * protocol. This is deliberately separate from `roomRevision`: revisions
+ * order snapshots, while this contract decides whether an operation is still
+ * valid evidence for the current media and player instance.
+ */
+export const OPERATION_CONTRACT_VERSION = 1 as const
+
+export const MAX_OPERATION_PARTICIPANTS = 10
+export const MAX_CAPABILITIES = 16
+export const MAX_SOURCE_GENERATION = Number.MAX_SAFE_INTEGER
+export const MAX_SAMPLE_SEQUENCE = Number.MAX_SAFE_INTEGER
+
+export type RoomMode = 'legacy' | 'transactional'
+
+/** Capabilities required before a room may use prepare/commit/start work. */
+export type SyncCapability =
+  | 'media-epoch'
+  | 'operation-identity'
+  | 'prepare-start'
+  | 'binding-sequence'
+
+export const TRANSACTIONAL_CAPABILITIES: readonly SyncCapability[] = [
+  'media-epoch',
+  'operation-identity',
+  'prepare-start',
+  'binding-sequence',
+]
+
+export interface ClientCapabilities {
+  contractVersion: number
+  capabilities: SyncCapability[]
+}
+
+export interface CapabilityAdvertisement {
+  participantId: string
+  capabilities: ClientCapabilities
+}
+
+export interface RoomNegotiation {
+  mode: RoomMode
+  sharedCapabilities: SyncCapability[]
+  /** Peers that cannot participate in transactional operations. */
+  incompatibleParticipantIds: string[]
+}
+
+export interface OperationIdentity {
+  /** Increments only when the room's selected media/timed edition changes. */
+  mediaEpoch: number
+  /** Opaque operation identity. It is not an authorization credential. */
+  operationId: string
+}
+
+export interface OperationObservationIdentity extends OperationIdentity {
+  /** Worker-issued identity for the accepted document/player binding. */
+  bindingId: string
+  /** Local player/source incarnation, reset when the media node is replaced. */
+  sourceGeneration: number
+  /** Monotonic sequence from the current binding, not a wall-clock ordering. */
+  sampleSequence: number
+}
+
+export type OperationKind = 'play' | 'seek' | 'navigation' | 'recovery'
+export type OperationPhase = 'preparing' | 'prepared' | 'committed' | 'started' | 'cancelled' | 'failed'
+export type OperationReason =
+  | 'controller-request'
+  | 'superseded'
+  | 'deadline-expired'
+  | 'participant-not-ready'
+  | 'participant-disconnected'
+  | 'media-changed'
+  | 'binding-changed'
+  | 'start-rejected'
+  | 'start-timeout'
+  | 'unsupported-peer'
+  | 'legacy-peer'
+  | 'stale-operation'
+  | 'manual-recovery'
+
+/**
+ * The coordinator-side operation record. `requiredParticipantIds` is frozen
+ * for the operation and the other participant lists are monotonic evidence
+ * sets. `roomRevision` is intentionally absent: snapshot ordering must not
+ * be used as operation validity.
+ */
+export interface RoomOperation extends OperationIdentity {
+  kind: OperationKind
+  phase: OperationPhase
+  requiredParticipantIds: string[]
+  preparedParticipantIds: string[]
+  startedParticipantIds: string[]
+  targetPositionSeconds: number | null
+  effectiveAtServerMs: number | null
+  deadlineAtServerMs: number
+  reason?: OperationReason
+}
+
+export interface OperationAcknowledgement extends OperationObservationIdentity {
+  phase: 'prepared' | 'started'
+  participantId: string
+  observedPositionSeconds: number
+  observedAtLocalMs: number
+}
+
+export interface RoomContractSnapshot {
+  mode: RoomMode
+  mediaEpoch: number
+  sharedCapabilities: SyncCapability[]
+  operation: RoomOperation | null
+}
+
+/** Safe interpretation of a pre-contract snapshot or persisted room state. */
+export const LEGACY_ROOM_CONTRACT_DEFAULTS: RoomContractSnapshot = {
+  mode: 'legacy',
+  mediaEpoch: 0,
+  sharedCapabilities: [],
+  operation: null,
+}
+
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const ROOM_CODE_LENGTH = 8
 
@@ -122,6 +241,8 @@ export interface RoomSnapshot {
   participants: ParticipantState[]
   pendingJoinRequests: PendingJoinRequest[]
   policy: RoomPolicy
+  /** Optional until the coordinator transaction contract is negotiated. */
+  contract?: RoomContractSnapshot
 }
 
 export interface PlayerSample {
@@ -183,6 +304,7 @@ export type ClientMessage =
       name: string
       code: string
       media: MediaFingerprint | null
+      capabilities?: ClientCapabilities
     }
   | {
       type: 'join_room'
@@ -192,6 +314,7 @@ export type ClientMessage =
       code: string
       media: MediaFingerprint | null
       sessionToken?: string
+      capabilities?: ClientCapabilities
     }
   | {
       type: 'set_ready'
@@ -305,6 +428,204 @@ export interface ClientRoomState {
   serverOffsetMs: number
   clockUncertaintyMs: number
   lastError: string | null
+}
+
+export const CURRENT_CLIENT_CAPABILITIES: ClientCapabilities = {
+  contractVersion: OPERATION_CONTRACT_VERSION,
+  capabilities: [...TRANSACTIONAL_CAPABILITIES],
+}
+
+/** Missing or unknown advertisements are handled as legacy, never upgraded. */
+export const LEGACY_CLIENT_CAPABILITIES: ClientCapabilities = {
+  contractVersion: 0,
+  capabilities: [],
+}
+
+export function isCurrentOperation(current: OperationIdentity | null | undefined, candidate: OperationIdentity | null | undefined): boolean {
+  return current !== null && current !== undefined
+    && candidate !== null && candidate !== undefined
+    && current.mediaEpoch === candidate.mediaEpoch
+    && current.operationId === candidate.operationId
+}
+
+/** Snapshot ordering is independent from operation validity. */
+export function isSnapshotRevisionAtLeast(candidateRevision: number, currentRevision: number): boolean {
+  return isNonNegativeInteger(candidateRevision)
+    && isNonNegativeInteger(currentRevision)
+    && candidateRevision >= currentRevision
+}
+
+export function normalizeCapabilities(value: unknown): SyncCapability[] {
+  if (!Array.isArray(value) || value.length > MAX_CAPABILITIES)
+    return []
+  const capabilities: SyncCapability[] = []
+  for (const capability of value) {
+    if (!isSyncCapability(capability) || capabilities.includes(capability))
+      return []
+    capabilities.push(capability)
+  }
+  return capabilities
+}
+
+export function normalizeClientCapabilities(value: unknown): ClientCapabilities {
+  if (!isRecord(value) || !isNonNegativeInteger(value.contractVersion) || value.contractVersion !== OPERATION_CONTRACT_VERSION)
+    return { ...LEGACY_CLIENT_CAPABILITIES }
+  return {
+    contractVersion: value.contractVersion,
+    capabilities: normalizeCapabilities(value.capabilities),
+  }
+}
+
+export function supportsTransactionalOperations(capabilities: readonly SyncCapability[]): boolean {
+  return TRANSACTIONAL_CAPABILITIES.every(capability => capabilities.includes(capability))
+}
+
+/**
+ * Negotiation is deliberately fail-closed. A single missing or unknown peer
+ * keeps the room in legacy mode, and legacy mode cannot acknowledge a
+ * transactional operation. B02/B03 can therefore reject or rebuild an
+ * operation rather than silently shrinking its contract.
+ */
+export function negotiateRoomMode(advertisements: readonly CapabilityAdvertisement[]): RoomNegotiation {
+  const incompatibleParticipantIds: string[] = []
+  const validAdvertisements: CapabilityAdvertisement[] = []
+  const seenParticipantIds = new Set<string>()
+
+  for (const advertisement of advertisements) {
+    if (!validId(advertisement.participantId) || seenParticipantIds.has(advertisement.participantId))
+      continue
+    seenParticipantIds.add(advertisement.participantId)
+    const capabilities = normalizeClientCapabilities(advertisement.capabilities)
+    const compatible = capabilities.contractVersion === OPERATION_CONTRACT_VERSION
+      && supportsTransactionalOperations(capabilities.capabilities)
+    if (!compatible)
+      incompatibleParticipantIds.push(advertisement.participantId)
+    validAdvertisements.push({ participantId: advertisement.participantId, capabilities })
+  }
+
+  const sharedCapabilities = TRANSACTIONAL_CAPABILITIES.filter(capability => validAdvertisements.length > 0
+    && validAdvertisements.every(advertisement => advertisement.capabilities.capabilities.includes(capability)))
+
+  return {
+    mode: validAdvertisements.length > 0
+      && incompatibleParticipantIds.length === 0
+      && sharedCapabilities.length === TRANSACTIONAL_CAPABILITIES.length
+      ? 'transactional'
+      : 'legacy',
+    sharedCapabilities,
+    incompatibleParticipantIds,
+  }
+}
+
+export function canAcknowledgeOperation(
+  mode: RoomMode,
+  capabilities: readonly SyncCapability[],
+  operation: OperationIdentity | null | undefined,
+): boolean {
+  return mode === 'transactional'
+    && operation !== null
+    && operation !== undefined
+    && supportsTransactionalOperations(capabilities)
+}
+
+export function isOperationIdentity(value: unknown): value is OperationIdentity {
+  return isRecord(value)
+    && isNonNegativeInteger(value.mediaEpoch)
+    && validId(value.operationId)
+}
+
+export function isOperationObservationIdentity(value: unknown): value is OperationObservationIdentity {
+  if (!isRecord(value) || !isOperationIdentity(value))
+    return false
+  return validId(value.bindingId)
+    && isBoundedSafeInteger(value.sourceGeneration, MAX_SOURCE_GENERATION)
+    && isBoundedSafeInteger(value.sampleSequence, MAX_SAMPLE_SEQUENCE)
+}
+
+export function isRoomOperation(value: unknown): value is RoomOperation {
+  if (!isRecord(value)
+    || !isOperationIdentity(value)
+    || !isOperationKind(value.kind)
+    || !isOperationPhase(value.phase)
+    || !isParticipantIdList(value.requiredParticipantIds, true)
+    || !isParticipantIdList(value.preparedParticipantIds, false)
+    || !isParticipantIdList(value.startedParticipantIds, false)
+    || !isPositionOrNull(value.targetPositionSeconds)
+    || !isTimestampOrNull(value.effectiveAtServerMs)
+    || !isFiniteNonNegative(value.deadlineAtServerMs)
+    || (value.reason !== undefined && !isOperationReason(value.reason)))
+    return false
+
+  const required = new Set(value.requiredParticipantIds as string[])
+  const prepared = value.preparedParticipantIds as string[]
+  const started = value.startedParticipantIds as string[]
+  if (!prepared.every(participantId => required.has(participantId))
+    || !started.every(participantId => required.has(participantId)))
+    return false
+
+  const allPrepared = prepared.length === required.size && [...required].every(participantId => prepared.includes(participantId))
+  const allStarted = started.length === required.size && [...required].every(participantId => started.includes(participantId))
+  const terminal = value.phase === 'cancelled' || value.phase === 'failed'
+  if (terminal)
+    return value.reason !== undefined
+  if (value.reason !== undefined)
+    return false
+  if (value.phase === 'preparing')
+    return prepared.length === 0 && started.length === 0 && value.effectiveAtServerMs === null
+  if (value.phase === 'prepared')
+    return allPrepared && started.length === 0 && value.effectiveAtServerMs === null
+  if (value.phase === 'committed')
+    return allPrepared && started.length === 0 && value.effectiveAtServerMs !== null
+  return value.phase === 'started' && allPrepared && allStarted && value.effectiveAtServerMs !== null
+}
+
+export function parseOperationAcknowledgement(value: unknown): OperationAcknowledgement | null {
+  if (!isRecord(value)
+    || (value.phase !== 'prepared' && value.phase !== 'started')
+    || !isOperationObservationIdentity(value)
+    || !validId(value.participantId)
+    || !isFiniteNonNegative(value.observedPositionSeconds)
+    || !isFiniteNonNegative(value.observedAtLocalMs))
+    return null
+  return value as unknown as OperationAcknowledgement
+}
+
+/**
+ * Old persisted snapshots have no contract section. They are restored as a
+ * paused-safe legacy room with media epoch zero and no active operation. A
+ * malformed or partially written contract receives the same safe defaults.
+ */
+export function normalizeRoomContractSnapshot(value: unknown): RoomContractSnapshot {
+  if (!isRecord(value))
+    return cloneLegacyRoomContractDefaults()
+
+  const sharedCapabilities = normalizeCapabilities(value.sharedCapabilities)
+  const mediaEpoch = isNonNegativeInteger(value.mediaEpoch) ? value.mediaEpoch : 0
+  const mode = value.mode === 'transactional'
+    && supportsTransactionalOperations(sharedCapabilities)
+    ? 'transactional'
+    : 'legacy'
+  const operation = mode === 'transactional'
+    && isRoomOperation(value.operation)
+    && value.operation.mediaEpoch === mediaEpoch
+    ? value.operation
+    : null
+
+  return {
+    mode,
+    mediaEpoch,
+    sharedCapabilities,
+    operation,
+  }
+}
+
+function cloneLegacyRoomContractDefaults(): RoomContractSnapshot {
+  return {
+    mode: LEGACY_ROOM_CONTRACT_DEFAULTS.mode,
+    mediaEpoch: LEGACY_ROOM_CONTRACT_DEFAULTS.mediaEpoch,
+    sharedCapabilities: [],
+    operation: null,
+  }
 }
 
 export function mediaMatches(expected: MediaFingerprint | null, actual: MediaFingerprint | null): boolean {
@@ -421,12 +742,12 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
 
   switch (value.type) {
     case 'create_room':
-      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media))
+      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media) || (value.capabilities !== undefined && !validClientCapabilities(value.capabilities)))
         return null
       return { ...value, code: value.code.toUpperCase(), media: sanitizeMedia(value.media) } as unknown as ClientMessage
 
     case 'join_room':
-      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media) || (value.sessionToken !== undefined && !validSessionToken(value.sessionToken)))
+      if (value.protocolVersion !== PROTOCOL_VERSION || !validId(value.participantId) || !validName(value.name) || !validCode(value.code) || !validMedia(value.media) || (value.sessionToken !== undefined && !validSessionToken(value.sessionToken)) || (value.capabilities !== undefined && !validClientCapabilities(value.capabilities)))
         return null
       return { ...value, code: value.code.toUpperCase(), media: sanitizeMedia(value.media) } as unknown as ClientMessage
 
@@ -516,6 +837,17 @@ function validMedia(value: unknown): value is MediaFingerprint | null {
     && (value.pageUrl === undefined || validPageUrl(value.pageUrl))
 }
 
+function validClientCapabilities(value: unknown): value is ClientCapabilities {
+  if (!isRecord(value)
+    || (value.contractVersion !== 0 && value.contractVersion !== OPERATION_CONTRACT_VERSION)
+    || !Array.isArray(value.capabilities)
+    || value.capabilities.length > MAX_CAPABILITIES)
+    return false
+  const capabilities = value.capabilities as unknown[]
+  return capabilities.every(isSyncCapability)
+    && new Set(capabilities).size === capabilities.length
+}
+
 /**
  * Applies the per-provider pageUrl allowlist (normalizeMediaPageUrl) to an
  * already-validated MediaFingerprint before it is stored or broadcast, so
@@ -590,6 +922,66 @@ function validDiagnosticValue(value: unknown): value is DiagnosticValue {
     || typeof value === 'boolean'
     || typeof value === 'number' && Number.isFinite(value)
     || typeof value === 'string' && value.length <= 300
+}
+
+function isSyncCapability(value: unknown): value is SyncCapability {
+  return value === 'media-epoch'
+    || value === 'operation-identity'
+    || value === 'prepare-start'
+    || value === 'binding-sequence'
+}
+
+function isOperationKind(value: unknown): value is OperationKind {
+  return value === 'play'
+    || value === 'seek'
+    || value === 'navigation'
+    || value === 'recovery'
+}
+
+function isOperationPhase(value: unknown): value is OperationPhase {
+  return value === 'preparing'
+    || value === 'prepared'
+    || value === 'committed'
+    || value === 'started'
+    || value === 'cancelled'
+    || value === 'failed'
+}
+
+function isOperationReason(value: unknown): value is OperationReason {
+  return value === 'controller-request'
+    || value === 'superseded'
+    || value === 'deadline-expired'
+    || value === 'participant-not-ready'
+    || value === 'participant-disconnected'
+    || value === 'media-changed'
+    || value === 'binding-changed'
+    || value === 'start-rejected'
+    || value === 'start-timeout'
+    || value === 'unsupported-peer'
+    || value === 'legacy-peer'
+    || value === 'stale-operation'
+    || value === 'manual-recovery'
+}
+
+function isParticipantIdList(value: unknown, requireAtLeastOne: boolean): value is string[] {
+  if (!Array.isArray(value)
+    || value.length > MAX_OPERATION_PARTICIPANTS
+    || (requireAtLeastOne && value.length === 0))
+    return false
+  const seen = new Set<string>()
+  return value.every(participantId => validId(participantId) && !seen.has(participantId) && seen.add(participantId))
+}
+
+function isPositionOrNull(value: unknown): value is number | null {
+  return value === null || isFiniteNonNegative(value)
+}
+
+function isTimestampOrNull(value: unknown): value is number | null {
+  return value === null || isFiniteNonNegative(value)
+}
+
+function isBoundedSafeInteger(value: unknown, maximum: number): value is number {
+  return Number.isSafeInteger(value) && isNonNegativeInteger(value) && value <= maximum
 }
 
 function isControlKind(value: unknown): value is ControlKind {
