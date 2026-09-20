@@ -470,6 +470,13 @@ export class RoomCoordinator {
     if (!nextController || !nextController.connected)
       return this.failure('participant_unavailable', 'That participant is not connected.')
 
+    // A controller lease change invalidates the operation authority that
+    // created a pending seek. Cancel that barrier before changing the lease,
+    // otherwise its old revision could still collect acknowledgements and
+    // resume playback after control has moved to another participant.
+    if (this.pendingSeek)
+      this.pauseForMembershipChange()
+
     const current = this.participants.get(this.controllerId)
     if (current)
       current.role = 'member'
