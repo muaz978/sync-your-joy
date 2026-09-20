@@ -3,7 +3,7 @@
 Issue: [#57](https://github.com/muaz978/sync-your-joy/issues/57)
 Dependencies: [#55 / CR-B01](https://github.com/muaz978/sync-your-joy/issues/55), [#56 / CR-B02](https://github.com/muaz978/sync-your-joy/issues/56)
 Scope: extension capability advertisement, player-side preparation, current-play-attempt tracking, started evidence, operation acknowledgement transport, and backend wire dispatch
-Current status: implementation and final branch verification complete; PR review, PR metadata, merge and issue-closure gates remain separate
+Current status: implementation and final branch verification complete; PR #85 was reviewed and merged; issue #57 remains open in Verification for the remaining external acceptance gates
 
 ## 1. Problem statement and acceptance interpretation
 
@@ -271,3 +271,13 @@ Before merging the PR, the remaining work is:
 7. keep issue #57 open until the issue acceptance gates, live-provider gates where applicable, deployment and user acceptance are separately evidenced.
 
 The report does not authorize issue closure, release creation or `1.0.0`. It records the CR-B03 implementation and its evidence boundaries so later work does not repeat or silently upgrade an unverified result.
+
+## 9. Post-merge record
+
+PR [#85](https://github.com/muaz978/sync-your-joy/pull/85) was reviewed on source head `94185b75ad4fafcd4670c001a0caa6d1c282d608` and merged with the authorized administrator path at `2026-09-20T20:36:34Z`. The merge commit is `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`, and `origin/main` was fetched and verified to resolve to that exact SHA.
+
+The PR retained labels `enhancement`, `initiative: crunchyroll-sync`, `area: extension`, `area: sync-engine` and `area: testing`, assignee `muaz978`, milestone `M3/M5: reliability and real-device validation`, and the public project `SyncYourJoy Delivery and Reliability`. Its verified project values were status `In review` before merge, priority `P1 High`, work type `Feature`, evidence `Partial`, acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test`, risk `High`, blank blocked reason and target date, and verification owner `muaz978`.
+
+The formal owner review was recorded as `COMMENTED` because GitHub rejected self-approval for the repository owner. The review found no blocking correctness, authorization, privacy, or release-safety issue. The DevSkim `DS172411` timer advisory was replied to with the callback and bounded-delay data-flow analysis and the review thread was resolved. All five remote checks passed.
+
+Issue #57 received the detailed merge comment at [issue comment 5752504185](https://github.com/muaz978/sync-your-joy/issues/57#issuecomment-5752504185), was moved to project status `Verification`, remains `OPEN`, and was not closed. Live authenticated Crunchyroll playback, deployment, two-account or two-device acceptance, and user acceptance remain explicit gates. No release bump was made; `1.0.0` remains reserved for milestone completion.

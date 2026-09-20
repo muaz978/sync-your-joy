@@ -4158,6 +4158,149 @@
 - Temporary debug instrumentation was used only for diagnosis and was removed. It must not be included in the PR.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes, or DRM data were recorded.
 
+# Checkpoint 70 - CR-B03 PR publication, security review, merge, and issue Verification state
+
+## Session Metadata
+- Task or project: SyncYourJoy, systematic issue and pull-request completion
+- Checkpoint number: 70
+- Date and time: 2026-09-20, Europe/Istanbul
+- Coverage period: Continuation after Checkpoint 69, from final CR-B03 branch verification through PR #85 merge and issue #57 project-state update
+- Current context status: CR-B03 is merged into `main`; the retained source branch contains a post-merge documentation update and this checkpoint, which still need a final commit and push. Issue #57 remains OPEN in Verification.
+
+## User Objective and Requirements
+- Continue the dependency-aware issue sequence without skipping the current issue or moving on before its implementation, review, documentation, and merge gates are handled.
+- Review every PR before accepting or merging it. Owner self-approval may fail due GitHub permissions, in which case preserve the detailed owner review as `COMMENTED` and merge only after all checks and source review pass.
+- Add detailed documentation for every issue-specific PR and record root cause, baseline, implementation, files, exact verification, security and privacy analysis, environment limits, release impact, and the issue closure decision.
+- Add PR labels, assignee, milestone and public project fields, including custom status, priority, work type, evidence, acceptance gates, risk, blocked reason, target date and verification owner.
+- Treat the signed-in Crunchyroll account as available. Do not assume account absence from isolated test fixture limitations.
+- Commit and push everything. Keep issues open until all applicable gates pass. Do not bump `1.0.0` until the milestone is complete.
+
+## Current State
+- `origin/main`: `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`, the verified squash merge of CR-B03 PR #85.
+- Current local branch: `codex/issue-57-extension-ack`, source head before the post-merge documentation commit was `94185b75ad4fafcd4670c001a0caa6d1c282d608`.
+- PR #85: `https://github.com/muaz978/sync-your-joy/pull/85`, state `MERGED`, merge time `2026-09-20T20:36:34Z`.
+- Issue #57: `https://github.com/muaz978/sync-your-joy/issues/57`, state `OPEN`, public project status `Verification`.
+- The retained source branch now has an uncommitted post-merge update to `docs/CR_B03_EXTENSION_ACK_REPORT.md` and this checkpoint. It must be committed and pushed after this checkpoint is written.
+- Current package version remains `0.2.4`. No release was bumped.
+
+## Complete Chronological Activity Log
+
+### 2026-09-20 - Final CR-B03 branch verification and source review
+- Completed the final `npm run check`: typecheck passed, 30 Vitest files and 274 tests passed, room-service bundle passed, and extension build passed.
+- Reran `npm run verify:browser-packages` in the restricted environment. The macOS Safari converter again failed because it could not access the temporary staging path and reported that it could not parse `manifest.json`. This was recorded as an environment permission failure.
+- Reran the same browser-package command with approved host filesystem access. Chrome reported manifest version `0.2.4` and `service-worker.js`, Firefox reported manifest version `0.2.4` and `sidepanel.html`, and Safari macOS package smoke passed.
+- Confirmed the clean host-level `npm run test:e2e -- --grep "profile A creates a room"` result: 1 test passed in 16.7 seconds total, 8.7 seconds test execution. Temporary debug getters and wrappers had already been removed.
+- Ran `git diff --check`, which passed. Searched the source and E2E files for the temporary debug markers. Only documentation references to removed diagnostics and an existing generic test comment remained.
+- Reviewed the final diff. The changes were limited to the intended protocol, extension, backend, coordinator, tests, acceptance report and checkpoint files.
+- Staged the 14 CR-B03 files, committed them as `94185b7`, `feat: wire transactional acknowledgements in extension`, and pushed `origin/codex/issue-57-extension-ack`. The local and remote branch heads matched and the worktree was clean at that point.
+
+### PR #85 creation and metadata application
+- Created PR #85, `feat: apply transactional playback acknowledgement in extension`, at `https://github.com/muaz978/sync-your-joy/pull/85`.
+- The PR body was written to `/private/tmp/syj-cr-b03-pr.md` and published with a detailed root-cause and baseline section, implementation by subsystem, complete file list, exact local and remote verification, security and privacy review, external evidence boundary, review/merge policy and no automatic issue-closing keyword. It included `Refs #57`, `Depends on #55` and `Depends on #56`.
+- Attached PR #85 to the current Codex task with the pull-request artifact attachment.
+- An initial combined `gh pr edit` metadata command failed at the colon-containing custom label `initiative:crunchyroll-sync` even though the label exists. The partial command had already applied the assignee and milestone but no labels. This was not treated as completion.
+- Inspected the repository label list and applied the labels individually with quoting. Final PR labels were `enhancement`, `initiative: crunchyroll-sync`, `area: extension`, `area: sync-engine` and `area: testing`.
+- Verified the PR assignee is `muaz978` and milestone is `M3/M5: reliability and real-device validation`.
+- Used the signed-in Edge GitHub session to apply and visibly verify the public project `SyncYourJoy Delivery and Reliability` fields:
+  - status `In review`;
+  - priority `P1 High`;
+  - work type `Feature`;
+  - evidence state `Partial`;
+  - acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test`;
+  - risk `High`;
+  - blank blocked reason;
+  - blank target date / `No date`;
+  - verification owner `muaz978`.
+- The project initially auto-added the PR as `Todo`; it was explicitly moved to `In review` before formal review.
+- The signed-in Edge browser inventory still showed the Crunchyroll watchlist tab at provider tab ID `1711444487`, so no account-absence blocker was inferred.
+
+### Remote checks and advanced-security advisory
+- `gh pr checks 85` showed all five required checks passing: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim`, and Typecheck, test, and build.
+- The GitHub advanced-security bot added one `COMMENTED` DevSkim review thread at `apps/extension/src/content-script.ts:1261-1263`, rule `DS172411`, saying to review `setTimeout` for untrusted data. The check itself remained passing.
+- Queried the alert and review comment through GitHub APIs. The exact changed code passes a literal callback function, never a string; the delay is numeric and bounded to 0 through 1,000 milliseconds; server-derived timing affects only that delay; the callback clears the timer reference and calls current-state revalidation; cancellation clears the timer on pause, source replacement, detachment and supersession.
+- Determined the alert was a manual-review false positive, not a string-evaluated timer or untrusted-code execution path. No source change was required.
+- Posted a direct reply to the security thread at `https://github.com/muaz978/sync-your-joy/pull/85#discussion_r4058019409` with the data-flow analysis and passed-check evidence.
+- Resolved the review thread through GitHub's `resolveReviewThread` mutation. The resolution did not dismiss the repository security alert as a product vulnerability; it marked the PR conversation as reviewed and resolved.
+
+### Formal review and merge
+- Wrote `/private/tmp/syj-cr-b03-review.md` containing the exact-head review, sender authorization, lifecycle and stale-work analysis, coordinator timing corrections, advanced-security data-flow analysis, exact local and remote checks, privacy boundary and non-closure decision.
+- Attempted `gh pr review 85 --approve --body-file /private/tmp/syj-cr-b03-review.md`. GitHub rejected self-approval with `Review Can not approve your own pull request` because the authenticated account owns the repository.
+- Posted the same detailed review as an owner `COMMENTED` review. It recorded no blocking correctness, authorization, privacy or release-safety finding and was attached to the exact head `94185b7`.
+- Merged PR #85 with `gh pr merge 85 --squash --admin --delete-branch=false` after the review and all checks passed.
+- GitHub reported merge commit `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157` at `2026-09-20T20:36:34Z`. `git fetch origin main` then verified `git rev-parse origin/main` returned the same exact SHA.
+- The PR retained its labels, assignee, milestone and project metadata. Its final GitHub `reviewDecision` still reports `REVIEW_REQUIRED` because no write-access approval could be recorded, but the authorized administrator merge path was used only after the detailed source review and green checks.
+
+### Issue #57 post-merge documentation and state
+- Wrote `/private/tmp/syj-cr-b03-issue-57-merge.md` with the merge SHA, source head, exact checks, completed scope, security advisory resolution, signed-in-account clarification, remaining external gates, release decision and non-closure rationale.
+- Posted the detailed merge comment at `https://github.com/muaz978/sync-your-joy/issues/57#issuecomment-5752504185`.
+- Used the signed-in Edge GitHub session to move issue #57's public project status from `In Progress` to `Verification`. The page visibly continued to show issue state `Open`, assignee `muaz978`, the expected labels and milestone.
+- The issue was not closed. The unchecked issue acceptance checklist and Verification project status deliberately preserve the distinction between merged implementation, generic fixture evidence, live provider acceptance, deployment, and user acceptance.
+- Updated `docs/CR_B03_EXTENSION_ACK_REPORT.md` on the retained branch with a post-merge record containing PR #85, exact source and merge SHAs, project metadata, review limitation, security advisory resolution, issue comment and Verification/open decision. This post-merge documentation is not yet committed at the time of this checkpoint.
+
+### Current continuation point
+- CR-B03 implementation is complete and merged. The retained branch still needs one post-merge documentation/checkpoint commit and push.
+- The next systematic work item is the oldest remaining unprocessed issue after CR-B03, subject to a fresh issue-queue scan and dependency check. Issue #57 itself remains open for its remaining acceptance gates and must not be treated as closed.
+
+## Confirmed Successful Results
+- Final CR-B03 implementation, tests, acceptance report and checkpoint were committed as `94185b7` and pushed.
+- PR #85 was created with detailed documentation, correct labels, assignee, milestone, public project and custom project fields.
+- All five remote checks passed on the exact reviewed head.
+- The advanced-security `setTimeout` advisory was inspected, explained with data-flow evidence, replied to and resolved as a manual-review false positive. No untrusted string reaches timer execution.
+- Owner self-approval was attempted and correctly rejected by GitHub. The full review was preserved as `COMMENTED` and the authorized administrator merge path was used after review and green checks.
+- PR #85 merged at `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`, and `origin/main` independently verifies that SHA.
+- Issue #57 received the detailed merge comment, moved to `Verification`, remains `OPEN`, and was not closed.
+- The signed-in Crunchyroll account was treated as available. No account blocker was recorded.
+- No release bump occurred. Version `0.2.4` remains current and `1.0.0` remains reserved for milestone completion.
+
+## Failed, Incomplete, or Unresolved Work
+- The first combined PR metadata CLI command failed to add labels due to colon-label parsing. Individual quoted label commands succeeded, and final metadata was verified.
+- GitHub self-approval was rejected by design because the authenticated account owns the PR. The PR remains marked `REVIEW_REQUIRED` in GitHub metadata even though it was merged through the authorized administrator path after the owner review.
+- The restricted browser-package command still cannot provide macOS Safari converter access to its temporary path. The approved host-level rerun passed all three browser package checks.
+- Live authenticated Crunchyroll output, controlled headed provider acceptance, deployment, two-account/two-device behavior, user acceptance and release gating remain incomplete. The issue stays open.
+- The post-merge report update and Checkpoint 70 itself are currently uncommitted and must be committed and pushed to the retained branch.
+
+## Decisions and Rationale
+- The security advisory was not ignored. It was traced at the exact changed line, checked against the runtime data flow and security checks, directly answered and resolved as a false-positive review reminder.
+- No code rewrite was introduced solely to satisfy a generic DevSkim reminder because the implementation already uses a safe callback form, clamps the numeric delay, and revalidates current state. A needless timer abstraction would not improve the security property.
+- Administrator merge was used only after exact-head review and green checks because owner self-approval is prohibited by GitHub. This is an approval-permission limitation, not an unreviewed merge.
+- Issue #57 was moved to Verification rather than Done or closed because merged source and generic integration evidence do not establish live provider, deployment or user-acceptance success.
+- No release bump was made from one PR. A compatible grouped release remains a later milestone decision, with `1.0.0` reserved for complete acceptance.
+
+## Files and Artifacts
+- Source branch commit: `94185b75ad4fafcd4670c001a0caa6d1c282d608`
+- Merge commit: `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`
+- Acceptance report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B03_EXTENSION_ACK_REPORT.md`
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- PR body: `/private/tmp/syj-cr-b03-pr.md`
+- Formal review body: `/private/tmp/syj-cr-b03-review.md`
+- Issue merge body: `/private/tmp/syj-cr-b03-issue-57-merge.md`
+- PR #85: `https://github.com/muaz978/sync-your-joy/pull/85`
+- Issue #57: `https://github.com/muaz978/sync-your-joy/issues/57`
+- Issue merge comment: `https://github.com/muaz978/sync-your-joy/issues/57#issuecomment-5752504185`
+- Security review reply: `https://github.com/muaz978/sync-your-joy/pull/85#discussion_r4058019409`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+
+## Assumptions and Uncertainties
+- The public project UI is authoritative for custom fields because the CLI token lacks project-read scope.
+- The retained source branch is intentionally kept after merge so the post-merge report and checkpoint can be committed and pushed without rewriting `main`.
+- The generic two-profile E2E is local fixture evidence, not live Crunchyroll provider evidence.
+- The active signed-in Crunchyroll session is available, but a provider result is not inferred until the controlled headed gate is run against an appropriate candidate build and test procedure.
+
+## Open Questions, Blockers, and Dependencies
+- Issue #57 remains open for live-provider, deployment and user-acceptance gates.
+- The next issue must be selected by a fresh oldest-first queue scan after this checkpoint commit is pushed.
+- A grouped release bump may be considered only after the next coherent verified group. `1.0.0` remains reserved for milestone completion.
+
+## Next Steps
+1. Commit and push the post-merge report update and Checkpoint 70 to the retained branch.
+2. Re-scan the open issue queue, dependencies and project state, then select the next oldest unprocessed issue.
+3. Continue the same per-issue process: classify, implement, test, document, set metadata, review, merge and keep open until all gates pass.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-69 remain intact above. This checkpoint appends the entire CR-B03 PR publication, security-advisory review, merge and issue Verification transition.
+- The earlier Checkpoint 69 statement that merge and issue-state work were outstanding is superseded by the confirmed merged state in this Checkpoint 70. The external acceptance boundary remains unchanged.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes, or DRM data were recorded.
+
 ---
 
 # Checkpoint 68
