@@ -459,15 +459,15 @@ export async function createRoomService(options: { port?: number; host?: string 
   const cleanupTimer = setInterval(() => {
     const nowMs = Date.now()
     for (const [code, room] of rooms) {
-      const expiredSeek = room.coordinator.releaseExpiredSeek(nowMs)
-      if (expiredSeek?.ok)
-        broadcast(room, { type: 'room_snapshot', reason: expiredSeek.reason, snapshot: expiredSeek.snapshot })
-      const expiredOperation = room.coordinator.releaseExpiredOperation(nowMs)
-      if (expiredOperation?.ok)
-        broadcast(room, { type: 'room_snapshot', reason: expiredOperation.reason, snapshot: expiredOperation.snapshot })
-      const health = room.coordinator.evaluateHealth(nowMs)
-      if (health?.ok)
-        broadcast(room, { type: 'room_snapshot', reason: health.reason, snapshot: health.snapshot })
+      // Deadline methods are ordered by the state transition they may cause.
+      // Once one expires, the resulting snapshot is authoritative for this
+      // timer turn, so do not evaluate or broadcast a second transition from
+      // the same room before the next scheduled tick.
+      const deadlineResult = room.coordinator.releaseExpiredSeek(nowMs)
+        ?? room.coordinator.releaseExpiredOperation(nowMs)
+        ?? room.coordinator.evaluateHealth(nowMs)
+      if (deadlineResult?.ok)
+        broadcast(room, { type: 'room_snapshot', reason: deadlineResult.reason, snapshot: deadlineResult.snapshot })
       if (room.emptySinceMs !== null && nowMs - room.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
         rooms.delete(code)
         releaseRoomIpSlot(room.creatorIp)
