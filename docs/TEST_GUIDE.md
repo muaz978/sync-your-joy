@@ -19,6 +19,8 @@ For the CR-C01 stalled-play recovery record, use [`CR_C01_STALLED_PLAY_RECOVERY_
 
 For the CR-C02 diagnostic-report record, use [`CR_C02_DIAGNOSTIC_REPORTS.md`](CR_C02_DIAGNOSTIC_REPORTS.md). It defines the operation, media, binding and observation correlation fields, correction evidence, redaction rules, event coalescing and explicit payload truncation evidence.
 
+For the CR-D01 E2E artifact record, use [`CR_D01_E2E_ARTIFACTS.md`](CR_D01_E2E_ARTIFACTS.md). It defines unique build output, provenance hashes, sanitized profile logs, opt-in trace handling and the distinction between browser-launch/setup failures and product assertions.
+
 For the CR-C03 player and panel recovery record, use [`CR_C03_PLAYER_RECOVERY_REPORT.md`](CR_C03_PLAYER_RECOVERY_REPORT.md). It defines the bounded participant status vocabulary, the distinction between ready and confirmed native progress, reason-specific recovery actions, privacy limits and the separate live-provider and headed-browser acceptance gates.
 
 For the CR-C04 navigation transaction record, use [`CR_C04_NAVIGATION_TRANSACTION_REPORT.md`](CR_C04_NAVIGATION_TRANSACTION_REPORT.md). It defines manual shared-link epoch and cancellation ordering, same-episode no-op behavior, the disabled-by-default controller-follow policy, strong Crunchyroll identity requirements, deduplication and the separate SPA, headed-browser and live-provider gates.
@@ -254,8 +256,10 @@ npx playwright install chromium
 The test:
 
 1. Starts the room-service in-process on an ephemeral port (the same `createRoomService` helper `apps/room-service/src/server.test.ts` uses), so it never collides with a `npm run dev:server` you already have running or with another `test:e2e` run.
-2. Builds `apps/extension/dist` against that exact port and reuses it on a later run only if it is already built for the same port.
-3. Launches two persistent Chrome profiles in Chrome's `--headless=new` mode (set `SYNCYOURJOY_E2E_HEADED=1` to watch it run in a visible window instead) with `--load-extension` pointed at `apps/extension/dist`.
+2. Allocates a unique `test-results/e2e-<run-id>/` directory, records source, lockfile and configuration hashes in `provenance.json`, and builds a fresh extension into that run's `extension/` child directory. It never reuses an endpoint-only cache and does not overwrite the canonical `apps/extension/dist` output.
+3. Launches two persistent Chrome profiles in Chrome's `--headless=new` mode (set `SYNCYOURJOY_E2E_HEADED=1` to watch it run in a visible window instead) with `--load-extension` pointed at the isolated run output.
+
+Each profile writes a sanitized `<profile>.events.json` file containing lifecycle events and safe side-panel state checkpoints. Query strings, fragments, room codes, account data, cookies, storage states, page text and media data are not recorded. `run-summary.json` classifies browser-launch/setup failures separately from product assertions. Traces and videos are disabled by default. For a local fixture diagnostic only, explicit traces can be enabled with `SYNCYOURJOY_E2E_TRACE=1`; see [`CR_D01_E2E_ARTIFACTS.md`](CR_D01_E2E_ARTIFACTS.md) for the privacy boundary.
 
 This test is separate from `npm test` (Vitest) on purpose: it drives real browsers and a real extension, so it is slower and needs its own timeouts. It is not part of `.github/workflows/ci.yml` yet — wiring a dedicated, separately-tuned CI job for it is a deliberate follow-up, not an oversight.
 

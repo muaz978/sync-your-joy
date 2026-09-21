@@ -5,10 +5,16 @@
 // (`chromium.launchPersistentContext`); the default `chromium.launch()`
 // has no extension-loading flags at all, and there is no non-persistent
 // substitute for it in current Playwright.
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium, type BrowserContext, type Page } from '@playwright/test'
+import {
+  artifactFileName,
+  sanitizeBrowserUrl,
+  sanitizeError,
+  type SanitizedArtifactEvent,
+} from './artifact-utils.ts'
 
 export interface ExtensionProfile {
   context: BrowserContext
@@ -22,6 +28,8 @@ export interface ExtensionProfile {
    */
   panel: Page
   close: () => Promise<void>
+  recordEvent: (type: string, details?: Record<string, unknown>) => Promise<void>
+  recordState: (label: string) => Promise<void>
 }
 
 export interface ExtensionProfileOptions {
@@ -31,6 +39,10 @@ export interface ExtensionProfileOptions {
    * printed in test output.
    */
   storageState?: string
+  /** Directory for sanitized profile logs and optional trace output. */
+  artifactDirectory?: string
+  /** Start and explicitly stop a metadata-only Playwright trace. */
+  trace?: boolean
 }
 
 export async function launchExtensionProfile(
@@ -40,44 +52,160 @@ export async function launchExtensionProfile(
 ): Promise<ExtensionProfile> {
   const userDataDir = await mkdtemp(join(tmpdir(), `syncyourjoy-e2e-${label}-`))
   const headed = process.env.SYNCYOURJOY_E2E_HEADED === '1'
+  const events: SanitizedArtifactEvent[] = []
+  const artifactDirectory = options.artifactDirectory
+  const tracePath = options.trace && artifactDirectory
+    ? join(artifactDirectory, artifactFileName(label, 'trace.zip'))
+    : undefined
+  let context: BrowserContext | undefined
+  let traceStarted = false
+  let closed = false
 
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    ...(options.storageState ? { storageState: options.storageState } : {}),
-    // Chrome's classic headless mode never loaded extensions. Chrome's
-    // newer "--headless=new" mode does, so it is passed explicitly here
-    // rather than relying on Playwright's own `headless: true` (which, at
-    // least as of Playwright 1.63 / Chrome for Testing 153, still launches
-    // the classic mode and silently never spawns the extension's service
-    // worker). `SYNCYOURJOY_E2E_HEADED=1` runs a normal visible window for
-    // local debugging.
-    headless: false,
-    args: [
-      ...(headed ? [] : ['--headless=new']),
-      `--disable-extensions-except=${extensionDistDir}`,
-      `--load-extension=${extensionDistDir}`,
-      '--no-first-run',
-    ],
-  })
+  const recordEvent = async (type: string, details?: Record<string, unknown>): Promise<void> => {
+    events.push({ at: new Date().toISOString(), type, ...(details ? { details } : {}) })
+  }
 
-  let serviceWorker = context.serviceWorkers()[0]
-  if (!serviceWorker)
-    serviceWorker = await context.waitForEvent('serviceworker', { timeout: 20_000 })
-  const extensionId = new URL(serviceWorker.url()).host
+  const writeArtifacts = async (): Promise<void> => {
+    if (!artifactDirectory)
+      return
+    await mkdir(artifactDirectory, { recursive: true })
+    await writeFile(join(artifactDirectory, artifactFileName(label, 'events.json')), `${JSON.stringify({
+      schemaVersion: 1,
+      profile: label,
+      events,
+    }, null, 2)}\n`)
+  }
 
-  const panel = await context.newPage()
-  await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`)
-  await panel.waitForSelector('#create-form, #join-form')
-  const privacyAccept = panel.locator('#privacy-accept')
-  if (await privacyAccept.count() > 0)
-    await privacyAccept.click()
+  try {
+    const browserContext = await chromium.launchPersistentContext(userDataDir, {
+      ...(options.storageState ? { storageState: options.storageState } : {}),
+      // Chrome's classic headless mode never loaded extensions. Chrome's
+      // newer "--headless=new" mode does, so it is passed explicitly here
+      // rather than relying on Playwright's own `headless: true` (which, at
+      // least as of Playwright 1.63 / Chrome for Testing 153, still launches
+      // the classic mode and silently never spawns the extension's service
+      // worker). `SYNCYOURJOY_E2E_HEADED=1` runs a normal visible window for
+      // local debugging.
+      headless: false,
+      args: [
+        ...(headed ? [] : ['--headless=new']),
+        `--disable-extensions-except=${extensionDistDir}`,
+        `--load-extension=${extensionDistDir}`,
+        '--no-first-run',
+      ],
+    })
+    context = browserContext
+    await recordEvent('browser-launched', { headed, extensionOutput: sanitizeBrowserUrl(`file://${extensionDistDir}`) })
+    if (tracePath) {
+      await browserContext.tracing.start({ screenshots: false, snapshots: false, sources: false })
+      traceStarted = true
+      await recordEvent('trace-started', { trace: artifactFileName(label, 'trace.zip') })
+    }
+    browserContext.on('page', page => {
+      void recordEvent('page-created', { url: sanitizeBrowserUrl(page.url()) })
+      page.on('framenavigated', frame => {
+        if (frame === page.mainFrame())
+          void recordEvent('page-navigated', { url: sanitizeBrowserUrl(frame.url()) })
+      })
+    })
 
+    let serviceWorker = browserContext.serviceWorkers()[0]
+    if (!serviceWorker)
+      serviceWorker = await browserContext.waitForEvent('serviceworker', { timeout: 20_000 })
+    const extensionId = new URL(serviceWorker.url()).host
+    await recordEvent('service-worker-ready', { extensionId })
+
+    const panel = await browserContext.newPage()
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`)
+    await panel.waitForSelector('#create-form, #join-form')
+    const privacyAccept = panel.locator('#privacy-accept')
+    if (await privacyAccept.count() > 0)
+      await privacyAccept.click()
+    await recordEvent('panel-ready', { url: sanitizeBrowserUrl(panel.url()) })
+
+    return {
+      context: browserContext,
+      extensionId,
+      panel,
+      recordEvent,
+      recordState: async (stateLabel: string) => {
+        const safeState = await readSafePanelState(panel)
+        await recordEvent('panel-state', { label: stateLabel, state: safeState })
+      },
+      close: async () => {
+        if (closed)
+          return
+        closed = true
+        await recordEvent('profile-close-requested')
+        if (traceStarted && tracePath) {
+          try {
+            await browserContext.tracing.stop({ path: tracePath })
+            await recordEvent('trace-stopped', { trace: artifactFileName(label, 'trace.zip') })
+          }
+          catch (error) {
+            await recordEvent('trace-stop-failure', { error: sanitizeError(error) })
+          }
+        }
+        await writeArtifacts()
+        await browserContext.close().catch(() => undefined)
+        await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined)
+      },
+    }
+  }
+  catch (error) {
+    await recordEvent('browser-launch-failure', { error: sanitizeError(error) })
+    if (traceStarted && tracePath && context) {
+      await context.tracing.stop({ path: tracePath }).catch(() => undefined)
+    }
+    await writeArtifacts()
+    await context?.close().catch(() => undefined)
+    await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined)
+    throw new Error(`[browser-launch] ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export async function launchExtensionProfiles(
+  extensionDistDir: string,
+  profiles: Array<{ label: string, options?: ExtensionProfileOptions }>,
+): Promise<[ExtensionProfile, ExtensionProfile]> {
+  if (profiles.length !== 2)
+    throw new Error('launchExtensionProfiles requires exactly two profiles.')
+  const results = await Promise.allSettled(profiles.map(profile => launchExtensionProfile(
+    extensionDistDir,
+    profile.label,
+    profile.options,
+  )))
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failure) {
+    await Promise.all(results
+      .filter((result): result is PromiseFulfilledResult<ExtensionProfile> => result.status === 'fulfilled')
+      .map(result => result.value.close()))
+    throw failure.reason
+  }
+  return [
+    (results[0] as PromiseFulfilledResult<ExtensionProfile>).value,
+    (results[1] as PromiseFulfilledResult<ExtensionProfile>).value,
+  ]
+}
+
+async function readSafePanelState(panel: Page): Promise<Record<string, unknown>> {
+  const visible = async (selector: string): Promise<boolean> => {
+    const locator = panel.locator(selector).first()
+    return await locator.count() > 0 && await locator.isVisible({ timeout: 500 }).catch(() => false)
+  }
+  const enabled = async (selector: string): Promise<boolean> => {
+    const locator = panel.locator(selector).first()
+    return await locator.count() > 0 && await locator.isEnabled({ timeout: 500 }).catch(() => false)
+  }
   return {
-    context,
-    extensionId,
-    panel,
-    close: async () => {
-      await context.close().catch(() => undefined)
-      await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined)
-    },
+    url: sanitizeBrowserUrl(panel.url()),
+    createFormVisible: await visible('#create-form'),
+    joinFormVisible: await visible('#join-form'),
+    roomVisible: await visible('#copy-code'),
+    sharedLinkVisible: await visible('#shared-video-url'),
+    readyVisible: await visible('#ready-button'),
+    readyEnabled: await enabled('#ready-button'),
+    primaryControlVisible: await visible('#primary-control'),
+    primaryControlEnabled: await enabled('#primary-control'),
   }
 }

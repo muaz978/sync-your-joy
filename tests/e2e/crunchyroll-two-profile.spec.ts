@@ -9,7 +9,7 @@ import { access } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
-import { launchExtensionProfile, type ExtensionProfile } from './extension-profile.ts'
+import { launchExtensionProfiles, type ExtensionProfile } from './extension-profile.ts'
 import {
   assertBothProviderVideosAdvance,
   assertProviderPositionsConverge,
@@ -62,10 +62,17 @@ test.describe('authenticated Crunchyroll two-profile playback', () => {
       return
     await Promise.all([config.storageStateA, config.storageStateB].map(path => access(path)))
     const dist = process.env.SYNCYOURJOY_E2E_EXTENSION_DIST ?? extensionDistDir
-    ;[profileA, profileB] = await Promise.all([
-      launchExtensionProfile(dist, 'crunchyroll-a', { storageState: config.storageStateA }),
-      launchExtensionProfile(dist, 'crunchyroll-b', { storageState: config.storageStateB }),
+    const artifactDirectory = process.env.SYNCYOURJOY_E2E_ARTIFACT_DIR
+    const trace = process.env.SYNCYOURJOY_E2E_TRACE === '1'
+    const profileOptions = {
+      ...(artifactDirectory ? { artifactDirectory } : {}),
+      trace,
+    }
+    ;[profileA, profileB] = await launchExtensionProfiles(dist, [
+      { label: 'crunchyroll-a', options: { ...profileOptions, storageState: config.storageStateA } },
+      { label: 'crunchyroll-b', options: { ...profileOptions, storageState: config.storageStateB } },
     ])
+    await Promise.all([profileA.recordState('initial'), profileB.recordState('initial')])
   })
 
   test.afterAll(async () => {
@@ -87,6 +94,7 @@ test.describe('authenticated Crunchyroll two-profile playback', () => {
     await profileA.panel.waitForSelector('[data-approve-join]', { timeout: 15_000 })
     await profileA.panel.click('[data-approve-join]')
     await profileB.panel.waitForSelector('#copy-code')
+    await Promise.all([profileA.recordState('room-created'), profileB.recordState('room-joined')])
 
     const profileAProviderPagePromise = profileA.context.waitForEvent('page')
     const profileBProviderPagePromise = profileB.context.waitForEvent('page')
@@ -104,9 +112,11 @@ test.describe('authenticated Crunchyroll two-profile playback', () => {
     await profileB.panel.waitForSelector('#ready-button', { timeout: 20_000 })
     await profileA.panel.click('#ready-button')
     await profileB.panel.click('#ready-button')
+    await Promise.all([profileA.recordState('ready-clicked'), profileB.recordState('ready-clicked')])
     await profileA.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 20_000 })
 
     await profileA.panel.click('#primary-control')
+    await Promise.all([profileA.recordState('play-requested'), profileB.recordState('play-requested')])
     await assertBothProviderVideosAdvance(profileAProviderPage, profileBProviderPage)
     await assertProviderPositionsConverge(profileAProviderPage, profileBProviderPage)
 
@@ -131,6 +141,7 @@ test.describe('authenticated Crunchyroll two-profile playback', () => {
 
     await profileA.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 15_000 })
     await profileA.panel.click('#primary-control')
+    await Promise.all([profileA.recordState('pause-requested'), profileB.recordState('pause-requested')])
     await Promise.all([
       waitForProviderPaused(profileAProviderPage),
       waitForProviderPaused(profileBProviderPage),

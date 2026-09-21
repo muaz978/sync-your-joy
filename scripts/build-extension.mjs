@@ -9,7 +9,8 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const root = resolve(scriptDirectory, '..')
 const sourceDirectory = resolve(root, 'apps/extension/src')
 const staticDirectory = resolve(root, 'apps/extension/static')
-const outputDirectory = resolve(root, 'apps/extension/dist')
+const configuredOutputDirectory = process.env.SYNCYOURJOY_EXTENSION_OUTPUT_DIR
+const outputDirectory = resolve(root, configuredOutputDirectory ?? 'apps/extension/dist')
 const roomServerUrl = process.env.SYNCYOURJOY_ROOM_SERVER_URL ?? 'ws://127.0.0.1:8787/rooms'
 const browserTarget = process.env.SYNCYOURJOY_BROWSER === 'firefox' ? 'firefox' : 'chrome'
 
