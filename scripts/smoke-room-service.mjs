@@ -1,4 +1,4 @@
-import { generateRoomCode } from '@syncyourjoy/protocol'
+import { CURRENT_CLIENT_CAPABILITIES, generateRoomCode } from '@syncyourjoy/protocol'
 import WebSocket from 'ws'
 
 const baseUrl = process.argv[2] ?? process.env.SYNCYOURJOY_ROOM_SERVER_URL
@@ -32,6 +32,7 @@ try {
     name: 'Deployment host',
     code,
     media: null,
+    capabilities: CURRENT_CLIENT_CAPABILITIES,
   }))
   const created = await host.waitFor(message => message.type === 'room_joined')
 
@@ -53,6 +54,7 @@ try {
     name: 'Deployment friend',
     code: roomCode,
     media: null,
+    capabilities: CURRENT_CLIENT_CAPABILITIES,
   }))
   await friend.waitFor(message => message.type === 'room_joined')
   const pendingNotice = await host.waitFor(message => message.type === 'room_snapshot' && message.reason === 'join_pending')
@@ -102,46 +104,42 @@ try {
   await host.waitFor(message => message.type === 'pong' && message.id === 'ping_smoke_test')
   const roundTripMs = Date.now() - pingSentAt
 
-  host.socket.send(JSON.stringify({
-    type: 'control',
+  const playingPair = await completeTransactionalOperation(host, friend, {
     actionId: 'action_smoke_play',
     basedOnRevision: ready.snapshot.revision,
     leaseEpoch: ready.snapshot.controller.leaseEpoch,
     kind: 'play',
     positionSeconds: 12,
-  }))
-  const playing = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.playback.status === 'playing')
-  const friendPlaying = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.playback.status === 'playing')
+  })
+  const playing = playingPair.host
+  const friendPlaying = playingPair.friend
 
   if (playing.snapshot.revision !== friendPlaying.snapshot.revision)
     throw new Error('Clients received different authoritative revisions.')
   if (playing.snapshot.playback.effectiveAtServerMs !== friendPlaying.snapshot.playback.effectiveAtServerMs)
     throw new Error('Clients received different effective playback times.')
 
-  host.socket.send(JSON.stringify({
-    type: 'control',
+  const seekStartedAt = Date.now()
+  const soughtPair = await completeTransactionalOperation(host, friend, {
     actionId: 'action_smoke_seek',
     basedOnRevision: playing.snapshot.revision,
     leaseEpoch: playing.snapshot.controller.leaseEpoch,
     kind: 'seek',
     positionSeconds: 137,
-  }))
-  const sought = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.seek?.positionSeconds === 137)
-  const friendSought = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.seek?.positionSeconds === 137)
+  })
+  const sought = soughtPair.host
+  const friendSought = soughtPair.friend
   if (sought.snapshot.revision !== friendSought.snapshot.revision)
     throw new Error('Clients received different seek revisions.')
+  if (sought.snapshot.contract?.mode !== 'transactional'
+    || sought.snapshot.contract.operation?.phase !== 'started'
+    || sought.snapshot.playback.positionSeconds !== 137)
+    throw new Error('The transactional seek did not reach started state at its fixed target.')
+  const seekResumed = sought
+  const seekBarrierMs = Date.now() - seekStartedAt
 
-  const seekBarrierStartedAt = Date.now()
-  host.socket.send(JSON.stringify({ type: 'seek_applied', revision: sought.snapshot.revision, positionSeconds: 137 }))
-  friend.socket.send(JSON.stringify({ type: 'seek_applied', revision: sought.snapshot.revision, positionSeconds: 137 }))
-  const seekResumed = await host.waitFor(message => message.type === 'room_snapshot'
-    && message.snapshot.revision > sought.snapshot.revision
-    && message.snapshot.seek === null
-    && message.snapshot.playback.status === 'playing'
-    && message.snapshot.playback.positionSeconds === 137)
-  await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === seekResumed.snapshot.revision)
-  const seekBarrierMs = Date.now() - seekBarrierStartedAt
-
+  const timeoutPendingHost = host.waitFor(message => message.type === 'room_snapshot' && message.reason === 'control_seek_pending')
+  const timeoutPendingFriend = friend.waitFor(message => message.type === 'room_snapshot' && message.reason === 'control_seek_pending')
   host.socket.send(JSON.stringify({
     type: 'control',
     actionId: 'action_smoke_timeout_seek',
@@ -150,18 +148,30 @@ try {
     kind: 'seek',
     positionSeconds: 155,
   }))
-  const timeoutSeek = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.seek?.positionSeconds === 155)
-  await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === timeoutSeek.snapshot.revision)
+  const [timeoutSeek] = await Promise.all([timeoutPendingHost, timeoutPendingFriend])
+  const timeoutOperation = timeoutSeek.snapshot.contract?.operation
+  if (!timeoutOperation)
+    throw new Error('Expected a transactional timeout operation.')
   const timeoutStartedAt = Date.now()
-  host.socket.send(JSON.stringify({ type: 'seek_applied', revision: timeoutSeek.snapshot.revision, positionSeconds: 155 }))
-  const timeoutReleased = await host.waitFor(message => message.type === 'room_snapshot'
-    && message.reason === 'seek_timeout_paused'
-    && message.snapshot.seek === null
+  const timeoutReleasedHost = host.waitFor(message => message.type === 'room_snapshot'
+    && message.reason === 'operation_timeout_paused'
+    && message.snapshot.contract?.operation?.phase === 'failed'
     && message.snapshot.playback.status === 'paused'
     && message.snapshot.playback.positionSeconds === 155)
-  await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === timeoutReleased.snapshot.revision)
+  const timeoutReleasedFriend = friend.waitFor(message => message.type === 'room_snapshot'
+    && message.reason === 'operation_timeout_paused'
+    && message.snapshot.contract?.operation?.phase === 'failed'
+    && message.snapshot.playback.status === 'paused'
+    && message.snapshot.playback.positionSeconds === 155)
+  host.socket.send(JSON.stringify({
+    type: 'operation_ack',
+    acknowledgement: operationAcknowledgement(timeoutOperation, 'participant_smoke_host', 'prepared', 155, 1),
+  }))
+  const [timeoutReleased] = await Promise.all([timeoutReleasedHost, timeoutReleasedFriend])
   const seekTimeoutReleaseMs = Date.now() - timeoutStartedAt
 
+  const rapidPause = host.waitFor(message => message.type === 'room_snapshot' && message.reason === 'control_pause')
+  const rapidPauseFriend = friend.waitFor(message => message.type === 'room_snapshot' && message.reason === 'control_pause')
   host.socket.send(JSON.stringify({
     type: 'control',
     actionId: 'action_smoke_rapid_pause',
@@ -170,16 +180,16 @@ try {
     kind: 'pause',
     positionSeconds: 137,
   }))
-  host.socket.send(JSON.stringify({
-    type: 'control',
+  const [paused] = await Promise.all([rapidPause, rapidPauseFriend])
+  const rapidPair = await completeTransactionalOperation(host, friend, {
     actionId: 'action_smoke_rapid_play',
-    basedOnRevision: timeoutReleased.snapshot.revision,
-    leaseEpoch: timeoutReleased.snapshot.controller.leaseEpoch,
+    basedOnRevision: paused.snapshot.revision,
+    leaseEpoch: paused.snapshot.controller.leaseEpoch,
     kind: 'play',
     positionSeconds: 137,
-  }))
-  const rapidPlaying = await host.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision >= timeoutReleased.snapshot.revision + 2 && message.snapshot.playback.status === 'playing')
-  const friendRapidPlaying = await friend.waitFor(message => message.type === 'room_snapshot' && message.snapshot.revision === rapidPlaying.snapshot.revision)
+  })
+  const rapidPlaying = rapidPair.host
+  const friendRapidPlaying = rapidPair.friend
   if (rapidPlaying.snapshot.playback.effectiveAtServerMs !== friendRapidPlaying.snapshot.playback.effectiveAtServerMs)
     throw new Error('Clients received different rapid-control effective times.')
   const scheduledLeadMs = rapidPlaying.snapshot.playback.effectiveAtServerMs - Date.now()
@@ -219,6 +229,7 @@ try {
     seekBarrierMs,
     seekTimeoutReleaseMs,
     scheduledLeadMs,
+    transactionalContractVerified: true,
     diagnosticsParticipants: diagnosticResponses.map(message => message.participantId).sort(),
     staleBufferingProtected: true,
     startupBufferingProtected: true,
@@ -227,6 +238,67 @@ try {
 finally {
   host.socket.close()
   friend?.socket.close()
+}
+
+async function completeTransactionalOperation(host, friend, intent) {
+  const pendingHost = host.waitFor(message => message.type === 'room_snapshot' && message.reason === `control_${intent.kind}_pending`)
+  const pendingFriend = friend.waitFor(message => message.type === 'room_snapshot' && message.reason === `control_${intent.kind}_pending`)
+  host.socket.send(JSON.stringify({ type: 'control', ...intent }))
+  const [pending] = await Promise.all([pendingHost, pendingFriend])
+  if (pending.snapshot.contract?.mode !== 'transactional')
+    throw new Error(`Expected transactional mode for ${intent.kind}.`)
+  const operation = pending.snapshot.contract.operation
+  if (!operation)
+    throw new Error(`Expected a transactional ${intent.kind} operation.`)
+
+  const preparedHost = host.waitFor(message => message.type === 'room_snapshot' && message.reason === 'operation_participant_prepared')
+  const preparedFriend = friend.waitFor(message => message.type === 'room_snapshot' && message.reason === 'operation_participant_prepared')
+  host.socket.send(JSON.stringify({
+    type: 'operation_ack',
+    acknowledgement: operationAcknowledgement(operation, 'participant_smoke_host', 'prepared', intent.positionSeconds, 1),
+  }))
+  await Promise.all([preparedHost, preparedFriend])
+
+  const committedHost = host.waitFor(message => message.type === 'room_snapshot' && message.reason === 'operation_committed')
+  const committedFriend = friend.waitFor(message => message.type === 'room_snapshot' && message.reason === 'operation_committed')
+  friend.socket.send(JSON.stringify({
+    type: 'operation_ack',
+    acknowledgement: operationAcknowledgement(operation, 'participant_smoke_friend', 'prepared', intent.positionSeconds, 1),
+  }))
+  const [committed, committedPeer] = await Promise.all([committedHost, committedFriend])
+
+  const waitForEffectiveTimeMs = Math.max(0, committed.snapshot.playback.effectiveAtServerMs - Date.now() + 20)
+  await new Promise(resolve => setTimeout(resolve, waitForEffectiveTimeMs))
+  const startedHost = host.waitFor(message => message.type === 'room_snapshot' && message.reason === 'operation_participant_started')
+  const startedFriend = friend.waitFor(message => message.type === 'room_snapshot' && message.reason === 'operation_participant_started')
+  host.socket.send(JSON.stringify({
+    type: 'operation_ack',
+    acknowledgement: operationAcknowledgement(operation, 'participant_smoke_host', 'started', intent.positionSeconds, 2),
+  }))
+  await Promise.all([startedHost, startedFriend])
+
+  const completedHost = host.waitFor(message => message.type === 'room_snapshot' && message.reason === 'operation_started')
+  const completedFriend = friend.waitFor(message => message.type === 'room_snapshot' && message.reason === 'operation_started')
+  friend.socket.send(JSON.stringify({
+    type: 'operation_ack',
+    acknowledgement: operationAcknowledgement(operation, 'participant_smoke_friend', 'started', intent.positionSeconds, 2),
+  }))
+  const [started, startedPeer] = await Promise.all([completedHost, completedFriend])
+  return { host: started, friend: startedPeer, committed, committedPeer }
+}
+
+function operationAcknowledgement(operation, participantId, phase, positionSeconds, sampleSequence) {
+  return {
+    mediaEpoch: operation.mediaEpoch,
+    operationId: operation.operationId,
+    phase,
+    participantId,
+    bindingId: `binding_${participantId}`,
+    sourceGeneration: 0,
+    sampleSequence,
+    observedPositionSeconds: positionSeconds,
+    observedAtLocalMs: Date.now(),
+  }
 }
 
 function diagnosticReport(label) {

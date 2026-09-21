@@ -55,6 +55,8 @@ export interface InternalPendingJoinRequest {
 }
 
 export interface RoomCoordinatorState {
+  /** Version 2 is the first state shape with an explicit contract boundary. */
+  stateVersion?: number
   identity: RoomIdentity
   revision: number
   leaseEpoch: number
@@ -69,6 +71,8 @@ export interface RoomCoordinatorState {
   pendingJoinRequests?: InternalPendingJoinRequest[]
   contract?: RoomContractSnapshot
 }
+
+export const ROOM_STATE_VERSION = 2
 
 export interface ControlIntent {
   actionId: string
@@ -126,10 +130,13 @@ export class RoomCoordinator {
         this.actionIds.add(actionId)
       this.navigation = restoredState.navigation ?? null
       this.controlRevisionFloor = restoredState.controlRevisionFloor ?? restoredState.revision
-      this.pendingSeek = restoredState.pendingSeek ? structuredClone(restoredState.pendingSeek) : null
+      const restoredPendingSeek = normalizeRestoredPendingSeek(restoredState.pendingSeek)
       for (const request of restoredState.pendingJoinRequests ?? [])
         this.pendingJoinRequests.set(request.id, structuredClone(request))
       this.contract = normalizeRoomContractSnapshot(restoredState.contract)
+      this.pendingSeek = restoredState.contract === undefined ? null : restoredPendingSeek
+      if (restoredState.contract === undefined)
+        this.migratePreContractState(restoredPendingSeek)
       this.refreshNegotiation()
       return
     }
@@ -181,6 +188,7 @@ export class RoomCoordinator {
 
   exportState(): RoomCoordinatorState {
     return {
+      stateVersion: ROOM_STATE_VERSION,
       identity: { ...this.identity },
       revision: this.revision,
       leaseEpoch: this.leaseEpoch,
@@ -1059,6 +1067,26 @@ export class RoomCoordinator {
     }
   }
 
+  /**
+   * State written before CR-B02 had no contract section, but it could still
+   * contain a legacy pending seek. That seek's acknowledgement list is
+   * historical evidence from the old state machine, not preparation evidence
+   * for a new operation. Drop the barrier and resume paused at its fixed
+   * target so neither a late ACK nor a mixed-version client can restart it.
+   */
+  private migratePreContractState(restoredPendingSeek: SharedSeek | null): void {
+    const positionSeconds = restoredPendingSeek?.positionSeconds ?? this.playback.positionSeconds
+    this.pendingSeek = null
+    this.playback = {
+      status: 'paused',
+      positionSeconds: this.clampToMediaDuration(Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0),
+      effectiveAtServerMs: this.now(),
+      playbackRate: 1,
+    }
+    this.revision += 1
+    this.markStateBarrier()
+  }
+
   private commandLeadMs(): number {
     const latencies = [...this.participants.values()]
       .filter(participant => participant.connected && participant.latencyMs !== null)
@@ -1115,5 +1143,25 @@ export class RoomCoordinator {
 
   private failure(code: string, message: string): RoomResult {
     return { ok: false, code, message, snapshot: this.snapshot() }
+  }
+}
+
+function normalizeRestoredPendingSeek(value: unknown): SharedSeek | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    return null
+  const candidate = value as Record<string, unknown>
+  if (!Number.isSafeInteger(candidate.revision) || typeof candidate.revision !== 'number' || candidate.revision < 0
+    || typeof candidate.positionSeconds !== 'number' || !Number.isFinite(candidate.positionSeconds) || candidate.positionSeconds < 0
+    || typeof candidate.resumeWhenReady !== 'boolean'
+    || typeof candidate.deadlineAtServerMs !== 'number' || !Number.isFinite(candidate.deadlineAtServerMs) || candidate.deadlineAtServerMs < 0
+    || !Array.isArray(candidate.acknowledgedParticipantIds)
+    || !candidate.acknowledgedParticipantIds.every(participantId => typeof participantId === 'string'))
+    return null
+  return {
+    revision: candidate.revision,
+    positionSeconds: candidate.positionSeconds,
+    resumeWhenReady: candidate.resumeWhenReady,
+    deadlineAtServerMs: candidate.deadlineAtServerMs,
+    acknowledgedParticipantIds: [...candidate.acknowledgedParticipantIds],
   }
 }

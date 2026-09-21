@@ -197,6 +197,74 @@ describe('room service', () => {
     friend.close()
   })
 
+  it('keeps an old-client mixed room on legacy transport and ignores transactional acknowledgements', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const legacyFriend = await connect(service.url)
+    const media = {
+      service: 'youtube',
+      canonicalId: 'youtube:mixed-version',
+      title: 'Mixed-version test video',
+      durationSeconds: 600,
+    }
+
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'MIXED123', media,
+      capabilities: CURRENT_CLIENT_CAPABILITIES,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+
+    const pendingHost = nextRoomSnapshot(host, 'join_pending')
+    legacyFriend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_old', name: 'Legacy', code: created.snapshot.code, media,
+    }))
+    await nextMessage(legacyFriend)
+    const pending = await pendingHost
+    const approvedHost = nextRoomSnapshot(host, 'join_approved')
+    const approvedFriend = nextRoomSnapshot(legacyFriend, 'join_approved')
+    host.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_old', approve: true, actionId: 'action_approve_mixed',
+      basedOnRevision: pending.snapshot.revision, leaseEpoch: pending.snapshot.controller.leaseEpoch,
+    }))
+    await Promise.all([approvedHost, approvedFriend])
+
+    host.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    await Promise.all([
+      nextRoomSnapshot(host, 'participant_ready'),
+      nextRoomSnapshot(legacyFriend, 'participant_ready'),
+    ])
+    legacyFriend.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    const [hostReady] = await Promise.all([
+      nextRoomSnapshot(host, 'participant_ready'),
+      nextRoomSnapshot(legacyFriend, 'participant_ready'),
+    ])
+    expect(hostReady.snapshot.contract?.mode).toBe('legacy')
+
+    const playingHost = nextRoomSnapshot(host, 'control_play')
+    const playingFriend = nextRoomSnapshot(legacyFriend, 'control_play')
+    host.send(JSON.stringify({
+      type: 'control', actionId: 'action_mixed_play', basedOnRevision: hostReady.snapshot.revision,
+      leaseEpoch: hostReady.snapshot.controller.leaseEpoch, kind: 'play', positionSeconds: 0,
+    }))
+    const [playing] = await Promise.all([playingHost, playingFriend])
+    expect(playing.snapshot.contract?.mode).toBe('legacy')
+    expect(playing.snapshot.contract?.operation).toBeNull()
+
+    host.send(JSON.stringify({
+      type: 'operation_ack',
+      acknowledgement: {
+        mediaEpoch: 0, operationId: 'operation_mixed_123456', phase: 'prepared', participantId: 'participant_host',
+        bindingId: 'binding_host_123456', sourceGeneration: 0, sampleSequence: 1,
+        observedPositionSeconds: 0, observedAtLocalMs: 10_000,
+      },
+    }))
+    await expectNoMessage(host)
+    host.close()
+    legacyFriend.close()
+  })
+
   it('pauses a connected silent player from the cleanup timer and broadcasts one transition', async () => {
     service = await createRoomService({ port: 0 })
     const host = await connect(service.url)
