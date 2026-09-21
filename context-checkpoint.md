@@ -3988,6 +3988,121 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Context Checkpoint 91
+
+## Session Metadata
+
+- Task or project: SyncYourJoy private Chrome extension and edge room coordinator
+- Checkpoint number: 91
+- Date and time: 2026-09-21, Europe/Istanbul
+- Coverage period: PR #95 security-corrected review and merge through issue #67 reconciliation and next-issue selection
+- Current context status: CR-D02 is merged and reconciled. Issue #67 remains OPEN in `Verification`. The next active issue is #68, CR-D03.
+
+## User Objective and Requirements
+
+- Continue systematically after each reviewed merge.
+- Preserve a detailed record of source changes, failures, security findings, checks, review, merge and issue/project reconciliation.
+- Keep every issue open until all applicable acceptance gates are directly evidenced.
+- Review before merge, apply labels/assignee/milestone/project fields, commit and push every repository change.
+- Do not claim Crunchyroll or DRM acceptance from owned deterministic fixtures.
+- Keep version `0.2.4` and reserve `1.0.0` for broader milestone completion.
+
+## Current State
+
+- Repository: `https://github.com/muaz978/sync-your-joy`
+- Workspace: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy`
+- Active retained branch after merge: `codex/issue-67-fixtures`, with remote source through corrective commit `44b569244ffe0392136cc6b4faef06cd50167125`. The branch is retained for traceability.
+- Verified `origin/main`: `950d64192898dd05238babf9100be64605a5b604`, merge commit for PR #95.
+- PR #95: merged at `https://github.com/muaz978/sync-your-joy/pull/95`.
+- PR #95 exact reviewed head: `44b569244ffe0392136cc6b4faef06cd50167125`.
+- PR #95 formal review: `https://github.com/muaz978/sync-your-joy/pull/95#pullrequestreview-5270212199`, review ID `5270212199`, state `COMMENTED` because owner self-approval is prohibited.
+- PR #95 fresh hosted checks: all five passed on the corrective head, including CodeQL, Analyze (javascript-typescript), DevSkim, devskim and Typecheck, test, and build.
+- Issue #67: OPEN, project status `Verification`, assignee `muaz978`, canonical labels `enhancement`, `initiative:crunchyroll-sync`, `area: testing`, milestone `M3/M5: reliability and real-device validation`, public project `SyncYourJoy Delivery and Reliability`.
+- Issue #67 custom fields verified: P1 High, Test coverage, Partial, six acceptance gates, High risk, blank blocked reason, no target date, verification owner `muaz978`.
+- Issue #67 checklist verified through the live issue UI: all three deterministic criteria checked.
+- Issue #67 merge evidence comment: `https://github.com/muaz978/sync-your-joy/issues/67#issuecomment-5765334910`.
+- Next dependency-valid issue: #68, `CR-D03: Execute the complete local browser matrix`, which depends on #54, #61, #62, #63, #64, #67 and CR-C04. The listed dependencies are merged or now verified, so #68 is selected for the next implementation cycle.
+
+## Complete Chronological Activity Log
+
+### PR #95 exact-head review and merge
+
+- After the corrective commit `44b5692` was pushed, `gh pr checks 95 --watch` returned fresh passing results for all hosted checks. The final API view confirmed head `44b569244ffe0392136cc6b4faef06cd50167125`, all five successful check runs and no new CodeQL or DevSkim alerts.
+- The PR project item was opened in Edge. Its status was changed from `Todo` to `In review`.
+- PR custom fields were populated and saved in Edge: Priority `P1 High`, Work type `Test coverage`, Evidence state `Partial`, Acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test`, `User acceptance`, Risk `High`, and Verification owner `muaz978`. Blocked reason was left blank and target date left unset.
+- A detailed review was submitted with `gh pr review 95 --comment --body-file /private/tmp/syj-cr-d02-review.md`. It recorded the exact head, security fixes, fresh hosted checks, local checks, privacy boundary and reason the issue must remain open. GitHub recorded it as `COMMENTED` with review ID `5270212199` due the owner self-approval rule.
+- Merge was performed only after the exact-head review and all fresh checks: `gh pr merge 95 --merge --admin --delete-branch=false`.
+- `gh pr view 95` verified state `MERGED`, merged time `2026-09-21T18:15:24Z`, head `44b569244ffe0392136cc6b4faef06cd50167125` and merge commit `950d64192898dd05238babf9100be64605a5b604`.
+- `git fetch origin main` advanced `origin/main` from `74b6018` to `950d641`, and `git rev-parse origin/main` verified the exact merge SHA.
+- PR #95 was attached to the Codex task as a pull-request artifact.
+
+### Issue #67 post-merge reconciliation
+
+- The detailed merge comment was posted to issue #67 at `https://github.com/muaz978/sync-your-joy/issues/67#issuecomment-5765334910`. It includes exact source and merge SHAs, review state, implementation list, local/hosted verification, security closure and explicit non-claims.
+- The live Edge issue UI was opened. The project status changed from `In Progress` to `Verification`.
+- The three issue acceptance checkboxes were initially resistant to direct `setChecked` and click calls. Direct click produced transient state, but rapid subsequent updates reverted earlier values. The reliable interaction was focusing each checkbox and pressing `Space` with a wait between updates. Final UI verification showed all three checked:
+  1. two minutes of owned media plus delay/missing/disjoint/rate-reset behavior;
+  2. top-document, nested-frame, open-shadow, SPA and node-replacement scenarios;
+  3. deterministic timing and explicit separation from Crunchyroll/DRM emulation.
+- Issue #67 was not closed. Its remaining gates include authenticated provider behavior, DRM/protected visible output, two-account and two-device acceptance, deployment and user acceptance.
+- A fresh issue inventory was run. The next dependency-linked implementation issue is #68, CR-D03, followed by release/package issue #69 after its full dependency chain.
+
+## Confirmed Successful Results
+
+- PR #95 is merged and `origin/main` is verified at `950d64192898dd05238babf9100be64605a5b604`.
+- The exact final PR head was reviewed and all hosted security and CI checks passed.
+- Issue #67 has detailed merge documentation, correct metadata, `Verification` status and all three deterministic acceptance checkboxes checked.
+- Issue #67 remains OPEN as required.
+- The next issue selection is dependency-valid: #68 depends on the completed CR-D02 fixture and earlier merged reliability items.
+
+## Failed, Incomplete, or Unresolved Work
+
+- The initial direct checkbox automation for issue #67 did not persist all values when clicked rapidly. The interaction method was corrected and the final live UI state was verified with all three checked.
+- Issue #67's external provider and user-acceptance gates remain incomplete by design.
+- No release version bump was made. Version `0.2.4` remains current.
+- Issue #68 has not yet been metadata-reconciled or started in this checkpoint.
+
+## Decisions and Rationale
+
+- Keep deterministic fixture work separate from live-provider acceptance. Passing the owned MSE fixture does not establish Crunchyroll playback.
+- Move issue #67 to `Verification`, not `Done` or closed, because only the deterministic portion of the acceptance criteria is complete.
+- Select #68 next because it is the next dependency-valid implementation issue and explicitly depends on #67, while #69 is a later release/package gate with a larger dependency chain.
+- Keep the retained PR branch for traceability, consistent with previous post-merge checkpoint practice.
+
+## Files and Artifacts
+
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- CR-D02 report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_D02_ADAPTIVE_FIXTURES.md`
+- PR #95: `https://github.com/muaz978/sync-your-joy/pull/95`
+- PR review: `https://github.com/muaz978/sync-your-joy/pull/95#pullrequestreview-5270212199`
+- Issue #67 merge record: `https://github.com/muaz978/sync-your-joy/issues/67#issuecomment-5765334910`
+- Next issue: `https://github.com/muaz978/sync-your-joy/issues/68`
+
+## Assumptions and Uncertainties
+
+- Project custom fields are verified through Edge because the CLI token lacks project-read scope.
+- The signed-in Crunchyroll Edge tab remains available for the later controlled headed-provider gate. No isolated storage-state file was inferred from that availability.
+- The next issue's exact implementation shape will be determined after reading its acceptance and existing E2E harness, not by assuming the issue body file paths are still current.
+
+## Open Questions, Blockers, and Dependencies
+
+- Start #68 with a plan comment and metadata reconciliation.
+- Its headed-browser execution may require user-visible browser permission or account interaction only when that gate is reached. No account blocker is assumed now.
+- Keep #68 open until its local matrix, sustained progress and fault-injection evidence are complete.
+
+## Next Steps
+
+1. Create a branch from verified `origin/main` for issue #68.
+2. Inspect the existing E2E harness and all #68 dependencies, then post a detailed plan comment and set project fields/status `In Progress`.
+3. Implement and verify the local browser matrix with exact destinations, sustained paired drift/progress and fault cases.
+4. Document, commit, push, open a metadata-complete PR, review exact head, merge only after fresh checks, and move #68 to `Verification` without closing it prematurely.
+
+## Historical Checkpoint Notes
+
+- Checkpoint 90 records the first PR #95 hosted security findings and their local corrective implementation before push.
+- Checkpoint 91 supersedes the pre-merge next steps from Checkpoint 90 with the confirmed merge and issue reconciliation.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Context Checkpoint 90
 
 ## Session Metadata
