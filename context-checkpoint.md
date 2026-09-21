@@ -3988,6 +3988,160 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 86 - CR-C04 reviewed merge, issue verification and continuation
+
+## Session Metadata
+- Task or project: SyncYourJoy CR-C04 coordinated episode navigation transaction
+- Checkpoint number: 86
+- Date and time: 2026-09-21, Europe/Istanbul
+- Coverage period: From the user's request to verify the current review, merge only after review, and continue, through issue #65 metadata reconciliation after PR #93 merge and the pending next-issue queue scan.
+- Current context status: PR #93 is reviewed and merged. Issue #65 remains open in `Verification`. The CR-C04 source implementation is on the retained branch `codex/issue-65-navigation-transaction`; the branch currently ends at the source commit `c7d6921e1d941be684c9f640ada65f4c90327e41` and the post-merge checkpoint still needs to be committed and pushed.
+
+## User Objective and Requirements
+- Verify the exact final pull-request head, perform a real review, and merge only after that review.
+- Continue the systematic open-PR-before-open-issue workflow, oldest and dependency aware.
+- Document every implementation, review, verification, merge and limitation in the PR and issue records.
+- Apply labels, assignee, milestone and public project metadata to future PRs and issues.
+- Keep issues open until every applicable acceptance gate is actually evidenced. Do not mark deterministic source evidence as live provider, deployment, multi-account, multi-device or user acceptance.
+- Treat the user's signed-in Crunchyroll account and controlled Edge session as available. Do not describe missing isolated automation fixtures as an absent account.
+- Commit and push all source and documentation changes.
+- Keep version `0.2.4` until a coherent verified group is complete, and reserve `1.0.0` for complete milestone acceptance.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 - Queue and CR-C04 selection
+- Continued after PRs #89, #90, #91 and #92 had already been reviewed and merged, with issues #61, #62, #63 and #64 retained open in `Verification` where their external gates were not complete.
+- Confirmed that no open pull requests remained before selecting the next implementation issue.
+- Selected issue #65, `CR-C04: Make episode changes a coordinated navigation transaction`, because it was the next dependency-valid reliability issue after CR-C03 and depends on earlier media identity, operation, extension transaction and player recovery work.
+- Kept issue #65 open and posted the planning/classification record at `https://github.com/muaz978/sync-your-joy/issues/65#issuecomment-5762551645`.
+- Added or verified issue metadata including assignee `muaz978`, labels `area: extension`, `area: protocol`, `area: sync-engine`, `area: testing`, `enhancement` and `initiative:crunchyroll-sync`, and milestone `M3/M5: reliability and real-device validation`.
+- Linked issue #65 to the public project `SyncYourJoy Delivery and Reliability` and preserved blank blocked-reason and target-date values because no actual blocker or date was established.
+
+### 2026-09-21 - CR-C04 implementation and source review corrections
+- Implemented the protocol-side navigation identity helper in `packages/protocol/src/index.ts` as `mediaMatchesPageUrl(expected, pageUrl)`. It normalizes the page URL and reuses canonical media identity comparison. Crunchyroll matching requires a real `crunchyroll.com` subdomain and `/watch/<ID>` route, so a lookalike hostname cannot satisfy the identity check.
+- Added protocol regression tests in `packages/protocol/src/index.test.ts` for localized same-episode URLs, different episodes, non-Crunchyroll lookalikes and weak generic identities.
+- Updated `packages/sync-engine/src/room.ts` so `openLink` treats the same canonical media or current navigation target as `navigation_unchanged`, with no revision, epoch, playback, readiness or operation mutation. A new media link pauses the room, increments the media epoch, clears the old operation, marks participants unready and nonmatching, assigns `wrong-media`, and starts the new navigation transaction at paused zero playback.
+- Added room coverage in `packages/sync-engine/src/room.test.ts` for same-link preservation and new-link transaction cancellation, epoch increment, pause/reset and participant readiness behavior.
+- Added `apps/extension/src/navigation-transaction.ts` with a fail-closed controller-follow policy. The policy requires the feature flag, controller role, current lease, strong observed Crunchyroll watch identity, a changed observed media identity and deduplication of already-followed targets. `CONTROLLER_FOLLOW_NAVIGATION_ENABLED` remains `false` by default.
+- Added `apps/extension/src/navigation-transaction.test.ts` for strong identity acceptance, login and page-wrapper rejection, non-provider rejection, disabled feature behavior, role and lease checks, new-episode following and duplicate suppression.
+- Updated `apps/extension/src/service-worker.ts` to evaluate observed media under that policy and to keep the default path passive. The diagnostic key is reset on fresh connection and room leave.
+- Added the service-worker regression in `apps/extension/src/service-worker.test.ts` proving that an observed new episode does not auto-follow while the feature is disabled.
+- Added the detailed report at `docs/CR_C04_NAVIGATION_TRANSACTION_REPORT.md` and linked it from `docs/TEST_GUIDE.md`.
+- During implementation verification, the first focused navigation test exposed that a `page:` wrapper could be normalized into a strong identity. The policy was corrected to reject that wrapper before identity extraction.
+- Source review also identified the risk that a non-Crunchyroll lookalike URL could pass generic parsing. The real-host and `/watch/<ID>` checks were added, followed by a regression test.
+
+### 2026-09-21 - Exact-head verification
+- Ran the focused command:
+  `npm exec vitest run packages/protocol/src/index.test.ts packages/sync-engine/src/room.test.ts apps/extension/src/navigation-transaction.test.ts apps/extension/src/service-worker.test.ts apps/extension/src/content-script.test.ts`.
+- The focused result was 5 files and 162 tests passed.
+- Ran `npm run check`. The full result was 34 test files and 310 tests passed, including repository TypeScript checks, edge-service typecheck, room-service build and extension build.
+- Ran `npm audit --audit-level=high`. It reported 0 vulnerabilities.
+- Ran `npm run release:check-version`. The version remained `0.2.4`.
+- Ran `npm run verify:browser-packages` with the required macOS filesystem permission for the Safari conversion path. Chrome and Firefox reported `0.2.4`, and the macOS Safari smoke passed.
+- Ran `git diff --check`, which passed.
+- Committed the CR-C04 implementation as `c7d6921e1d941be684c9f640ada65f4c90327e41` with message `feat: coordinate episode navigation transactions` and pushed `origin/codex/issue-65-navigation-transaction`.
+- Opened PR #93 at `https://github.com/muaz978/sync-your-joy/pull/93` with a detailed body covering the root cause, implementation, files, exact source head, tests, security and privacy boundaries, account availability, release decision and the distinction between deterministic and live-provider evidence.
+- Applied and verified PR labels `enhancement`, `initiative:crunchyroll-sync`, `area: extension`, `area: protocol` and `area: testing`, assignee `muaz978`, and milestone `M3/M5: reliability and real-device validation`.
+- Verified the public project linkage and set the PR project status to `In review`. A UI interaction temporarily changed the status to `No status`; this was immediately corrected and reverified.
+- Set and verified PR project fields: `P1 High`, `Feature`, `Partial`, acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test` and `User acceptance`, risk `High`, verification owner `muaz978`, blank blocked reason and no target date.
+- Verified all hosted checks for PR #93 passed: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim`, and Typecheck, test, and build.
+
+### 2026-09-21 - Formal review before merge
+- Created the detailed review body at `/private/tmp/syj-cr-c04-review.md`.
+- The review covered the exact source head `c7d6921e1d941be684c9f640ada65f4c90327e41`, protocol identity matching, room transaction behavior, fail-closed controller-follow policy, documentation, focused and full verification, security and privacy boundaries, the account and live-provider evidence distinction, PR metadata and the release decision.
+- Attempted `gh pr review 93 --approve --body-file /private/tmp/syj-cr-c04-review.md`. GitHub correctly rejected owner self-approval with `Review Can not approve your own pull request`.
+- Posted the same detailed review as a `COMMENTED` review using `gh pr review 93 --comment --body-file /private/tmp/syj-cr-c04-review.md`.
+- Independently verified the review through the GitHub API. Review ID `5268405460` is `COMMENTED`, is attached to commit `c7d6921e1d941be684c9f640ada65f4c90327e41`, and was submitted at `2026-09-21T15:20:05Z`. The review recorded no blocking or high-severity finding.
+
+### 2026-09-21 - Authorized merge and remote identity verification
+- After the exact-head review and all checks passed, merged PR #93 with the user-authorized administrator command `gh pr merge 93 --merge --admin --delete-branch=false`.
+- Verified PR #93 is `MERGED` with merge commit `666712881444d3cd7f342a8e71a2b39ec94d1ce7`, merged at `2026-09-21T15:20:24Z`.
+- Verified the five hosted checks remained successful after merge.
+- The first sandboxed `git fetch origin main` failed because the sandbox could not open `.git/FETCH_HEAD` and reported `Operation not permitted`. This was an environment permission failure, not a Git or repository failure.
+- Reran the fetch with approved filesystem access. `origin/main` resolved to `666712881444d3cd7f342a8e71a2b39ec94d1ce7`.
+- Independently verified with `git ls-remote` that `refs/heads/main` is `666712881444d3cd7f342a8e71a2b39ec94d1ce7` and the retained source branch is still at `c7d6921e1d941be684c9f640ada65f4c90327e41`.
+- Wrote and posted the detailed issue merge record at `https://github.com/muaz978/sync-your-joy/issues/65#issuecomment-5762939864`. It records the final source head, review ID, merge SHA, remote verification, implementation, tests, security boundary, remaining gates, metadata and release decision.
+
+### 2026-09-21 - Issue #65 project metadata reconciliation
+- Reloaded the issue project panel and verified issue #65 remains visibly `Open` and is not closed.
+- Verified assignee `muaz978`, the expected area and initiative labels, public project `SyncYourJoy Delivery and Reliability`, milestone `M3/M5: reliability and real-device validation`, and project status `Verification`.
+- Verified project fields `P1 High`, `Feature`, `Partial`, acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test` and `User acceptance`, risk `High`, blank blocked reason, no target date and verification owner `muaz978`.
+- The three issue acceptance checklist items remain unchecked. This is intentional because implementation and deterministic checks do not prove the outstanding live-provider, two-account or two-device, deployment and user-acceptance gates.
+- The existing signed-in Crunchyroll account remains available for the later controlled headed gate. No claim was made that account presence alone proves authenticated playback or multi-account readiness.
+
+## Confirmed Successful Results
+- PR #93 was reviewed at exact source head `c7d6921e1d941be684c9f640ada65f4c90327e41` and merged into `main` at `666712881444d3cd7f342a8e71a2b39ec94d1ce7`.
+- The formal review is recorded as GitHub review ID `5268405460`, state `COMMENTED`, because the owner cannot approve their own pull request.
+- All five hosted PR checks passed on the final source head and remained successful after merge.
+- Focused local verification passed with 5 files and 162 tests. Full `npm run check` passed with 34 test files and 310 tests, including typechecks and builds.
+- `npm audit --audit-level=high` reported 0 vulnerabilities.
+- Browser package verification passed for Chrome `0.2.4`, Firefox `0.2.4` and macOS Safari smoke.
+- `git diff --check` passed and the exact remote `main` SHA was independently verified.
+- PR and issue records contain detailed documentation, labels, assignee, milestone and public project linkage. PR #93 is merged and issue #65 remains open in `Verification`.
+- Issue #65 project metadata now has `High` risk and verification owner `muaz978`, in addition to the previously verified fields.
+- The coordinated navigation implementation and its regression coverage are documented in [CR_C04_NAVIGATION_TRANSACTION_REPORT.md](/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_C04_NAVIGATION_TRANSACTION_REPORT.md) and [TEST_GUIDE.md](/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md).
+- No release was bumped. Version `0.2.4` remains current and `1.0.0` remains reserved for complete milestone acceptance.
+
+## Failed, Incomplete, or Unresolved Work
+- GitHub owner self-approval is unavailable. The attempted approval failed with the expected permission error, and the detailed `COMMENTED` review is the recorded review artifact.
+- The first sandboxed remote fetch failed to open `.git/FETCH_HEAD`; the same verification succeeded after approved filesystem access.
+- Issue #65 is not fully closed. The remaining gates include direct headed Crunchyroll visible-output acceptance, two-account or two-profile acceptance where applicable, two-device acceptance, deployment verification and explicit user acceptance.
+- The issue checklist remains unchecked until those gates are directly evidenced.
+- No release bump or browser installation was performed for CR-C04 because the deterministic source and package evidence were complete without deployment, and a single issue does not justify a compatible release.
+- The next open-issue selection has not yet been performed in this checkpoint. It must begin with a fresh open-PR and open-issue scan rather than relying on an earlier queue snapshot.
+
+## Decisions and Rationale
+- Review precedes merge. The PR was not merged until the exact source head had been inspected, all checks had passed and the detailed review had been posted.
+- A `COMMENTED` review is used transparently when GitHub prevents the owner from approving their own pull request. It is not represented as an approval.
+- Issue #65 remains open in `Verification` rather than being closed because deterministic implementation evidence and hosted checks do not cover live provider behavior, device topology, deployment or user acceptance.
+- The user's signed-in Crunchyroll account is treated as available. Missing isolated provider storage-state fixtures are an automation limitation, not an account blocker.
+- The public project is used to make state, risk, evidence, ownership and acceptance gates visible to contributors. Issue checklists remain separate from project custom fields and are not marked complete by inference.
+- No release bump is justified for CR-C04 alone. The next bump will be considered only after a coherent verified group, with `1.0.0` reserved for full milestone completion.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Protocol implementation and tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.ts`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.test.ts`
+- Coordinator implementation and tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.test.ts`
+- Extension policy and tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/navigation-transaction.ts`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/navigation-transaction.test.ts`
+- Extension service-worker changes and tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.ts`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.test.ts`
+- CR-C04 report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_C04_NAVIGATION_TRANSACTION_REPORT.md`
+- Test guide: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- PR body: `/private/tmp/syj-cr-c04-pr.md`
+- Review body: `/private/tmp/syj-cr-c04-review.md`
+- Issue merge documentation: `/private/tmp/syj-cr-c04-issue-65-merge.md`
+- PR #93: `https://github.com/muaz978/sync-your-joy/pull/93`
+- Issue #65: `https://github.com/muaz978/sync-your-joy/issues/65`
+- PR review: `https://github.com/muaz978/sync-your-joy/pull/93#pullrequestreview-5268405460`
+- Issue planning comment: `https://github.com/muaz978/sync-your-joy/issues/65#issuecomment-5762551645`
+- Issue merge comment: `https://github.com/muaz978/sync-your-joy/issues/65#issuecomment-5762939864`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+- Final reviewed source head: `c7d6921e1d941be684c9f640ada65f4c90327e41`
+- Merge commit: `666712881444d3cd7f342a8e71a2b39ec94d1ce7`
+
+## Assumptions and Uncertainties
+- GitHub's public project UI is authoritative for custom project values because the available CLI token does not expose the required project-read scope.
+- The retained branch intentionally remains separate from `main` after merge so the post-merge checkpoint can be committed and pushed without changing the merge commit.
+- Package and browser smoke results are deterministic package evidence, not live Crunchyroll playback, deployment or user acceptance.
+- The active signed-in Crunchyroll session is available, but a second account, profile, device, deployment target and user-acceptance result are not inferred.
+
+## Open Questions, Blockers, and Dependencies
+- Perform a fresh queue scan after this checkpoint commit. Confirm that no open PR exists, then select the oldest dependency-valid open issue.
+- The next issue must be chosen from current GitHub state, not from a stale issue-number assumption.
+- Controlled headed Crunchyroll observation can use the already signed-in Edge session when the selected issue reaches that gate.
+- Request a second account, profile, device, deployment action or explicit user-acceptance action only when the exact acceptance gate requires it.
+
+## Next Steps
+1. Commit and push this complete checkpoint update to `origin/codex/issue-65-navigation-transaction`, preserving the merged `main` SHA.
+2. Verify the local and remote checkpoint commit, branch status, `origin/main` merge SHA and clean worktree state.
+3. Re-scan open PRs and open issues, order the open issues by creation date and dependency validity, and select the next oldest actionable issue.
+4. Start the next issue with metadata verification and a detailed planning comment, then follow the same source, regression, verification, documentation, review, merge and non-closure gates.
+5. Revisit a compatible release bump only after a coherent verified group. Keep `1.0.0` reserved for milestone completion.
+
+## Historical Checkpoint Notes
+- Earlier checkpoint content remains preserved. This record is appended after the existing CR-B01 section and records the complete CR-C04 lifecycle represented in the current working context.
+- Any earlier state describing PR #93 as pending review or issue #65 as lacking risk or verification owner is superseded by the confirmed state above.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 82 - CR-C02 diagnostic report implementation before PR
 
 ## Session Metadata
