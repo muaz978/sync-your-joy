@@ -42,6 +42,7 @@ let expectedSeek: { positionSeconds: number; until: number } | null = null
 let pendingSeek: { token: OperationToken; positionSeconds: number; since: number; lastAttemptAt: number; roomRevision: number | null; timedOut?: boolean } | null = null
 let seekRecoveryUntil = 0
 let hardCorrectionAttempted = false
+let correctionCount = 0
 let playbackRecoveryRequested = false
 let softCorrectionAttempted = false
 let softCorrectionActive = false
@@ -665,6 +666,7 @@ function resetPlayerOperations(): void {
 
 function resetCorrectionBudget(): void {
   hardCorrectionAttempted = false
+  correctionCount = 0
   playbackRecoveryRequested = false
   softCorrectionAttempted = false
   softCorrectionActive = false
@@ -916,6 +918,7 @@ function currentPlayerSample(target: HTMLVideoElement): PlayerSample {
     progressEvidence: playerHealth.progressEvidence,
     playbackStartFailed: playerHealth.playbackStartFailed,
     playbackStarted: playbackStarted || (!target.paused && target.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA),
+    correctionCount,
   }
 }
 
@@ -948,6 +951,7 @@ function playerDiagnostics(target: HTMLVideoElement): PlayerDiagnostics {
       progressEvidence: playerHealth.progressEvidence,
       hasRealPlaybackProgress: playerHealth.hasRealPlaybackProgress,
       playbackStartFailed: playerHealth.playbackStartFailed,
+      correctionCount,
     },
     locked: lockedVideo === target,
   }
@@ -1071,7 +1075,10 @@ function applyAuthoritativeState(): void {
       video.pause()
     }
     const previousPendingSeek = pendingSeek
-    if (!trySetProgrammaticPosition(correction.positionSeconds)) {
+    const seekApplied = trySetProgrammaticPosition(correction.positionSeconds)
+    if (pendingSeek !== null && pendingSeek !== previousPendingSeek)
+      correctionCount += 1
+    if (!seekApplied) {
       if (pendingSeek !== null && pendingSeek !== previousPendingSeek)
         hardCorrectionAttempted = true
       return
@@ -1107,6 +1114,7 @@ function tryApplySoftCorrection(playbackRate: number): boolean {
   }
   softCorrectionAttempted = true
   softCorrectionActive = true
+  correctionCount += 1
   softCorrectionStartedAt = performance.now()
   softCorrectionRate = playbackRate
   if (rateResetTimer)

@@ -184,8 +184,31 @@ describe('media identity matching', () => {
       mediaService: 'html5',
       mediaCanonicalId: 'page:https://video.example/watch/42',
       mediaPageUrl: 'https://video.example/watch/42',
-      sample: null,
-      events: [{ atLocalMs: 9_900, category: 'playback', message: 'player_status', details: { paused: false } }],
+      sample: {
+        positionSeconds: 42,
+        durationSeconds: 1_000,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: 9_900,
+        correctionCount: 2,
+      },
+      events: [{ atLocalMs: 9_900, category: 'playback', message: 'player_status', details: { paused: false }, critical: true }],
+      mediaEpoch: 3,
+      operationId: 'operation_seek_123456',
+      operationKind: 'seek',
+      operationPhase: 'started',
+      bindingId: 'binding_123456',
+      sourceGeneration: 2,
+      sampleSequence: 8,
+      targetPositionSeconds: 42,
+      observedPositionSeconds: 42,
+      progressConfidence: 'frames',
+      observationAgeMs: 100,
+      correctionCount: 2,
+      reason: 'stalled',
+      eventsDropped: 1,
+      eventsCoalesced: 4,
+      payloadTruncated: false,
     }
     expect(parseClientMessage({ type: 'diagnostics_response', reportId: 'report_123456', report })).toMatchObject({
       type: 'diagnostics_response',
@@ -195,6 +218,16 @@ describe('media identity matching', () => {
       type: 'diagnostics_response',
       reportId: 'report_123456',
       report: { ...report, events: Array.from({ length: 121 }, () => report.events[0]) },
+    })).toBeNull()
+    expect(parseClientMessage({
+      type: 'diagnostics_response',
+      reportId: 'report_123456',
+      report: { ...report, correctionCount: -1 },
+    })).toBeNull()
+    expect(parseClientMessage({
+      type: 'diagnostics_response',
+      reportId: 'report_123456',
+      report: { ...report, reason: 'source-secret' },
     })).toBeNull()
   })
 

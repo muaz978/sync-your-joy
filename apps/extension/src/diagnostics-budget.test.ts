@@ -50,4 +50,20 @@ describe('diagnostics message budget', () => {
     const fitted = fitDiagnosticsReport(report(120))
     expect(fitted.events.at(-1)?.atLocalMs).toBe(1_725_000_000_000 + 119_000)
   })
+
+  it('retains critical transitions and reports explicit truncation evidence', () => {
+    const fitted = fitDiagnosticsReport({
+      ...report(120),
+      events: [{
+        atLocalMs: 1_725_000_000_000,
+        category: 'error',
+        message: 'server_error',
+        critical: true,
+        details: { code: 'provider-error', explanation: 'x'.repeat(300) },
+      }, ...report(120).events],
+    })
+    expect(fitted.events.some(event => event.critical === true && event.message === 'server_error')).toBe(true)
+    expect(fitted.eventsDropped).toBeGreaterThan(0)
+    expect(fitted.payloadTruncated).toBe(true)
+  })
 })

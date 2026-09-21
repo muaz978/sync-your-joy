@@ -17,7 +17,7 @@
 // the persistence/restoration functions" called for when a real Playwright
 // service-worker-restart simulation is impractical (see the note at the
 // bottom of this file for why that path was not taken).
-import type { RoomSnapshot } from '@syncyourjoy/protocol'
+import type { DiagnosticsReport, RoomSnapshot } from '@syncyourjoy/protocol'
 import type { ContentRequest, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -671,6 +671,115 @@ describe('service worker observed episode identity', () => {
         ]),
       }),
     }))
+  })
+
+  it('correlates diagnostic reports and redacts untrusted server error text', async () => {
+    const { request } = await resumeAtPage(sharedUrl)
+    const socket = FakeWebSocket.instances[0]!
+    const sender = { tab: { id: 42 }, frameId: 0 } as chrome.runtime.MessageSender
+    socket.simulateMessage({
+      type: 'room_snapshot',
+      reason: 'operation_started',
+      snapshot: buildRoomSnapshot({
+        contract: {
+          mode: 'transactional',
+          mediaEpoch: 4,
+          sharedCapabilities: ['media-epoch', 'operation-identity', 'prepare-start', 'binding-sequence'],
+          operation: {
+            mediaEpoch: 4,
+            operationId: 'operation_seek_123456',
+            kind: 'seek',
+            phase: 'started',
+            requiredParticipantIds: ['participant_resumed'],
+            preparedParticipantIds: ['participant_resumed'],
+            startedParticipantIds: ['participant_resumed'],
+            targetPositionSeconds: 137,
+            effectiveAtServerMs: 1_000,
+            deadlineAtServerMs: 10_000,
+            reason: 'controller-request',
+          },
+        },
+      }),
+    })
+    await request({
+      type: 'PLAYER_STATUS',
+      basedOnRevision: 5,
+      sample: {
+        positionSeconds: 135,
+        durationSeconds: 1_440,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: Date.now() - 250,
+        progressed: true,
+        progressEvidence: 'frames',
+        correctionCount: 3,
+      },
+    }, sender)
+    await request({
+      type: 'PLAYER_STATUS',
+      basedOnRevision: 5,
+      sample: {
+        positionSeconds: 135,
+        durationSeconds: 1_440,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: Date.now() - 100,
+        progressed: true,
+        progressEvidence: 'frames',
+        correctionCount: 3,
+      },
+    }, sender)
+    await request({
+      type: 'OPERATION_ACK',
+      acknowledgement: {
+        operationId: 'operation_seek_123456',
+        mediaEpoch: 4,
+        bindingId: 'binding_resumed',
+        sourceGeneration: 2,
+        sampleSequence: 9,
+        phase: 'started',
+        participantId: 'participant_resumed',
+        observedPositionSeconds: 135,
+        observedAtLocalMs: Date.now(),
+      },
+    }, sender)
+    socket.simulateMessage({
+      type: 'command_rejected',
+      actionId: null,
+      code: 'session_invalid',
+      message: 'secret-source-url-and-private-token-must-never-enter-a-report',
+      snapshot: null,
+    })
+    socket.simulateMessage({
+      type: 'error',
+      code: 'provider-error',
+      message: 'private-stream-url-with-token-should-not-be-copied',
+    })
+    socket.simulateMessage({ type: 'diagnostics_requested', reportId: 'report_correlation' })
+    const response = socket.sentMessages.find(message => typeof message === 'object' && message !== null
+      && (message as { type?: unknown }).type === 'diagnostics_response'
+      && (message as { reportId?: unknown }).reportId === 'report_correlation') as { report: DiagnosticsReport } | undefined
+    expect(response?.report).toMatchObject({
+      mediaEpoch: 4,
+      operationId: 'operation_seek_123456',
+      operationKind: 'seek',
+      operationPhase: 'started',
+      bindingId: 'binding_resumed',
+      sourceGeneration: 2,
+      sampleSequence: 9,
+      targetPositionSeconds: 137,
+      observedPositionSeconds: 135,
+      progressConfidence: 'frames',
+      correctionCount: 3,
+      reason: 'controller-request',
+      eventsCoalesced: 1,
+    })
+    expect(JSON.stringify(response?.report)).not.toContain('secret-source-url-and-private-token')
+    expect(JSON.stringify(response?.report)).not.toContain('private-stream-url-with-token')
+    expect(response?.report.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ message: 'command_rejected', details: { code: 'session_invalid' } }),
+      expect.objectContaining({ message: 'server_error', details: { code: 'provider-error' } }),
+    ]))
   })
 })
 
