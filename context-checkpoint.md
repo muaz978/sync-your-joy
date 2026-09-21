@@ -3988,6 +3988,185 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+---
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue delivery
+- Checkpoint number: 88
+- Date and time: 2026-09-21, Europe/Istanbul
+- Coverage period: continuation after the CR-C04 merge through CR-D01 implementation, review, merge and queue transition
+- Current context status: CR-D01 is merged and issue #66 is in public Verification; no open PRs remain; the next dependency-valid issue is #67.
+
+## User Objective and Requirements
+- Continue working systematically through the SyncYourJoy open PR and issue queue.
+- Review a PR before merging it, and only merge after the exact final head, fresh checks and review are verified.
+- Commit and push all work.
+- Add detailed documentation for every PR and issue change.
+- Apply labels, assignee, milestone and public project metadata to future PRs and issues.
+- Do not close an issue until its applicable acceptance evidence is complete.
+- Treat the signed-in Crunchyroll Edge account as available. Do not call the work blocked because an account is absent. Keep account availability distinct from protected storage-state, two-account, two-device, deployment and visible-provider acceptance gates.
+- Keep release `0.2.4` until a coherent verified group is complete and reserve `1.0.0` for the completed milestone.
+- Preserve the state-only boundary. Do not use provider private APIs, credentials, signed stream URLs, media bytes or DRM data.
+
+## Current State
+- The current implementation branch is `codex/issue-66-e2e-artifacts`.
+- CR-D01 implementation commits were pushed as `e8d05ca` and `e505a57`.
+- A test-only security-warning cleanup was committed and pushed as `3642c06`.
+- PR #94 was reviewed on exact head `3642c06b6ca580924796855cd4a82e525a19ee61` with review ID `5269660542`, state `COMMENTED`, then merged as `74b60180715c50643ee9f1c3a5d9959dcea82ff5` using the user-authorized administrative merge path because the owner cannot self-approve.
+- `origin/main` was fetched and independently verified at merge SHA `74b60180715c50643ee9f1c3a5d9959dcea82ff5`.
+- The PR branch remains on the remote at `3642c06b6ca580924796855cd4a82e525a19ee61`; it was not deleted.
+- Issue #66 remains OPEN and its public project status was changed from `In Progress` to `Verification` through the signed-in Edge UI.
+- Issue #66 acceptance checklist criteria are all checked in GitHub: unique/provenanced output, trace and sanitized logs, and separation of release output from browser-launch/product-assertion failures.
+- Issue #66 retains assignee `muaz978`, labels `enhancement`, `initiative:crunchyroll-sync`, `area: testing`, milestone `M3/M5: reliability and real-device validation`, public project `SyncYourJoy Delivery and Reliability`, and the previously verified custom fields: P1 High, Test coverage, Partial, six acceptance gates, High risk, blank blocked reason, no target date, verification owner `muaz978`.
+- No open PRs remain after PR #94 merged.
+- The next dependency-valid issue is #67, `CR-D02: Add controlled adaptive loading and lifecycle fixtures`, after the oldest external acceptance gate #30 and manual gates #33, #34 and #35 remain separately tracked.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21, continuation request and method selection
+- User requested that work continue systematically.
+- The planning and task-breakdown skill and Git workflow/versioning skill were read and applied. The GitHub issue tracker remains authoritative rather than creating a duplicate local todo. New branches are based on verified `origin/main`, commits are atomic, tests run before commit, and publication includes exact remote SHA verification.
+- The existing queue was refreshed. No open PRs were present. Issue #30 remained the oldest item, but its remaining gates require protected provider inputs and manual acceptance rather than a new deterministic implementation.
+- A detailed queue-audit comment was already posted to issue #30 at `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5763099370`, documenting that the signed-in account exists while isolated protected two-profile inputs, HTTPS watch URL, second device, exact candidate/deployment and user acceptance remain separate gates.
+- Because issue #48 was already merged and issue #66 was the next dependency-valid deterministic item, work proceeded on CR-D01.
+
+### CR-D01 planning and metadata
+- Branch `codex/issue-66-e2e-artifacts` was created from verified `origin/main` at `666712881444d3cd7f342a8e71a2b39ec94d1ce7`.
+- A detailed local implementation plan was created at `tasks/plan.md`. It documents the external GitHub issue, architecture decisions, task phases, evidence checkpoints, risk mitigations and unresolved provider-boundary questions.
+- Issue #66 received an implementation-start comment at `https://github.com/muaz978/sync-your-joy/issues/66#issuecomment-5764207741`.
+- Issue #66 was assigned, labeled, put in the existing milestone and public project, and its custom project fields were verified in Edge. Initial status was `In Progress`.
+
+### CR-D01 source implementation
+- `scripts/build-extension.mjs` gained `SYNCYOURJOY_EXTENSION_OUTPUT_DIR`; the ordinary default remains `apps/extension/dist`.
+- `tests/e2e/playwright.config.ts` now creates a unique run output directory, passes a custom artifact reporter, disables Playwright trace by default, and keeps video opt-in only.
+- `tests/e2e/global-setup.ts` now creates an isolated artifact directory, starts the room service on an ephemeral port, always builds a fresh isolated extension, writes `provenance.json`, and records sanitized setup failures.
+- Provenance includes source commit/tree, tracked-source hash, package-lock hash, configuration hash, room-service origin, isolated extension path and generated manifest hash.
+- `tests/e2e/artifact-utils.ts` provides URL sanitization, diagnostic redaction, sanitized errors and safe artifact filenames.
+- `tests/e2e/artifact-reporter.ts` writes `run-summary.json`, classifies `browser-launch/setup` separately from `product-assertion`, and was refined to use repository-relative file paths and `<repo>` stack redaction.
+- `tests/e2e/extension-profile.ts` now writes sanitized per-profile lifecycle and safe panel-state logs, supports explicit metadata-only traces, emits browser-launch classification, and closes the surviving profile when a paired launch fails.
+- `tests/e2e/two-profile-sync.spec.ts` and `tests/e2e/crunchyroll-two-profile.spec.ts` now launch paired profiles through the cleanup-safe helper and record initial, room, ready, play and pause checkpoints.
+- The generic fixture includes an opt-in `SYNCYOURJOY_E2E_INJECT_FAILURE=1` assertion solely to verify artifact classification.
+- `tests/artifact-utils.test.ts` was placed outside the excluded E2E test tree after the first placement was not included by the Vitest configuration. It covers URL query/fragment removal, unsupported-scheme redaction, credential-like diagnostic redaction and safe filenames.
+- `docs/CR_D01_E2E_ARTIFACTS.md` and `docs/TEST_GUIDE.md` document output isolation, provenance fields, sanitization, explicit traces, default video behavior and failure classes.
+
+### CR-D01 initial verification and corrections
+- The first normal E2E attempt confirmed unique artifact output and provenance creation but failed because the repository-pinned Chromium executable was not installed. The run was classified as browser-launch/setup evidence.
+- Chromium was installed with the repository command `npm exec playwright install chromium` under the required host permission. The sandboxed rerun reached Chromium but exited with `SIGABRT` and cleanup reported `EPERM`, which was retained as environment evidence rather than a product failure.
+- A first host-level run exposed a defect in unbounded diagnostic selector waits. `readSafePanelState` was corrected to use bounded selector counts and 500 ms visibility/enabled checks.
+- The paired launcher was then hardened to close any successfully launched profile when its companion profile rejects, preventing leaked persistent contexts.
+- The normal host-level fixture passed with one protected Crunchyroll test skipped. The run produced provenance, two profile event logs and a passing summary.
+- The controlled negative run completed the real fixture flow and failed intentionally. The summary reported exactly one `product-assertion` and zero browser-launch/setup failures, with both profile logs retained.
+- The opt-in trace run passed and produced one trace archive per profile. Both event logs recorded explicit `trace-started` and `trace-stopped` events.
+- The final pre-commit checks passed: `npm run check`, `npm audit --audit-level=high`, `npm run release:check-version`, `npm run verify:browser-packages`, `npm run test:e2e:crunchyroll`, and `git diff --check`.
+
+### Exact committed-source verification
+- Source commit `e8d05ca` and documentation commit `e505a57` were created and pushed.
+- The exact committed-source normal E2E run recorded commit `e505a57c9fe28c5a8bf36984d06b582b3976565c` in `provenance.json`, passed the generic fixture, safely skipped the protected provider test, and produced relative run-summary file paths.
+- The exact committed-source negative run returned the expected nonzero result and reported one `product-assertion`, zero browser-launch/setup failures and retained profile logs.
+- The exact committed-source opt-in trace run passed the generic fixture, safely skipped the protected provider test and produced trace archives with explicit lifecycle events.
+
+### PR creation, metadata and Advanced Security finding
+- PR #94 was created at `https://github.com/muaz978/sync-your-joy/pull/94` with detailed body documentation at `/private/tmp/syj-cr-d01-pr.md`.
+- PR #94 received labels `enhancement`, `initiative:crunchyroll-sync`, `area: testing`, assignee `muaz978`, milestone `M3/M5: reliability and real-device validation`, and automatic public project linkage to `SyncYourJoy Delivery and Reliability`.
+- Initial hosted checks all passed, but GitHub Advanced Security added a DevSkim review comment on the new unit-test literal `ws://127.0.0.1:8787/rooms?secret=1`, stating that accessing localhost could indicate debug code.
+- The finding was inspected through the GitHub API and the changed line was confirmed to be a sanitizer test fixture only. Existing runtime localhost defaults are outside this PR's changed lines and are intentionally development/test endpoints.
+- To remove even the avoidable false-positive trigger, the synthetic test host was changed to reserved `synthetic.invalid`. `npm test`, typecheck and diff checks passed after that adjustment.
+- Commit `3642c06` was created and pushed. Fresh checks on the new exact head all passed: Analyze, CodeQL, DevSkim, devskim and Typecheck/test/build.
+
+### Formal review and merge
+- Exact-head review inventory confirmed base `666712881444d3cd7f342a8e71a2b39ec94d1ce7`, head `3642c06b6ca580924796855cd4a82e525a19ee61`, 12 changed files, 600 additions and 80 deletions, and no whitespace errors.
+- A detailed formal review was submitted from `/private/tmp/syj-cr-d01-review.md` with review ID `5269660542`, state `COMMENTED`. It explicitly checked isolation, provenance, sanitization, cleanup, failure classification, boundary scope, security finding disposition, tests, audit, package checks, version and release scope.
+- The owner self-approval limitation remained visible as `REVIEW_REQUIRED`; this was a GitHub permission constraint, not a source-quality finding.
+- Using the user-authorized merge path after review and fresh checks, PR #94 was merged with `gh pr merge 94 --merge --admin --delete-branch=false`.
+- PR state was verified as `MERGED`, merge SHA `74b60180715c50643ee9f1c3a5d9959dcea82ff5`, and `origin/main` was fetched and verified at the same SHA.
+
+### Post-merge issue reconciliation and queue refresh
+- A detailed post-merge issue comment was posted at `https://github.com/muaz978/sync-your-joy/issues/66#issuecomment-5764566048`, recording exact head, review ID, merge SHA, security finding resolution, test evidence, boundaries and release status.
+- Through the Edge project UI, issue #66 status was changed to `Verification`, then all three issue checklist criteria were checked after the reviewed merge and evidence reconciliation.
+- The issue remains open because the broader provider, two-account, two-device, deployment and user-acceptance boundaries are separate gates and the project workflow retains Verification evidence until the relevant work is complete.
+- A fresh `gh pr list --state open` returned an empty list.
+- The first queue refresh attempted to include `projectItems` but failed because the current CLI token lacks `read:project`. The queue was then refreshed without project fields and confirmed issue #30 remains the oldest open item, followed by #33, #34, #35, #49 and the later dependency sequence.
+- Issue #67, `CR-D02: Add controlled adaptive loading and lifecycle fixtures`, is now the next dependency-valid implementation item after CR-D01. No issue was closed during this checkpoint.
+
+## Confirmed Successful Results
+- PR #94 is merged at `74b60180715c50643ee9f1c3a5d9959dcea82ff5`.
+- `origin/main` resolves to `74b60180715c50643ee9f1c3a5d9959dcea82ff5`.
+- The final reviewed head is `3642c06b6ca580924796855cd4a82e525a19ee61`.
+- Formal review ID `5269660542` is attached to that exact head with state `COMMENTED`.
+- All five fresh hosted checks passed on the final head, including Advanced Security and DevSkim after the synthetic-host correction.
+- `npm run check` passed with 35 test files and 313 tests.
+- `npm audit --audit-level=high` passed with 0 vulnerabilities.
+- `npm run verify:browser-packages` passed for Chrome, Firefox and macOS Safari package smoke.
+- `npm run release:check-version` passed at `0.2.4`.
+- Normal, negative, trace and provider-safe-skip E2E evidence was collected with isolated output and sanitized artifacts.
+- Issue #66 has its three acceptance checklist criteria checked and remains open in public project status `Verification`.
+- PR #94 and issue #66 contain detailed documentation and the requested metadata.
+- The remote PR branch remains preserved.
+
+## Failed, Incomplete, or Unresolved Work
+- The initial E2E run without Chromium failed at browser launch because the executable was absent. Chromium was then installed and host-level verification passed.
+- The sandboxed Chromium run reached the browser but exited with `SIGABRT` and cleanup reported `EPERM`; this was retained as environment evidence and is not reported as a product failure.
+- GitHub's first DevSkim review comment flagged a localhost literal in a test-only sanitizer fixture. The finding was not a production vulnerability and was eliminated by using `synthetic.invalid`; fresh security checks pass.
+- The GitHub CLI cannot read public project custom fields with the current token because it lacks `read:project`. Project fields were verified in the authenticated Edge UI.
+- Issue #30 still requires protected two-profile provider inputs, a second device and live/user acceptance evidence. Its open state is not caused by a missing signed-in Crunchyroll account.
+- Issues #33, #34 and #35 remain open for their respective manual two-account, two-device and headed-browser gates.
+- Issues #67 and #68 remain unimplemented. Issue #69 remains a later packaging/release gate.
+- No release bump was made. `0.2.4` remains current and `1.0.0` remains reserved for milestone completion.
+
+## Decisions and Rationale
+- CR-D01 was selected after the oldest external gate because the issue is a deterministic dependency-valid foundation for later E2E and provider work.
+- The localhost security warning was fixed at the test fixture source even though it was a false positive, reducing noise and preserving a clean security signal.
+- The PR was reviewed with a detailed `COMMENTED` review because owner self-approval is prohibited. Merge happened only after that review and fresh hosted checks.
+- Issue #66 stays open in `Verification` with its own deterministic criteria checked, preserving the distinction between this completed harness scope and later live-provider acceptance.
+- No administrative branch deletion was bundled with merge. The source branch remains available for audit and checkpoint continuity.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- CR-D01 report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_D01_E2E_ARTIFACTS.md`
+- Test guide: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- Implementation plan: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tasks/plan.md`
+- Build override: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/scripts/build-extension.mjs`
+- Artifact reporter: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/artifact-reporter.ts`
+- Artifact utilities: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/artifact-utils.ts`
+- Artifact utility tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/artifact-utils.test.ts`
+- PR body temp file: `/private/tmp/syj-cr-d01-pr.md`
+- Review body temp file: `/private/tmp/syj-cr-d01-review.md`
+- Issue merge comment temp file: `/private/tmp/syj-cr-d01-issue-merge.md`
+- PR #94: `https://github.com/muaz978/sync-your-joy/pull/94`
+- Issue #66: `https://github.com/muaz978/sync-your-joy/issues/66`
+- Issue post-merge evidence: `https://github.com/muaz978/sync-your-joy/issues/66#issuecomment-5764566048`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+- Final normal exact-source E2E run: `test-results/e2e-1790010421014-43354-d8b3566f-3f26-4348-bd46-0781a381be04`
+- Final negative exact-source E2E run: `test-results/e2e-1790010439867-43480-addfa989-049c-4c03-b3e4-085672c223cc`
+- Final trace exact-source E2E run: `test-results/e2e-1790010499484-43646-f3d87a45-e253-4e21-8964-690e0942e35a`
+
+## Assumptions and Uncertainties
+- The authenticated Edge project UI is authoritative for public custom fields because the current CLI token lacks project scope.
+- The signed-in Crunchyroll account is available, but no protected storage state, second account, second device, deployment target or user-acceptance result is inferred from that fact.
+- E2E artifact files are ignored local run outputs and are not committed to the repository. Their structure and evidence are documented in the CR-D01 report.
+- A passing local fixture, package check or security scan does not prove visible authenticated provider playback.
+
+## Open Questions, Blockers, and Dependencies
+- Issue #30 remains the oldest open external acceptance gate and should be revisited when its protected inputs and device conditions can be satisfied.
+- Issue #67 is now dependency-valid and should be planned from `origin/main` at merge SHA `74b60180715c50643ee9f1c3a5d9959dcea82ff5`.
+- Issue #68 depends on the E2E artifact foundation and later adaptive/lifecycle fixture coverage.
+- Issue #69 remains dependent on approved candidate evidence and release gates.
+- The project workflow and issue closure state for #66 should be revisited after dependent gate evidence exists; do not close it merely because PR #94 merged.
+
+## Next Steps
+1. Create a fresh branch from verified `origin/main` for issue #67, after reviewing its exact scope and dependencies.
+2. Apply the full metadata set and write a detailed implementation plan/comment before coding.
+3. Implement, test, document, commit and push #67, then open a metadata-complete PR.
+4. Review the exact final PR head, resolve any security findings, wait for fresh checks, merge only after review, and reconcile issue #67 in Verification.
+5. Continue with #68 and later queue items while returning to #30, #33, #34 and #35 when their specific external inputs are available.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-66 remain intact above. This Checkpoint 88 records the full CR-D01 implementation, correction, security review, final verification, PR creation, metadata, review, merge, issue reconciliation and queue transition.
+- Earlier notes stating that CR-D01 was pending implementation or review are superseded by the confirmed merged state recorded here.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 82 - CR-C02 diagnostic report implementation before PR
 
 ## Session Metadata
