@@ -3988,6 +3988,159 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 85 - CR-C03 player recovery review, merge and acceptance-state verification
+
+## Session Metadata
+- Task or project: SyncYourJoy CR-C03 player waiting and recovery status lifecycle
+- Checkpoint number: 85
+- Date and time: 2026-09-21 17:50 +03
+- Coverage period: From the verified CR-C03 implementation and PR review state through metadata reconciliation after the authorized merge.
+- Current context status: PR #92 is reviewed and merged into `main`; `origin/main` is verified at `a07a31dbbdc2dde90e4d89464b20e9399bb9462f`; issue #64 remains open in public-project status `Verification`; the retained source branch is `codex/issue-64-player-recovery` and still needs this checkpoint commit and push.
+
+## User Objective and Requirements
+- Continue the systematic open-PR and oldest-first issue workflow.
+- Verify the exact PR head, review it, and merge only after the review and all relevant checks pass.
+- Add detailed documentation for every issue-specific PR and issue lifecycle.
+- Add labels, assignee, milestone and public-project tracking metadata to future PRs and issues.
+- Keep issues open until every applicable acceptance gate is directly evidenced, without treating source tests, an account login or a merge as proof of live-provider acceptance.
+- Treat the user's already signed-in Crunchyroll account and Edge session as available. Do not classify missing isolated automation fixtures as a missing account.
+- Commit and push all repository changes and checkpoint documentation.
+- Keep version `0.2.4` until a coherent verified group qualifies for a compatible release. Reserve `1.0.0` for complete milestone acceptance.
+- Do not include credentials, cookies, storage-state contents, private provider APIs, protected media, signed URLs or DRM data in source, comments or checkpoint records.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 before this checkpoint - CR-C03 implementation and local verification
+- Started issue #64, `CR-C03: Explain waiting and recovery in the player and panel`, from a clean branch based on verified `origin/main` after the CR-C02 merge.
+- Assigned issue #64 to `muaz978`, retained labels `enhancement`, `initiative: crunchyroll-sync` and `area: extension`, and retained milestone `M3/M5: reliability and real-device validation`.
+- Posted the implementation-start comment at `https://github.com/muaz978/sync-your-joy/issues/64#issuecomment-5761935505`. It documented the collapsed old UI states, the bounded status vocabulary, reason-specific actions, the state-only boundary and the rule that deterministic evidence would not be presented as live-provider acceptance.
+- Added the bounded optional `ParticipantPlaybackStatus` field to the protocol, with finite values for `unknown`, `preparing`, `ready`, `playing`, `seeking`, `blocked`, `buffering`, `silent`, `wrong-media` and `recovery-required`.
+- Added `packages/sync-engine/src/participant-status.ts` and its tests. The classifier distinguishes readiness from confirmed native progress, wrong media, preparation, seeking, blocked playback, buffering, stale or silent reports and recovery-required states.
+- Integrated persisted status transitions into `packages/sync-engine/src/room.ts`, including reconnect, readiness, play/pause/seek, transactional operation, acknowledgement, expired operation, health failure, link opening, player status and disconnect paths. Old stored state receives safe defaults.
+- Kept raw samples, timestamps, media details, source URLs, provider-private errors, credentials, DRM data and observation bookkeeping out of public room snapshots. Status-only changes can update snapshots without broadcasting raw player samples.
+- Added `apps/extension/src/playback-status.ts` and tests with shared local status classification and copy for Preparing, Ready, Playing confirmed, Seeking, Playback blocked, Buffering, No player report, Different episode, Needs recovery and Connection unclear.
+- Updated `apps/extension/src/sidepanel.ts` to show the local bounded playback-status card, participant badges, mismatch information and reason-specific recovery labels.
+- Updated `apps/extension/src/content-script.ts` to use the same vocabulary and to stop treating readiness or room-clock movement as generic `In sync` evidence.
+- Added permanent documentation at `docs/CR_C03_PLAYER_RECOVERY_REPORT.md` and linked it from `docs/TEST_GUIDE.md`.
+- Added focused status and content tests, and adjusted room and streaming regression assertions for intentional status-only snapshots.
+- A first full check exposed expected changes to existing status-only broadcast assertions. Those tests were corrected. A typecheck pass also exposed strict optional-property issues during development; those were corrected before the final verification.
+- Final focused verification passed 4 files and 121 tests.
+- Final `npm run check` passed 33 test files and 302 tests, both typechecks, the room-service build and the extension build.
+- `npm audit --audit-level=high` reported 0 vulnerabilities.
+- `npm run release:check-version` reported `0.2.4`.
+- `npm run verify:browser-packages` passed Chrome manifest `0.2.4`, Firefox manifest `0.2.4` and macOS Safari package smoke.
+- `git diff --check` passed.
+- No authenticated live-provider or real docked-panel acceptance was claimed. The signed-in account was available, but the controlled observation did not expose a usable watch player. This was recorded as provider readiness or entitlement evidence, not as a missing-account conclusion.
+
+### 2026-09-21 - CR-C03 source commit, PR creation and metadata
+- Committed the source and documentation as `c40dac29d432e0fd8cb019a036441ec2ad2534f3` with message `feat: explain player waiting and recovery states`.
+- Pushed branch `codex/issue-64-player-recovery`.
+- Opened PR #92 at `https://github.com/muaz978/sync-your-joy/pull/92`, titled `feat: explain player waiting and recovery states`.
+- Wrote detailed PR documentation in `/private/tmp/syj-cr-c03-pr.md`, covering root cause, baseline, implementation, file inventory, exact checks, security and privacy boundaries, live-provider limits, release policy and the non-closing issue relationship.
+- Applied PR labels `enhancement`, `initiative:crunchyroll-sync`, `area:extension`, `area:protocol` and the repository's existing `area: testing` label. An initial attempt using the non-existent compact label `area:testing` failed, so the actual repository label was inspected and applied.
+- Assigned PR #92 to `muaz978` and set milestone `M3/M5: reliability and real-device validation`.
+- Verified through the public PR UI that GitHub added PR #92 to the public project `SyncYourJoy Delivery and Reliability` and initially set it to `Todo`.
+- The PR page showed all five hosted checks successful: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim` and Typecheck, test, and build.
+
+### 2026-09-21 - Exact-head review and authorized merge
+- Wrote `/private/tmp/syj-cr-c03-review.md` with the exact-head review, public-status invariants, privacy boundary, deterministic evidence, live-provider limitation and release decision.
+- Attempted owner approval with `gh pr review 92 --approve --body-file /private/tmp/syj-cr-c03-review.md`. GitHub rejected approval with `Review Can not approve your own pull request`, which is a GitHub permission restriction rather than a source finding.
+- Posted the detailed review as a `COMMENTED` review and verified review ID `5267988712`, state `COMMENTED`, exact commit `c40dac29d432e0fd8cb019a036441ec2ad2534f3`, and no blocking finding.
+- Merged PR #92 through the authorized administrator path with branch retention: `gh pr merge 92 --merge --admin --delete-branch=false`.
+- GitHub reported PR #92 as merged at `2026-09-21T14:43:06Z` with merge commit `a07a31dbbdc2dde90e4d89464b20e9399bb9462f`.
+- Fetched `origin/main` and independently verified it resolves to the same merge commit. `gh pr checks 92` continued to show all five hosted checks passed after merge.
+- Did not delete the retained PR branch.
+
+### 2026-09-21 - Issue #64 post-merge evidence comment
+- Wrote `/private/tmp/syj-cr-c03-issue-64-merge.md` with the reviewed source SHA, review record, merge SHA, hosted checks, completed deterministic scope, exact local verification, external limitations, release decision and explicit non-closure rationale.
+- Posted the detailed merge record at `https://github.com/muaz978/sync-your-joy/issues/64#issuecomment-5762391438`.
+- Kept issue #64 open. The issue's acceptance checklist was not checked because representative headed panel and in-page Sync behavior, including the actual docked panel where available, has not yet been directly evidenced.
+
+### 2026-09-21 17:45-17:50 +03 - Issue metadata reconciliation after merge
+- Ran a read-only GitHub CLI query for issue #64. It confirmed `state: OPEN`, assignee `muaz978`, the expected three labels, milestone `M3/M5: reliability and real-device validation`, both detailed comments and the issue URL.
+- Reopened the existing Edge issue tab and refreshed the accessibility documentation before acting on the UI.
+- The initial visible issue metadata was stale and showed no assignee or project. The current page then showed the self-assignment event and public project membership after refresh, confirming that the API/UI state had caught up.
+- Verified the issue page visibly shows assignee `muaz978`, labels `area: extension`, `enhancement` and `initiative: crunchyroll-sync`, public project `SyncYourJoy Delivery and Reliability`, milestone `M3/M5: reliability and real-device validation` and issue state `Open`.
+- Opened the issue project status menu and changed the status from `Todo` to `Verification`. The page visibly confirmed `Status Verification`.
+- Expanded the issue project fields and set `P1 High`, work type `Feature`, evidence state `Partial`, acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test` and `User acceptance`, and risk `High`.
+- Set verification owner to `muaz978` and verified it in the issue page. Blocked reason and target date remain unset because no missing account or current external blocker was inferred.
+- Left the three acceptance checklist items unchecked. No issue closure, release action or browser-extension installation was performed.
+- The UI interaction was performed through the existing Edge session. No sensitive data was entered or transmitted.
+
+## Confirmed Successful Results
+- PR #92 was reviewed on exact head `c40dac29d432e0fd8cb019a036441ec2ad2534f3`, with detailed `COMMENTED` review `5267988712`, and merged at `a07a31dbbdc2dde90e4d89464b20e9399bb9462f`.
+- `origin/main` independently verifies merge commit `a07a31dbbdc2dde90e4d89464b20e9399bb9462f`.
+- All hosted checks passed on the reviewed head and remained passed after merge.
+- Final local verification passed with 33 test files and 302 tests, typechecks, room-service build and extension build.
+- The focused status/content suite passed 4 files and 121 tests.
+- Security audit reported 0 vulnerabilities. Browser-package smoke passed for Chrome, Firefox and macOS Safari. The repository version remains `0.2.4`.
+- Permanent CR-C03 documentation exists at `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_C03_PLAYER_RECOVERY_REPORT.md` and is linked from `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`.
+- Issue #64 is open, assigned, labeled, milestoned, linked to the public project and in project status `Verification`, with tracking fields populated and the acceptance checklist still unchecked.
+- The detailed issue merge record is posted at `https://github.com/muaz978/sync-your-joy/issues/64#issuecomment-5762391438`.
+- The retained source branch contains the merged source commit and is ready for this checkpoint documentation commit and push.
+
+## Failed, Incomplete, or Unresolved Work
+- GitHub cannot record an approved review from the pull-request owner. The exact-head detailed review is preserved as `COMMENTED`, and administrator merge occurred only after source review and successful checks.
+- The first development full check exposed expected test and strict optional-property updates; those corrections were made and the final full check passed.
+- The public issue metadata initially appeared stale in the browser, showing no assignee or project. A fresh page state and UI verification confirmed the assignee, project and status, so this was a display timing issue rather than a persistent metadata failure.
+- Issue #64's real panel and in-page Sync acceptance is not complete. The checklist remains unchecked and the issue remains open.
+- Authenticated Crunchyroll live-provider playback, visible-frame evidence, two-account or two-profile acceptance, two-device acceptance, deployment and user acceptance remain separate gates. The active account is available, but no usable player was exposed during the prior controlled observation.
+- The issue's project evidence remains `Partial`, correctly reflecting deterministic completion plus outstanding browser and user-acceptance evidence.
+- No new release was created. Version `0.2.4` remains current and `1.0.0` remains reserved for complete milestone acceptance.
+- This checkpoint has not yet been committed or pushed. That is the next repository action.
+
+## Decisions and Rationale
+- Merge was authorized only after exact-head source review, detailed review publication and all hosted checks passing. The owner-review limitation was recorded rather than represented as an approval.
+- Issue #64 moved to `Verification`, not `Done` and not closed, because the deterministic implementation is complete while representative live panel/in-page behavior and other external gates remain unverified.
+- Public project custom fields were set to show the evidence state and remaining gates explicitly. `Partial` avoids overstating deterministic results as live acceptance.
+- The account was not treated as missing. The observed limitation concerns usable provider playback and automation fixtures, not account existence.
+- No browser installation or release bump was required for this deterministic status-contract slice. Installation will be considered when the controlled headed acceptance gate is the next required evidence.
+- The next implementation issue should be selected by a fresh dependency-aware oldest-first scan. Based on the current queue and prior plan, issue #65, `CR-C04: Make episode changes a coordinated navigation transaction`, is the next candidate after CR-C03, subject to rechecking its current state and dependencies.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Participant classifier: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/participant-status.ts`
+- Room implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`
+- Participant-status tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/participant-status.test.ts`
+- Extension status classifier: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/playback-status.ts`
+- Extension status tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/playback-status.test.ts`
+- Side panel and in-page integration: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/sidepanel.ts` and `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- Permanent report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_C03_PLAYER_RECOVERY_REPORT.md`
+- Test guide: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- PR body: `/private/tmp/syj-cr-c03-pr.md`
+- Review body: `/private/tmp/syj-cr-c03-review.md`
+- Issue merge documentation: `/private/tmp/syj-cr-c03-issue-64-merge.md`
+- PR #92: `https://github.com/muaz978/sync-your-joy/pull/92`
+- Issue #64: `https://github.com/muaz978/sync-your-joy/issues/64`
+- Implementation source head: `c40dac29d432e0fd8cb019a036441ec2ad2534f3`
+- Merge commit: `a07a31dbbdc2dde90e4d89464b20e9399bb9462f`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+
+## Assumptions and Uncertainties
+- The public GitHub project UI is authoritative for project custom fields because the available CLI token does not expose project-read data.
+- Project membership and issue assignment were visibly verified after the browser state refreshed. The CLI independently verifies assignment but does not expose the project custom fields.
+- Browser-package smoke proves packaged manifest and conversion behavior, not live provider playback or visible frame output.
+- The signed-in Crunchyroll session remains available. No second account, profile, device, deployment identity or user-acceptance result is inferred.
+
+## Open Questions, Blockers, and Dependencies
+- Issue #64 still requires representative panel and in-page Sync observation, including the actual docked side panel where available.
+- The older provider and device issues remain separate, especially #30, #33, #34, #35 and #49. Their status must not be inferred from PR #92.
+- The next implementation issue must be freshly rescanned. Issue #65 is the planned next candidate, but its current status and dependency conditions must be verified before work begins.
+- A second account, profile, device, deployment target or explicit user-acceptance action will be requested only when the exact acceptance gate requires it.
+
+## Next Steps
+1. Commit and push this complete Checkpoint 85 to the retained branch `codex/issue-64-player-recovery`.
+2. Verify the local and remote checkpoint commit, worktree cleanliness, `origin/main` merge SHA and issue #64 metadata one more time.
+3. Re-scan open PRs and issues, confirm no unreviewed PR is waiting, and inspect issue #65 dependencies and current metadata.
+4. If #65 remains the next valid implementation issue, create a clean branch from verified `origin/main`, assign and classify it, post the planning comment, implement with red regressions, document every step, open a metadata-complete PR, review the exact head and merge only after all checks pass.
+5. Keep issue #64 open until its headed panel/in-page evidence is directly recorded. Revisit release versioning only after a coherent verified group, with `1.0.0` reserved for full milestone completion.
+
+## Historical Checkpoint Notes
+- All earlier checkpoint sections remain preserved. This Checkpoint 85 appends the CR-C03 implementation, PR #92 review and merge, issue documentation and project metadata reconciliation.
+- The earlier transient browser display of no assignee or project is superseded by the later verified UI state showing assignee `muaz978`, project membership and `Verification` status.
+- The issue checklist remains intentionally incomplete. No account, provider, deployment or user-acceptance result is being inferred from deterministic source evidence.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 82 - CR-C02 diagnostic report implementation before PR
 
 ## Session Metadata
