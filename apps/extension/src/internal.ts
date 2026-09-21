@@ -8,6 +8,7 @@ export interface PlayerHealthDiagnostics {
   progressEvidence: ProgressEvidenceQuality
   hasRealPlaybackProgress: boolean
   playbackStartFailed: boolean
+  correctionCount?: number
 }
 
 export interface PlayerDiagnostics {

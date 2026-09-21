@@ -17,6 +17,8 @@ For the CR-B01 operation contract record, use [`CR_B01_OPERATION_CONTRACT.md`](C
 
 For the CR-C01 stalled-play recovery record, use [`CR_C01_STALLED_PLAY_RECOVERY_REPORT.md`](CR_C01_STALLED_PLAY_RECOVERY_REPORT.md). It defines the bounded unresolved `play()` deadline, explicit Sync retry boundary, stale callback handling and the distinction between deterministic player evidence and authenticated provider acceptance.
 
+For the CR-C02 diagnostic-report record, use [`CR_C02_DIAGNOSTIC_REPORTS.md`](CR_C02_DIAGNOSTIC_REPORTS.md). It defines the operation, media, binding and observation correlation fields, correction evidence, redaction rules, event coalescing and explicit payload truncation evidence.
+
 ## Before the session
 
 Each tester needs:

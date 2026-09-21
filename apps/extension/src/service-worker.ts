@@ -1,4 +1,4 @@
-import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticValue, MediaFingerprint, ServerMessage } from '@syncyourjoy/protocol'
+import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticReason, DiagnosticValue, MediaFingerprint, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { CURRENT_CLIENT_CAPABILITIES, generateRoomCode, mediaMatches, normalizeMediaPageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
@@ -41,6 +41,12 @@ interface PlayerBinding {
   documentId: string | null
 }
 
+interface DiagnosticObservationIdentity {
+  bindingId: string
+  sourceGeneration: number
+  sampleSequence: number
+}
+
 let state: ExtensionState = {
   connection: 'disconnected',
   participantId: createId('participant'),
@@ -72,11 +78,16 @@ let reconnectAttempts = 0
 let intentionallyClosed = false
 let clock = new ClockSynchronizer()
 const diagnosticEvents: DiagnosticEvent[] = []
+let diagnosticEventsDropped = 0
+let diagnosticEventsCoalesced = 0
+let lastDiagnosticStatusSignature: string | null = null
+let lastDiagnosticReason: DiagnosticReason = 'none'
 let diagnosticCollection: DiagnosticCollection | null = null
 // This identity is deliberately persisted separately from ExtensionState so
 // it is not sent to extension views or copied into room-state events. Content
 // scripts receive it only through a successful MEDIA_DETECTED response.
 let playerBinding: PlayerBinding | null = null
+let lastObservationIdentity: DiagnosticObservationIdentity | null = null
 let pendingMediaMismatchKey: string | null = null
 let pendingMediaMismatchObservedAtMs: number | null = null
 // In-memory only: tracks a navigation revision whose deferred tab-open/reuse
@@ -285,6 +296,11 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         return success()
       state.lastPlayerSample = request.sample
       state.playerLastSeenAtMs = Date.now()
+      const statusReason = request.sample.playbackStartFailed === true
+        ? 'permission-denied' as const
+        : request.sample.buffering === true && request.sample.progressed === false
+          ? 'stalled' as const
+          : undefined
       recordDiagnostic('playback', 'player_status', {
         revision: request.basedOnRevision,
         positionSeconds: request.sample.positionSeconds,
@@ -294,7 +310,8 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         progressEvidence: request.sample.progressEvidence ?? null,
         playbackStarted: typeof request.sample.playbackStarted === 'boolean' ? request.sample.playbackStarted : null,
         playbackStartFailed: typeof request.sample.playbackStartFailed === 'boolean' ? request.sample.playbackStartFailed : null,
-      })
+        correctionCount: request.sample.correctionCount ?? 0,
+      }, statusReason ? { reason: statusReason } : {})
       sendToServer({ type: 'player_status', basedOnRevision: request.basedOnRevision, sample: request.sample })
       // Fire-and-forget, matching the 'pong' handler below: this fires on a
       // ~1s timer while media plays, so awaiting the storage write here
@@ -327,6 +344,11 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         sourceGeneration: request.acknowledgement.sourceGeneration,
         sampleSequence: request.acknowledgement.sampleSequence,
       })
+      lastObservationIdentity = {
+        bindingId: request.acknowledgement.bindingId,
+        sourceGeneration: request.acknowledgement.sourceGeneration,
+        sampleSequence: request.acknowledgement.sampleSequence,
+      }
       return success()
 
     case 'CREATE_ROOM':
@@ -698,12 +720,14 @@ function handleServerMessage(raw: string): void {
       state.snapshot = message.snapshot
     state.connection = 'connected'
     state.lastError = null
-    recordDiagnostic('room', message.reason, {
+    const snapshotReason = safeDiagnosticReason(message.reason)
+    recordDiagnostic('room', 'room_snapshot', {
+      reason: safeDiagnosticCode(message.reason),
       revision: message.snapshot.revision,
       status: message.snapshot.playback.status,
       positionSeconds: message.snapshot.playback.positionSeconds,
       aligning: message.snapshot.seek !== null,
-    })
+    }, snapshotReason ? { reason: snapshotReason } : {})
     void applySharedNavigation(message.snapshot)
     void publishState()
     return
@@ -715,7 +739,7 @@ function handleServerMessage(raw: string): void {
       // close this socket -- leave the room the same way LEAVE_ROOM does,
       // so the pending-close handler below does not treat this as a
       // dropped connection worth auto-reconnecting back into.
-      recordDiagnostic('error', 'join_denied', { message: message.message })
+      recordDiagnostic('error', 'join_denied', { code: safeDiagnosticCode(message.code) }, { reason: 'command-rejected' })
       leaveRoom()
       state.lastError = message.message
       void publishState()
@@ -725,7 +749,7 @@ function handleServerMessage(raw: string): void {
     if (message.snapshot)
       state.snapshot = message.snapshot
     state.lastError = message.message
-    recordDiagnostic('error', 'command_rejected', { code: message.code, message: message.message })
+    recordDiagnostic('error', 'command_rejected', { code: safeDiagnosticCode(message.code) }, { reason: 'command-rejected' })
     void publishState()
     void sendToPlayerTab({ type: 'SHOW_NOTICE', message: message.message })
     return
@@ -733,7 +757,7 @@ function handleServerMessage(raw: string): void {
 
   if (message.type === 'error') {
     state.lastError = message.message
-    recordDiagnostic('error', 'server_error', { code: message.code, message: message.message })
+    recordDiagnostic('error', 'server_error', { code: safeDiagnosticCode(message.code) }, { reason: 'server-error' })
     void publishState()
     return
   }
@@ -1044,6 +1068,7 @@ async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snaps
 function clearPlayerTab(): void {
   playerContextGeneration += 1
   playerBinding = null
+  lastObservationIdentity = null
   state.playerTabId = null
   state.playerFrameId = null
   state.playerAreaPixels = 0
@@ -1072,6 +1097,8 @@ async function bindPlayerContext(tabId: number, frameId: number | null, areaPixe
   state.playerAreaPixels = Math.max(0, areaPixels)
   state.playerLastSeenAtMs = Date.now()
   const bindingChanged = !sameBinding || previousBinding?.id !== playerBinding.id
+  if (bindingChanged)
+    lastObservationIdentity = null
   const canTargetPreviousDocument = previousBinding?.documentId !== null && previousBinding?.documentId !== undefined
   const previousContextChanged = previousTabId !== tabId || previousFrameId !== frameId
   if (previousTabId !== null && previousFrameId !== null && bindingChanged && (previousContextChanged || canTargetPreviousDocument))
@@ -1117,6 +1144,7 @@ async function sendToPlayerTab(message: RuntimeEvent): Promise<void> {
     return
   playerContextGeneration += 1
   playerBinding = null
+  lastObservationIdentity = null
   state.playerFrameId = null
   state.playerAreaPixels = 0
   state.playerLastSeenAtMs = 0
@@ -1182,22 +1210,104 @@ function createId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`
 }
 
-function recordDiagnostic(category: string, message: string, details: Record<string, DiagnosticValue> = {}): void {
+function recordDiagnostic(category: string, message: string, details: Record<string, DiagnosticValue> = {}, options: { critical?: boolean; reason?: DiagnosticReason } = {}): void {
+  const atLocalMs = Date.now()
+  const sanitizedDetails = Object.fromEntries(Object.entries(details).slice(0, 20).map(([key, value]) => [key.slice(0, 40), sanitizeDiagnosticValue(value)]))
+  const isStatus = message === 'player_status'
+  const statusSignature = isStatus ? diagnosticStatusSignature(sanitizedDetails) : null
+  const critical = options.critical ?? (!isStatus || sanitizedDetails.playbackStartFailed === true || sanitizedDetails.buffering === true && sanitizedDetails.progressed === false)
+  const previous = diagnosticEvents.at(-1)
+  if (isStatus && previous?.message === message && statusSignature === lastDiagnosticStatusSignature) {
+    const repeatCount = typeof previous.details.repeatCount === 'number' ? previous.details.repeatCount : 1
+    previous.atLocalMs = atLocalMs
+    if (critical)
+      previous.critical = true
+    previous.details = { ...sanitizedDetails, repeatCount: repeatCount + 1 }
+    diagnosticEventsCoalesced += 1
+    if (options.reason)
+      lastDiagnosticReason = options.reason
+    return
+  }
+
   diagnosticEvents.push({
-    atLocalMs: Date.now(),
+    atLocalMs,
     category: category.slice(0, 40),
     message: message.slice(0, 100),
-    details: Object.fromEntries(Object.entries(details).slice(0, 20).map(([key, value]) => [key.slice(0, 40), sanitizeDiagnosticValue(value)])),
+    details: sanitizedDetails,
+    ...(critical ? { critical: true } : {}),
   })
-  if (diagnosticEvents.length > DIAGNOSTIC_EVENT_LIMIT)
-    diagnosticEvents.splice(0, diagnosticEvents.length - DIAGNOSTIC_EVENT_LIMIT)
+  lastDiagnosticStatusSignature = statusSignature
+  if (options.reason)
+    lastDiagnosticReason = options.reason
+  if (diagnosticEvents.length > DIAGNOSTIC_EVENT_LIMIT) {
+    const firstNonCritical = diagnosticEvents.findIndex(event => event.critical !== true)
+    const removeIndex = firstNonCritical === -1 ? 0 : firstNonCritical
+    diagnosticEvents.splice(removeIndex, 1)
+    diagnosticEventsDropped += 1
+  }
 }
 
 function sanitizeDiagnosticValue(value: DiagnosticValue): DiagnosticValue {
   return typeof value === 'string' ? value.slice(0, 300) : value
 }
 
+function diagnosticStatusSignature(details: Record<string, DiagnosticValue>): string {
+  return JSON.stringify([
+    details.paused ?? null,
+    details.buffering ?? null,
+    details.progressed ?? null,
+    details.progressEvidence ?? null,
+    details.playbackStarted ?? null,
+    details.playbackStartFailed ?? null,
+  ])
+}
+
+function safeDiagnosticCode(value: unknown): string {
+  if (typeof value !== 'string')
+    return 'unknown'
+  const code = value.trim().slice(0, 80)
+  return /^[a-z][a-z0-9_-]{1,79}$/.test(code) ? code : 'unknown'
+}
+
+function safeDiagnosticReason(value: unknown): DiagnosticReason | undefined {
+  const reason = safeDiagnosticCode(value)
+  const allowed = new Set<DiagnosticReason>([
+    'none',
+    'permission-denied',
+    'interrupted',
+    'provider-error',
+    'player-missing',
+    'waiting-for-data',
+    'stalled',
+    'startup-timeout',
+    'connection-lost',
+    'command-rejected',
+    'server-error',
+    'recovery-required',
+    'unknown',
+    'controller-request',
+    'superseded',
+    'deadline-expired',
+    'participant-not-ready',
+    'participant-disconnected',
+    'media-changed',
+    'binding-changed',
+    'start-rejected',
+    'start-timeout',
+    'unsupported-peer',
+    'legacy-peer',
+    'stale-operation',
+    'manual-recovery',
+  ])
+  return allowed.has(reason as DiagnosticReason) ? reason as DiagnosticReason : undefined
+}
+
 function buildDiagnosticsReport(): DiagnosticsReport {
+  const sample = state.lastPlayerSample
+  const operation = state.snapshot?.contract?.operation ?? null
+  const bindingId = playerBinding?.id ?? null
+  const observation = lastObservationIdentity?.bindingId === bindingId ? lastObservationIdentity : null
+  const nowMs = Date.now()
   return {
     extensionVersion: chrome.runtime.getManifest().version,
     generatedAtLocalMs: Date.now(),
@@ -1216,8 +1326,24 @@ function buildDiagnosticsReport(): DiagnosticsReport {
     playerNetworkState: state.playerDiagnostics?.networkState ?? null,
     playerCurrentSrcKind: state.playerDiagnostics?.currentSrcKind ?? null,
     playerHasSourceObject: state.playerDiagnostics?.hasSourceObject ?? null,
-    sample: state.lastPlayerSample ? { ...state.lastPlayerSample } : null,
+    sample: sample ? { ...sample } : null,
     events: diagnosticEvents.map(event => ({ ...event, details: { ...event.details } })),
+    mediaEpoch: state.snapshot?.contract?.mediaEpoch ?? operation?.mediaEpoch ?? null,
+    operationId: operation?.operationId ?? null,
+    operationKind: operation?.kind ?? null,
+    operationPhase: operation?.phase ?? null,
+    bindingId,
+    sourceGeneration: observation?.sourceGeneration ?? null,
+    sampleSequence: observation?.sampleSequence ?? null,
+    targetPositionSeconds: operation?.targetPositionSeconds ?? null,
+    observedPositionSeconds: sample?.positionSeconds ?? null,
+    progressConfidence: sample?.progressEvidence ?? null,
+    observationAgeMs: sample ? Math.max(0, nowMs - sample.sampledAtLocalMs) : state.playerLastSeenAtMs > 0 ? Math.max(0, nowMs - state.playerLastSeenAtMs) : null,
+    correctionCount: sample?.correctionCount ?? state.playerDiagnostics?.health?.correctionCount ?? 0,
+    reason: operation?.reason ?? lastDiagnosticReason,
+    eventsDropped: diagnosticEventsDropped,
+    eventsCoalesced: diagnosticEventsCoalesced,
+    payloadTruncated: false,
   }
 }
 

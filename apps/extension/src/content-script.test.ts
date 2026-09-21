@@ -550,6 +550,13 @@ describe('adaptive player lifecycle', () => {
     await Promise.resolve()
     expect(video.writes).toEqual([120])
     expect(video.play).toHaveBeenCalledOnce()
+
+    let context: unknown
+    listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, response => { context = response })
+    expect(context).toMatchObject({
+      sample: { correctionCount: 1 },
+      diagnostics: { health: { correctionCount: 1 } },
+    })
   })
 
   it('requires recent rendered progress before applying an accepted soft rate', () => {

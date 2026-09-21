@@ -3,9 +3,21 @@ import type { DiagnosticsReport } from '@syncyourjoy/protocol'
 export const DIAGNOSTIC_MESSAGE_BUDGET_BYTES = 12_000
 
 export function fitDiagnosticsReport(report: DiagnosticsReport): DiagnosticsReport {
-  let candidate = report
-  while (serializedDiagnosticsBytes(candidate) > DIAGNOSTIC_MESSAGE_BUDGET_BYTES && candidate.events.length > 0)
-    candidate = { ...candidate, events: candidate.events.slice(1) }
+  let candidate: DiagnosticsReport = {
+    ...report,
+    eventsDropped: report.eventsDropped ?? 0,
+    payloadTruncated: report.payloadTruncated ?? false,
+  }
+  while (serializedDiagnosticsBytes(candidate) > DIAGNOSTIC_MESSAGE_BUDGET_BYTES && candidate.events.length > 0) {
+    const firstNonCritical = candidate.events.findIndex(event => event.critical !== true)
+    const removeIndex = firstNonCritical === -1 ? 0 : firstNonCritical
+    candidate = {
+      ...candidate,
+      events: candidate.events.filter((_event, index) => index !== removeIndex),
+      eventsDropped: (candidate.eventsDropped ?? 0) + 1,
+      payloadTruncated: true,
+    }
+  }
   if (serializedDiagnosticsBytes(candidate) <= DIAGNOSTIC_MESSAGE_BUDGET_BYTES)
     return candidate
   return {
@@ -14,6 +26,8 @@ export function fitDiagnosticsReport(report: DiagnosticsReport): DiagnosticsRepo
     mediaPageUrl: candidate.mediaPageUrl?.slice(0, 512) ?? null,
     userAgent: candidate.userAgent.slice(0, 160),
     events: [],
+    eventsDropped: (candidate.eventsDropped ?? 0) + candidate.events.length,
+    payloadTruncated: true,
   }
 }
 

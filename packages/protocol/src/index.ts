@@ -261,17 +261,36 @@ export interface PlayerSample {
   playbackStartFailed?: boolean
   /** True after the player has reached a playing state for the current command. */
   playbackStarted?: boolean
+  /** Bounded local correction attempts since the current player command. */
+  correctionCount?: number
 }
 
 export type ProgressEvidenceQuality = 'frames' | 'clock' | 'unknown'
 
 export type DiagnosticValue = string | number | boolean | null
 
+export type DiagnosticReason = OperationReason
+  | 'none'
+  | 'permission-denied'
+  | 'interrupted'
+  | 'provider-error'
+  | 'player-missing'
+  | 'waiting-for-data'
+  | 'stalled'
+  | 'startup-timeout'
+  | 'connection-lost'
+  | 'command-rejected'
+  | 'server-error'
+  | 'recovery-required'
+  | 'unknown'
+
 export interface DiagnosticEvent {
   atLocalMs: number
   category: string
   message: string
   details: Record<string, DiagnosticValue>
+  /** Critical transitions are retained ahead of repetitive heartbeat noise. */
+  critical?: boolean
 }
 
 export interface DiagnosticsReport {
@@ -294,6 +313,23 @@ export interface DiagnosticsReport {
   playerHasSourceObject?: boolean | null
   sample: PlayerSample | null
   events: DiagnosticEvent[]
+  /** Correlation fields are optional for reports produced by older clients. */
+  mediaEpoch?: number | null
+  operationId?: string | null
+  operationKind?: OperationKind | null
+  operationPhase?: OperationPhase | null
+  bindingId?: string | null
+  sourceGeneration?: number | null
+  sampleSequence?: number | null
+  targetPositionSeconds?: number | null
+  observedPositionSeconds?: number | null
+  progressConfidence?: ProgressEvidenceQuality | null
+  observationAgeMs?: number | null
+  correctionCount?: number
+  reason?: DiagnosticReason
+  eventsDropped?: number
+  eventsCoalesced?: number
+  payloadTruncated?: boolean
 }
 
 export type ControlKind = 'play' | 'pause' | 'seek'
@@ -918,6 +954,7 @@ function validPlayerSample(value: unknown): value is PlayerSample {
     && (value.progressEvidence === undefined || value.progressEvidence === 'frames' || value.progressEvidence === 'clock' || value.progressEvidence === 'unknown')
     && (value.playbackStartFailed === undefined || typeof value.playbackStartFailed === 'boolean')
     && (value.playbackStarted === undefined || typeof value.playbackStarted === 'boolean')
+    && (value.correctionCount === undefined || isBoundedSafeInteger(value.correctionCount, 10_000))
 }
 
 function validDiagnosticsReport(value: unknown): value is DiagnosticsReport {
@@ -941,6 +978,22 @@ function validDiagnosticsReport(value: unknown): value is DiagnosticsReport {
     && (value.playerCurrentSrcKind === undefined || value.playerCurrentSrcKind === null || validShortText(value.playerCurrentSrcKind, 20))
     && (value.playerHasSourceObject === undefined || value.playerHasSourceObject === null || typeof value.playerHasSourceObject === 'boolean')
     && (value.sample === null || validPlayerSample(value.sample))
+    && (value.mediaEpoch === undefined || value.mediaEpoch === null || isNonNegativeInteger(value.mediaEpoch))
+    && (value.operationId === undefined || value.operationId === null || validId(value.operationId))
+    && (value.operationKind === undefined || value.operationKind === null || isOperationKind(value.operationKind))
+    && (value.operationPhase === undefined || value.operationPhase === null || isOperationPhase(value.operationPhase))
+    && (value.bindingId === undefined || value.bindingId === null || validId(value.bindingId))
+    && (value.sourceGeneration === undefined || value.sourceGeneration === null || isBoundedSafeInteger(value.sourceGeneration, MAX_SOURCE_GENERATION))
+    && (value.sampleSequence === undefined || value.sampleSequence === null || isBoundedSafeInteger(value.sampleSequence, MAX_SAMPLE_SEQUENCE))
+    && (value.targetPositionSeconds === undefined || value.targetPositionSeconds === null || isFiniteNonNegative(value.targetPositionSeconds))
+    && (value.observedPositionSeconds === undefined || value.observedPositionSeconds === null || isFiniteNonNegative(value.observedPositionSeconds))
+    && (value.progressConfidence === undefined || value.progressConfidence === null || value.progressConfidence === 'frames' || value.progressConfidence === 'clock' || value.progressConfidence === 'unknown')
+    && (value.observationAgeMs === undefined || value.observationAgeMs === null || isFiniteNonNegative(value.observationAgeMs))
+    && (value.correctionCount === undefined || isBoundedSafeInteger(value.correctionCount, 10_000))
+    && (value.reason === undefined || isDiagnosticReason(value.reason))
+    && (value.eventsDropped === undefined || isBoundedSafeInteger(value.eventsDropped, 100_000))
+    && (value.eventsCoalesced === undefined || isBoundedSafeInteger(value.eventsCoalesced, 100_000))
+    && (value.payloadTruncated === undefined || typeof value.payloadTruncated === 'boolean')
     && value.events.every(validDiagnosticEvent)
 }
 
@@ -950,6 +1003,7 @@ function validDiagnosticEvent(value: unknown): value is DiagnosticEvent {
   return isFiniteNonNegative(value.atLocalMs)
     && validShortText(value.category, 40)
     && validShortText(value.message, 100)
+    && (value.critical === undefined || typeof value.critical === 'boolean')
     && Object.entries(value.details).every(([key, detail]) => key.length <= 40 && validDiagnosticValue(detail))
 }
 
@@ -958,6 +1012,23 @@ function validDiagnosticValue(value: unknown): value is DiagnosticValue {
     || typeof value === 'boolean'
     || typeof value === 'number' && Number.isFinite(value)
     || typeof value === 'string' && value.length <= 300
+}
+
+function isDiagnosticReason(value: unknown): value is DiagnosticReason {
+  return value === 'none'
+    || value === 'permission-denied'
+    || value === 'interrupted'
+    || value === 'provider-error'
+    || value === 'player-missing'
+    || value === 'waiting-for-data'
+    || value === 'stalled'
+    || value === 'startup-timeout'
+    || value === 'connection-lost'
+    || value === 'command-rejected'
+    || value === 'server-error'
+    || value === 'recovery-required'
+    || value === 'unknown'
+    || isOperationReason(value)
 }
 
 function isSyncCapability(value: unknown): value is SyncCapability {

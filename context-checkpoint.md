@@ -3988,6 +3988,162 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 82 - CR-C02 diagnostic report implementation before PR
+
+## Session Metadata
+- Task or project: SyncYourJoy CR-C02 bounded diagnostic reports
+- Checkpoint number: 82
+- Date and time: 2026-09-21 16:41 +03
+- Coverage period: From the user's instruction to verify, review and merge, through CR-C02 selection, implementation, regression testing, documentation, full local verification, browser-package verification and local room-service smoke.
+- Current context status: CR-C02 is implemented on `codex/issue-63-diagnostic-reports` from verified `origin/main` at merged PR #90 commit `b5e7c5de074fe926f674624dc6e22ef811fe043b`. The worktree is not yet committed or pushed. No CR-C02 PR has been opened, reviewed or merged yet.
+
+## User Objective and Requirements
+- Continue the systematic open-PR and oldest-open-issue workflow.
+- Verify the exact final source, review before merging, and merge only after the review and hosted checks pass.
+- Commit and push every completed change.
+- Add detailed documentation for every issue-specific PR and issue lifecycle.
+- Add labels, assignee, milestone and public project linkage to future PRs.
+- Keep issues open until all applicable implementation, verification, live-provider and user-acceptance gates are complete.
+- Treat the user's already signed-in Crunchyroll account and controlled browser as available. Do not call missing isolated automation storage state an account blocker.
+- Keep release `0.2.4` until a coherent verified group is complete, and reserve `1.0.0` for milestone completion.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 16:20 +03 - Resumed from the merged CR-C01 checkpoint
+- Restored continuity from the prior checkpoint. PR #90 for CR-C01 had already been reviewed with a detailed `COMMENTED` review because GitHub does not allow the PR owner to approve their own PR, then merged with the user's authorization. Its merge commit is `b5e7c5de074fe926f674624dc6e22ef811fe043b`.
+- Verified the working branch was a fresh `codex/issue-63-diagnostic-reports` branch from that merge and that the issue queue had no open PRs.
+- The oldest unimplemented implementation issue selected after the dependency-aware queue scan was #63, `CR-C02: Make diagnostic reports explain operation failures`. Issue #63 already had its classification/planning comment, assignee `muaz978`, labels `enhancement`, `initiative: crunchyroll-sync`, `area: extension`, `area: protocol`, and milestone `M3/M5: reliability and real-device validation`.
+- Confirmed that issue #63's acceptance requires bounded operation/media/binding identifiers, phase, progress confidence, target and observed positions, observation age, correction count and reason; preservation of critical transitions; explicit event/payload truncation information; and removal of source or stream URLs, private data and untrusted error payloads.
+
+### 2026-09-21 16:22 +03 - Source audit before editing
+- Inspected `packages/protocol/src/index.ts`, `apps/extension/src/diagnostics-budget.ts`, `apps/extension/src/internal.ts`, `apps/extension/src/content-script.ts`, `apps/extension/src/service-worker.ts`, and the relevant protocol, budget, worker and content-script tests.
+- Found that operation identity types already existed, but reports did not expose the operation/media/binding observation context, sample correction count, or an explicit reason/truncation state.
+- Found that the worker retained up to 100 events and removed old events to fit the transport budget, but did not distinguish critical transitions, coalesce repetitive status events, or report how much history was dropped.
+- Found that command rejection and server error diagnostics copied the server-controlled raw `message.message` into the report. The immediate user-facing state and notice paths were kept separate from report payload construction.
+- Found that the player already bounded unresolved `play()` recovery, but correction attempts were not surfaced in the sample or health diagnostics.
+- Confirmed existing URL sanitization and source-kind-only reporting boundaries, then preserved them rather than introducing any source URL or provider-private field.
+
+### 2026-09-21 16:25 +03 - Protocol, budget and health model changes
+- Added optional bounded `correctionCount` to `PlayerSample` and `PlayerHealthDiagnostics`.
+- Added the bounded `DiagnosticReason` union, optional `critical` on `DiagnosticEvent`, and optional correlation/truncation fields on `DiagnosticsReport`: media epoch, operation identity and phase, binding identity, source/sample identity, target and observed positions, progress confidence, observation age, correction count, reason, dropped/coalesced counts and payload truncation.
+- Extended protocol validation for every new field, including safe integer bounds, operation kind/phase/reason allowlists, non-negative positions and ages, bounded counters and boolean critical/truncation values.
+- Updated `fitDiagnosticsReport` to initialize explicit truncation fields, remove non-critical events before critical events, increment `eventsDropped`, and preserve `payloadTruncated` when the fixed fields themselves require the final fallback trimming.
+- Added the optional correction count to the internal player-health diagnostics contract.
+
+### 2026-09-21 16:28 +03 - Content-script correction evidence
+- Added a correction counter in `apps/extension/src/content-script.ts` and reset it with the existing correction budget.
+- Incremented it for an accepted soft-rate correction.
+- Incremented it once when a new native hard-seek operation is created, including the asynchronous assignment path where `trySetProgrammaticPosition()` returns before the native seek completes. Repeated attempts against an existing pending seek are not counted as new corrections.
+- Exposed the count in both the periodic player sample and the read-only player health diagnostics.
+- An initial regression assertion expected a completed slow correction to retain a count of one, but the implementation revealed that the counter was incremented only after a successful return from the asynchronous seek helper. The code was corrected to count the new pending seek before handling the helper's false asynchronous return. The focused test then passed.
+
+### 2026-09-21 16:31 +03 - Service-worker correlation, coalescing and redaction
+- Added worker-side tracking for the last accepted operation observation identity and cleared it when the player binding or player context changes, or when player delivery becomes unreachable.
+- Added report correlation from the current snapshot contract and latest player sample: media epoch, operation ID/kind/phase/reason, binding ID, source generation, sample sequence, target position, observed position, progress confidence, observation age and correction count.
+- Added bounded `eventsDropped`, `eventsCoalesced` and `payloadTruncated` report fields.
+- Reworked diagnostic event recording to sanitize and cap details, coalesce consecutive `player_status` events with the same bounded health signature, keep a repeat count, mark transition/error/operation records as critical, and drop non-critical ring entries first when the in-memory limit is reached.
+- Added safe diagnostic code and reason normalization. Room snapshot events now use the fixed message `room_snapshot` and a bounded reason code. `command_rejected` and `server_error` diagnostics retain only a safe code and normalized reason, not the raw server message.
+- Kept raw server messages available only for immediate user notices and connection state, not diagnostic report payloads.
+
+### 2026-09-21 16:34 +03 - First focused verification
+- Ran the focused Vitest set covering protocol, diagnostics budget, service worker, content script and player operations. The first focused run passed 5 files and 105 tests.
+- Added protocol tests for new accepted fields and invalid correction/reason rejection.
+- Added budget tests for critical-transition retention and explicit truncation evidence.
+- Added service-worker coverage for operation/media/binding/sample correlation, correction count propagation, repeated-status coalescing and raw server error redaction.
+- Added content-script coverage asserting correction count is exposed in both sample and health diagnostics after a slow hard correction.
+
+### 2026-09-21 16:36 +03 - Test-driven corrections
+- The new content-script assertion initially failed with correction count zero. The cause was the asynchronous native seek helper returning false after it had already created the pending seek. The counter was moved to the pending-seek creation boundary, then the focused test passed.
+- The new worker test initially expected observed position `135` after a second coalesced status reported `136`. The coalescer correctly retains the latest bounded observation, so the test input was corrected to repeat `135` while still verifying `eventsCoalesced` equals one.
+- Reran the focused set after these changes: 4 test files passed and 102 tests passed.
+
+### 2026-09-21 16:37 +03 - Permanent documentation
+- Added `docs/CR_C02_DIAGNOSTIC_REPORTS.md` with the implementation scope, correlation fields, correction semantics, event retention and truncation rules, redaction boundary, exact deterministic verification and separate live-provider acceptance gates.
+- Linked the new record from `docs/TEST_GUIDE.md` next to the existing CR-C01 report link.
+- Verified the new source and documentation changes contain no em dash character and `git diff --check` passed.
+
+### 2026-09-21 16:38 +03 - Full repository check and initial failure correction
+- Ran `npm run check`. TypeScript first rejected two optional reason objects and an optional critical assignment under `exactOptionalPropertyTypes`.
+- Corrected the code to omit the optional reason property when no normalized reason exists and to set critical only when true, preserving strict optional-property semantics.
+- Reran `npm run check`: typecheck and edge-service typecheck passed; Vitest passed 31 files and 295 tests; the room-service bundle and extension build passed.
+
+### 2026-09-21 16:39 +03 - Security, version, package and smoke gates
+- Ran `npm audit --audit-level=high`: `found 0 vulnerabilities`.
+- Ran `npm run release:check-version`: current version is `0.2.4`; no release bump was made.
+- Ran `npm run verify:browser-packages` with approved filesystem access after the repository's Safari converter requires macOS filesystem access: Chrome manifest `0.2.4`, Firefox manifest `0.2.4`, and macOS Safari package smoke all passed.
+- The first `npm run smoke:edge -- ws://127.0.0.1:8787/rooms` attempt failed with `ECONNREFUSED` because no local room service was listening. This was an environment setup failure, not an application assertion.
+- Started the repository local room service with `npm run dev:server`, which listened on `ws://127.0.0.1:8787/rooms`.
+- Reran the smoke successfully. Result included `ok:true`, room round trip, revision 20, seek barrier protection, timeout release, transactional contract verification, two diagnostic participants, stale buffering protection and startup buffering protection.
+
+### 2026-09-21 16:41 +03 - Current pre-commit state
+- The current worktree contains the CR-C02 source, tests and permanent documentation changes listed below. It is not yet committed or pushed.
+- No PR has been opened. Therefore no hosted checks, exact-head review, project linkage verification for the new PR, merge, post-merge issue comment or issue status transition has yet occurred for CR-C02.
+- The local room-service process remains available from the successful smoke run and should be stopped when no longer needed.
+
+## Confirmed Successful Results
+- CR-C02 implementation changes are present in the current worktree and pass the focused tests: 4 files, 102 tests.
+- `npm run check` passes with 31 test files and 295 tests, both TypeScript checks, the room-service build and the extension build.
+- `npm audit --audit-level=high` reports zero vulnerabilities.
+- `npm run release:check-version` reports `0.2.4`, confirming no unauthorized release bump.
+- `npm run verify:browser-packages` passes Chrome 0.2.4, Firefox 0.2.4 and macOS Safari package smoke.
+- The local room-service smoke passes with transactional contract, seek barrier, timeout, buffering and diagnostics participant evidence.
+- Permanent implementation documentation exists at `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_C02_DIAGNOSTIC_REPORTS.md` and is linked from the test guide.
+
+## Failed, Incomplete, or Unresolved Work
+- The first full check failed on exact optional-property typing and was corrected. The final full check passed.
+- The first local room-service smoke failed because port 8787 was not listening. After starting the intended local service, the same smoke passed.
+- The CR-C02 worktree has not yet been committed or pushed.
+- PR #91 is expected only after verifying the final diff and pushing, but the number must be confirmed rather than assumed.
+- The PR still requires metadata, hosted checks, exact-head review, owner-review limitation handling, authorized merge, post-merge issue documentation and verification that issue #63 remains open until its remaining external gates are complete.
+- Authenticated live Crunchyroll visible-frame acceptance, deployment and user acceptance remain separate gates. The signed-in account is available, and no account-missing blocker is recorded.
+
+## Decisions and Rationale
+- CR-C02 was selected after the open-PR queue was empty and after the oldest-first dependency-aware issue scan identified #63 as the next unimplemented diagnostic slice.
+- New report fields remain optional for backward compatibility, while all values produced by the current worker are bounded and validated before transport.
+- Critical events are retained ahead of heartbeat noise because a long report must explain failures even when routine status events are frequent.
+- Raw server messages remain available for immediate UI feedback but are excluded from reports because they are untrusted payloads and may contain provider or private data.
+- The release remains `0.2.4` because this is one verified implementation slice, not a coherent release group or complete milestone.
+- Issue #63 will remain open after merge because deterministic implementation does not itself establish authenticated Crunchyroll behavior, deployment or complete milestone acceptance.
+
+## Files and Artifacts
+- Protocol implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.ts`
+- Protocol tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.test.ts`
+- Content implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- Content tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts`
+- Internal diagnostics type: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/internal.ts`
+- Worker implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.ts`
+- Worker tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.test.ts`
+- Budget implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/diagnostics-budget.ts`
+- Budget tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/diagnostics-budget.test.ts`
+- Permanent report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_C02_DIAGNOSTIC_REPORTS.md`
+- Test-guide link: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Base commit: `b5e7c5de074fe926f674624dc6e22ef811fe043b`
+
+## Assumptions and Uncertainties
+- The public GitHub project UI remains the authoritative place to verify custom fields because the CLI token does not provide project-read scope.
+- The final PR number, hosted check names and hosted security findings must be read from GitHub after push. They must not be inferred from local state.
+- Browser-package smoke proves packaged manifest and conversion behavior, not live provider playback or visible presentation.
+- The successful local room-service smoke proves the local protocol path, not deployment or authenticated Crunchyroll acceptance.
+
+## Open Questions, Blockers, and Dependencies
+- Issue #63 depends on the already merged protocol contract and the remaining runtime/provider acceptance work. Its issue status should be updated only after the exact PR and acceptance evidence are available.
+- The owner self-review restriction is expected to require a detailed `COMMENTED` review rather than an `APPROVED` review, as in the previous PRs. This must be verified on the actual new PR.
+- Any advanced security heuristic on the new PR must be investigated at exact line and commit before merge, not dismissed from its label alone.
+- A future headed Crunchyroll acceptance can use the already signed-in Edge session when the implementation reaches the relevant gate. No second account or deployment target has been assumed.
+
+## Next Steps
+1. Inspect the final diff, stop the local room service, commit all CR-C02 source, test and documentation changes, and push the new branch.
+2. Confirm the pushed commit and actual PR number, then populate the PR body, labels, assignee, milestone and public project linkage.
+3. Wait for all hosted checks, investigate every security result, write and submit the exact-head review, and merge only after review and checks pass.
+4. Post a detailed issue #63 merge comment with exact evidence and keep the issue open for remaining gates.
+5. Re-scan the issue queue and continue oldest-first, retaining `0.2.4` until a coherent release group is verified.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-81 remain intact. This checkpoint documents CR-C02 implementation and local verification before its PR lifecycle.
+- The initial room smoke failure and exact-optional-property failure are preserved as failed attempts followed by their confirmed corrections.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 80 - CR-C01 bounded stalled-play recovery implementation and verification
 
 ## Session Metadata
