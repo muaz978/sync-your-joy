@@ -8088,6 +8088,150 @@
 # Context Checkpoint
 
 ## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue delivery, `0.2.5` release and second-device test handoff.
+- Checkpoint number: 98.
+- Date and time: 2026-09-22, Europe/Istanbul.
+- Coverage period: Since checkpoint 97, covering PR #99 metadata, exact-head review, merge, tag, public release verification, release-note update and the issue #30 second-device test protocol.
+- Current context status: `0.2.5` is merged, tagged, published and artifact-verified. This checkpoint is a documentation-only follow-up on the verified `origin/main` release commit. Issue #30 remains open for the real two-device provider run.
+
+## User Objective and Requirements
+- Make the recent deterministic changes installable as a coherent `0.2.5` test release.
+- Review the release PR before merging it, then verify the merged `main` commit, tag and public release assets.
+- Keep detailed documentation for every release and issue action, including exact commits, checks, package hashes, limitations and the second-device test procedure.
+- Treat the existing signed-in Crunchyroll account as available. Do not mislabel the work as blocked because that account is absent.
+- Do not close issue #30 until two-profile, two-device, provider, deployment and user-acceptance gates are complete and evidenced.
+
+## Current State
+- PR #99, `release: prepare SyncYourJoy 0.2.5 test release`, was reviewed at source head `b4c6546859ce2702ef39f57abdc380dbc2f9d91f` against base `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`.
+- PR #99 review result was a non-blocking exact-head owner review comment because the PR author cannot self-approve.
+- PR #99 merged successfully with merge commit `423b6f7c77dad2a4b14db6932711be025aac8163`.
+- `origin/main` was fetched and verified at `423b6f7c77dad2a4b14db6932711be025aac8163`.
+- The merged root package, extension package, extension manifest and lockfile report `0.2.5`.
+- Annotated tag `v0.2.5` was created on the verified `origin/main` merge commit and pushed to GitHub.
+- The tag-triggered `Release extension` workflow run `35662329637` completed successfully.
+- GitHub published [SyncYourJoy v0.2.5](https://github.com/muaz978/sync-your-joy/releases/tag/v0.2.5) as a non-draft, non-prerelease latest release with the ZIP and checksum assets.
+- The public ZIP was downloaded into an isolated temporary directory, passed checksum verification and ZIP integrity verification, and its extracted manifest reported version `0.2.5` and the production coordinator endpoint.
+- Public ZIP SHA-256: `7fb39e25c8c96ae2987cd6eb5cf4d1cefb3ed10e6f98325b9652d3eeb586b942`.
+- The release page was updated with curated verified scope, explicit live-provider limits, provenance, and a link to the issue #30 test protocol.
+- Issue #30 received the detailed [0.2.5 artifact and second-device test plan](https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5768368434). It remains open.
+- This branch `codex/release-0.2.5-verification` starts from the merged `origin/main` and currently contains only the checkpoint append. It is not yet committed, pushed or opened as a PR.
+
+## Complete Chronological Activity Log
+
+### 2026-09-22 - Verified PR #99 merge
+- Action taken: Queried PR #99 after the authorized administrative merge.
+- Result: State `MERGED`; final source head `b4c6546859ce2702ef39f57abdc380dbc2f9d91f`; base `main` at `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`; merge commit `423b6f7c77dad2a4b14db6932711be025aac8163`.
+- Action taken: Called the Codex artifact attachment for PR #99.
+- Result: PR #99 is attached to this task.
+- Action taken: Fetched `origin/main` after the merge.
+- Result: `origin/main` advanced from `da42aa1` to `423b6f7`.
+- Action taken: Inspected version values directly from the merged remote tree.
+- Result: Root package, extension package, extension manifest and lockfile all report `0.2.5`.
+
+### 2026-09-22 - Created and pushed the verified release tag
+- Action taken: Confirmed no existing `v0.2.5` tag before creating it.
+- Action taken: Created annotated tag `v0.2.5` at `origin/main` with message `SyncYourJoy v0.2.5`.
+- Action taken: Pushed tag `v0.2.5` to the GitHub repository.
+- Result: The new tag was accepted by the remote and triggered the tag-based release workflow.
+
+### 2026-09-22 - Verified the tag-triggered release workflow
+- Action taken: Listed the release workflow runs.
+- Result: Run `35662329637`, workflow `Release extension`, was initially `in_progress` for tag `v0.2.5`.
+- Action taken: Watched the run to completion.
+- Result: Run `35662329637` completed with `success`.
+- Boundary: This workflow verifies source checks, browser packages, production audit, package creation, ZIP integrity, checksum and GitHub Release publication. It does not prove authenticated Crunchyroll playback or real two-device acceptance.
+
+### 2026-09-22 - Verified public release metadata and assets
+- Action taken: Queried `gh release view v0.2.5`.
+- Result: Release name is `SyncYourJoy v0.2.5`; it is published, not draft, not prerelease, and marked latest. Both expected assets are present: `sync-your-joy-extension.zip` and `sync-your-joy-extension.zip.sha256`.
+- Result: GitHub reported the public ZIP asset digest `sha256:7fb39e25c8c96ae2987cd6eb5cf4d1cefb3ed10e6f98325b9652d3eeb586b942`.
+- Action taken: Downloaded both public release assets to `/private/tmp/syncyourjoy-v0.2.5-release`.
+- Action taken: Ran `shasum -a 256 -c sync-your-joy-extension.zip.sha256` from that directory.
+- Result: `sync-your-joy-extension.zip: OK`.
+- Action taken: Ran `unzip -t sync-your-joy-extension.zip`.
+- Result: Every archive entry passed and no compressed-data errors were reported.
+- Action taken: Read the extracted manifest from the public ZIP.
+- Result: Manifest version is `0.2.5`; effective extension CSP contains `wss://sync-your-joy-rooms.sync-your-joy.workers.dev`.
+
+### 2026-09-22 - Updated the public release notes
+- Action taken: Replaced the generated-only release description with a curated release note containing installation steps, verified scope, known limits, tag provenance, public ZIP checksum and the issue #30 test-protocol link.
+- Result: The release page now states explicitly that `0.2.5` is a controlled test release and does not claim authenticated Crunchyroll, two-profile, two-device, deployment or final user acceptance.
+- Result: The release page preserves the state-only privacy boundary and directs the friend test to the issue #30 protocol.
+
+### 2026-09-22 - Published the second-device test protocol on issue #30
+- Action taken: Added a detailed issue #30 comment with the public release URL, tag target, workflow result, public ZIP checksum and extracted manifest evidence.
+- Action taken: Documented preparation steps for both devices, separate authorized states, same package identity, HTTPS `/watch/` URL, browser and OS records, and the no-secrets rule.
+- Action taken: Documented the test sequence: player and media identity, room creation and approval, actual native playback, pause, forward and backward seek, ownership, reload, reconnect, controlled network interruption, player replacement or navigation, and cleanup.
+- Action taken: Documented evidence fields including native `currentTime`, `paused`, `seeking`, `readyState`, actual visible progress, room revision, participant status, package checksum and sanitized failure details.
+- Result: The comment states that the coordinator timeline alone is not sufficient evidence and that any failed or skipped gate keeps issue #30 open.
+- Result: Issue #30 remains `OPEN`; no issue was closed by the release.
+
+## Confirmed Successful Results
+- PR #99 was reviewed at its exact final head and merged.
+- The merged release commit is `423b6f7c77dad2a4b14db6932711be025aac8163`.
+- Tag `v0.2.5` points to the verified merged `main` commit and is pushed remotely.
+- The release workflow completed successfully.
+- The public GitHub Release exists with both expected assets.
+- The public ZIP checksum and ZIP integrity verification passed.
+- The extracted public manifest reports `0.2.5` and the production coordinator endpoint.
+- The release page contains the curated test-release scope and known limits.
+- Issue #30 contains the repeatable second-device preparation, execution and evidence protocol.
+- Issue #30 remains open, and the existing signed-in account is not treated as missing.
+- No credentials, cookies, storage states, signed URLs, media bytes or DRM material were recorded.
+
+## Failed, Incomplete, or Unresolved Work
+- No release verification failure remains. The release workflow and public asset verification both passed.
+- The second-device provider acceptance run has not yet happened. The friend is expected to prepare the second device tomorrow.
+- The second dedicated authorized Crunchyroll state/profile, valid shared `/watch/` URL, exact candidate deployment identity and final user acceptance still need to be supplied and exercised.
+- Issue #30 is not ready to close. A public release and package smoke test cannot substitute for authenticated live-provider or real two-device evidence.
+- This checkpoint append is not yet committed or pushed in its follow-up documentation branch.
+
+## Decisions and Rationale
+- Publish `0.2.5` now as a controlled test release because the deterministic group is versioned, checked, packaged and reproducible, while its release notes explicitly exclude unresolved live-provider gates.
+- Use the public ZIP and checksum from the tag-triggered workflow as the only package identity for the friend test. Do not mix it with an unrecorded local build.
+- Keep issue #30 open until both devices produce evidence of actual native media progress and all applicable recovery and cleanup gates pass.
+- Treat a room counter that advances while a video is frozen as a failure, not as a synchronization pass.
+- Keep `1.0.0` reserved for the milestone-end gate. `0.2.5` does not change that decision.
+
+## Files and Artifacts
+- Release PR: `https://github.com/muaz978/sync-your-joy/pull/99`.
+- Release page: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.2.5`.
+- Tag target: `423b6f7c77dad2a3c3fd4e2963ca55475408f4d`.
+- Issue #30 release and test plan comment: `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5768368434`.
+- Repository changelog: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/CHANGELOG.md`.
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`.
+- Public asset verification directory: `/private/tmp/syncyourjoy-v0.2.5-release`.
+
+## Assumptions and Uncertainties
+- The friend’s second device can install the extracted ZIP through the normal unpacked-extension workflow.
+- The friend’s authorized state/profile and the existing signed-in state will both be entitled to the same selected Crunchyroll watch URL.
+- The production coordinator endpoint embedded in the package is the intended candidate for the two-device run. Its deployment identity must still be recorded in the acceptance report.
+- Provider behavior may expose additional issues not visible in the deterministic local and package checks.
+
+## Open Questions, Blockers, and Dependencies
+- When the friend is ready, which second dedicated authorized Crunchyroll state/profile and which HTTPS `/watch/` URL will be used?
+- Which browser and operating system will be used on the second device?
+- Can the controlled network interruption and reload/reconnect steps be performed safely during the test?
+- Issue #30 remains dependent on those external inputs and on explicit user acceptance after reviewing the sanitized report.
+
+## Next Steps
+1. Commit and push this checkpoint-only documentation append through a reviewable PR, preserving the exact release history.
+2. Before the friend test, install the public `v0.2.5` ZIP on both devices and record the package checksum.
+3. Use separate authorized Crunchyroll states and one valid HTTPS watch URL. Do not copy or disclose cookies or storage states.
+4. Execute the issue #30 protocol and record actual native media progress, not only room timeline values.
+5. Add the sanitized evidence report to issue #30, keep it open on any failed or skipped applicable gate, and request explicit user acceptance only after the full matrix is complete.
+6. Continue to issue #33 only after the oldest unresolved issue #30 is complete or a precise external-input decision changes the queue.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-97 remain intact. Checkpoint 98 supersedes checkpoint 97's pending release statements with confirmed merge, tag, workflow, public-asset and issue-protocol results.
+- This checkpoint does not supersede the unresolved live-provider and two-device limitations. It records a published test release, not a final product acceptance or `1.0.0` milestone release.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+---
+
+# Context Checkpoint
+
+## Session Metadata
 - Task or project: SyncYourJoy systematic PR and issue delivery, compatible `0.2.5` test release preparation.
 - Checkpoint number: 97.
 - Date and time: 2026-09-22, Europe/Istanbul.
