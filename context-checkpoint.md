@@ -3988,6 +3988,104 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 87 - Oldest open acceptance gate audit after CR-C04 merge
+
+## Session Metadata
+- Task or project: SyncYourJoy issue queue continuation, oldest open Crunchyroll acceptance gate
+- Checkpoint number: 87
+- Date and time: 2026-09-21, Europe/Istanbul
+- Coverage period: From the CR-C04 checkpoint push and fresh open-PR/open-issue scan through issue #30 inspection, safe provider-harness execution, detailed issue documentation and the remaining external-input boundary.
+- Current context status: The repository has no open pull requests. PR #93 remains merged. Issue #30 is the oldest open issue and remains open because its protected two-profile provider and real-device acceptance gates are not supplied or passed.
+
+## User Objective and Requirements
+- Continue only after verifying the preceding PR review and merge.
+- Work through open issues systematically from oldest to newest, while respecting dependency order.
+- Keep the signed-in Crunchyroll account available in the reasoning and never call the account missing merely because isolated automation fixtures are absent.
+- Preserve detailed evidence, issue comments, project metadata and checkpoint history.
+- Do not close an issue until every applicable acceptance gate is directly evidenced.
+- Commit and push the checkpoint and all relevant documentation.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 - CR-C04 post-merge checkpoint and queue scan
+- Finished issue #65 project metadata reconciliation by setting and verifying risk `High` and verification owner `muaz978`. Status remains `Verification`, blocked reason is blank, target date is blank and the issue acceptance checklist is intentionally unchecked.
+- Appended Checkpoint 86 to `context-checkpoint.md`, committed it as `d06543eafe13984cb812db392587341e99d6cfb3`, and pushed it to `origin/codex/issue-65-navigation-transaction`.
+- Verified the local branch is clean, local HEAD is `d06543eafe13984cb812db392587341e99d6cfb3`, the remote retained branch resolves to the same SHA, and `origin/main` remains `666712881444d3cd7f342a8e71a2b39ec94d1ce7`.
+- Ran a fresh repository queue scan. `gh pr list --state open` returned an empty array, confirming there are no open PRs to review or merge before continuing to issues.
+- The open-issue scan showed issue #30 as the oldest current open item, followed by #33, #34, #35, the earlier issue #49, and later CR-B through CR-D implementation and acceptance issues.
+
+### 2026-09-21 - Issue #30 scope and state review
+- Inspected issue #30, `Extend the real two-profile E2E test to a commercial provider (Crunchyroll)`, including its body, labels, milestone, assignee and recent comments.
+- Confirmed that the implementation harness was already delivered by merged PR #71 and that issue #30 remains open for authenticated provider execution, two authorized profiles or accounts, two-device evidence, exact candidate/deployment identity and user acceptance.
+- Confirmed the issue already records that the signed-in Edge Crunchyroll account was observed and is available. The issue's later controlled observation recorded a login/trial surface without a usable player, which is unresolved provider/page readiness, not a missing-account conclusion and not a playback pass.
+- Confirmed issue #30 is assigned to `muaz978`, labeled `documentation`, `security`, `initiative:crunchyroll-sync` and `area: testing`, and assigned to milestone `M3/M5: reliability and real-device validation`.
+
+### 2026-09-21 - Safe current-harness execution
+- Inspected the provider test and workflow wiring. The dedicated command is `npm run test:e2e:crunchyroll`; it requires an HTTPS Crunchyroll `/watch/` URL plus two protected Playwright storage-state paths and safely skips when those protected inputs are absent.
+- Executed `npm run test:e2e:crunchyroll` on the current `0.2.4` tree.
+- The room-service started successfully at an ephemeral local endpoint and the extension built successfully against it.
+- Playwright discovered one authenticated Crunchyroll two-profile test and reported `1 skipped` because the protected provider URL and both storage-state paths were not supplied.
+- Verified the run left the worktree clean. No credentials, cookies, storage-state contents, account data, signed URLs, media bytes or DRM data were accessed or recorded.
+- Interpreted the result as safe harness behavior and pending external inputs, not as a product pass, product failure or missing-account result.
+
+### 2026-09-21 - Issue #30 documentation update
+- Wrote `/private/tmp/syj-issue-30-queue-audit.md` with the exact command, output classification, privacy boundary, signed-account clarification, remaining gates and release decision.
+- Posted the detailed queue-audit comment at `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5763099370`.
+- The comment explicitly keeps issue #30 open and says the next real run requires two dedicated authorized profile or account states, an authorized HTTPS watch URL, a second device or controlled second-device environment, exact candidate/deployment identity, a sanitized acceptance report and explicit user acceptance.
+- The comment instructs that protected storage-state files or credentials must not be pasted into chat, issues or pull requests. They must be supplied through protected local or CI handling if the user authorizes that gate.
+
+## Confirmed Successful Results
+- No open PRs remain after PR #93 merge.
+- The current branch and remote checkpoint commit agree at `d06543eafe13984cb812db392587341e99d6cfb3`.
+- `origin/main` remains verified at merge commit `666712881444d3cd7f342a8e71a2b39ec94d1ce7`.
+- Issue #30 is confirmed as the oldest open issue and its implementation harness is present.
+- `npm run test:e2e:crunchyroll` starts the local room service and builds the extension successfully, then safely skips the protected authenticated test when required inputs are absent.
+- The fresh evidence and non-closure rationale are documented in issue comment `5763099370`.
+
+## Failed, Incomplete, or Unresolved Work
+- The authenticated Crunchyroll two-profile test did not execute because the two protected storage-state paths and provider URL were not supplied. This is not a pass.
+- The existing signed-in browser session does not by itself produce two isolated Playwright storage-state files or two-account and two-device evidence.
+- The selected watch page's earlier login/trial surface without a usable player remains an unresolved provider or entitlement observation. It is not evidence that the user's account is absent, and it is not evidence of successful playback.
+- Issue #30 remains open. No issue checklist item was checked and no release was bumped.
+- The exact next external inputs are a dedicated second authorized profile or account state if required by the chosen matrix, protected storage-state handling, an authorized HTTPS watch URL, a second device or controlled second-device environment, exact candidate/deployment identity and user acceptance.
+
+## Decisions and Rationale
+- Issue #30 is addressed next because it is the oldest open gate, even though its implementation is already merged. The systematic workflow now audits its actual remaining acceptance state instead of skipping ahead to newer issue numbers.
+- The safe skipped provider command is recorded as evidence that the harness is wired and fail-safe. It cannot satisfy the live-provider gate.
+- The user's active Crunchyroll account is not classified as missing. The remaining account-related requirement is isolated authorized test state and, if the final matrix demands it, a second authorized account or profile.
+- No code change was invented solely to turn a missing protected test input into a green result. A user or secure test-environment action is required before the live gate can proceed.
+- Version remains `0.2.4`; no release bump is justified by this acceptance audit and `1.0.0` remains reserved for full milestone completion.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Provider test: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/crunchyroll-two-profile.spec.ts`
+- Provider workflow: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/.github/workflows/e2e-crunchyroll.yml`
+- Test guide: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- Temporary issue comment body: `/private/tmp/syj-issue-30-queue-audit.md`
+- Issue #30: `https://github.com/muaz978/sync-your-joy/issues/30`
+- Queue-audit comment: `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5763099370`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+
+## Assumptions and Uncertainties
+- The issue and project pages are the current source of truth for hosted acceptance state.
+- The signed-in Edge session is available, but it is not assumed to be exportable into protected Playwright storage-state files, and no browser secrets were copied.
+- The two-profile requirement is treated as a real acceptance condition because the issue and test harness explicitly require two protected states. Whether two distinct accounts or two authorized profiles are acceptable must follow the approved test matrix.
+
+## Open Questions, Blockers, and Dependencies
+- The next execution is blocked only at the external-input boundary: protected test states, an authorized watch URL, the second-device environment and exact candidate/deployment identity.
+- The user should provide or authorize the secure mechanism for those inputs when ready. No credentials or storage-state contents should be pasted into chat.
+- Newer issues #33, #34 and #35 remain older than later CR-D implementation issues but depend on browser, device, provider or prerequisite matrix evidence. They should not be marked complete by the skipped #30 command.
+
+## Next Steps
+1. Wait for the user to provide or authorize protected test inputs and a second-device environment, if they want the live #30 gate executed now.
+2. Once supplied securely, run the exact candidate against the dedicated provider workflow and record a sanitized acceptance report without storing protected data.
+3. If those external inputs are not yet available, keep #30 open and continue only with dependency-valid deterministic preparation, without claiming acceptance.
+4. After the #30 gate is complete or explicitly deferred with evidence, revisit #33, #34, #35 and #49 in creation order and dependency order before proceeding to #66 and later CR-D issues.
+
+## Historical Checkpoint Notes
+- Checkpoint 86 records the PR #93 review, merge and issue #65 metadata completion. This Checkpoint 87 records the subsequent queue scan and oldest issue #30 acceptance audit.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 86 - CR-C04 reviewed merge, issue verification and continuation
 
 ## Session Metadata
