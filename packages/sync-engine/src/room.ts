@@ -25,6 +25,7 @@ import {
 } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
 import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { participantPlaybackStatus } from './participant-status.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
 export interface InternalParticipant extends ParticipantState {
@@ -125,8 +126,15 @@ export class RoomCoordinator {
       this.controllerId = restoredState.controllerId
       this.media = restoredState.media
       this.playback = restoredState.playback
-      for (const participant of restoredState.participants)
-        this.participants.set(participant.id, structuredClone(participant))
+      for (const participant of restoredState.participants) {
+        const restored = structuredClone(participant)
+        restored.playbackStatus = restored.playbackStatus ?? (restored.connected
+          ? restored.mediaMatches
+            ? restored.ready ? 'ready' : 'preparing'
+            : 'wrong-media'
+          : 'unknown')
+        this.participants.set(participant.id, restored)
+      }
       for (const actionId of restoredState.actionIds)
         this.actionIds.add(actionId)
       this.navigation = restoredState.navigation ?? null
@@ -161,6 +169,7 @@ export class RoomCoordinator {
       latencyMs: null,
       joinedAtMs: this.now(),
       media: controller.media,
+      playbackStatus: 'preparing',
       ...(controller.sessionToken ? { sessionToken: controller.sessionToken } : {}),
       capabilities: normalizeClientCapabilities(controller.capabilities),
       lastSample: null,
@@ -235,6 +244,9 @@ export class RoomCoordinator {
       if (participant.sessionToken)
         existing.sessionToken = participant.sessionToken
       existing.ready = wasReady && existing.mediaMatches
+      existing.playbackStatus = existing.mediaMatches
+        ? existing.ready ? this.playback.status === 'playing' ? 'preparing' : 'ready' : 'preparing'
+        : 'wrong-media'
       this.pauseForMembershipChange()
       this.refreshNegotiation()
       this.revision += 1
@@ -294,6 +306,7 @@ export class RoomCoordinator {
       latencyMs: null,
       joinedAtMs: this.now(),
       media: pending.media,
+      playbackStatus: matches ? 'preparing' : 'wrong-media',
       ...(pending.sessionToken ? { sessionToken: pending.sessionToken } : {}),
       ...(pending.capabilities ? { capabilities: pending.capabilities } : {}),
       lastSample: null,
@@ -317,6 +330,11 @@ export class RoomCoordinator {
     participant.media = media
     participant.mediaMatches = mediaMatches(this.media, media)
     participant.ready = ready && participant.mediaMatches
+    participant.playbackStatus = !participant.mediaMatches
+      ? 'wrong-media'
+      : participant.ready
+        ? this.playback.status === 'playing' ? 'preparing' : 'ready'
+        : 'preparing'
     if (participant.ready === previousReady && participant.mediaMatches === previousMediaMatches)
       return this.success('readiness_unchanged')
     if (!participant.ready)
@@ -365,6 +383,7 @@ export class RoomCoordinator {
         effectiveAtServerMs: nowMs,
         playbackRate: 1,
       }
+      this.markParticipantStatuses('ready')
     }
     else if (intent.kind === 'play') {
       this.pendingSeek = null
@@ -375,6 +394,7 @@ export class RoomCoordinator {
         playbackRate: 1,
       }
       this.resetPlaybackHealth(this.playback.effectiveAtServerMs)
+      this.markParticipantStatuses('preparing')
     }
     else {
       const resumeWhenReady = this.pendingSeek?.resumeWhenReady ?? this.playback.status === 'playing'
@@ -384,6 +404,7 @@ export class RoomCoordinator {
         effectiveAtServerMs: nowMs,
         playbackRate: 1,
       }
+      this.markParticipantStatuses('ready')
       this.revision += 1
       this.pendingSeek = {
         revision: this.revision,
@@ -395,6 +416,7 @@ export class RoomCoordinator {
         // including the controller, must confirm that its seek completed.
         acknowledgedParticipantIds: [],
       }
+      this.markParticipantStatuses('seeking')
       return this.success('control_seek_pending')
     }
 
@@ -476,6 +498,7 @@ export class RoomCoordinator {
           effectiveAtServerMs: operation.effectiveAtServerMs,
           playbackRate: 1,
         }
+        this.markParticipantStatuses('ready')
         this.revision += 1
         return this.success('operation_seek_committed_paused')
       }
@@ -494,6 +517,7 @@ export class RoomCoordinator {
         playbackRate: 1,
       }
       this.resetPlaybackHealth(operation.effectiveAtServerMs)
+      this.markParticipantStatuses('preparing')
       operation.phase = 'committed'
       this.revision += 1
       return this.success('operation_committed')
@@ -509,6 +533,7 @@ export class RoomCoordinator {
       return null
 
     operation.startedParticipantIds.push(participantId)
+    participant.playbackStatus = 'playing'
     if (operation.startedParticipantIds.length === operation.requiredParticipantIds.length)
       operation.phase = 'started'
     this.revision += 1
@@ -527,6 +552,7 @@ export class RoomCoordinator {
       ? 'start-timeout'
       : 'deadline-expired'
     this.pauseAtOperationTarget(operation, nowMs)
+    this.markParticipantStatuses('recovery-required')
     this.revision += 1
     this.markStateBarrier()
     return this.success('operation_timeout_paused')
@@ -576,6 +602,10 @@ export class RoomCoordinator {
         playbackRate: 1,
       }
       this.resetPlaybackHealth(this.playback.effectiveAtServerMs)
+      this.markParticipantStatuses('preparing')
+    }
+    else {
+      this.markParticipantStatuses('ready')
     }
     this.revision += 1
     return this.success(pending.resumeWhenReady ? 'seek_aligned_play_scheduled' : 'seek_aligned_paused')
@@ -592,6 +622,7 @@ export class RoomCoordinator {
       effectiveAtServerMs: nowMs,
       playbackRate: 1,
     }
+    this.markParticipantStatuses('recovery-required')
     this.revision += 1
     this.markStateBarrier()
     return this.success('seek_timeout_paused')
@@ -647,6 +678,16 @@ export class RoomCoordinator {
         positionSeconds: this.clampToMediaDuration(Math.max(0, recoveryPosition)),
         effectiveAtServerMs: nowMs,
         playbackRate: 1,
+      }
+      for (const other of this.participants.values()) {
+        if (!other.connected)
+          other.playbackStatus = 'unknown'
+        else if (!other.mediaMatches)
+          other.playbackStatus = 'wrong-media'
+        else if (other.id === participant.id)
+          other.playbackStatus = failureReason === 'participant_playback_silent' ? 'silent' : 'recovery-required'
+        else
+          other.playbackStatus = other.ready ? 'ready' : 'preparing'
       }
       this.revision += 1
       this.markStateBarrier()
@@ -756,6 +797,7 @@ export class RoomCoordinator {
     for (const participant of this.participants.values()) {
       participant.ready = false
       participant.mediaMatches = false
+      participant.playbackStatus = participant.connected ? 'wrong-media' : 'unknown'
     }
     this.media = {
       service: 'shared-link',
@@ -799,6 +841,7 @@ export class RoomCoordinator {
       return null
 
     const nowMs = this.now()
+    const previousStatus = participant.playbackStatus ?? this.participantPlaybackStatus(participant, nowMs)
     const activeTransactionalOperation = this.contract.mode === 'transactional'
       && this.contract.operation
       && this.contract.operation.phase !== 'cancelled'
@@ -816,6 +859,7 @@ export class RoomCoordinator {
     participant.lastSampleReceivedAtMs = nowMs
     if (progressed || participant.lastProgressAtServerMs === undefined)
       participant.lastProgressAtServerMs = nowMs
+    participant.playbackStatus = this.participantPlaybackStatus(participant, nowMs)
     const stallWatchdogActive = !waitingForTransactionalStart
       || isPlaybackPastStartupGrace(this.playback, nowMs)
     const stalled = stallWatchdogActive
@@ -869,11 +913,15 @@ export class RoomCoordinator {
       // own without a click.
       if (explicitPlaybackFailure)
         participant.ready = false
+      participant.playbackStatus = explicitPlaybackFailure ? 'blocked' : 'recovery-required'
       return this.success(explicitPlaybackFailure
         ? 'participant_playback_blocked'
         : startupTimedOut ? 'participant_playback_startup_timeout'
           : stalled ? 'participant_playback_stalled' : 'participant_buffering')
     }
+
+    if (participant.playbackStatus !== previousStatus)
+      return this.success('participant_status_changed')
 
     return null
   }
@@ -890,6 +938,7 @@ export class RoomCoordinator {
       return null
 
     participant.connected = false
+    participant.playbackStatus = 'unknown'
 
     this.pauseForMembershipChange('participant-disconnected')
 
@@ -941,7 +990,20 @@ export class RoomCoordinator {
       navigation: this.navigation ? { ...this.navigation } : null,
       participants: [...this.participants.values()]
         .sort((a, b) => a.joinedAtMs - b.joinedAtMs)
-        .map(({ joinedAtMs: _joinedAtMs, sessionToken: _sessionToken, media: _media, lastSample: _lastSample, lastSampleReceivedAtMs: _lastSampleReceivedAtMs, lastProgressAtServerMs: _lastProgressAtServerMs, capabilities: _capabilities, lastOperationObservation: _lastOperationObservation, ...participant }) => ({ ...participant })),
+        .map((participant) => {
+          const {
+            joinedAtMs: _joinedAtMs,
+            sessionToken: _sessionToken,
+            media: _media,
+            lastSample: _lastSample,
+            lastSampleReceivedAtMs: _lastSampleReceivedAtMs,
+            lastProgressAtServerMs: _lastProgressAtServerMs,
+            capabilities: _capabilities,
+            lastOperationObservation: _lastOperationObservation,
+            ...publicParticipant
+          } = participant
+          return { ...publicParticipant }
+        }),
       // Deliberately excludes media, sessionToken, capability advertisements,
       // and observation bookkeeping, matching the minimal-exposure discipline
       // used by the rest of the room snapshot.
@@ -952,6 +1014,34 @@ export class RoomCoordinator {
       })),
       policy: { buffering: 'pause-all' },
       contract: structuredClone(this.contract),
+    }
+  }
+
+  private participantPlaybackStatus(participant: InternalParticipant, nowMs: number) {
+    return participantPlaybackStatus({
+      connected: participant.connected,
+      ready: participant.ready,
+      mediaMatches: participant.mediaMatches,
+      playback: this.playback,
+      operation: this.contract.operation,
+      pendingSeek: this.pendingSeek !== null,
+      sample: participant.lastSample,
+      lastSampleReceivedAtMs: participant.lastSampleReceivedAtMs,
+      lastProgressAtServerMs: participant.lastProgressAtServerMs,
+      nowMs,
+    })
+  }
+
+  private markParticipantStatuses(status: 'preparing' | 'seeking' | 'ready' | 'recovery-required'): void {
+    for (const participant of this.participants.values()) {
+      if (!participant.connected)
+        participant.playbackStatus = 'unknown'
+      else if (!participant.mediaMatches)
+        participant.playbackStatus = 'wrong-media'
+      else if (!participant.ready)
+        participant.playbackStatus = 'preparing'
+      else
+        participant.playbackStatus = status
     }
   }
 
@@ -997,6 +1087,7 @@ export class RoomCoordinator {
       effectiveAtServerMs: nowMs + (kind === 'play' ? leadMs : 0),
       playbackRate: 1,
     }
+    this.markParticipantStatuses(kind === 'seek' ? 'seeking' : 'preparing')
     this.revision += 1
     return this.success(kind === 'seek' ? 'control_seek_pending' : 'control_play_pending')
   }

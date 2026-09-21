@@ -8,6 +8,7 @@ import { PlayerOperations, type OperationToken } from './player-operations.ts'
 import { clearPlaybackStartFailed, createPlayerHealthState, markPlaybackStartFailed, markPlayerHealthBuffering, observePlayerHealth, resetPlayerHealthBaseline, type PlayerHealthState } from './player-health.ts'
 import { decidePlayerIdentity } from './player-identity.ts'
 import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
+import { localPlaybackStatus, playbackStatusCopy } from './playback-status.ts'
 import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
 import { discoverOpenShadowRoots, discoverVideoElements } from './video-discovery.ts'
@@ -1523,44 +1524,45 @@ function renderPill(): void {
   const allReady = connected.every(item => item.ready && item.mediaMatches)
   const isController = snapshot.controller.participantId === activeState.participantId
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
-  const playbackBlocked = Boolean(video?.paused)
-    && snapshot.playback.status === 'playing'
-    && estimatedServerNowMs > snapshot.playback.effectiveAtServerMs + 300
-  const playerBuffering = snapshot.playback.status === 'playing' && playerHealth.buffering
   const catchingUp = snapshot.playback.status === 'playing' && video !== null
     && Math.abs(video.currentTime - expectedPosition(snapshot.playback, estimatedServerNowMs)) > 0.6
+  const localStatus = localPlaybackStatus({
+    connected: activeState.connection === 'connected',
+    hasVideo: video !== null,
+    mediaMatches: participant?.mediaMatches ?? false,
+    ready: participant?.ready ?? false,
+    roomPlaying: snapshot.playback.status === 'playing',
+    pendingSeek: snapshot.seek !== null || pendingSeek !== null,
+    operationKind: snapshot.contract?.operation?.kind ?? null,
+    paused: video?.paused ?? null,
+    buffering: playerHealth.buffering,
+    playbackStartFailed: playerHealth.playbackStartFailed,
+    playbackStarted: video ? playbackStarted : null,
+    progressed: playerHealth.progressed,
+    drifted: catchingUp,
+    progressAgeMs: video ? Math.max(0, performance.now() - playerHealth.lastProgressAtMs) : null,
+    statusAgeMs: video ? Math.max(0, performance.now() - playerHealth.observedAtMs) : null,
+    nowMs: performance.now(),
+  })
+  const localStatusCopy = playbackStatusCopy(localStatus, isController)
 
   if (statusElement)
     statusElement.textContent = activeState.connection === 'reconnecting'
       ? 'Reconnecting'
-      : !video
-        ? 'Loading shared player'
-        : snapshot.seek
-          ? `Aligning seek ${snapshot.seek.acknowledgedParticipantIds.length}/${connected.length}`
-        : playerBuffering
-          ? 'Player buffering'
-        : playbackBlocked
-          ? 'Playback blocked'
-        : catchingUp
-          ? 'Catching up'
-          : allReady ? snapshot.playback.status === 'playing' ? 'In sync' : 'Ready' : 'Waiting for everyone'
-  if (metaElement)
-    metaElement.textContent = !video
-      ? 'The page opened; preparing its video player'
       : snapshot.seek
-        ? `Moving everyone to ${formatPillTime(snapshot.seek.positionSeconds)}`
-      : playerBuffering
-        ? 'Waiting for video playback to recover'
-      : playbackBlocked
-        ? 'Press Sync once to repair playback'
-        : `${isController ? 'Controller' : 'Member'}, ${connected.length} connected${participant?.mediaMatches === false ? ', wrong video' : ''}`
+        ? `Seeking ${snapshot.seek.acknowledgedParticipantIds.length}/${connected.length}`
+        : localStatusCopy.label
+  if (metaElement)
+    metaElement.textContent = snapshot.seek
+      ? `Moving everyone to ${formatPillTime(snapshot.seek.positionSeconds)}`
+      : `${localStatusCopy.detail} ${isController ? 'Controller' : 'Member'}, ${connected.length} connected.`
   if (playbackButton) {
     playbackButton.hidden = !isController || !video
     playbackButton.disabled = snapshot.seek !== null || (snapshot.playback.status === 'paused' && !allReady)
     playbackButton.textContent = snapshot.seek ? 'Aligning' : snapshot.playback.status === 'playing' ? 'Pause' : 'Play'
   }
   if (syncButton)
-    syncButton.disabled = !video
+    syncButton.disabled = !video || localStatus === 'wrong-media'
   if (noticeElement && activeState.lastError)
     noticeElement.textContent = activeState.lastError
 }
