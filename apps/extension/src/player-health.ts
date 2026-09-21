@@ -116,11 +116,28 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
 
   if (observation.roomPlaying && !observation.playShouldHaveStarted) {
     next.unexpectedPauseSinceMs = 0
+    next.buffering = false
+    // A transactional player can render real frames before the server's
+    // startup grace boundary. Keep that evidence so the extension can send
+    // its started acknowledgement before the coordinator's first bounded
+    // no-progress deadline. The grace window still suppresses failure
+    // classification on the coordinator; it must not suppress proof that
+    // native playback has actually begun.
+    if (!observation.paused && !observation.seeking && !observation.localSeeking && !observation.lacksPlayableData) {
+      const evidence = compareProgress(previous, observation)
+      next.progressEvidence = evidence.quality
+      if (evidence.advanced) {
+        next.progressed = true
+        next.lastProgressAtMs = observation.nowMs
+        next.lastProgressPositionSeconds = observation.positionSeconds
+        next.lastProgressFrames = observation.frames
+        next.hasRealPlaybackProgress = true
+        return next
+      }
+    }
     next.lastProgressAtMs = observation.nowMs
     next.lastProgressPositionSeconds = observation.positionSeconds
     next.lastProgressFrames = observation.frames
-    next.buffering = false
-    next.progressEvidence = 'unknown'
     return next
   }
 

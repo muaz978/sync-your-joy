@@ -3,7 +3,7 @@ import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
 import { RoomCoordinator } from './room.ts'
 import type { RoomResult } from './room.ts'
-import { PLAYBACK_STARTUP_GRACE_MS } from './playback-health.ts'
+import { PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS } from './playback-health.ts'
 
 const media: MediaFingerprint = {
   service: 'youtube',
@@ -1174,6 +1174,57 @@ describe('RoomCoordinator', () => {
         reason: 'operation_timeout_paused',
         snapshot: { contract: { operation: { phase: 'failed', reason: 'start-timeout' } } },
       })
+    })
+
+    it('rebases steady-play health timing when a delayed participant confirms start', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+
+      nowMs = committed.snapshot.contract.operation.effectiveAtServerMs + 1_000
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 41, 2))
+      const friendStarted = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 41, 2))
+      expect(friendStarted).toMatchObject({ ok: true, reason: 'operation_started' })
+      const startedRevision = room.snapshot().revision
+      for (const participantId of ['participant_host', 'participant_friend']) {
+        room.updatePlayerStatus(participantId, startedRevision, {
+          positionSeconds: 41,
+          durationSeconds: 600,
+          paused: false,
+          buffering: false,
+          sampledAtLocalMs: nowMs,
+          progressed: false,
+          playbackStarted: true,
+        })
+      }
+
+      nowMs += PLAYBACK_PROGRESS_TIMEOUT_MS - 1
+      expect(room.evaluateHealth()).toBeNull()
+      nowMs += 1
+      expect(room.evaluateHealth()).toMatchObject({ reason: 'participant_playback_stalled' })
+    })
+
+    it('does not expire an operation after every participant has confirmed start', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+
+      nowMs = committed.snapshot.contract.operation.effectiveAtServerMs
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40, 2))
+      const started = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40, 2))
+      expect(started).toMatchObject({ ok: true, reason: 'operation_started', snapshot: { contract: { operation: { phase: 'started' } } } })
+
+      nowMs = committed.snapshot.contract.operation.deadlineAtServerMs + 1
+      expect(room.releaseExpiredOperation()).toBeNull()
+      expect(room.snapshot().contract?.operation).toMatchObject({ phase: 'started' })
     })
 
     it('does not classify a committed participant as stalled before transactional startup grace', () => {

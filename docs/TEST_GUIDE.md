@@ -267,6 +267,22 @@ This test is separate from `npm test` (Vitest) on purpose: it drives real browse
 
 It drives the side panel's own HTML and JavaScript by opening `sidepanel.html` as an ordinary tab at its `chrome-extension://` URL rather than through Chrome's docked side-panel UI region, which Playwright cannot click into (that requires a real click on the browser's own toolbar icon). The panel's code has no dependency on being docked to run, so every button the test clicks runs the same real code path either way; see the comment at the bottom of `tests/e2e/two-profile-sync.spec.ts` for the full investigation, including why driving the extension purely through `chrome.runtime` messages to its service worker was not needed here.
 
+### Automated three-profile CR-D03 browser matrix
+
+Issue [#68](https://github.com/muaz978/sync-your-joy/issues/68) adds `tests/e2e/three-profile-browser-matrix.spec.ts`. It drives three isolated Chromium profiles through the real extension, the real in-process room service and the repository-owned local test player. The scenario covers a fixed three-member quorum, a 30-second sustained native-progress window, paired drift, hard-correction limits, exact seek destinations, source replacement, controlled playback rejection and recovery, controller transfer in both directions, reconnect and native scrubbing.
+
+Run the focused scenario with:
+
+```bash
+npm run test:e2e -- --grep "three-profile local browser matrix"
+```
+
+Run the complete E2E suite, or use `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e` for a visible headed run. The three-profile test uses the generated 120-second `fixtures/adaptive-test-clip.mp4` so its 30-second sustained window cannot cross the short fixture's natural loop boundary.
+
+The reconnect assertion uses a local-only, ephemeral-token room-service control route because Playwright browser-context offline emulation cannot reliably close an MV3 service-worker WebSocket. The route is enabled only by E2E global setup, is absent from ordinary and deployed server construction, and is directly covered by room-service tests. A disconnected participant causes the coordinator to pause the room for safety. The matrix therefore verifies reconnect and readiness restoration, then explicitly resumes from the controller before requiring native playback progress.
+
+The detailed scope, metrics, route boundary, reconnect single-flight protection and limitations are recorded in [`CR_D03_BROWSER_MATRIX.md`](CR_D03_BROWSER_MATRIX.md). This deterministic local run is not Crunchyroll acceptance, protected-media acceptance, physical two-device acceptance, navigation coverage or deployment evidence.
+
 ### Authenticated Crunchyroll two-profile E2E
 
 Issue [#30](https://github.com/muaz978/sync-your-joy/issues/30) adds an opt-in provider run beside the generic fixture. The spec is `tests/e2e/crunchyroll-two-profile.spec.ts`. It launches two isolated extension profiles, opens the same authorized Crunchyroll `/watch/` URL in both profiles, waits for a visible metadata-ready native video, and drives the real room flow through play, forward seek, native backward seek, frame-progress observation, convergence, and pause.

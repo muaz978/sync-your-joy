@@ -19,6 +19,9 @@
       .player { padding: 18px; border-radius: 24px; box-shadow: 10px 10px 28px #c8ced6, -10px -10px 28px #f8fafc; }
       video { display: block; width: 100%; min-height: 280px; border-radius: 15px; background: #111827; }
       label { display: inline-flex; min-height: 44px; align-items: center; margin-top: 16px; padding: 0 16px; border-radius: 14px; background: #267d74; color: #f8fafc; font-weight: 700; cursor: pointer; }
+      .fixture-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+      .fixture-actions button { min-height: 40px; padding: 0 12px; border: 1px solid rgb(100 116 139 / 35%); border-radius: 12px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+      #fixture-status { display: block; min-height: 1.5em; margin-top: 10px; color: #64748b; font-size: 13px; }
       input { position: absolute; width: 1px; height: 1px; opacity: 0; }
       @media (prefers-color-scheme: dark) {
         :root { background: #151a22; color: #e2e8f0; }
@@ -32,32 +35,159 @@
       <h1>Local synchronization test</h1>
       <p>Select the same local video in two Chrome profiles. The file stays on each device.</p>
       <section class="player">
-        <video controls preload="metadata"></video>
+        <video controls loop preload="metadata"></video>
         <label>
           Choose a local video
           <input type="file" accept="video/*">
         </label>
+        <div class="fixture-actions" aria-label="Deterministic fixture controls">
+          <button id="reset-source" type="button">Reset source</button>
+          <button id="allow-playback" type="button">Allow playback</button>
+          <button id="reject-next-play" type="button">Reject next play</button>
+        </div>
+        <output id="fixture-status" aria-live="polite"></output>
       </section>
     </main>
     <script>
       const input = document.querySelector('input')
       const video = document.querySelector('video')
+      const resetSourceButton = document.querySelector('#reset-source')
+      const allowPlaybackButton = document.querySelector('#allow-playback')
+      const rejectNextPlayButton = document.querySelector('#reject-next-play')
+      const status = document.querySelector('#fixture-status')
       let activeUrl = null
-      input.addEventListener('change', () => {
-        const file = input.files && input.files[0]
+      let activeFile = null
+      let sourceGeneration = 0
+      let currentTimeWrites = 0
+      let playRejections = 0
+      let presentedFrames = 0
+      let lastSeekedTime = null
+      const events = []
+
+      const currentTimeDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime')
+      if (currentTimeDescriptor?.get && currentTimeDescriptor.set) {
+        Object.defineProperty(video, 'currentTime', {
+          configurable: true,
+          get() {
+            return currentTimeDescriptor.get.call(video)
+          },
+          set(value) {
+            currentTimeWrites += 1
+            currentTimeDescriptor.set.call(video, value)
+          },
+        })
+      }
+
+      const record = (type) => {
+        events.push({
+          type,
+          at: performance.now(),
+          currentTime: video.currentTime,
+          paused: video.paused,
+          seeking: video.seeking,
+          sourceGeneration,
+        })
+        if (events.length > 2000)
+          events.shift()
+      }
+
+      for (const type of ['canplay', 'emptied', 'ended', 'loadedmetadata', 'pause', 'play', 'playing', 'ratechange', 'seeked', 'seeking', 'stalled', 'timeupdate', 'waiting'])
+        video.addEventListener(type, () => {
+          if (type === 'seeked')
+            lastSeekedTime = video.currentTime
+          record(type)
+        })
+
+      const observeFrame = () => {
+        presentedFrames += 1
+        if (typeof video.requestVideoFrameCallback === 'function')
+          video.requestVideoFrameCallback(observeFrame)
+      }
+      if (typeof video.requestVideoFrameCallback === 'function')
+        video.requestVideoFrameCallback(observeFrame)
+
+      const setStatus = (message) => {
+        status.textContent = message
+      }
+
+      window.addEventListener('message', (event) => {
+        if (event.source !== window || event.data?.type !== 'syncyourjoy-test-play-rejected')
+          return
+        playRejections += 1
+        record('play-rejected')
+      })
+
+      window.__syncYourJoyTestPlayer = {
+        getState: () => ({
+          currentTime: video.currentTime,
+          duration: video.duration,
+          paused: video.paused,
+          seeking: video.seeking,
+          readyState: video.readyState,
+          sourceGeneration,
+          currentTimeWrites,
+          presentedFrames,
+          qualityFrames: typeof video.getVideoPlaybackQuality === 'function'
+            ? video.getVideoPlaybackQuality().totalVideoFrames - video.getVideoPlaybackQuality().droppedVideoFrames
+            : null,
+          lastSeekedTime,
+          playRejections,
+          events: events.slice(-50),
+        }),
+      }
+
+      const loadFile = (file) => {
         if (!file)
           return
+        activeFile = file
         if (activeUrl)
           URL.revokeObjectURL(activeUrl)
-        // `file` is the same local person's own choice from this page's own
-        // <input type="file">, never remote/attacker-controlled data, and
-        // URL.createObjectURL() returns an opaque blob: reference that
-        // cannot execute injected script as a media src. Reviewed and
-        // dismissed as a false positive for CodeQL alert #4 -- see
-        // https://github.com/muaz978/sync-your-joy/issues/9.
-        activeUrl = URL.createObjectURL(file)
-        video.src = activeUrl
+        const candidateUrl = URL.createObjectURL(file)
+        const parsedUrl = new URL(candidateUrl)
+        if (parsedUrl.protocol !== 'blob:') {
+          URL.revokeObjectURL(candidateUrl)
+          throw new Error('The local fixture did not produce a blob URL.')
+        }
+        activeUrl = parsedUrl.href
+        sourceGeneration += 1
+        video.setAttribute('src', activeUrl)
+        video.load()
         document.title = file.name
+        setStatus(`Loaded ${file.name}`)
+      }
+
+      input.addEventListener('change', () => {
+        const file = input.files && input.files[0]
+        loadFile(file)
+      })
+
+      resetSourceButton.addEventListener('click', () => {
+        if (!activeFile) {
+          setStatus('Choose a local video before resetting its source.')
+          return
+        }
+        video.removeAttribute('src')
+        video.load()
+        loadFile(activeFile)
+        setStatus('Source reset and restored.')
+      })
+
+      allowPlaybackButton.addEventListener('click', () => {
+        void video.play().then(() => {
+          video.pause()
+          setStatus('Playback permission gesture accepted.')
+        }).catch(() => {
+          setStatus('Playback is still blocked.')
+        })
+      })
+
+      rejectNextPlayButton.addEventListener('click', () => {
+        // The extension content script runs in an isolated world, so a page
+        // world override of HTMLMediaElement.play() cannot intercept it.
+        // This explicit loopback-only marker is consumed by the extension's
+        // test-player branch and does not affect provider pages.
+        video.setAttribute('data-syncyourjoy-test-reject-play', 'true')
+        setStatus('The next playback request will be rejected once.')
       })
     </script>
   </body>

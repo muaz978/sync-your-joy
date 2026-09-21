@@ -13,6 +13,8 @@ const configuredOutputDirectory = process.env.SYNCYOURJOY_EXTENSION_OUTPUT_DIR
 const outputDirectory = resolve(root, configuredOutputDirectory ?? 'apps/extension/dist')
 const roomServerUrl = process.env.SYNCYOURJOY_ROOM_SERVER_URL ?? 'ws://127.0.0.1:8787/rooms'
 const browserTarget = process.env.SYNCYOURJOY_BROWSER === 'firefox' ? 'firefox' : 'chrome'
+const e2eTestMode = process.env.SYNCYOURJOY_E2E_TEST_MODE === '1'
+const e2eTestPlayerOrigin = process.env.SYNCYOURJOY_E2E_TEST_ORIGIN ?? ''
 
 await rm(outputDirectory, { recursive: true, force: true })
 await mkdir(outputDirectory, { recursive: true })
@@ -35,6 +37,8 @@ for (const [name, entry] of entries) {
     sourcemap: true,
     define: {
       __ROOM_SERVER_URL__: JSON.stringify(roomServerUrl),
+      __SYNCYOURJOY_TEST_MODE__: JSON.stringify(e2eTestMode),
+      __SYNCYOURJOY_TEST_PLAYER_ORIGIN__: JSON.stringify(e2eTestPlayerOrigin),
     },
   })
 }

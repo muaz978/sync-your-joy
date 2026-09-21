@@ -3988,6 +3988,7 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+
 # Context Checkpoint 90
 
 ## Session Metadata
@@ -7689,3 +7690,284 @@
 - This checkpoint records CR-B01 implementation, branch cleanup, final corrective review, PR #82 metadata, checks, formal review, merge, issue documentation and project-state transition.
 - Earlier CR-B01 notes that described the branch as pending review are superseded by the confirmed merged state recorded here. The explicit scope boundary and unresolved runtime gates remain in force.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue delivery, currently CR-D03 local browser matrix.
+- Checkpoint number: 92.
+- Date and time: 2026-09-21, Europe/Istanbul. Exact wall-clock time was not captured in the tool output for this checkpoint.
+- Coverage period: From the verified CR-D02 merge checkpoint through the current CR-D03 investigation.
+- Current context status: CR-D03 is in progress on a cleanly based feature branch with local uncommitted test and runtime instrumentation changes. No CR-D03 PR has been opened, reviewed, merged or pushed.
+
+## User Objective and Requirements
+- Continue the SyncYourJoy work systematically, processing the open PR and issue queue with dependency awareness and oldest-first discipline.
+- Review every PR before merge, merge only after the review and fresh checks, and keep issues open until all applicable acceptance gates are actually evidenced.
+- Commit and push completed work, and add detailed documentation, labels, assignee, milestone and public project metadata to every future PR and issue.
+- Treat the already signed-in Crunchyroll account as available. Distinguish that account availability from automation storage-state, playback, entitlement, two-account, two-device, deployment and user-acceptance gates.
+- Keep release `0.2.4` until a coherent verified release group is complete. Reserve `1.0.0` for complete milestone acceptance.
+- Preserve the state-only boundary. Do not collect credentials, media bytes, DRM data, signed URLs or private provider APIs.
+- Do not use a red required browser matrix as a basis for opening or merging a PR.
+
+## Current State
+- `origin/main` is verified at CR-D02 merge commit `950d64192898dd05238babf9100be64605a5b604`.
+- Current branch: `codex/issue-68-browser-matrix`, based on the CR-D02 merge.
+- Current issue: #68, `CR-D03: Execute the complete local browser matrix`.
+- Issue #68 remains open and is in public project status `In Progress`, with assignee `muaz978`, labels `enhancement`, `initiative:crunchyroll-sync`, `area: testing`, milestone `M3/M5: reliability and real-device validation`, and the configured custom fields documented below.
+- Issue #68 has a detailed planning comment at `https://github.com/muaz978/sync-your-joy/issues/68#issuecomment-5765511637`.
+- Navigation scenarios are intentionally not claimed because issue #65, CR-C04, remains open as an explicit dependency.
+- Current working tree has uncommitted CR-D03 changes in the three-profile E2E spec, local test-player fixture, seek barrier, seek-barrier test, and content-script frame observation. No commit or push has been made for these changes.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 - CR-D03 issue preparation and project metadata
+- User request or relevant context: Continue the systematic work after the CR-D02 merge, with review-before-merge, detailed PR documentation, issue tracking, labels, assignee, milestone and project metadata.
+- Action taken: Selected issue #68 as the next dependency-ready issue after CR-D02 #67. Read the issue body, dependencies, acceptance criteria and required verification commands.
+- Result: Confirmed the issue requires a complete local browser matrix, including three-member quorum behavior, sustained paired drift and progress, repeated operations, soak behavior, late or missing acknowledgements, status loss, permission recovery, pending play and pause, source reset, native scrubbing, visibility, reconnect and navigation, with both control roles.
+- Follow-up or change caused by this event: Recorded that `npm run check` alone is insufficient. The required evidence includes `npm run test:e2e` and headed mode `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e`, with navigation dependent on #65.
+- Action taken: Updated issue #68 metadata using GitHub CLI and verified the canonical label spelling, assignee, milestone and public project linkage.
+- Result: The issue is assigned to `muaz978`, labeled `enhancement`, `initiative:crunchyroll-sync` and `area: testing`, and assigned to milestone `M3/M5: reliability and real-device validation`. The public project is linked.
+- Action taken: Inspected the project row in Edge and verified custom fields.
+- Result: Status `In Progress`, priority `P1 High`, work type `Test coverage`, evidence state `Partial`, acceptance gates `Source review`, `Typecheck`, `Unit tests`, `Integration tests`, `Browser test`, `User acceptance`, risk `High`, blocked reason blank, target date `No date`, and verification owner `muaz978`.
+- Action taken: Posted a detailed planning comment to issue #68.
+- Result: The comment records scope, dependencies, metrics, environment and the rule that navigation cannot be claimed before #65 is complete. The issue remains open.
+
+### 2026-09-21 - Three-profile matrix implementation
+- Action taken: Added `tests/e2e/three-profile-browser-matrix.spec.ts`.
+- Result: The new spec launches three isolated Chromium extension profiles in parallel, creates and joins a room, approves both participants, uses the local test player, sets the same owned local MP4 in all profiles, marks all participants ready, exercises controller play, a sustained 30-second sample window, exact controller seeking, source reset, one-shot playback rejection and permission recovery, control transfer in both directions, offline reconnect, and native scrubbing. It uses bounded fixture state and panel diagnostics without provider credentials or protected media data.
+- Action taken: Added fixture-level controls and bounded state to `apps/room-service/static/test-player.html`.
+- Result: The local fixture now supports `#reset-source`, `#allow-playback`, `#reject-next-play`, bounded event records, current-time write counting, source generation, presented-frame count, quality-frame count, last seek time and a state accessor. The fixture remains a local user-selected file harness.
+- Action taken: Added a candidate change to `packages/sync-engine/src/seek-barrier.ts`, increasing `SEEK_BARRIER_MAX_WAIT_MS` from 1,800 ms to 3,000 ms, with a comment explaining the bounded three-profile scheduling window.
+- Result: This addresses the first observed three-profile preparation expiry, but it is not accepted as a final fix because the full matrix still fails. The corresponding unit assertion in `packages/sync-engine/src/seek-barrier.test.ts` was changed from a 2,000 ms ceiling to a 3,000 ms ceiling.
+- Action taken: Added frame observation in `apps/extension/src/content-script.ts` using `requestVideoFrameCallback`, with attach and detach lifecycle management and a conservative fallback to the existing visibility and quality APIs.
+- Result: The extension can use observed presented-frame counts when the bound video supports the API. This is state-only health evidence and does not bypass playback safety or provider restrictions. It compiles and targeted tests pass, but it did not make the three-profile matrix green.
+
+### 2026-09-21 - Local deterministic verification
+- Action taken: Ran `npm run typecheck` after the CR-D03 changes.
+- Result: Passed.
+- Action taken: Ran `npm test -- packages/sync-engine/src/seek-barrier.test.ts`.
+- Result: Passed, 5 tests.
+- Action taken: Ran `npm test -- apps/extension/src/player-health.test.ts packages/sync-engine/src/seek-barrier.test.ts`.
+- Result: Passed, 13 tests.
+- Action taken: Ran the existing two-profile browser scenario with `npm run test:e2e -- --grep "two-profile playback synchronization"`, using the required host-permitted browser execution.
+- Result: Passed, 1 test in approximately 5.6 seconds. This is comparison evidence only and does not satisfy the new three-profile acceptance criteria.
+
+### 2026-09-21 - Three-profile matrix failure investigation
+- Action taken: Ran `npm run test:e2e -- --grep "three-profile local browser matrix"` without host-permitted browser access.
+- Result: Chromium aborted before the scenario with `SIGABRT`; cleanup also reported `EPERM`. This was classified as an environment permission failure, not as the product result.
+- Action taken: Reran the same three-profile scenario with approved host browser execution.
+- Result: With the original 1,800 ms barrier, the room failed at a repeatable target around barrier expiry. All three profiles were connected and ready, then the room returned to `Ready, not playing`.
+- Action taken: Reran after the candidate barrier increase to 3,000 ms.
+- Result: All three profiles reached real local playback frames, but all paused together after roughly 2.6 to 3.2 seconds. The matrix failed during the sustained window. The candidate barrier change therefore changed the failure classification but did not complete the requirement.
+- Action taken: Expanded failure diagnostics in the spec and bounded the diagnostic collection path so failure callbacks could not hold the test open for minutes. The diagnostic download attempt waits at most four seconds and records `diagnostic collection unavailable` when the UI does not expose a Playwright download.
+- Result: Failure returns in roughly eight seconds rather than three minutes. A usable product diagnostic download was not obtained.
+- Action taken: Ran the headed variant with `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e -- --grep "three-profile local browser matrix"` using host browser access.
+- Result: It failed in the same way. The issue is not explained solely by headless browser throttling.
+- Observed evidence: All three local fixtures reported pause together after rendering real frames. Typical fixture state showed `qualityFrames` around 34 to 35 and `presentedFrames` around 27 to 28, with play and playing events followed by a pause around 3.2 seconds. The pause frequently showed `seeking: true` and current time reset to zero, consistent with coordinator safety behavior at a fixed target.
+- Observed controller panel evidence: Three participants connected, all ready, playback status `Ready, not playing`, local video source `blob`, ready state 4, network state 1, no buffering, duration about 20 seconds, and after reset `progress evidence unknown` and `rendered progress No`. The badge displayed `Connected · Offline` even while snapshots were being received, so that badge was not treated as proof of transport loss.
+- Reasoning update: The current best classification is a real three-participant transactional play health or started-acknowledgement failure. The fixtures do render frames, but the coordinator does not retain accepted progress evidence or operation completion for the three-member run. The exact operation phase is not yet proven because the safe product diagnostic download was unavailable.
+- Decision: Do not open a PR, do not merge, do not close issue #68 and do not bump the release while the required matrix is red.
+
+### 2026-09-21 - Current checkpoint decision
+- Action taken: Inspected the persisted checkpoint file and Git status before continuing.
+- Result: The previous complete lifecycle record ends at the CR-B01 history, while the working tree contains the current CR-D03 changes listed above. This checkpoint appends the full CR-D03 activity without replacing earlier history.
+- Follow-up or change caused by this event: The next investigation must identify whether all three participants reached prepared but not started, whether started acknowledgements were rejected, or whether health evaluation discarded valid local frame evidence. More threshold changes without this evidence are not justified.
+
+## Confirmed Successful Results
+- Issue #68 was prepared and documented with the correct assignee, labels, milestone, public project linkage and custom fields. Evidence: verified GitHub issue metadata and public project row.
+- The three-profile browser spec and local fixture instrumentation were added to the current branch. Evidence: files exist in the working tree and targeted typecheck and unit tests pass.
+- `npm run typecheck` passed after the current changes.
+- The targeted seek-barrier unit suite passed, 5 tests.
+- The targeted player-health and seek-barrier suites passed, 13 tests.
+- The existing two-profile browser playback synchronization scenario passed, 1 test. This is not three-profile acceptance.
+- The local fixture rendered actual frames in the failing three-profile runs, proving that the failure is not simply an inability to load the owned local test media.
+- The headed and headless three-profile runs both reproduced the safety pause, confirming the issue requires product or test-harness investigation beyond a headless-only explanation.
+- No credentials, cookies, provider storage-state contents, signed URLs, protected media bytes or DRM information were collected or written to the checkpoint.
+
+## Failed, Incomplete, or Unresolved Work
+- The required three-profile matrix is red. The room starts local playback briefly, then all three profiles pause together around three seconds and the sustained-window assertion fails.
+- The increase of `SEEK_BARRIER_MAX_WAIT_MS` to 3,000 ms is a candidate diagnostic change only. It is not yet proven as a complete fix and should not be merged without focused three-member regression evidence and a green full matrix.
+- The `requestVideoFrameCallback` observer is a candidate health-evidence improvement only. It did not resolve the failure and should be reviewed against the baseline ordering and the health acceptance path.
+- The product diagnostic download was unavailable through the Playwright interaction path. The exact operation phase or acknowledgement rejection is unresolved.
+- Navigation scenarios were not run or claimed because issue #65, CR-C04, remains open.
+- No CR-D03 PR exists. No CR-D03 commit or push has been made. No formal review, merge or issue closure has occurred.
+- Issue #68 remains open in `In Progress`, with evidence state `Partial`.
+- Release `0.2.4` remains current. No release bump is justified by this incomplete matrix.
+
+## Decisions and Rationale
+- A required browser matrix failure is a stop condition. A passing two-profile comparison cannot substitute for the explicitly required three-profile quorum.
+- The 3,000 ms barrier increase was retained temporarily because the first failure was a deterministic preparation expiry, but the later failure showed that the root cause is deeper than the initial timeout. The change must not be presented as a finished fix.
+- Headed execution was used to test the possibility of headless scheduling or throttling. Reproduction in headed mode means the investigation must focus on coordinator transaction state, acknowledgements, accepted progress evidence and safety-pause behavior.
+- The local fixture is intentionally limited to user-selected local media and bounded state. No provider internals, authenticated stream data or DRM behavior is inferred from it.
+- The next code change should be evidence-driven. Prefer a safe, bounded diagnostic path or focused coordinator tests that reveal prepared, started, terminal and health states without exposing sensitive production data.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Three-profile matrix spec: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/three-profile-browser-matrix.spec.ts`
+- Local player fixture: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/room-service/static/test-player.html`
+- Seek barrier implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/seek-barrier.ts`
+- Seek barrier tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/seek-barrier.test.ts`
+- Extension content script: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- Issue #68: `https://github.com/muaz978/sync-your-joy/issues/68`
+- Issue #68 planning comment: `https://github.com/muaz978/sync-your-joy/issues/68#issuecomment-5765511637`
+
+## Assumptions and Uncertainties
+- The signed-in Crunchyroll session remains available, but it was not used as evidence for this local deterministic matrix. No account absence is inferred.
+- The `Connected · Offline` panel text may represent the app's ping-quality indicator rather than an actual disconnected transport because snapshots continued to arrive. This interpretation requires source confirmation.
+- The simultaneous pause and current-time reset strongly suggest coordinator safety behavior, but the exact transaction phase is not confirmed until a safe diagnostic or focused instrumentation identifies it.
+- The fixture's presented-frame and quality-frame counts are evidence that local frames were rendered. They do not by themselves prove that the coordinator accepted the corresponding health sample or started acknowledgement.
+
+## Open Questions, Blockers, and Dependencies
+- Does the three-member coordinator reach `prepared` for all fixed participants and fail during `started`, or does it fail before commit?
+- Are started acknowledgements rejected because of media epoch, operation identity, binding identity, sample sequence, participant membership or snapshot ordering?
+- Does the extension reset playback-health evidence immediately after the coordinator begins the operation, and does the frame observer start too late relative to that baseline?
+- Is `evaluateHealth` seeing the rendered-frame evidence, or does it classify the local fixture as unknown and trigger the safety pause?
+- Can an explicit test-only, sanitized diagnostic path expose only operation phase, acknowledgement counts and health reason codes without exposing credentials or media data?
+- Issue #65 remains a dependency for navigation coverage.
+- Issues #56 and #57 remain the runtime transaction dependencies that informed the current matrix behavior.
+
+## Next Steps
+1. Inspect the exact coordinator and extension paths for `acknowledgeOperation`, participant playback status, `evaluateHealth` and transactional acknowledgement sending.
+2. Add or run focused deterministic tests for a three-participant operation with explicit prepared and started acknowledgements before changing production thresholds again.
+3. If necessary, add a narrowly scoped sanitized E2E diagnostic path under an explicit test-only build condition, keeping production state and sensitive data out of the exposed surface.
+4. Recheck the frame observer baseline ordering and health sample acceptance using evidence from the focused tests.
+5. Only after the complete three-profile matrix is green, document `docs/CR_D03_BROWSER_MATRIX.md`, update `docs/TEST_GUIDE.md` and `tasks/plan.md`, run the full required checks including headed E2E, commit atomically, push, open a fully documented PR with metadata, review its exact final head, and merge only after fresh hosted checks pass.
+6. Keep issue #68 open until its applicable acceptance gates are evidenced. Do not bump the release or close the issue at the current state.
+
+## Historical Checkpoint Notes
+- Earlier checkpoints 1-91 remain intact. This checkpoint appends the CR-D03 lifecycle and does not supersede the confirmed CR-D02 merge or earlier verified work.
+- The CR-D03 work described here is in progress and intentionally not represented as a PR or merged change.
+- If a later investigation proves a different root cause, retain this record and mark the current classification as superseded rather than deleting it.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue delivery, CR-D03 local three-profile browser matrix.
+- Checkpoint number: 93.
+- Date and time: 2026-09-21, Europe/Istanbul. The exact wall-clock time was not captured in the shell output.
+- Coverage period: All CR-D03 work after Checkpoint 92, including the handoff investigation, reconnect investigation, local test-control addition and the first green focused matrix run.
+- Current context status: The focused three-profile matrix is green. The branch still has uncommitted changes and no CR-D03 PR has been opened, reviewed, pushed or merged.
+
+## User Objective and Requirements
+- Continue the systematic issue and PR workflow, with dependency-aware ordering and complete evidence before moving on.
+- Review every PR before merging it, then merge only after the review and fresh checks.
+- Commit and push completed work, and document every change in the PR and issue.
+- Apply labels, assignee, milestone and public project metadata to future work.
+- Keep issue #68 open until all applicable gates are evidenced. Navigation coverage remains excluded until issue #65 is complete.
+- Treat the signed-in Crunchyroll account as available, while keeping this CR-D03 local fixture run separate from authenticated provider acceptance.
+- Preserve the state-only boundary and do not collect credentials, media bytes, DRM data, signed URLs or private provider APIs.
+
+## Current State
+- `origin/main` remains verified at `950d64192898dd05238babf9100be64605a5b604`, the CR-D02 merge.
+- Current branch remains `codex/issue-68-browser-matrix`.
+- Issue #68 remains open in public project status `In Progress`, with its previously verified labels, assignee, milestone, public project linkage and custom fields.
+- The focused CR-D03 matrix now passes after the latest local changes. Full `npm run check`, full `npm run test:e2e`, headed E2E and hosted PR checks have not yet been run for this final state.
+- No CR-D03 commit, push, PR, review, merge, issue closure or release bump has occurred.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 - Handoff failure trace and duplicate action correction
+- Action taken: Inspected the uncommitted CR-D03 files, the sidepanel control binding and the three-profile transfer section after the previous checkpoint.
+- Finding: The test performed `profileB.panel.click('#primary-control')`, then waited for all players to be paused, then waited for the same control and clicked it again. This contradicted the intended handoff sequence because the transferred room is already paused and B's single `Play all` action should be the only resume action.
+- Action taken: Removed the first duplicate B click and its following `waitForAllPaused` call from `tests/e2e/three-profile-browser-matrix.spec.ts`.
+- Verification: Reran the focused matrix with host-permitted Playwright execution. The transfer to B, B playback and return transfer to A all completed. The next failure moved to reconnect, proving the duplicate action was a real test defect and not a product failure.
+
+### 2026-09-21 - Reconnect timing investigation
+- Observation: The first reconnect attempt used `profileC.context.setOffline(true)` and expected the panel to show `Reconnecting` within ten seconds.
+- Finding: The existing extension service-worker WebSocket was not reliably torn down by browser-context offline emulation. The panel showed `Connected · Offline`, meaning the ping-quality indicator had degraded without the transport entering the reconnect state.
+- Action taken: Changed the test comment and assertion timeout to account for the production heartbeat timeout, and reran the matrix.
+- Result: The assertion still failed at twenty seconds. This confirmed that browser-context offline emulation was not a deterministic way to close the MV3 service-worker socket in this harness.
+- Decision: Do not weaken or remove reconnect coverage. Replace the unreliable network emulation with a local, token-gated test-server control that closes exactly C's real WebSocket.
+
+### 2026-09-21 - Local test-only disconnect control
+- Action taken: Extended `createRoomService` with an optional `testControlToken` option.
+- Action taken: Added `POST /__test/disconnect?room=<room>&participant=<id>` to `apps/room-service/src/server.ts`, enabled only when the in-process caller supplies a non-empty token and requiring the `x-syncyourjoy-test-token` header.
+- Security boundary: Normal and deployed room-service construction does not supply this option, so the route is absent from ordinary server runs. The token is generated ephemerally by the E2E global setup and is not written to provenance, logs or the checkpoint.
+- Action taken: Updated `tests/e2e/global-setup.ts` to generate an ephemeral token, pass it to the local room service and expose it only to the same Playwright process through `SYNCYOURJOY_E2E_CONTROL_TOKEN`.
+- Action taken: Updated the three-profile spec to read C's participant identity from the service-worker's persisted session state, call the token-gated local disconnect route, assert `Reconnecting`, wait for the persisted connection state to become `connected`, verify the room code and then resume playback through the normal controller control.
+- Initial result: The local socket disconnect worked and `Reconnecting` appeared, but the reconnect assertion initially failed because a sidepanel `GET_STATE` request intentionally returns a detached state rather than the full room connection state.
+
+### 2026-09-21 - Extension state probe corrections and reconnect race discovery
+- Action taken: Replaced the sidepanel `GET_STATE` probe with a service-worker `chrome.runtime.sendMessage` probe.
+- Result: Chrome closed the message port before returning a response. This was a harness/API limitation, not a product result.
+- Action taken: Replaced the message probe with direct service-worker access to the persisted `syncYourJoySessionState` entry via `chrome.storage.session.get` from the Playwright worker target.
+- Result: The probe became usable and the test reached the post-reconnect playback assertion.
+- Observation: The panel ended connected with all three participants ready, but the local players were paused. The room coordinator intentionally pauses on participant disconnect, so an explicit controller resume is required after reconnect.
+- Action taken: Added `ensureRoomPlaying(profileA, videoPages)` after C rejoined and before asserting all players were playing.
+- Additional observation from an earlier reconnect run: a transient `You are already connected to a room` alert appeared while the panel eventually showed connected. The reconnect timeout and alarm fallback can wake the MV3 worker close together, allowing duplicate `join_room` messages on one new socket.
+- Action taken: Added a single-flight `reconnectPromise` guard in `apps/extension/src/service-worker.ts`. Concurrent timer and alarm callbacks now share one reconnect handshake, preventing duplicate joins on the same socket.
+- Rationale: This is a production lifecycle fix, not merely a test workaround. It closes a real reconnect race exposed by the controlled socket disconnect.
+
+### 2026-09-21 - Focused CR-D03 matrix green
+- Action taken: Ran `npm run typecheck` after the reconnect changes.
+- Result: Passed.
+- Action taken: Ran `npm test -- apps/room-service/src/server.test.ts apps/extension/src/player-health.test.ts packages/sync-engine/src/room.test.ts`.
+- Result: Passed, 3 files and 83 tests.
+- Action taken: Ran `npm run test:e2e -- --grep "three-profile local browser matrix"` with host-permitted browser execution.
+- Result: Passed, 1 test in 38.5 seconds, 40.6 seconds total.
+- Verified matrix gates: three isolated Chromium profiles, host approval and three-member quorum, 30-second sustained native progress sampling, paired drift bound and hard-write bound, exact seek destination acknowledgement, source replacement and re-detection, one-shot local playback rejection, in-page gesture and Sync recovery, controller transfer from A to B and back, token-gated real socket disconnect for C, reconnect with the same room and readiness, explicit post-reconnect resume, and native controller scrubbing with convergence.
+- Boundary: This green result covers the local owned-media browser matrix. It does not claim Crunchyroll playback, protected-media behavior, navigation coverage, deployment, user acceptance or issue closure.
+
+## Confirmed Successful Results
+- The focused three-profile CR-D03 matrix passed after the final local changes. Evidence: Playwright reported `1 passed` for `tests/e2e/three-profile-browser-matrix.spec.ts` with a 38.5-second test duration.
+- The transfer sequence is now valid and green: handoff to B pauses the room, B's single `Play all` action resumes the room, and control can return to A.
+- Reconnect is now deterministic in the local harness: the token-gated test route closed exactly one participant socket, the extension entered `reconnecting`, C rejoined with the same room and readiness, and controller A explicitly resumed the safety-paused room.
+- The reconnect single-flight guard is typechecked and included in the green focused matrix run.
+- The focused typecheck passed after all current changes.
+- The targeted unit suite passed with 83 tests across room-service, player-health and coordinator room behavior.
+- No provider credentials, storage-state contents, cookies, protected media bytes, signed URLs, DRM data or private APIs were used or recorded.
+
+## Failed, Incomplete, or Unresolved Work
+- The full repository check has not yet been run against the final working tree.
+- The full E2E suite and headed E2E suite have not yet been run against the final working tree.
+- A dedicated unit test for the optional test-control route has not yet been added. The route is currently covered indirectly by the passing local matrix, but direct authorization and closed-socket behavior should be tested before the PR.
+- Documentation files `docs/CR_D03_BROWSER_MATRIX.md`, `docs/TEST_GUIDE.md` and `tasks/plan.md` have not yet been updated for the final implementation.
+- No CR-D03 commit, push, PR, review, merge, issue documentation comment or issue status transition has occurred.
+- Issue #68 remains open and must remain open until the applicable hosted, navigation-dependent and user-acceptance gates are separately evidenced.
+- Release `0.2.4` remains current. No release bump is justified yet.
+
+## Decisions and Rationale
+- Keep the reconnect gate. The first offline approach was unreliable because it did not control the extension service-worker transport. The replacement controls only the local test server and leaves the production reconnect code under test.
+- Keep the explicit post-reconnect resume. The coordinator pauses on disconnect as a safety invariant, and a test that expects playback to continue automatically would misclassify that intended behavior.
+- Keep the reconnect single-flight guard. The timeout and alarm are both valid reliability mechanisms, but they must not produce duplicate join messages when they overlap.
+- Treat the focused matrix as local browser evidence only. It is not a Crunchyroll or live-provider acceptance result.
+- Do not open a PR until the documentation, direct route coverage, full check, full E2E and headed E2E results are complete.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Matrix spec: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/three-profile-browser-matrix.spec.ts`
+- Room service and local test-control route: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/room-service/src/server.ts`
+- E2E global setup and ephemeral token: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/global-setup.ts`
+- Extension reconnect lifecycle: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/service-worker.ts`
+- Local player fixture: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/room-service/static/test-player.html`
+- Player health implementation and tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-health.ts`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-health.test.ts`
+- Content-script frame observation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- Coordinator and seek-barrier changes: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.test.ts`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/seek-barrier.ts`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/seek-barrier.test.ts`
+- E2E run artifacts: `test-results/e2e-1790022159695-80208-f01e651a-d4e6-4dcb-8135-24e072ad1637/`
+- Issue #68: `https://github.com/muaz978/sync-your-joy/issues/68`
+
+## Assumptions and Uncertainties
+- The local route is safe for this branch because production construction does not pass `testControlToken`; this still needs direct unit coverage and review before publication.
+- The service-worker session-state probe is test-only read access to the local extension profile and does not expose state to the provider or room service.
+- The focused green run was host-permitted and used an isolated in-process room service with the owned local adaptive fixture. It does not establish browser acceptance on authenticated Crunchyroll.
+- The existing issue dependency on #65 still blocks navigation scenarios. No navigation claim has been added to the green focused result.
+
+## Open Questions, Blockers, and Dependencies
+- Should the optional local test-control endpoint receive an explicit server unit test for missing token, wrong token, unknown room and exact one-socket closure before PR creation? Yes, this is the next hardening step.
+- Can the full E2E suite, including existing provider-skipped tests and adaptive fixtures, pass with the new local route and reconnect guard?
+- Can the headed three-profile matrix pass with the final changes?
+- Which portions of issue #68 remain blocked by #65, live deployment and user acceptance after the local matrix is green?
+- Issue #65 remains open and blocks navigation coverage.
+- Issue #68 remains open and evidence state must not be moved to complete until all applicable gates are represented.
+
+## Next Steps
+1. Add direct room-service tests for the token-gated disconnect route and run the room-service suite.
+2. Update `docs/CR_D03_BROWSER_MATRIX.md`, `docs/TEST_GUIDE.md` and `tasks/plan.md` with exact scope, metrics, environment, deterministic local controls and limitations.
+3. Run `npm run check`, the full `npm run test:e2e`, and `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e` with host browser permission.
+4. Inspect the final diff and status, create an atomic commit on `codex/issue-68-browser-matrix`, push it and verify the remote SHA.
+5. Open a detailed PR for #68 with labels, assignee, milestone and public project metadata, then review the exact final PR head and fresh hosted checks before merging.
+6. Document the merged result on issue #68 but keep the issue open for the remaining dependency and acceptance gates. Do not bump the release yet.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-92 remain intact. This checkpoint appends the complete post-92 activity and does not delete the earlier failure investigation.
+- Checkpoint 92's classification that the matrix was red is superseded only by the confirmed green focused run recorded here. The broader issue, full suite, hosted checks and release gates remain incomplete.
+- No sensitive credentials, access tokens, cookies, storage-state contents, private keys, signed URLs, protected media bytes or DRM information were recorded.

@@ -13,6 +13,14 @@ import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
 import { discoverOpenShadowRoots, discoverVideoElements } from './video-discovery.ts'
 
+declare const __SYNCYOURJOY_TEST_MODE__: boolean
+declare const __SYNCYOURJOY_TEST_PLAYER_ORIGIN__: string
+
+const SYNCYOURJOY_TEST_MODE = typeof __SYNCYOURJOY_TEST_MODE__ === 'boolean' && __SYNCYOURJOY_TEST_MODE__
+const SYNCYOURJOY_TEST_PLAYER_ORIGIN = typeof __SYNCYOURJOY_TEST_PLAYER_ORIGIN__ === 'string'
+  ? __SYNCYOURJOY_TEST_PLAYER_ORIGIN__
+  : ''
+
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
 const MEDIA_HEARTBEAT_INTERVAL_MS = 1_000
@@ -76,6 +84,9 @@ let transactionalPreparedKey: string | null = null
 let transactionalStartedKey: string | null = null
 let transactionalAckInFlightKey: string | null = null
 let transactionalSampleSequence = 0
+let frameObserverVideo: HTMLVideoElement | null = null
+let frameObserverCallbackId: number | null = null
+let observedPresentedFrameCount = 0
 
 const pillHost = document.createElement('div')
 pillHost.id = 'sync-your-joy-root'
@@ -567,6 +578,7 @@ function videoCandidateScore(target: HTMLVideoElement): number {
 function attachPlayer(target: HTMLVideoElement): void {
   playbackStarted = !target.paused && target.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
   resetPlaybackHealthBaseline()
+  startFrameObserver(target)
   target.addEventListener('play', handlePlay)
   target.addEventListener('pause', handlePause)
   target.addEventListener('seeking', handleSeeking)
@@ -590,6 +602,7 @@ function attachPlayer(target: HTMLVideoElement): void {
 function detachPlayer(target: HTMLVideoElement | null): void {
   if (!target)
     return
+  stopFrameObserver(target)
   target.removeEventListener('play', handlePlay)
   target.removeEventListener('pause', handlePause)
   target.removeEventListener('seeking', handleSeeking)
@@ -1191,7 +1204,10 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
     showNotice('The player did not respond to the synchronized play. Press Sync to retry without refreshing.')
     void reportPlayerStatus(true)
   }, PLAY_REQUEST_TIMEOUT_MS)
-  void target.play().then(() => {
+  const playPromise = consumeLoopbackTestPlayerRejection(target)
+    ? Promise.reject(new DOMException('The local fixture rejected playback for recovery testing.', 'NotAllowedError'))
+    : target.play()
+  void playPromise.then(() => {
     if (!isCurrent()) {
       playerOperations.settlePlay(operation)
       return
@@ -1222,6 +1238,16 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
     showNotice(name === 'NotAllowedError' ? blockedNotice : 'The video could not start. Check the player, then press Sync to retry.')
     void reportPlayerStatus(true)
   })
+}
+
+function consumeLoopbackTestPlayerRejection(target: HTMLVideoElement): boolean {
+  if (!SYNCYOURJOY_TEST_MODE || location.origin !== SYNCYOURJOY_TEST_PLAYER_ORIGIN || location.pathname !== '/test-player')
+    return false
+  if (target.getAttribute('data-syncyourjoy-test-reject-play') !== 'true')
+    return false
+  target.removeAttribute('data-syncyourjoy-test-reject-play')
+  window.postMessage({ type: 'syncyourjoy-test-play-rejected' }, location.origin)
+  return true
 }
 
 function clearPlayAttemptTimer(): void {
@@ -1611,6 +1637,8 @@ function resetPlaybackHealthBaseline(preserveCurrentSignal = false): void {
 }
 
 function presentedFrameCount(target: HTMLVideoElement): number | null {
+  if (target === frameObserverVideo && observedPresentedFrameCount > 0)
+    return observedPresentedFrameCount
   // Browsers may suspend video rendering in background tabs while the
   // audio/media clock continues. Use clock evidence there to avoid a false
   // freeze report, and also on browsers without frame-quality counters.
@@ -1624,6 +1652,33 @@ function presentedFrameCount(target: HTMLVideoElement): number | null {
   catch {
     return null
   }
+}
+
+function startFrameObserver(target: HTMLVideoElement): void {
+  stopFrameObserver(frameObserverVideo)
+  observedPresentedFrameCount = 0
+  if (typeof target.requestVideoFrameCallback !== 'function') {
+    frameObserverVideo = null
+    return
+  }
+  frameObserverVideo = target
+  const observe: VideoFrameRequestCallback = () => {
+    if (frameObserverVideo !== target)
+      return
+    observedPresentedFrameCount += 1
+    frameObserverCallbackId = target.requestVideoFrameCallback(observe)
+  }
+  frameObserverCallbackId = target.requestVideoFrameCallback(observe)
+}
+
+function stopFrameObserver(target: HTMLVideoElement | null): void {
+  if (!target || frameObserverVideo !== target)
+    return
+  if (frameObserverCallbackId !== null && typeof target.cancelVideoFrameCallback === 'function')
+    target.cancelVideoFrameCallback(frameObserverCallbackId)
+  frameObserverVideo = null
+  frameObserverCallbackId = null
+  observedPresentedFrameCount = 0
 }
 
 function maybeBootstrapSitePlayer(): void {

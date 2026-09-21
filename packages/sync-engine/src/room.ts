@@ -535,6 +535,12 @@ export class RoomCoordinator {
 
     operation.startedParticipantIds.push(participantId)
     participant.playbackStatus = 'playing'
+    // A participant may have reported useful frames while the operation was
+    // still in its committed startup phase. Once that participant confirms
+    // the actual start, begin its steady-play health window at this receipt
+    // time instead of allowing an older preparation sample to expire the
+    // room immediately after the start acknowledgement.
+    participant.lastProgressAtServerMs = nowMs
     if (operation.startedParticipantIds.length === operation.requiredParticipantIds.length)
       operation.phase = 'started'
     this.revision += 1
@@ -543,13 +549,15 @@ export class RoomCoordinator {
 
   releaseExpiredOperation(nowMs: number = this.now()): RoomResult | null {
     const operation = this.contract.operation
-    if (this.contract.mode !== 'transactional' || !operation || nowMs < operation.deadlineAtServerMs)
-      return null
-    if (operation.phase === 'cancelled' || operation.phase === 'failed')
+    if (this.contract.mode !== 'transactional' || !operation
+      || operation.phase === 'cancelled'
+      || operation.phase === 'failed'
+      || operation.phase === 'started'
+      || nowMs < operation.deadlineAtServerMs)
       return null
     const previousPhase = operation.phase
     operation.phase = 'failed'
-    operation.reason = previousPhase === 'committed' || previousPhase === 'started'
+    operation.reason = previousPhase === 'committed'
       ? 'start-timeout'
       : 'deadline-expired'
     this.pauseAtOperationTarget(operation, nowMs)
@@ -562,7 +570,7 @@ export class RoomCoordinator {
   operationDeadlineMs(): number | null {
     const operation = this.contract.operation
     return this.contract.mode === 'transactional' && operation
-      && operation.phase !== 'cancelled' && operation.phase !== 'failed'
+      && operation.phase !== 'cancelled' && operation.phase !== 'failed' && operation.phase !== 'started'
       ? operation.deadlineAtServerMs
       : null
   }
