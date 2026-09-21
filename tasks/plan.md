@@ -181,7 +181,8 @@ Issue #68 is the local browser evidence task after the CR-D01 artifact and CR-D0
 - [x] Pass the focused three-profile matrix.
 - [x] Run `npm run check` against the final working tree: 36 Vitest files and 319 tests passed, followed by successful server and extension builds.
 - [x] Run the complete `npm run test:e2e` suite: 5 passed and the opt-in authenticated Crunchyroll test skipped because protected storage-state inputs were not supplied.
-- [x] Run `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e`: 5 passed and the same opt-in provider test skipped; the three-profile matrix passed in headed Chromium in 44.4 seconds.
+- [x] Run `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e`: 5 passed and the same opt-in provider test skipped; the three-profile matrix passed in headed Chromium in 38.3 seconds.
+- [x] Correct the initial PR #96 CodeQL high-severity DOM sink and all three DevSkim findings, with an explicit blob-scheme boundary, build-time E2E gating, a non-routable URL parsing sentinel and removal of the unneeded long timeout.
 - [ ] Commit atomically, push the branch and verify the remote SHA.
 - [ ] Open a metadata-complete PR for #68, review the exact final head and fresh hosted checks, then merge only after review.
 - [ ] Add the merge evidence to issue #68 while retaining the issue until remaining dependency, deployment and user-acceptance gates are complete.

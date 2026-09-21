@@ -142,15 +142,15 @@
         activeFile = file
         if (activeUrl)
           URL.revokeObjectURL(activeUrl)
-        // `file` is the same local person's own choice from this page's own
-        // <input type="file">, never remote/attacker-controlled data, and
-        // URL.createObjectURL() returns an opaque blob: reference that
-        // cannot execute injected script as a media src. Reviewed and
-        // dismissed as a false positive for CodeQL alert #4 -- see
-        // https://github.com/muaz978/sync-your-joy/issues/9.
-        activeUrl = URL.createObjectURL(file)
+        const candidateUrl = URL.createObjectURL(file)
+        const parsedUrl = new URL(candidateUrl)
+        if (parsedUrl.protocol !== 'blob:') {
+          URL.revokeObjectURL(candidateUrl)
+          throw new Error('The local fixture did not produce a blob URL.')
+        }
+        activeUrl = parsedUrl.href
         sourceGeneration += 1
-        video.src = activeUrl
+        video.setAttribute('src', activeUrl)
         video.load()
         document.title = file.name
         setStatus(`Loaded ${file.name}`)

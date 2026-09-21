@@ -52,8 +52,6 @@ type FixtureWindow = Window & {
 }
 
 test.describe('three-profile local browser matrix', () => {
-  test.setTimeout(180_000)
-
   let profileA!: ExtensionProfile
   let profileB!: ExtensionProfile
   let profileC!: ExtensionProfile

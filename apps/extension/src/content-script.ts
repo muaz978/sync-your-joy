@@ -13,6 +13,14 @@ import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
 import { discoverOpenShadowRoots, discoverVideoElements } from './video-discovery.ts'
 
+declare const __SYNCYOURJOY_TEST_MODE__: boolean
+declare const __SYNCYOURJOY_TEST_PLAYER_ORIGIN__: string
+
+const SYNCYOURJOY_TEST_MODE = typeof __SYNCYOURJOY_TEST_MODE__ === 'boolean' && __SYNCYOURJOY_TEST_MODE__
+const SYNCYOURJOY_TEST_PLAYER_ORIGIN = typeof __SYNCYOURJOY_TEST_PLAYER_ORIGIN__ === 'string'
+  ? __SYNCYOURJOY_TEST_PLAYER_ORIGIN__
+  : ''
+
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
 const MEDIA_HEARTBEAT_INTERVAL_MS = 1_000
@@ -1233,7 +1241,7 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
 }
 
 function consumeLoopbackTestPlayerRejection(target: HTMLVideoElement): boolean {
-  if (location.protocol !== 'http:' || location.hostname !== '127.0.0.1' || location.pathname !== '/test-player')
+  if (!SYNCYOURJOY_TEST_MODE || location.origin !== SYNCYOURJOY_TEST_PLAYER_ORIGIN || location.pathname !== '/test-player')
     return false
   if (target.getAttribute('data-syncyourjoy-test-reject-play') !== 'true')
     return false

@@ -79,6 +79,17 @@ The MV3 service worker uses both a `setTimeout` retry and a Chrome alarm fallbac
 
 This is a production lifecycle correction exposed by the controlled local disconnect, not a test-only bypass.
 
+## Security finding remediation
+
+The first hosted evaluation of PR #96 was not accepted as merge-ready. GitHub Advanced Security reported one high-severity CodeQL alert and three DevSkim review findings, and each was treated as an actionable correction:
+
+1. CodeQL identified the local fixture's `video.src = activeUrl` assignment as a DOM text-to-HTML interpretation sink. The fixture now parses the URL returned by `URL.createObjectURL(file)`, requires the parsed protocol to be exactly `blob:`, revokes and rejects any unexpected result, then assigns the allowlisted URL to the media element. The source remains a user-selected local file and no remote media is introduced.
+2. DevSkim identified the literal `http://localhost` URL used only as a `new URL()` parsing base in the test-control route. The base is now the non-routable `syncyourjoy.invalid` sentinel, with no change to the server's actual bind address or request behavior.
+3. DevSkim identified the literal loopback hostname used by the test-only playback rejection hook. Production builds now replace two explicit build constants with disabled values. E2E setup enables the hook only for the generated test-player origin, so the production content script has no provider-page localhost branch.
+4. DevSkim identified the suite-level `test.setTimeout(180_000)` call as an untrusted-duration pattern. The unnecessary override was removed. The suite now uses the repository's bounded Playwright timeout and the observed matrix remains below one minute.
+
+A direct Chromium probe also confirmed that `HTMLMediaElement.srcObject` cannot accept a `File` in the supported browser, so that alternative was rejected after it caused the matrix to wait indefinitely for metadata. The final implementation preserves the proven blob-backed playback flow while adding the explicit scheme boundary. No scanner alert was dismissed as a substitute for a code change. Fresh hosted checks and final-head review remain required before merge.
+
 ## Evidence boundary
 
 A passing local matrix proves the behavior of this source tree, the built unpacked extension, Chromium, the in-process room service and the owned local fixture for that run. It does not prove:
@@ -94,11 +105,11 @@ For authenticated provider work, use the opt-in state-only procedures in [`TEST_
 
 ## Current implementation evidence
 
-The focused green run after the final local changes reported:
+The focused green run after the security remediation reported:
 
 ```text
 1 passed
-test duration: 38.5 seconds
+test duration: 38.4 seconds
 ```
 
 That run covered the complete local scenario listed above. The full repository checks and both complete E2E modes are recorded below. Hosted PR checks and the remaining issue #68 acceptance gates are still separate requirements.
@@ -106,7 +117,7 @@ That run covered the complete local scenario listed above. The full repository c
 The final local verification completed after the implementation and documentation changes:
 
 - `npm run check`: passed, 36 Vitest files and 319 tests, followed by successful server and extension builds.
-- `npm run test:e2e`: 5 passed, 1 skipped. The skipped test was the opt-in authenticated Crunchyroll test because protected storage-state inputs were not supplied.
-- `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e`: 5 passed, 1 skipped. The three-profile matrix passed in the visible headed runtime in 44.4 seconds.
+- `npm run test:e2e`: 5 passed, 1 skipped. The skipped test was the opt-in authenticated Crunchyroll test because protected storage-state inputs were not supplied. The three-profile matrix passed in 38.8 seconds.
+- `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e`: 5 passed, 1 skipped. The three-profile matrix passed in the visible headed runtime in 38.3 seconds.
 
 These results establish source, unit, build and local Chromium evidence for CR-D03. They do not close issue #68 because navigation depends on #65 and live-provider, deployment, physical-device and user-acceptance gates remain separate.
