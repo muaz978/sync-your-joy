@@ -2,6 +2,31 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.2.5] - 2026-09-22
+
+This is a compatible test release containing the verified synchronization, recovery, browser-matrix, and diagnostics work merged after `v0.2.4`. The preparation baseline is main commit `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`; the final release commit and tag are recorded in the release PR and GitHub Release provenance.
+
+### Added
+
+- Transactional playback preparation and commit handling across the extension and room coordinator, with explicit compatibility handling for mixed client and coordinator versions.
+- Deterministic coverage for stalled-play recovery, playback-health deadlines, reconnect and rehydration behavior, operation ownership, navigation transactions, adaptive loading, and three-profile browser synchronization.
+- Isolated browser-profile E2E artifact collection and an opt-in authenticated Crunchyroll two-profile test harness. The Crunchyroll harness safely skips when protected test states are not supplied.
+- Structured diagnostic and acceptance documentation for the browser matrix, adaptive fixtures, coordinator health, player recovery, navigation, and release evidence.
+
+### Fixed
+
+- Bounded stalled-play and playback-health recovery so a missing or late player acknowledgement cannot leave the coordinator or room UI waiting indefinitely.
+- Seek-barrier and operation-ownership edge cases that could lose acknowledgements, apply stale state, or allow an old player or socket to affect a newer session.
+- Episode and shared-navigation transitions so stale media identity, playback position, or deferred navigation state cannot leak into the next video.
+- Local and edge coordinator health rehydration, deadline transitions, reconnect handling, and mixed-version state migration.
+- Adaptive-fixture and test-harness security boundaries, including secure URL parsing and removal of development-only security false positives from the tested production paths.
+
+### Known limits for this test release
+
+- This release does not claim authenticated Crunchyroll playback acceptance, two-account acceptance, real two-device acceptance, production deployment acceptance, or final user acceptance.
+- Issue #30 remains open while the existing signed-in account is supplemented with a second dedicated authorized test state, an HTTPS watch URL valid for both states, a second-device environment, the exact candidate deployment identity, and a sanitized acceptance report.
+- The extension remains within its state-only boundary. It does not capture, transmit, or proxy video, audio, credentials, cookies, DRM material, or signed media URLs.
+
 ## [0.2.4] - 2026-09-18
 
 ### Fixed
