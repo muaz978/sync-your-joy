@@ -3988,6 +3988,103 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 79 - CR-C01 queue selection and implementation kickoff
+
+## Session Metadata
+
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 79
+- Date and time: 2026-09-21 15:37-15:45 Europe/Istanbul
+- Coverage period: post-PR #89 merge continuation, open-queue inventory, CR-C01 source audit and issue kickoff
+- Current context status: no open pull requests were found. Issue #62 is the next dependency-aware unimplemented reliability slice. Its classification comment was posted and the issue was assigned to `muaz978`. Implementation has not yet been branched or changed.
+
+## User Objective and Requirements
+
+- Continue after verifying and merging the prior PR.
+- Keep the review-before-merge sequence for every subsequent PR.
+- Work systematically, document every action in the issue and PR, commit and push repository changes, and do not close an issue until its applicable implementation, verification, provider, device, deployment and acceptance gates are actually evidenced.
+- Treat the signed-in Crunchyroll browser session as available, while distinguishing it from isolated automation storage-state fixtures and from live-provider acceptance that has not been run.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 15:37 - Current branch and CR-C01 inspection
+
+- Checked the repository branch and status. The working tree was clean on retained branch `codex/issue-61-mixed-version-migration`, tracking its remote branch.
+- Read issue #62, `CR-C01: Make explicit Sync recover stalled play attempts safely`, including its planned status, problem statement, expected files, acceptance criteria, dependencies, verification scenarios and state-only boundary.
+- Confirmed issue #62 was open, had no assignee, was in milestone `M3/M5: reliability and real-device validation`, and already carried labels `enhancement`, `initiative: crunchyroll-sync`, `area: extension` and `area: sync-engine`.
+- Audited the actual extension source before making changes. `apps/extension/src/content-script.ts` already owns play callbacks through `PlayerOperations`, invalidates stale play attempts on command and source changes, separates `AbortError` from `NotAllowedError`, reports playback health, and has explicit Sync retry behavior for timed-out seeks.
+- Found the concrete CR-C01 gap: `requestVideoPlay()` calls `target.play()` and holds the active play operation until the promise settles, but a provider or browser can return a promise that never settles. There is no play-attempt deadline, so the generation can remain occupied and explicit Sync recovery can be ineffective.
+- Inspected `apps/extension/src/player-operations.ts` and tests. The current operation owner supports retirement and stale callback rejection, but has no bounded play timeout state.
+- Read dependency issue status for #50, #52 and #57-#60. All remain open as tracking issues. Their implementation slices are present in merged history, but their external and acceptance evidence is not automatically complete merely because code was merged.
+
+### 2026-09-21 15:39 - Open queue inventory
+
+- Attempted `gh issue list --state open --limit 100 --sort created-asc ...`. GitHub CLI rejected the unsupported `--sort` flag with `unknown flag: --sort`.
+- Reran the supported query using the search qualifier `sort:created-asc` and inspected the full oldest-first queue.
+- Confirmed `gh pr list --state open --limit 50 ...` returned an empty list, so there was no older open PR requiring review before proceeding.
+- The open issue queue still contains older external-validation or already-implemented verification issues #30, #33, #34, #35 and #49-#61, followed by later implementation issues. Their open state is intentional where live Crunchyroll, two-account, two-device, headed-browser, deployment or remaining runtime evidence is outstanding.
+- Selected #62 as the next dependency-aware implementation issue because it is the next unimplemented runtime slice after the merged CR-B07 implementation and does not require reopening or duplicating those older completed code slices.
+
+### 2026-09-21 15:43 - CR-C01 planning documentation and tracking metadata
+
+- Created temporary detailed planning documentation at `/private/tmp/syj-cr-c01-plan.md` without recording secrets or browser storage data.
+- Posted the planning comment at `https://github.com/muaz978/sync-your-joy/issues/62#issuecomment-5760610035`.
+- The comment records the existing source behavior, the never-settling play promise gap, the planned bounded recovery and classification tests, the planned verification gates, and the explicit no-provider-material boundary.
+- Assigned issue #62 to `muaz978` with `gh issue edit 62 --add-assignee muaz978`.
+- No code, issue closure, release bump, deployment or public project custom-field mutation was performed in this kickoff step.
+
+## Confirmed Successful Results
+
+- PR queue is currently empty according to `gh pr list --state open`.
+- Issue #62 was read from GitHub and its current acceptance/dependency state was verified.
+- The concrete implementation gap is confirmed in source: a never-settling `play()` promise has no deadline and can retain the active play owner indefinitely.
+- Issue #62 has a detailed kickoff comment and assignee `muaz978`.
+- The repository working tree was clean before branching work.
+
+## Failed, Incomplete, or Unresolved Work
+
+- The first issue-list command failed because this GitHub CLI version does not support `--sort`. The supported search-qualified query succeeded, and no queue data was lost.
+- CR-C01 implementation has not started. No branch, code change, test, commit, PR, hosted check, review or merge exists for #62 yet.
+- A live Crunchyroll run, headed-browser validation, installation, two-device validation, deployment and user acceptance remain future evidence classes. The signed-in browser account is available but has not been used as evidence for this issue in this kickoff.
+- Issues #30, #33, #34, #35 and #49-#61 remain open. Their exact remaining gates must be checked before any closure or release decision.
+- Release remains `0.2.4`; `1.0.0` remains reserved for complete milestone acceptance.
+
+## Decisions and Rationale
+
+- Keep the queue order evidence-aware: do not reimplement already-merged slices merely because their tracking issues remain open, but do not close those issues until their remaining acceptance gates are proven.
+- Start CR-C01 from the verified `origin/main` merge commit rather than from the retained CR-B07 branch, so the next PR contains only its own intended changes.
+- Preserve the existing state-only integration boundary. The fix may observe player promise outcomes and playback-health state, but it must not access provider credentials, private APIs, protected media, signed URLs or DRM material.
+
+## Files and Artifacts
+
+- Durable checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Temporary CR-C01 kickoff comment: `/private/tmp/syj-cr-c01-plan.md`
+- Audited implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- Audited operation owner: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-operations.ts`
+- Issue: `https://github.com/muaz978/sync-your-joy/issues/62`
+- Issue comment: `https://github.com/muaz978/sync-your-joy/issues/62#issuecomment-5760610035`
+- Verified base for next branch: `origin/main` at `94924c569c9e3f5e0b575e59610b047ba236478e`
+
+## Open Questions, Blockers, and Dependencies
+
+- CR-C01 depends conceptually on the operation ownership, drift, health and transaction slices tracked by #50, #52 and #57-#60. Those code slices are merged, while end-to-end and external acceptance evidence remains open.
+- The exact timeout and observable recovery behavior must be selected from existing constants and health semantics without creating repeated play attempts on every heartbeat.
+- The next action is to create `codex/issue-62-sync-recovery` from `origin/main`, implement the bounded play operation, add deterministic race tests and run the full verification gates.
+
+## Next Steps
+
+1. Fetch and verify `origin/main`, then create a fresh CR-C01 branch from merge commit `94924c569c9e3f5e0b575e59610b047ba236478e`.
+2. Implement and test bounded play-attempt recovery, including never-settling, late completion, explicit Sync retry, source replacement, replaced element, `NotAllowedError`, `AbortError`, missing player and missing-progress cases.
+3. Add an issue-specific report and detailed PR body, apply labels, assignee, milestone and automatic project linkage, then commit and push.
+4. Verify the exact final PR head, hosted checks and detailed review before any merge authorization is used.
+5. Post post-merge evidence to #62 while keeping the issue open until all applicable gates are complete.
+
+## Historical Checkpoint Notes
+
+- Checkpoints 1-78 remain preserved. This checkpoint records the queue scan and CR-C01 kickoff after the verified PR #89 merge.
+- The unsupported `--sort` attempt is intentionally retained as part of the complete activity log and does not change the successful queue result.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 78 - CR-B07 PR #89 verified merge and issue acceptance handoff
 
 ## Session Metadata
