@@ -99,7 +99,7 @@ export async function createRoomService(options: { port?: number; host?: string;
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES })
 
   const httpServer = createServer((request, response) => {
-    const url = new URL(request.url ?? '/', 'http://syncyourjoy.invalid')
+    const url = new URL(request.url ?? '/', 'https://syncyourjoy.invalid')
 
     // This route is intentionally absent unless an in-process test supplies
     // an unpredictable token. It lets the local browser matrix sever one
