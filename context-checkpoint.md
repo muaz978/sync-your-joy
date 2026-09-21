@@ -8088,6 +8088,161 @@
 # Context Checkpoint
 
 ## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue delivery, compatible `0.2.5` test release preparation.
+- Checkpoint number: 97.
+- Date and time: 2026-09-22, Europe/Istanbul.
+- Coverage period: Since checkpoint 96, covering repository synchronization, release-version inspection, `0.2.5` version and changelog preparation, release-grade verification, and package checksum verification.
+- Current context status: Release changes are prepared on `codex/release-0.2.5` from synchronized `origin/main`. The version bump is not yet committed, pushed, merged, tagged, or published.
+
+## User Objective and Requirements
+- Synchronize the repository and bump the compatible patch release from `0.2.4` to `0.2.5` so the recently merged deterministic changes can be installed and tested on a second device.
+- Keep the review-first workflow. The version and changelog change must be committed, pushed, opened as a PR, reviewed at its exact final head, and merged only after fresh checks pass.
+- Commit and push everything, apply the normal labels, assignee, milestone, public project and project custom fields to the release PR, and document every action.
+- Do not represent the `0.2.5` test release as proof of authenticated Crunchyroll, two-account, two-device, deployment or final user acceptance. Issue #30 remains open until those gates are evidenced.
+- Keep the extension within the state-only boundary and do not record credentials, cookies, storage states, signed URLs, media bytes or DRM information.
+
+## Current State
+- Repository base synchronized from `origin/main` at `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`, the merge commit for PR #98.
+- A new branch `codex/release-0.2.5` was created from that exact base and tracks the release work.
+- The root package, extension package, extension manifest and lockfile root and extension entries now agree on version `0.2.5`.
+- `CHANGELOG.md` contains a new `0.2.5` entry that describes verified synchronization, recovery, browser-matrix, diagnostics, and test-harness work, and explicitly lists live-provider and two-device limitations.
+- `npm run release:check-version` passes and prints `0.2.5`.
+- `npm run check` passes: typecheck, 36 test files, 319 tests, and the production server and Chrome extension builds.
+- `npm run verify:browser-packages` passes with Chrome manifest `0.2.5`, Firefox manifest `0.2.5`, and macOS Safari package smoke success after the required host-permission rerun.
+- `npm audit --omit=dev --audit-level=high` passes with zero vulnerabilities.
+- `RELEASE_VERSION=0.2.5` production packaging passes. The ZIP is valid, the packaged manifest reports `0.2.5`, the production WSS coordinator endpoint is present, and the checksum verification passes from the `release` directory.
+- `release/sync-your-joy-extension.zip` and its checksum are ignored release artifacts and were not added to the Git diff.
+- The currently prepared release change is still uncommitted and no release PR has been opened yet.
+- The latest published release remains `v0.2.4`. No `v0.2.5` tag or GitHub Release exists yet, and `1.0.0` remains reserved for the milestone-end gate.
+
+## Complete Chronological Activity Log
+
+### 2026-09-22 - User requested synchronization and a `0.2.5` test release
+- User request: Asked whether it was better to synchronize everything and bump the release to `0.2.5` so the recent changes could be tested, and asked how the second-device validation would work once a friend prepares it.
+- Decision: Treat `0.2.5` as a compatible test release for the merged deterministic work, while keeping the live Crunchyroll and two-device acceptance claims separate and unresolved.
+- Action taken: Announced use of the repository versioning and shipping guidance because this work changes release metadata and prepares a consumer-installable artifact.
+
+### 2026-09-22 - Read release workflow guidance
+- Action taken: Read `git-workflow-and-versioning` and `shipping-and-launch` instructions.
+- Result: The release process requires a short-lived branch from `main`, an atomic version and changelog change, synchronized release sources, a curated changelog, review, checks, an annotated semantic-version tag, a reproducible package and checksum, and an explicit rollback or limitation record.
+- Decision: Use `codex/release-0.2.5`, update only release metadata and the changelog in this PR, and defer the annotated tag until the merged release commit is verified.
+
+### 2026-09-22 - Synchronized the repository and inspected existing releases
+- Action taken: Ran `git fetch origin main --tags`.
+- Result: The fetch completed successfully. `origin/main` resolved to `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`.
+- Action taken: Confirmed that `codex/release-0.2.5` did not already exist, listed the existing `v0.2.*` tags, and listed GitHub Releases.
+- Result: `v0.2.4` is the latest published release. There is no `v0.2.5` tag or release. Existing tags include `v0.2.0` through `v0.2.4`.
+- Action taken: Created `codex/release-0.2.5` from `origin/main`.
+- Result: The branch was created and configured to track `origin/main`.
+
+### 2026-09-22 - Inspected version and release contracts
+- Action taken: Inspected `package.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json`, `package-lock.json`, `CHANGELOG.md`, `scripts/check-release-version.mjs`, `scripts/package-extension.sh`, `.github/workflows/release.yml`, and `docs/RELEASING.md`.
+- Result: The release contract requires the root package, extension package and extension manifest to agree. The lockfile stores the root and extension versions. The tag workflow runs checks, browser-package verification, a production audit, package creation and checksum verification, then publishes the GitHub Release.
+- Result: `docs/RELEASING.md` explicitly identifies `0.2.5` as the compatible patch version for a verified bug-fix group and reserves `1.0.0` for the milestone-end acceptance gate.
+- Result: The release workflow builds against `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`, publishes stable ZIP and checksum asset names, and requires an annotated `vMAJOR.MINOR.PATCH` tag.
+
+### 2026-09-22 - Prepared the `0.2.5` version and changelog change
+- Action taken: Updated `package.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json`, and the root and extension entries in `package-lock.json` from `0.2.4` to `0.2.5`.
+- Action taken: Added the `0.2.5` changelog entry with verified additions and fixes, the preparation baseline `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`, and explicit known limits.
+- Result: The changelog states that `0.2.5` is a compatible test release. It does not claim authenticated Crunchyroll playback, two-account acceptance, real two-device acceptance, production deployment acceptance or final user acceptance.
+- Result: The changelog reiterates that the extension never captures, transmits or proxies video, audio, credentials, cookies, DRM material or signed media URLs.
+- Action taken: Ran `git diff --check`.
+- Result: No whitespace errors were reported.
+- Action taken: Ran `npm run release:check-version`.
+- Result: The script passed and printed `0.2.5`. No release source still contains a `0.2.4` version value.
+
+### 2026-09-22 - Installed dependencies and handled the local npm cache failure
+- Action taken: Ran `npm ci` using the default npm cache.
+- Result: The command failed before completing because the machine’s npm cache contains root-owned files. It also emitted a cleanup warning for a non-empty `node_modules/@unocss/config/dist` directory. This was an environment issue, not a source or lockfile failure.
+- Decision: Did not change ownership of the global npm cache and did not use `sudo`.
+- Action taken: Reran `npm ci` with the isolated writable cache `NPM_CONFIG_CACHE=/private/tmp/syncyourjoy-npm-cache`.
+- Result: Installation succeeded, adding 229 packages and auditing 235 packages. npm reported zero vulnerabilities. It emitted only install-script approval notices for package install scripts and an npm upgrade notice.
+
+### 2026-09-22 - Ran release-grade source checks
+- Action taken: Ran `npm run check`.
+- Result: Typecheck passed. Vitest passed 36 test files and 319 tests. The room-service and Chrome extension production builds passed.
+- Action taken: Ran `npm run verify:browser-packages` in the default sandbox.
+- Result: Chrome and Firefox verification reached the Safari step, but the macOS Safari converter was denied access to its temporary staging path and exited with code 65. The error was `safari-web-extension-converter requires access to the supplied path`, matching the previously documented environment boundary.
+- Action taken: Reran `npm run verify:browser-packages` with the required host filesystem access.
+- Result: Chrome passed with manifest version `0.2.5` and `service-worker.js`; Firefox passed with manifest version `0.2.5` and `sidepanel.html`; macOS Safari package smoke passed.
+- Action taken: Ran `NPM_CONFIG_CACHE=/private/tmp/syncyourjoy-npm-cache npm audit --omit=dev --audit-level=high`.
+- Result: The production dependency audit passed with `found 0 vulnerabilities`.
+
+### 2026-09-22 - Built and verified the `0.2.5` release package
+- Action taken: Ran `RELEASE_VERSION=0.2.5 SYNCYOURJOY_ROOM_SERVER_URL=wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms npm run release:package`.
+- Result: The Chrome extension package built successfully. ZIP integrity testing passed. The package was written to `release/sync-your-joy-extension.zip` and a SHA-256 checksum was generated.
+- Result: The packaged manifest reports version `0.2.5`, and its effective CSP contains the production coordinator endpoint `wss://sync-your-joy-rooms.sync-your-joy.workers.dev`.
+- Action taken: First ran `shasum -a 256 -c release/sync-your-joy-extension.zip.sha256` from the repository root.
+- Result: The command failed only because the checksum file stores a package-relative filename and the command was run from the wrong directory. It was a path lookup failure, not a checksum mismatch.
+- Action taken: Reran `shasum -a 256 -c sync-your-joy-extension.zip.sha256` from `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/release`.
+- Result: `sync-your-joy-extension.zip: OK`.
+- Action taken: Confirmed `git status --short --branch`.
+- Result: Only the intended five tracked release files are modified. Generated package output remains ignored.
+
+## Confirmed Successful Results
+- `origin/main` was synchronized and verified at `da42aa14398dcd2a3c3fd4e2963ca55475408f4d` before release preparation.
+- Branch `codex/release-0.2.5` exists from the verified `origin/main` base.
+- All required release-version sources agree on `0.2.5`.
+- `npm run release:check-version` passed.
+- `npm run check` passed with 36 test files and 319 tests, plus typecheck and production builds.
+- Browser-package verification passed for Chrome, Firefox and macOS Safari after the documented host-permission rerun.
+- Production dependency audit passed with zero vulnerabilities.
+- The `0.2.5` ZIP passed archive integrity verification, contains manifest version `0.2.5`, uses the production coordinator endpoint, and passed SHA-256 verification.
+- No tag, GitHub Release, issue closure or live Crunchyroll acceptance claim was made during this checkpoint.
+
+## Failed, Incomplete, or Unresolved Work
+- The default `npm ci` attempt failed because the machine’s global npm cache contains root-owned files. The isolated-cache rerun succeeded. The global cache ownership remains unchanged.
+- The first browser-package verification attempt failed at the Safari converter because the sandbox did not grant access to its temporary staging directory. The required host-permission rerun passed all browser-package checks.
+- The first checksum command used the wrong working directory and could not find the package-relative filename. The corrected command passed.
+- The release version and changelog edits are not yet committed or pushed.
+- No release PR exists yet. The exact final PR head, hosted checks, review, merge commit, tag and GitHub Release remain pending.
+- Issue #30 remains open. The current release preparation does not provide the missing second protected Crunchyroll state, second-device environment, deployment identity or final user acceptance.
+
+## Decisions and Rationale
+- Use `0.2.5` as the next compatible patch version for this test release because `docs/RELEASING.md` explicitly assigns that version to the current verified bug-fix group.
+- Treat the release as a testable artifact, not as a claim that all external acceptance gates are complete.
+- Keep the release PR limited to version metadata, changelog and this checkpoint. Do not add unrelated source changes while preparing the release.
+- Do not create the `v0.2.5` tag until the release PR is reviewed, merged, and the merged commit is verified on `origin/main`.
+- Do not close issue #30 or issue #68 because the documented live-provider and user-acceptance gates remain unresolved.
+
+## Files and Artifacts
+- Release version sources: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/package.json`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/package.json`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/static/manifest.json`, `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/package-lock.json`.
+- Changelog: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/CHANGELOG.md`.
+- Session checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`.
+- Release package: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/release/sync-your-joy-extension.zip`.
+- Release checksum: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/release/sync-your-joy-extension.zip.sha256`.
+- Isolated npm cache: `/private/tmp/syncyourjoy-npm-cache`.
+
+## Assumptions and Uncertainties
+- The release package uses the currently documented production coordinator endpoint. This does not by itself prove that the deployed coordinator is the exact environment selected for the later two-device acceptance run.
+- The release changelog describes only deterministic behavior covered by repository evidence. The real Crunchyroll and second-device run may reveal additional provider-specific issues.
+- The release PR number and final source and merge SHAs are not known yet and must be added to GitHub records after the PR is opened and reviewed.
+
+## Open Questions, Blockers, and Dependencies
+- The version and changelog PR must receive normal labels, assignee, milestone, public project linkage and project custom fields before merge.
+- The release PR must be reviewed at its exact final head. The owner cannot self-approve, so the review record will be an exact-head review comment followed by the user-authorized merge path if required.
+- The annotated `v0.2.5` tag and GitHub Release must be created only after the merged commit and required checks are verified.
+- For the later issue #30 run, the user will arrange a second device with a friend. The existing signed-in account remains available; the additional required input is the second authorized test state/profile and protected test setup, not a replacement for the existing account.
+
+## Next Steps
+1. Inspect the exact five-file release diff, commit it with an atomic release message, and push `codex/release-0.2.5`.
+2. Open the release PR with a detailed body containing the version contract, test evidence, package checksum, known limits, issue and milestone scope, and the no-secrets boundary.
+3. Apply the canonical labels, assignee `muaz978`, milestone `M3/M5: reliability and real-device validation`, public project and project custom fields.
+4. Wait for hosted checks, inspect the exact final head, submit the formal review record, and merge only after review.
+5. Verify the merge commit on `origin/main`, then create and push annotated tag `v0.2.5` only if the release PR and checks remain valid.
+6. Verify the GitHub Release assets, checksum, tagged manifest version, production coordinator endpoint and extracted extension smoke result.
+7. Install `0.2.5` on the prepared second device when the user is ready, then execute the issue #30 test matrix with protected states and record sanitized evidence. Keep issue #30 open until all applicable gates pass.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-96 remain intact. Checkpoint 97 records the release preparation and all local verification outcomes, including environment-only failures and their successful reruns.
+- This checkpoint supersedes no prior issue or release acceptance claim. It records a proposed and locally verified `0.2.5` release change, not a completed tag or published release.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+---
+
+# Context Checkpoint
+
+## Session Metadata
 - Task or project: SyncYourJoy systematic PR and issue delivery, post-CR-D03 queue continuation.
 - Checkpoint number: 96.
 - Date and time: 2026-09-22 00:37 Europe/Istanbul.
