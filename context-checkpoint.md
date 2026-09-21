@@ -3988,6 +3988,122 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 83 - CR-C02 PR #91 review, merge and issue handoff
+
+## Session Metadata
+- Task or project: SyncYourJoy CR-C02 diagnostic reports and systematic PR lifecycle
+- Checkpoint number: 83
+- Date and time: 2026-09-21 16:55 +03
+- Coverage period: From the committed CR-C02 worktree through PR creation, metadata, public project verification, exact-head review, authorized merge, issue documentation and queue handoff preparation.
+- Current context status: PR #91 is reviewed and merged. Issue #63 remains open with detailed merge evidence. `origin/main` is at merge commit `a9e8b08868c614a63b49810696fbfdc34ec79943`. The retained feature branch contains the source and Checkpoint 82 but does not yet contain this Checkpoint 83 commit.
+
+## User Objective and Requirements
+- Verify the work, review it, merge it only after the review and hosted checks, then continue systematically.
+- Commit and push all changes.
+- Keep detailed documentation in the PR, issue and durable checkpoint.
+- Add labels, assignee, milestone and public project linkage to each PR, and keep issue state honest.
+- Do not close issue #63 because deterministic implementation is complete but live-provider, deployment and user-acceptance gates remain.
+- Continue oldest-first after the merged slice, without assuming a missing account or skipping unresolved gates.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 16:43 +03 - Commit and push
+- Inspected the CR-C02 worktree. It contained the source, tests, permanent report, test-guide link and Checkpoint 82. `git diff --check` passed.
+- Committed all 12 files as `673c874` with message `feat: explain diagnostic operation failures`.
+- Pushed branch `codex/issue-63-diagnostic-reports` to `origin` and verified the branch tracking setup.
+
+### 2026-09-21 16:45 +03 - PR creation and metadata
+- Opened PR #91 at `https://github.com/muaz978/sync-your-joy/pull/91` with title `feat: explain diagnostic operation failures` and exact head `673c87441e7dd6b9967dfb48df24528d65971c8e`.
+- The PR body documents root cause, implementation, file scope, local and hosted verification, privacy/security boundaries, live-provider evidence limits, review policy, and explicit issue non-closure.
+- The first `gh pr edit` attempt reported `initiative:crunchyroll-sync not found` and left the label set empty. The repository label listing confirmed the colon-named labels exist. A direct GitHub issue-label API call then attached `enhancement`, `initiative:crunchyroll-sync`, `area:extension` and `area:protocol` successfully.
+- Verified via GitHub that PR #91 has assignee `muaz978`, milestone `M3/M5: reliability and real-device validation`, all four required labels, and `MERGEABLE` state.
+
+### 2026-09-21 16:47 +03 - Public project verification
+- Opened PR #91 in the signed-in Edge browser and visually verified the public `SyncYourJoy Delivery and Reliability` project link, project status `Todo`, assignee, four labels, milestone and available project fields.
+- The CLI `projectItems` field remained empty because the configured CLI token does not expose project-read scope. The visible signed-in GitHub project UI is treated as authoritative for this metadata, consistent with prior project verification.
+- Opened issue #63 in Edge. The issue project selector visibly contained the same public project, and the issue activity showed project automation had added it and set it to `Todo`. The issue metadata initially displayed no assignee, so `gh issue edit 63 --add-assignee muaz978` was run and the issue URL was returned successfully.
+- The issue project status selector exposed `Verification`, but no status mutation was made in this step. The issue remains open and its current project status is recorded as `Todo` until a confirmed project-field action is performed.
+
+### 2026-09-21 16:49 +03 - Exact-head review preparation and checks
+- The first attempt to use unsupported `gh pr diff --stat` and `--check` flags failed with the CLI usage message. This did not modify the PR. The supported replacements were used: `gh pr diff --name-only`, `git diff --check origin/main...HEAD`, `git diff --stat origin/main...HEAD`, the GitHub files API and `gh pr checks 91`.
+- Verified the remote PR head and local HEAD both equal `673c87441e7dd6b9967dfb48df24528d65971c8e`.
+- Verified the exact diff contains only the intended 12 files and `git diff --check origin/main...HEAD` passes.
+- Verified all five hosted checks pass on that exact head: Analyze (javascript-typescript), CodeQL, DevSkim, lowercase `devskim`, and Typecheck, test, and build.
+
+### 2026-09-21 16:50 +03 - Review submission
+- Wrote `/private/tmp/syj-cr-c02-review.md` containing the exact head, protocol bounds, correlation correctness, event retention, transport budget, security/privacy review, local/hosted evidence and remaining gates.
+- Attempted `gh pr review 91 --approve --body-file /private/tmp/syj-cr-c02-review.md`. GitHub rejected it with `Review Can not approve your own pull request` because the authenticated account owns the PR.
+- Submitted the same detailed review as a `COMMENTED` review. Verified review ID `5267396888` is attached to exact commit `673c87441e7dd6b9967dfb48df24528d65971c8`.
+- Verified the PR remained open, mergeable and with all five checks passing. The resulting GitHub `reviewDecision` remains `REVIEW_REQUIRED` due to the owner self-review restriction, not due to a source finding.
+
+### 2026-09-21 16:51 +03 - Authorized merge and main verification
+- Merged PR #91 using the user-authorized administrator path: `gh pr merge 91 --merge --admin --delete-branch=false`.
+- GitHub reported PR #91 as `MERGED` at `2026-09-21T13:50:21Z` with merge commit `a9e8b08868c614a63b49810696fbfdc34ec79943`.
+- Fetched `origin/main` and verified it resolves exactly to `a9e8b08868c614a63b49810696fbfdc34ec79943`.
+- The feature branch was intentionally retained for the post-merge checkpoint, consistent with the prior issue workflows.
+
+### 2026-09-21 16:52 +03 - Issue documentation and continued-state decision
+- Posted the detailed merge evidence comment at `https://github.com/muaz978/sync-your-joy/issues/63#issuecomment-5761592474`.
+- The comment records exact reviewed head, merge SHA, `origin/main`, review limitation and ID, all five hosted checks, local evidence, delivered behavior, privacy boundary, remaining acceptance gates, issue non-closure and release version `0.2.4`.
+- Verified issue #63 remains `OPEN`. It was not closed because authenticated Crunchyroll visible-frame acceptance, deployment, cross-device acceptance and milestone completion are not established by this deterministic slice.
+- The signed-in Crunchyroll account remains treated as available. No account-missing blocker was added.
+
+## Confirmed Successful Results
+- PR #91 was opened with detailed implementation and verification documentation, correct branch, base and issue reference.
+- PR #91 has labels `enhancement`, `initiative:crunchyroll-sync`, `area:extension` and `area:protocol`, assignee `muaz978`, milestone `M3/M5: reliability and real-device validation`, and visible public project linkage to `SyncYourJoy Delivery and Reliability` with status `Todo`.
+- Exact-head review was recorded as review ID `5267396888`, state `COMMENTED`, attached to `673c87441e7dd6b9967dfb48df24528d65971c8`.
+- All five hosted checks passed on the reviewed exact head.
+- PR #91 was merged into `main` at `a9e8b08868c614a63b49810696fbfdc34ec79943`, and `origin/main` independently verifies that SHA.
+- Issue #63 has detailed merge evidence at `https://github.com/muaz978/sync-your-joy/issues/63#issuecomment-5761592474`, remains open, and is assigned to `muaz978` with its existing labels and milestone.
+- No release was bumped. Version remains `0.2.4`, and `1.0.0` remains reserved for complete milestone acceptance.
+
+## Failed, Incomplete, or Unresolved Work
+- GitHub owner self-approval was rejected as expected. The detailed review is recorded as `COMMENTED`; it is not represented as an approval.
+- The shorthand `gh pr edit` label command rejected a colon-named label. The direct label API succeeded, and the final labels were verified in CLI and browser UI.
+- The unsupported `gh pr diff --stat --check` command failed before the supported exact-diff checks passed.
+- The issue project status selector currently exposes `Verification`, but the mutation was not performed. The issue's current project status is `Todo`; this is metadata cleanup, not a code or merge blocker, and must be handled with the required action-time confirmation if changed through the browser UI.
+- Issue #63 remains open for live-provider, deployment, cross-device and user-acceptance gates.
+- No release bump or browser installation was performed because the merged slice has complete deterministic and package evidence but not complete milestone evidence.
+
+## Decisions and Rationale
+- Merge was allowed only after exact-head review, all hosted checks and security checks passed, and the owner-review limitation was recorded transparently.
+- Administrator merge was used because the user explicitly authorized acceptance after review and GitHub's required approval could not be supplied by the PR owner.
+- The issue remains open and the release remains `0.2.4` because deterministic code evidence is not the same as live provider or deployment acceptance.
+- The public project UI remains authoritative for project membership and custom-field visibility because the CLI token cannot read project items.
+
+## Files and Artifacts
+- CR-C02 implementation record: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_C02_DIAGNOSTIC_REPORTS.md`
+- PR body: `/private/tmp/syj-cr-c02-pr.md`
+- Exact-head review: `/private/tmp/syj-cr-c02-review.md`
+- Issue merge evidence: `/private/tmp/syj-cr-c02-issue-63-merge.md`
+- PR #91: `https://github.com/muaz978/sync-your-joy/pull/91`
+- Issue #63: `https://github.com/muaz978/sync-your-joy/issues/63`
+- PR review ID: `5267396888`
+- PR merge commit: `a9e8b08868c614a63b49810696fbfdc34ec79943`
+- Reviewed source head: `673c87441e7dd6b9967dfb48df24528d65971c8`
+- Public project: `https://github.com/users/muaz978/projects/1/views/4?layout_template=table`
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+
+## Assumptions and Uncertainties
+- The issue project selector showed the public project and its current `Todo` status. The project status is not claimed to be `Verification` because the selection action was not completed.
+- The user's signed-in Edge and Crunchyroll session are available for later headed acceptance, but no live-provider result is inferred.
+- The exact next issue must be rescanned after the merge rather than assumed from previous numbering.
+
+## Open Questions, Blockers, and Dependencies
+- Should the issue project status be moved from `Todo` to `Verification` through the visible project-field UI? The selector offered this action, but it was not applied in this checkpoint.
+- Remaining external acceptance and deployment gates must stay separate from deterministic CR-C02 implementation evidence.
+
+## Next Steps
+1. Commit and push this Checkpoint 83 record to the retained CR-C02 branch, then verify its remote SHA.
+2. Rescan open PRs and issues oldest-first. No open PR should be assumed; confirm with GitHub.
+3. Continue with the next oldest unimplemented issue, preserving the same implementation, documentation, exact-head review and merge gates.
+4. Keep project and issue status changes explicit and evidence-backed. Do not close #63 or bump the release without complete applicable evidence.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-82 remain intact. This checkpoint records the complete CR-C02 PR #91 lifecycle from pushed commit through merge and issue handoff.
+- The owner self-review rejection, shorthand label failure, unsupported diff flag failure and unperformed issue status mutation are preserved as unresolved or corrected workflow details.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 82 - CR-C02 diagnostic report implementation before PR
 
 ## Session Metadata
