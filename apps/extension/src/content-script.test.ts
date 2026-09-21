@@ -419,6 +419,46 @@ describe('adaptive player lifecycle', () => {
     expect(statuses().some(message => message.sample.playbackStartFailed)).toBe(false)
   })
 
+  it('retires a never-settling play request and waits for explicit Sync before retrying', async () => {
+    let resolveOld!: () => void
+    video.play
+      .mockImplementationOnce(() => new Promise<void>(resolve => { resolveOld = resolve }))
+      .mockImplementationOnce(() => {
+        video.paused = false
+        video.dispatchEvent(new Event('play'))
+        return Promise.resolve()
+      })
+
+    apply('playing')
+    expect(video.play).toHaveBeenCalledOnce()
+
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(video.play).toHaveBeenCalledOnce()
+    expect(video.writes).toEqual([])
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(video.play).toHaveBeenCalledOnce()
+    expect(statuses().some(message => message.sample.buffering && message.sample.playbackStartFailed === false)).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(video.play).toHaveBeenCalledOnce()
+
+    state.snapshot!.playback.effectiveAtServerMs = Date.now()
+    listener({ type: 'FORCE_SYNC' })
+    expect(video.play).toHaveBeenCalledTimes(2)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(video.paused).toBe(false)
+
+    // The old promise resolves after the retry has taken ownership. Its late
+    // completion must not settle or mutate the new attempt.
+    resolveOld()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(video.paused).toBe(false)
+    expect(video.play).toHaveBeenCalledTimes(2)
+  })
+
   it('still reports a current autoplay policy rejection', async () => {
     video.play.mockRejectedValue(new DOMException('User activation required', 'NotAllowedError'))
     apply('playing')

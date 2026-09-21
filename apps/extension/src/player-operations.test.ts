@@ -37,14 +37,19 @@ describe('PlayerOperations', () => {
   it('retires old play callbacks when command ownership changes', () => {
     const operations = new PlayerOperations()
     const oldPlay = operations.beginPlay()
+    expect(operations.hasActivePlay).toBe(true)
 
     operations.invalidateCommand(100)
 
     const newPlay = operations.beginPlay()
     expect(oldPlay).not.toBeNull()
     expect(newPlay).not.toBeNull()
+    expect(operations.hasActivePlay).toBe(true)
     expect(operations.isCurrentPlay(oldPlay!)).toBe(false)
     expect(operations.isCurrentPlay(newPlay!)).toBe(true)
+
+    operations.settlePlay(newPlay!)
+    expect(operations.hasActivePlay).toBe(false)
   })
 
   it('invalidates controller intent timers across source changes', () => {

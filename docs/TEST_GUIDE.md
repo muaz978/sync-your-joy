@@ -15,6 +15,8 @@ For the CR-A07 seek-barrier acceptance record, use [`CR_A07_SEEK_BARRIER_ACCEPTA
 
 For the CR-B01 operation contract record, use [`CR_B01_OPERATION_CONTRACT.md`](CR_B01_OPERATION_CONTRACT.md). It defines the media epoch, operation identity, fixed participant quorum, binding/sample evidence, fail-closed capability negotiation and safe defaults for older stored state. It is a schema gate for CR-B02 and CR-B03, not proof of their runtime behavior.
 
+For the CR-C01 stalled-play recovery record, use [`CR_C01_STALLED_PLAY_RECOVERY_REPORT.md`](CR_C01_STALLED_PLAY_RECOVERY_REPORT.md). It defines the bounded unresolved `play()` deadline, explicit Sync retry boundary, stale callback handling and the distinction between deterministic player evidence and authenticated provider acceptance.
+
 ## Before the session
 
 Each tester needs:

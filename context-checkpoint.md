@@ -3988,6 +3988,143 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 80 - CR-C01 bounded stalled-play recovery implementation and verification
+
+## Session Metadata
+
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 80
+- Date and time: 2026-09-21 15:45-15:58 Europe/Istanbul
+- Coverage period: CR-C01 source implementation, regression tests, detailed report, local full verification, package and smoke gates
+- Current context status: CR-C01 implementation is complete locally on branch `codex/issue-62-sync-recovery`. The final branch commit, push, PR creation, metadata, hosted checks, exact-head review and merge are still pending.
+
+## User Objective and Requirements
+
+- Continue after verifying and merging PR #89.
+- Review every future PR before merging it, document every action in the issue and PR, commit and push all repository changes, and keep issues open until all applicable gates are evidenced.
+- Preserve the state-only integration boundary and distinguish deterministic source and fake-media evidence from headed browser, authenticated Crunchyroll, installation, two-device, deployment and user-acceptance evidence.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 15:45 - Fresh CR-C01 branch
+
+- Fetched `origin/main` and created `codex/issue-62-sync-recovery` from verified merge commit `94924c569c9e3f5e0b575e59610b047ba236478e`.
+- Confirmed the new branch tracked `origin/main` and started clean.
+
+### 2026-09-21 15:45-15:48 - Initial implementation and first focused test attempt
+
+- Updated `apps/extension/src/content-script.ts` to use the existing `PLAYBACK_STARTUP_TIMEOUT_MS` value as the local play-request deadline.
+- Added a play-attempt timer, timer cleanup on normal settlement and invalidation, timeout retirement, actionable recovery notice, buffering status reporting and a recovery barrier that blocks automatic heartbeat retries.
+- Exposed `PlayerOperations.hasActivePlay` from `apps/extension/src/player-operations.ts` and made authoritative correction wait while a play promise is pending.
+- Added the first CR-C01 content-script regression test for a never-settling promise, explicit retry and late old completion.
+- The first focused run failed at the explicit retry assertion. Investigation showed the fake clock had advanced the expected room position, so the worker-style `FORCE_SYNC` test correctly entered a seek path rather than retrying play. The unresolved play also allowed a heartbeat correction seek before the active-play visibility guard was added.
+
+### 2026-09-21 15:48-15:51 - Corrective implementation and deterministic race coverage
+
+- Adjusted the test fixture to set the expected playback time to the current fake time before invoking the retry path.
+- Added an early authoritative return while `hasActivePlay` is true, preventing a moving seek target from being assigned during an unresolved play attempt.
+- Added an early authoritative return while `playbackRecoveryRequested` is true, preventing timeout recovery from immediately re-entering correction logic.
+- Kept the final play guard conditioned on `!playbackRecoveryRequested`, so heartbeats cannot start another play after timeout.
+- Added the transactional `onFailed` callback to the timeout path. This clears the transactional attempt key and allows a later explicit retry to create a fresh operation attempt.
+- Added `PlayerOperations.hasActivePlay` assertions to `apps/extension/src/player-operations.test.ts` for begin, invalidation, replacement and settlement.
+- Reran the focused command:
+  `npm exec vitest run apps/extension/src/content-script.test.ts apps/extension/src/player-operations.test.ts --pool=forks --poolOptions.forks.singleFork=true`.
+- Focused result: 2 files, 64 tests passed. The command emitted npm warnings that the Vitest pool flags are forwarded through npm and will stop being accepted as npm configuration in a future npm major version; Vitest itself completed successfully.
+- `git diff --check` passed.
+
+### 2026-09-21 15:52-15:54 - Permanent documentation
+
+- Added `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_C01_STALLED_PLAY_RECOVERY_REPORT.md`.
+- The report documents the source finding, timeout semantics, retry boundary, stale callback ownership, failure classification, regression coverage, evidence limits, state-only security boundary and remaining acceptance gates.
+- Linked the report from `docs/TEST_GUIDE.md`.
+- Checked the changed implementation and report for newly introduced secrets or provider material with a diff scan for passwords, secrets, tokens, cookies, private keys, signed URLs, DRM and authorization data. No matching added content was found.
+- Checked the changed files for em dash characters. The only match was a pre-existing em dash in an unrelated existing `docs/TEST_GUIDE.md` paragraph; no em dash was added by the CR-C01 changes.
+
+### 2026-09-21 15:54-15:56 - Full local verification
+
+- Ran `npm run check`.
+- Result: 31 test files and 293 tests passed; root and edge-service typechecks passed; room-service and extension builds passed.
+- Ran `npm audit --audit-level=high`; result `0 vulnerabilities`.
+- Ran `npm run release:check-version`; result `0.2.4`.
+- Ran `git diff --check`; passed.
+
+### 2026-09-21 15:55-15:57 - Package and runtime smoke verification
+
+- Ran `npm run verify:browser-packages` without escalation. The Chrome and Firefox package work began, but the macOS Safari converter could not read its temporary manifest because the sandbox denied access to the supplied path. The failure was the known environment permission boundary, not a package-content assertion.
+- Reran the same command with approved macOS filesystem access. Chrome manifest `0.2.4`, Firefox manifest `0.2.4` and the macOS Safari package smoke all passed.
+- Started the local room service with `npm run dev:server`; it listened on `ws://127.0.0.1:8787/rooms`.
+- Ran `npm run smoke:edge -- ws://127.0.0.1:8787/rooms`. Result:
+  `{"ok":true,"code":"RMXEZ3KS","roundTripMs":1,"revision":20,"seekPositionSeconds":137,"seekBarrierProtected":true,"seekBarrierMs":163,"seekTimeoutReleaseMs":1876,"scheduledLeadMs":-22,"transactionalContractVerified":true,"diagnosticsParticipants":["participant_smoke_friend","participant_smoke_host"],"staleBufferingProtected":true,"startupBufferingProtected":true}`.
+- Stopped the local room service after the smoke completed.
+- Ran `npx wrangler deploy --config apps/edge-service/wrangler.jsonc --dry-run`. The command recognized `env.ROOMS (RoomDurableObject)` and reported 84.72 KiB total upload and 16.43 KiB gzip. Wrangler first emitted a local log-file `EPERM` warning and then completed the dry run, writing the log after approved execution. No remote deployment occurred.
+
+### 2026-09-21 15:58 - Pre-commit state
+
+- The intended source changes are limited to `apps/extension/src/content-script.ts`, `apps/extension/src/player-operations.ts`, their focused tests, the CR-C01 report and the test-guide link, plus this checkpoint.
+- No release version file was changed.
+- No browser installation, live Crunchyroll run, second account, two-device session, remote deployment, issue closure or public project custom-field mutation was performed.
+
+## Confirmed Successful Results
+
+- CR-C01 implementation is complete locally on a clean branch based on verified `origin/main`.
+- A never-settling play request now has a ten-second deadline aligned to the existing startup timeout.
+- Timeout retires the old play owner, prevents correction and heartbeat play storms, reports buffering without falsely setting permission failure, and requires explicit Sync or a newer room command for retry.
+- Late old promise completion cannot clear or mutate the newer attempt.
+- Transactional play attempts clear their retry key on timeout through the failure callback.
+- Focused tests pass: 2 files and 64 tests.
+- Full repository check passes: 31 files and 293 tests, typecheck and builds.
+- Audit, release-version check, browser package verification, local room smoke and edge dry run pass as recorded above.
+- Detailed report and test-guide documentation are present locally.
+
+## Failed, Incomplete, or Unresolved Work
+
+- The initial focused test assertion failed due to the test fixture entering a correct seek path after fake time advanced. The test and implementation were corrected, and the rerun passed.
+- The first browser-package command failed only because the macOS Safari converter lacked filesystem permission; the approved rerun passed all browser package checks.
+- CR-C01 has not yet been committed, pushed, opened as a PR, hosted-checked, formally reviewed or merged.
+- GitHub's owner self-review restriction is expected to require a detailed `COMMENTED` review and an explicit authorized administrator merge path, as in prior PRs. No merge authorization has been used for CR-C01.
+- Authenticated live Crunchyroll behavior in the signed-in browser, installation, two-account, two-device, remote staging or production deployment and final user acceptance remain unverified.
+- Issue #62 remains open and must stay open until its applicable gates are complete.
+- Release remains `0.2.4`; `1.0.0` remains reserved for complete milestone acceptance.
+
+## Decisions and Rationale
+
+- Reused the existing coordinator startup timeout rather than creating a conflicting local deadline.
+- Added active-play visibility so heartbeat correction does not move the provider target while a play promise is pending.
+- Made timeout recovery explicit and quiet until Sync or a newer room command, preventing repeated play attempts and reducing provider churn.
+- Preserved separate handling for permission denial, interruption, native rejection, missing player and missing progress.
+- Kept all evidence classes separate. Fake-media and local room tests prove state and callback safety, not visible authenticated provider playback.
+
+## Files and Artifacts
+
+- Source: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.ts`
+- Source operation owner: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-operations.ts`
+- Content-script tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/content-script.test.ts`
+- Operation tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/apps/extension/src/player-operations.test.ts`
+- Report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_C01_STALLED_PLAY_RECOVERY_REPORT.md`
+- Test guide: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Branch: `codex/issue-62-sync-recovery`
+- Base: `origin/main` at `94924c569c9e3f5e0b575e59610b047ba236478e`
+
+## Open Questions, Blockers, and Dependencies
+
+- The final PR must be compared with `origin/main` to ensure no unrelated history or generated artifact is included.
+- Hosted checks must be rerun and reviewed against the exact final pushed source head.
+- The signed-in Crunchyroll Edge session can be used when the live-provider gate is necessary, but deterministic local success must not be promoted to live-provider acceptance.
+
+## Next Steps
+
+1. Review the final diff and commit all intended CR-C01 source, tests, report and checkpoint changes.
+2. Push the branch and verify the remote SHA.
+3. Open a metadata-complete PR referencing #62, then verify labels, assignee, milestone and project linkage.
+4. Wait for hosted checks, review the exact final head and document the review before using any authorized merge path.
+5. Verify the merge and `origin/main`, post detailed issue evidence, and keep #62 open for unresolved provider, browser, device, deployment and acceptance gates.
+
+## Historical Checkpoint Notes
+
+- Checkpoints 1-79 remain preserved. This checkpoint records the full CR-C01 implementation and verification phase after the queue kickoff.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 ### 2026-09-21 - Corrected PR hosted checks and final exact-head review
 
 - Updated PR #89 body with the corrected malformed/partial contract migration scope and final counts.
