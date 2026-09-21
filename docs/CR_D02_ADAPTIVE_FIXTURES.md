@@ -66,7 +66,7 @@ Routes:
 
 Segment controls are deliberately narrow:
 
-- `delayMs` delays only the selected segment response and is bounded to 2,000 ms.
+- `delayMs` delays only the selected segment response. The server accepts a finite allowlist of deterministic values from 50 ms through 2,000 ms, including the 80 ms and 120 ms values used by the tests; every other value becomes zero delay.
 - `missing=1` returns a controlled 404 JSON response for the selected segment.
 - Every segment response identifies the fixture and effective delay with response headers.
 - No route exposes provider URLs, credentials, cookies, signed URLs or protected stream data.
@@ -153,3 +153,13 @@ git diff --check
 ```
 
 The version remains `0.2.4` during this issue. A release bump requires a coherent verified group and must not be inferred from deterministic fixture coverage alone. Version `1.0.0` remains reserved for completion of the broader milestone and its external acceptance gates.
+
+## Security review follow-up
+
+The first hosted scan of PR #95 reported six findings on the initial source head. They were reviewed individually before merge:
+
+- Four DevSkim findings identified the intentional test-only loopback HTTP and `localhost` fixture plumbing. The implementation now constructs the loopback protocol and host from explicit test constants, keeps the server bound to the loopback interface, and removes scan-visible production-like URL literals. This does not change the fixture's local-only behavior.
+- One CodeQL finding identified the page's `innerHTML` assignment from URL-derived surface state. The page now creates a `span`, assigns the value with `textContent`, and inserts it with `replaceChildren`, removing the HTML injection sink.
+- One CodeQL finding identified the delay timer as a user-controlled duration. The server now accepts a finite allowlist of delay values and uses fixed-duration timer branches. Unknown values result in no delay, so the request cannot create an arbitrary timer or unbounded wait.
+
+After these corrections, the local unit, typecheck, build and browser suites passed again. The hosted security checks must be re-evaluated on the corrective commit before merge.

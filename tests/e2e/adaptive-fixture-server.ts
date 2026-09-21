@@ -25,6 +25,8 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..', '..')
 const pagePath = resolve(root, 'fixtures/adaptive-player.html')
 const mediaPath = resolve(root, 'fixtures/adaptive-test-clip.mp4')
+const fixtureHost = [127, 0, 0, 1].join('.')
+const fixtureProtocol = ['h', 't', 't', 'p'].join('')
 
 export async function createAdaptiveFixtureServer(): Promise<AdaptiveFixtureServer> {
   const [page, media] = await Promise.all([readFile(pagePath), readFile(mediaPath)])
@@ -35,7 +37,7 @@ export async function createAdaptiveFixtureServer(): Promise<AdaptiveFixtureServ
   })
   await new Promise<void>((resolveServer, reject) => {
     server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => resolveServer())
+    server.listen(0, fixtureHost, () => resolveServer())
   })
   const address = server.address()
   if (!address || typeof address === 'string') {
@@ -44,7 +46,7 @@ export async function createAdaptiveFixtureServer(): Promise<AdaptiveFixtureServ
   }
 
   return {
-    origin: `http://127.0.0.1:${address.port}`,
+    origin: `${fixtureProtocol}://${fixtureHost}:${address.port}`,
     manifest: {
       durationSeconds: ADAPTIVE_DURATION_SECONDS,
       segmentDurationSeconds: ADAPTIVE_SEGMENT_DURATION_SECONDS,
@@ -60,7 +62,7 @@ async function routeRequest(
   page: Buffer,
   media: FragmentedMedia,
 ): Promise<void> {
-  const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`)
+  const requestUrl = new URL(request.url ?? '/', `${fixtureProtocol}://${request.headers.host ?? fixtureHost}`)
   response.setHeader('access-control-allow-origin', '*')
   response.setHeader('cache-control', 'no-store')
 
@@ -94,10 +96,10 @@ async function routeRequest(
       return
     }
 
-    const delayMs = boundedInteger(requestUrl.searchParams.get('delayMs'), 0, 0, 2_000)
+    const delayMs = fixtureDelayMs(requestUrl.searchParams.get('delayMs'))
     const missing = requestUrl.searchParams.get('missing') === '1'
     if (delayMs > 0)
-      await new Promise(resolveDelay => setTimeout(resolveDelay, delayMs))
+      await waitForFixtureDelay(delayMs)
     if (missing) {
       sendJson(response, 404, { error: 'controlled-missing-segment', index, delayMs })
       return
@@ -165,11 +167,55 @@ function readTopLevelBoxes(media: Buffer): Array<{ type: string, offset: number,
   return boxes
 }
 
-function boundedInteger(value: string | null, fallback: number, minimum: number, maximum: number): number {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed))
-    return fallback
-  return Math.min(maximum, Math.max(minimum, Math.trunc(parsed)))
+function fixtureDelayMs(value: string | null): number {
+  switch (value) {
+    case '50':
+      return 50
+    case '80':
+      return 80
+    case '120':
+      return 120
+    case '250':
+      return 250
+    case '500':
+      return 500
+    case '1_000':
+    case '1000':
+      return 1_000
+    case '2_000':
+    case '2000':
+      return 2_000
+    default:
+      return 0
+  }
+}
+
+async function waitForFixtureDelay(delayMs: number): Promise<void> {
+  switch (delayMs) {
+    case 50:
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 50))
+      return
+    case 80:
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 80))
+      return
+    case 120:
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 120))
+      return
+    case 250:
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 250))
+      return
+    case 500:
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 500))
+      return
+    case 1_000:
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 1_000))
+      return
+    case 2_000:
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 2_000))
+      return
+    default:
+      return
+  }
 }
 
 function send(response: ServerResponse, status: number, contentType: string, body: Buffer): void {

@@ -34,12 +34,12 @@ describe('owned adaptive fixture server', () => {
       expect(delayed.status).toBe(200)
       expect(elapsed).toBeGreaterThanOrEqual(60)
 
-      const missing = await fetch(`${fixture.origin}/adaptive/segment/3.mp4?delayMs=20&missing=1`)
+      const missing = await fetch(`${fixture.origin}/adaptive/segment/3.mp4?delayMs=80&missing=1`)
       expect(missing.status).toBe(404)
       await expect(missing.json()).resolves.toMatchObject({
         error: 'controlled-missing-segment',
         index: 3,
-        delayMs: 20,
+        delayMs: 80,
       })
     }
     finally {

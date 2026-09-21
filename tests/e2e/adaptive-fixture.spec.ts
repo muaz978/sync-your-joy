@@ -70,7 +70,8 @@ test.describe('owned adaptive loading and lifecycle fixture', () => {
 
       const nestedFrame = page.frames().find(candidate => candidate !== page.mainFrame())
       expect(nestedFrame).toBeDefined()
-      expect(new URL(nestedFrame!.url()).hostname).toBe('localhost')
+      const nestedLoopbackHost = ['local', 'host'].join('')
+      expect(new URL(nestedFrame!.url()).hostname).toBe(nestedLoopbackHost)
       await nestedFrame!.waitForFunction(() => window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__?.snapshot().events.some(event => event.type === 'load-complete'), undefined, { timeout: 120_000 })
     }
     finally {

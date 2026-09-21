@@ -272,7 +272,10 @@
       load: loadAdaptiveMedia,
       snapshot: () => ({ ...state, events: [...events] }),
     }
-    document.querySelector('#surface').innerHTML = `<span class="badge">${state.surface}</span>`
+    const surfaceBadge = document.createElement('span')
+    surfaceBadge.className = 'badge'
+    surfaceBadge.textContent = state.surface
+    document.querySelector('#surface')?.replaceChildren(surfaceBadge)
     mountPlayer(playerHost, 'adaptive-player')
     updateState()
     const autostart = params.get('autostart') === '1' || location.pathname === '/adaptive-autostart.html'
