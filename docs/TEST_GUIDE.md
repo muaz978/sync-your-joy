@@ -21,6 +21,8 @@ For the CR-C02 diagnostic-report record, use [`CR_C02_DIAGNOSTIC_REPORTS.md`](CR
 
 For the CR-D01 E2E artifact record, use [`CR_D01_E2E_ARTIFACTS.md`](CR_D01_E2E_ARTIFACTS.md). It defines unique build output, provenance hashes, sanitized profile logs, opt-in trace handling and the distinction between browser-launch/setup failures and product assertions.
 
+For the CR-D02 adaptive fixture record, use [`CR_D02_ADAPTIVE_FIXTURES.md`](CR_D02_ADAPTIVE_FIXTURES.md). It defines the two-minute owned MSE asset, controlled segment delay and missing-data behavior, disjoint buffers, playback-rate reset, nested-frame and lifecycle surfaces, the path-based extension entry point, and the boundary between deterministic browser evidence and Crunchyroll or DRM acceptance.
+
 For the CR-C03 player and panel recovery record, use [`CR_C03_PLAYER_RECOVERY_REPORT.md`](CR_C03_PLAYER_RECOVERY_REPORT.md). It defines the bounded participant status vocabulary, the distinction between ready and confirmed native progress, reason-specific recovery actions, privacy limits and the separate live-provider and headed-browser acceptance gates.
 
 For the CR-C04 navigation transaction record, use [`CR_C04_NAVIGATION_TRANSACTION_REPORT.md`](CR_C04_NAVIGATION_TRANSACTION_REPORT.md). It defines manual shared-link epoch and cancellation ordering, same-episode no-op behavior, the disabled-by-default controller-follow policy, strong Crunchyroll identity requirements, deduplication and the separate SPA, headed-browser and live-provider gates.
