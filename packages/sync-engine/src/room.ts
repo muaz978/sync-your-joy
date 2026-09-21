@@ -17,6 +17,7 @@ import {
   isCurrentOperation,
   isRoomContractSnapshot,
   mediaMatches,
+  mediaMatchesPageUrl,
   negotiateRoomMode,
   normalizeClientCapabilities,
   normalizePageUrl,
@@ -789,6 +790,17 @@ export class RoomCoordinator {
     const url = normalizePageUrl(intent.url)
     if (!url)
       return this.failure('invalid_url', 'Enter a valid HTTP or HTTPS video page link.')
+
+    // A localized Crunchyroll route can change its title or path while still
+    // identifying the same strong watch ID. Reopening that page would cancel
+    // valid readiness and needlessly advance the media epoch, so treat it as
+    // a confirmed no-op. Weak identities are only a no-op when their
+    // normalized page URL is unchanged.
+    if (mediaMatchesPageUrl(this.media, url)
+      || (this.navigation !== null && normalizePageUrl(this.navigation.url) === url)) {
+      this.rememberAction(intent.actionId)
+      return this.success('navigation_unchanged')
+    }
 
     this.rememberAction(intent.actionId)
     this.pauseForMembershipChange('media-changed')

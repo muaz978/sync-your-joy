@@ -10,6 +10,7 @@ import { shouldConfirmMediaMismatch } from './readiness-state.ts'
 import { connectionQuality } from './connection-quality.ts'
 import { browserApi } from './browser-api.ts'
 import { fitDiagnosticsReport } from './diagnostics-budget.ts'
+import { CONTROLLER_FOLLOW_NAVIGATION_ENABLED, shouldFollowControllerNavigation, strongCrunchyrollNavigationKey } from './navigation-transaction.ts'
 
 declare const __ROOM_SERVER_URL__: string
 
@@ -97,6 +98,7 @@ let pendingMediaMismatchObservedAtMs: number | null = null
 // runs, so a service-worker restart during the deferred delay causes the
 // navigation to be retried rather than silently dropped.
 let pendingNavigationRevision: number | null = null
+let lastControllerNavigationKey: string | null = null
 // A main-frame reload reuses frameId 0. Track the accepted context itself so
 // a delayed delivery failure from the previous document cannot retire it.
 let playerContextGeneration = 0
@@ -252,6 +254,31 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       })
       state.currentMedia = candidateMedia
       state.playerDiagnostics = request.diagnostics ?? null
+      const shouldAutoFollow = shouldFollowControllerNavigation({
+        enabled: CONTROLLER_FOLLOW_NAVIGATION_ENABLED,
+        isController: isController(),
+        hasCurrentLease: state.snapshot?.controller.leaseEpoch !== undefined,
+        currentRoomMedia: state.snapshot?.media ?? null,
+        observedMedia: candidateMedia,
+        lastActionKey: lastControllerNavigationKey,
+      })
+      if (shouldAutoFollow) {
+        const actionKey = strongCrunchyrollNavigationKey(candidateMedia)
+        const autoFollowUrl = candidateMedia.pageUrl
+        const currentSnapshot = state.snapshot
+        if (actionKey && autoFollowUrl && currentSnapshot && sendToServer({
+          type: 'open_link',
+          actionId: createId('action'),
+          basedOnRevision: currentSnapshot.revision,
+          leaseEpoch: currentSnapshot.controller.leaseEpoch,
+          url: autoFollowUrl,
+        })) {
+          lastControllerNavigationKey = actionKey
+          recordDiagnostic('navigation', 'controller_follow_requested', {
+            mediaCanonicalId: candidateMedia.canonicalId,
+          })
+        }
+      }
       if (state.snapshot) {
         const me = state.snapshot.participants.find(participant => participant.id === state.participantId)
         const matches = mediaMatches(state.snapshot.media, state.currentMedia)
@@ -599,6 +626,7 @@ async function startFreshConnection(roomCode: string): Promise<void> {
   connectionPromise = null
   state.snapshot = null
   state.lastOpenedNavigationRevision = 0
+  lastControllerNavigationKey = null
   state.lastError = null
   intentionallyClosed = false
   await connect(roomCode)
@@ -873,6 +901,7 @@ function leaveRoom(): void {
   clearPlayerTab()
   state.lastError = null
   state.lastOpenedNavigationRevision = 0
+  lastControllerNavigationKey = null
   reconnectAttempts = 0
   setTimeout(() => {
     intentionallyClosed = false

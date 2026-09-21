@@ -738,6 +738,39 @@ export function mediaMatches(expected: MediaFingerprint | null, actual: MediaFin
   return Math.abs(expected.durationSeconds - actual.durationSeconds) <= 3
 }
 
+/**
+ * Returns whether a shared page link identifies the media already selected by
+ * the room. Strong provider identities, such as a Crunchyroll watch ID, may
+ * change their localized path or title without representing a new episode.
+ * Unknown or weak identities only match after the normalized page URL matches.
+ */
+export function mediaMatchesPageUrl(expected: MediaFingerprint | null, pageUrl: string): boolean {
+  if (!expected)
+    return false
+  const normalizedUrl = normalizeMediaPageUrl(pageUrl)
+  if (!normalizedUrl)
+    return false
+  if (expected.service === 'crunchyroll') {
+    try {
+      const url = new URL(normalizedUrl)
+      if (!(url.hostname === 'crunchyroll.com' || url.hostname.endsWith('.crunchyroll.com'))
+        || !/\/watch\/[A-Z0-9]+(?:\/|$)/i.test(url.pathname))
+        return false
+    }
+    catch {
+      return false
+    }
+  }
+  const candidate: MediaFingerprint = {
+    service: expected.service,
+    canonicalId: normalizeCanonicalId(expected.service, normalizedUrl),
+    title: expected.title,
+    durationSeconds: null,
+    pageUrl: normalizedUrl,
+  }
+  return mediaMatches(expected, candidate)
+}
+
 export function normalizePageUrl(value: string): string | null {
   if (value.length > 2_048)
     return null

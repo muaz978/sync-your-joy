@@ -426,6 +426,19 @@ describe('service worker observed episode identity', () => {
     expect(response.state.snapshot?.media).toMatchObject(oldMedia)
   })
 
+  it('does not auto-follow an observed new episode while controller-follow is disabled', async () => {
+    const { request } = await resumeAtPage(sharedUrl)
+    const socket = FakeWebSocket.instances[0]!
+    const sentBefore = socket.sentMessages.length
+    await request({ type: 'MEDIA_DETECTED', media: nextMedia, areaPixels: 500_000 }, {
+      tab: { id: 42, active: true, url: nextUrl }, frameId: 0, url: nextUrl,
+    } as chrome.runtime.MessageSender)
+
+    expect(socket.sentMessages.slice(sentBefore)).not.toContainEqual(expect.objectContaining({ type: 'open_link' }))
+    const response = await request({ type: 'GET_STATE' })
+    expect(response.state.snapshot?.media).toMatchObject(oldMedia)
+  })
+
   it('clears unreachable player state and tells the room that the player is no longer ready', async () => {
     const { fake, request } = await resumeAtPage(sharedUrl)
     ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('The frame was removed.'))
