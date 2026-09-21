@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SyncYourJoy adaptive fixture</title>
+  <style>
+    :root { color-scheme: dark; font: 16px system-ui, sans-serif; background: #111827; color: #f8fafc; }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem; }
+    .controls { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+    button { border: 1px solid #475569; border-radius: .5rem; background: #1e293b; color: inherit; padding: .65rem .8rem; cursor: pointer; }
+    button:hover { border-color: #67e8f9; }
+    video { display: block; width: min(100%, 720px); min-height: 120px; background: #000; }
+    iframe { width: 100%; min-height: 230px; border: 1px solid #475569; }
+    pre { padding: 1rem; border-radius: .5rem; background: #0f172a; overflow: auto; white-space: pre-wrap; }
+    .badge { display: inline-block; padding: .2rem .5rem; border-radius: 999px; background: #164e63; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <h1>SyncYourJoy controlled adaptive fixture</h1>
+  <p>This page owns an unencrypted fragmented MP4, exercises native MediaSource append behavior, and records deterministic fault timing. It is not a provider or DRM emulator.</p>
+  <p id="surface"><span class="badge">top-document</span></p>
+  <div class="controls">
+    <button id="load-adaptive" type="button">Load adaptive MSE media</button>
+    <button id="create-shadow" type="button">Create open Shadow DOM player</button>
+    <button id="replace-player" type="button">Replace active player node</button>
+    <button id="spa-transition" type="button">Change SPA episode</button>
+    <button id="open-nested" type="button">Open cross-origin nested frame</button>
+    <button id="rate-reset" type="button">Reset playback rate</button>
+  </div>
+  <section id="player-host" aria-label="Adaptive player host"></section>
+  <section id="nested-host" hidden></section>
+  <pre id="fixture-state">phase: idle</pre>
+  <pre id="fixture-events">events: []</pre>
+  <script>
+    const params = new URLSearchParams(location.search)
+    const manifestUrl = new URL('/adaptive-manifest.json', location.href)
+    const stateElement = document.querySelector('#fixture-state')
+    const eventsElement = document.querySelector('#fixture-events')
+    const playerHost = document.querySelector('#player-host')
+    const nestedHost = document.querySelector('#nested-host')
+    const events = []
+    const state = {
+      phase: 'idle',
+      surface: params.get('surface') || 'top-document',
+      route: location.pathname + location.search,
+      duration: 0,
+      bufferedRanges: [],
+      loadedSegments: [],
+      missingSegments: [],
+      mediaSourceType: '',
+      activePlayerNode: null,
+      playbackRate: 1,
+    }
+    let activeVideo = null
+    let activeSourceBuffer = null
+    let activeMediaSource = null
+    let manifest = null
+
+    function record(type, details = {}) {
+      const event = { at: new Date().toISOString(), elapsedMs: Math.round(performance.now()), type, ...details }
+      events.push(event)
+      eventsElement.textContent = `events: ${JSON.stringify(events, null, 2)}`
+      updateState()
+    }
+
+    function updateState() {
+      if (activeVideo) {
+        state.duration = Number.isFinite(activeVideo.duration) ? activeVideo.duration : 0
+        state.playbackRate = activeVideo.playbackRate
+        if (activeVideo.buffered) {
+          state.bufferedRanges = Array.from({ length: activeVideo.buffered.length }, (_, index) => [
+            Number(activeVideo.buffered.start(index).toFixed(3)),
+            Number(activeVideo.buffered.end(index).toFixed(3)),
+          ])
+        }
+      }
+      state.route = location.pathname + location.search
+      state.activePlayerNode = activeVideo?.id || null
+      stateElement.textContent = JSON.stringify({ ...state, eventCount: events.length }, null, 2)
+    }
+
+    function attachMediaEvents(video, label) {
+      for (const type of ['loadedmetadata', 'durationchange', 'canplay', 'playing', 'pause', 'waiting', 'stalled', 'error', 'ratechange']) {
+        video.addEventListener(type, () => record(`native-${type}`, {
+          label,
+          readyState: video.readyState,
+          currentTime: Number(video.currentTime.toFixed(3)),
+          playbackRate: video.playbackRate,
+        }))
+      }
+    }
+
+    function mountPlayer(container, label) {
+      const video = document.createElement('video')
+      video.id = label
+      video.controls = true
+      video.preload = 'metadata'
+      video.setAttribute('data-fixture-player', label)
+      container.replaceChildren(video)
+      activeVideo = video
+      attachMediaEvents(video, label)
+      record('player-mounted', { label })
+      return video
+    }
+
+    function findOrMountTopPlayer() {
+      return activeVideo || mountPlayer(playerHost, 'adaptive-player')
+    }
+
+    async function loadAdaptiveMedia(reason = 'manual') {
+      const video = findOrMountTopPlayer()
+      state.phase = 'loading'
+      record('load-start', { reason, node: video.id })
+      const response = await fetch(manifestUrl)
+      if (!response.ok)
+        throw new Error(`Manifest request failed with ${response.status}.`)
+      manifest = await response.json()
+      const mediaSource = new MediaSource()
+      activeMediaSource = mediaSource
+      video.src = URL.createObjectURL(mediaSource)
+      await once(mediaSource, 'sourceopen')
+      const candidates = [
+        'video/mp4; codecs="avc1.42c00a"',
+        'video/mp4; codecs="avc1.4d401e"',
+        'video/mp4',
+      ]
+      const mime = candidates.find(candidate => MediaSource.isTypeSupported(candidate))
+      if (!mime)
+        throw new Error('This browser does not support the owned fixture MP4 codec.')
+      state.mediaSourceType = mime
+      const sourceBuffer = mediaSource.addSourceBuffer(mime)
+      activeSourceBuffer = sourceBuffer
+      await appendBuffer(sourceBuffer, await fetchBuffer('/adaptive/init.mp4'), 'initialization')
+      record('initialization-appended', { mime })
+
+      const delaySegment = Number(params.get('delaySegment'))
+      const delayMs = Math.min(2000, Math.max(0, Number(params.get('delayMs')) || 0))
+      const missingSegment = Number(params.get('missingSegment'))
+      const disjoint = params.get('disjoint') === '1'
+      const rateReset = params.get('rateReset') === '1'
+      for (let index = 0; index < manifest.segmentCount; index++) {
+        const delayed = index === delaySegment && delayMs > 0
+        const missing = index === missingSegment
+        const query = new URLSearchParams()
+        if (delayed) query.set('delayMs', String(delayMs))
+        if (missing) query.set('missing', '1')
+        const separator = query.size ? `?${query}` : ''
+        record('segment-request', { index, delayed, delayMs: delayed ? delayMs : 0, missing })
+        const segmentResponse = await fetch(`/adaptive/segment/${index}.mp4${separator}`)
+        if (!segmentResponse.ok) {
+          state.missingSegments.push(index)
+          record('segment-missing', { index, status: segmentResponse.status, delayMs: delayed ? delayMs : 0 })
+          continue
+        }
+        if (disjoint && index === 6) {
+          sourceBuffer.timestampOffset = manifest.segmentDurationSeconds
+          record('disjoint-offset-applied', { index, timestampOffset: sourceBuffer.timestampOffset })
+        }
+        await appendBuffer(sourceBuffer, await segmentResponse.arrayBuffer(), `segment-${index}`)
+        state.loadedSegments.push(index)
+        record('segment-appended', { index, delayMs: delayed ? delayMs : 0 })
+        if (rateReset && index === 4) {
+          video.playbackRate = 1.5
+          record('playback-rate-changed', { index, playbackRate: video.playbackRate })
+          await wait(120)
+          video.playbackRate = 1
+          record('playback-rate-reset', { index, playbackRate: video.playbackRate })
+        }
+      }
+      if (mediaSource.readyState === 'open' && !sourceBuffer.updating)
+        mediaSource.endOfStream()
+      state.phase = 'ready'
+      record('load-complete', { loadedSegments: state.loadedSegments.length, missingSegments: state.missingSegments })
+      updateState()
+    }
+
+    async function fetchBuffer(path) {
+      const response = await fetch(path)
+      if (!response.ok)
+        throw new Error(`Fixture request failed with ${response.status}: ${path}`)
+      return response.arrayBuffer()
+    }
+
+    function appendBuffer(sourceBuffer, data, label) {
+      return new Promise((resolve, reject) => {
+        const onUpdate = () => {
+          cleanup()
+          resolve()
+        }
+        const onError = () => {
+          cleanup()
+          reject(new Error(`SourceBuffer append failed for ${label}.`))
+        }
+        const cleanup = () => {
+          sourceBuffer.removeEventListener('updateend', onUpdate)
+          sourceBuffer.removeEventListener('error', onError)
+        }
+        sourceBuffer.addEventListener('updateend', onUpdate, { once: true })
+        sourceBuffer.addEventListener('error', onError, { once: true })
+        sourceBuffer.appendBuffer(data)
+      })
+    }
+
+    function once(target, eventName) {
+      return new Promise(resolve => target.addEventListener(eventName, resolve, { once: true }))
+    }
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms))
+    }
+
+    document.querySelector('#load-adaptive').addEventListener('click', () => {
+      void loadAdaptiveMedia().catch(error => {
+        state.phase = 'error'
+        record('fixture-error', { message: String(error?.message || error) })
+      })
+    })
+
+    document.querySelector('#create-shadow').addEventListener('click', () => {
+      if (document.querySelector('fixture-shadow-player')) return
+      const host = document.createElement('fixture-shadow-player')
+      const root = host.attachShadow({ mode: 'open' })
+      const container = document.createElement('div')
+      container.dataset.shadowPlayerHost = 'true'
+      root.append(container)
+      playerHost.append(host)
+      const video = mountPlayer(container, 'shadow-player')
+      record('open-shadow-created', { node: video.id })
+    })
+
+    document.querySelector('#replace-player').addEventListener('click', () => {
+      const previous = activeVideo?.id || null
+      const video = mountPlayer(playerHost, 'replacement-player')
+      record('same-node-replaced', { previous, next: video.id })
+    })
+
+    document.querySelector('#spa-transition').addEventListener('click', () => {
+      const next = `${location.pathname}?episode=2&surface=${encodeURIComponent(state.surface)}`
+      history.pushState({ episode: 2 }, '', next)
+      record('spa-episode-transition', { route: next })
+    })
+
+    document.querySelector('#open-nested').addEventListener('click', () => {
+      const nestedUrl = new URL(location.href)
+      nestedUrl.hostname = location.hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1'
+      nestedUrl.searchParams.set('surface', 'cross-origin-nested-frame')
+      nestedUrl.searchParams.set('autostart', '1')
+      const iframe = document.createElement('iframe')
+      iframe.title = 'Cross-origin adaptive fixture frame'
+      iframe.src = nestedUrl.toString()
+      nestedHost.hidden = false
+      nestedHost.replaceChildren(iframe)
+      record('cross-origin-frame-created', { origin: nestedUrl.origin })
+    })
+
+    document.querySelector('#rate-reset').addEventListener('click', () => {
+      if (!activeVideo) return
+      activeVideo.playbackRate = 1.75
+      record('playback-rate-changed', { playbackRate: activeVideo.playbackRate, source: 'manual' })
+      void wait(120).then(() => {
+        if (!activeVideo) return
+        activeVideo.playbackRate = 1
+        record('playback-rate-reset', { playbackRate: activeVideo.playbackRate, source: 'manual' })
+      })
+    })
+
+    window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__ = {
+      events,
+      state,
+      load: loadAdaptiveMedia,
+      snapshot: () => ({ ...state, events: [...events] }),
+    }
+    const surfaceBadge = document.createElement('span')
+    surfaceBadge.className = 'badge'
+    surfaceBadge.textContent = state.surface
+    document.querySelector('#surface')?.replaceChildren(surfaceBadge)
+    mountPlayer(playerHost, 'adaptive-player')
+    updateState()
+    const autostart = params.get('autostart') === '1' || location.pathname === '/adaptive-autostart.html'
+    if (autostart)
+      void loadAdaptiveMedia('autostart').catch(error => record('fixture-error', { message: String(error?.message || error) }))
+  </script>
+</body>
+</html>

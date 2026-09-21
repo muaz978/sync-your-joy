@@ -15,6 +15,7 @@
     "build:server": "esbuild apps/room-service/src/server.ts --bundle --platform=node --format=esm --outfile=apps/room-service/dist/server.mjs --external:ws",
     "dev:server": "tsx apps/room-service/src/server.ts",
     "dev:fixture": "node scripts/serve-fixture.mjs",
+    "fixtures:generate-adaptive": "node scripts/generate-adaptive-fixture.mjs",
     "dev:edge": "wrangler dev --config apps/edge-service/wrangler.jsonc",
     "deploy:edge": "wrangler deploy --config apps/edge-service/wrangler.jsonc",
     "smoke:edge": "node scripts/smoke-room-service.mjs",

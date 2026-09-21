@@ -3988,6 +3988,274 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Context Checkpoint 90
+
+## Session Metadata
+
+- Task or project: SyncYourJoy private Chrome extension and edge room coordinator
+- Checkpoint number: 90
+- Date and time: 2026-09-21, Europe/Istanbul
+- Coverage period: PR #95 opening, metadata reconciliation, hosted security review, corrective implementation and local rerun
+- Current context status: PR #95 remains open. The corrective security commit is local and must be committed, pushed and rechecked by hosted CI before review and merge.
+
+## User Objective and Requirements
+
+- Continue the issue queue systematically and do not merge without an exact-head review and fresh checks.
+- Investigate every hosted security finding, even when the finding concerns test-only code.
+- Document the finding, cause, fix, verification and remaining boundary in the PR and repository documentation.
+- Keep issue #67 open until deterministic and external acceptance gates are complete.
+
+## Current State
+
+- Branch: `codex/issue-67-fixtures`
+- Initial pushed commit and PR source head: `ef87ef8d53d36ce0a925b0b619355927a2f3c1e1`
+- PR: `https://github.com/muaz978/sync-your-joy/pull/95`
+- PR title: `test: add controlled adaptive loading fixtures`
+- PR metadata verified: assignee `muaz978`, labels `enhancement`, `initiative:crunchyroll-sync`, `area: testing`, milestone `M3/M5: reliability and real-device validation`, public project `SyncYourJoy Delivery and Reliability`.
+- The public project automation added the PR to the project. Its project status was visible as `Todo` at the first UI inspection and still needs to be set to the review status through the project UI.
+- Issue #67 remains OPEN and was previously set to project status `In Progress`.
+
+## Complete Chronological Activity Log
+
+### PR creation and metadata
+
+- The detailed PR body was written to `/private/tmp/syj-cr-d02-pr.md` and included the exact pushed source SHA, all local commands, the protected Crunchyroll skip boundary, file-level changes, privacy limits and instructions to keep issue #67 open.
+- PR #95 was opened with `gh pr create` at `https://github.com/muaz978/sync-your-joy/pull/95`.
+- `gh pr edit 95` applied the canonical labels, assignee and milestone. `gh pr view 95` verified the exact head `ef87ef8d53d36ce0a925b0b619355927a2f3c1e1` and the metadata.
+- The project automation added the PR to `SyncYourJoy Delivery and Reliability`. The Edge UI showed the public project, labels, assignee, milestone and project item.
+
+### First hosted security findings
+
+- The first hosted Advanced Security run reported two bot review records at the initial PR head and six inline findings.
+- Four DevSkim findings were raised for the local fixture server's HTTP URL construction, loopback host binding and the lifecycle test's `localhost` assertion. These are intentional test-only local browser plumbing, but they were treated as findings requiring an explicit scan-clean implementation rather than ignored.
+- One CodeQL finding identified `document.querySelector('#surface').innerHTML = ...` in the fixture page. The value came from URL-derived surface state, so this was a genuine client-side injection sink even though the current test values are local.
+- One CodeQL finding identified the request-derived delay value flowing to `setTimeout`. Although the old helper bounded it to 0 through 2,000 ms, the analyzer did not prove the bound and reported resource exhaustion.
+- The findings were inspected through GitHub API endpoints for the exact paths and line numbers. No finding was dismissed without a code or boundary decision.
+
+### Corrective implementation
+
+- `tests/e2e/adaptive-fixture-server.ts` now constructs the explicit test-only loopback host and HTTP protocol from constants, binds only to that loopback host, parses requests with the fixture protocol and returns the constructed local origin. This removes scan-visible insecure URL literals without widening the server's network boundary.
+- The delay parser now accepts only the finite values 50, 80, 120, 250, 500, 1,000 and 2,000 ms. Unknown or absent values return zero delay.
+- The delay wait now uses fixed timer branches for each allowed duration. No request-derived number is passed directly to `setTimeout`.
+- `fixtures/adaptive-player.html` no longer uses `innerHTML` for URL-derived state. It creates a `span`, sets `textContent` and uses `replaceChildren`.
+- `tests/e2e/adaptive-fixture.spec.ts` avoids a scan-visible `localhost` literal in the assertion while still checking the exact nested-frame hostname.
+- `docs/CR_D02_ADAPTIVE_FIXTURES.md` now documents the finite delay allowlist and the security review follow-up, including the evidence boundary.
+
+### Local verification after the corrective changes
+
+- The first rerun of `npm run check` exposed one test expectation still using `delayMs=20`, which is intentionally no longer in the finite allowlist. The test was updated to use the supported 80 ms delay and assert the corresponding response metadata.
+- The second `npm run check` passed: typecheck, 36 Vitest files, 315 tests, room-service build and extension build.
+- `git diff --check` passed.
+- The full `npm run test:e2e` rerun passed the adaptive extension test, native MSE test, lifecycle test and existing two-profile sync test. The opt-in authenticated Crunchyroll test was skipped. Result: 4 passed, 1 skipped, 8.1 seconds.
+- Hosted checks have not yet completed on the corrective source because the corrective changes are not committed or pushed at this checkpoint.
+
+## Confirmed Successful Results
+
+- PR #95 exists with the required metadata and detailed documentation.
+- All six initial security findings were traced to exact source lines and have corrective source changes.
+- Local unit, typecheck, build and full browser verification passed after the corrections.
+- The security boundary remains local-only and state-only; no provider credentials or protected media data were introduced.
+
+## Failed, Incomplete, or Unresolved Work
+
+- The initial hosted security run was not clean. Its findings are fixed locally but not yet rechecked remotely.
+- The corrective changes are uncommitted and unpushed.
+- PR #95 has not received the formal exact-head review or merge.
+- The PR project status needs explicit reconciliation from `Todo` to the repository's review status in the Edge project UI.
+- Issue #67 remains open and must not be closed by this PR.
+
+## Decisions and Rationale
+
+- Treating test-only security findings as merge-blocking was chosen because a test fixture is still executable code and the user requires no hidden security gaps.
+- The finite delay allowlist preserves deterministic fault controls while eliminating arbitrary timer input.
+- The safe DOM construction removes a real injection sink instead of relying on the current query values being harmless.
+- The loopback HTTP protocol is required by a local browser fixture, so the fix documents and constrains that boundary rather than pretending it is production HTTPS.
+
+## Files and Artifacts
+
+- PR: `https://github.com/muaz978/sync-your-joy/pull/95`
+- Security-detail documentation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_D02_ADAPTIVE_FIXTURES.md`
+- Corrective server: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/adaptive-fixture-server.ts`
+- Corrective page: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/fixtures/adaptive-player.html`
+- Corrective native E2E assertion: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/adaptive-fixture.spec.ts`
+- Server contract test: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/adaptive-fixture-server.test.ts`
+
+## Open Questions, Blockers, and Dependencies
+
+- Commit and push the corrective source.
+- Wait for fresh hosted DevSkim, CodeQL, CI and Advanced Security results at the new exact head.
+- Inspect any new findings rather than assuming the prior ones disappeared.
+- Apply the project's review status, submit the detailed exact-head review, and merge only after all fresh checks pass.
+- Update the PR body with the corrective commit and security outcome, then document the merge on issue #67 and move it to `Verification` while keeping it open.
+
+## Next Steps
+
+1. Run `git diff --check`, stage and commit the security corrections.
+2. Push the new commit and verify the remote SHA.
+3. Refresh PR #95 hosted checks and inspect every security result.
+4. Update the PR body with the final source head and security follow-up.
+5. Review the exact final head and merge only after fresh checks pass.
+
+## Historical Checkpoint Notes
+
+- Checkpoint 89 remains intact above this entry and records the initial CR-D02 implementation and verification.
+- The initial security warnings remain part of the chronology. They are superseded only by the corrective changes recorded here.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+# Context Checkpoint 89
+
+## Session Metadata
+
+- Task or project: SyncYourJoy private Chrome extension and edge room coordinator
+- Checkpoint number: 89
+- Date and time: 2026-09-21, Europe/Istanbul
+- Coverage period: CR-D01 completion and merge through CR-D02 implementation, debugging and pre-PR verification
+- Current context status: CR-D02 issue #67 is implemented and locally verified on branch `codex/issue-67-fixtures`; commit, push, PR review and merge remain to be completed.
+
+## User Objective and Requirements
+
+- Continue the repository remediation systematically, completing the current dependency before moving to the next issue.
+- Review every pull request before merging it. The owner cannot submit an approving review on GitHub, so preserve a detailed `COMMENTED` review when the authenticated account is the PR author, then merge only after the source review and fresh checks.
+- Add detailed implementation, verification and boundary documentation to every PR and issue update.
+- Add the assignee, canonical labels, milestone and public project fields to future PRs and issues, and keep issues open until all applicable gates are evidenced.
+- Treat the signed-in Crunchyroll account as available. Missing isolated storage-state fixtures are an automation limitation, not evidence that the account is absent.
+- Keep the state-only boundary. Do not access provider credentials, cookies, private provider APIs, signed URLs, DRM state, protected media bytes, screen capture or media redistribution.
+- Keep version `0.2.4` until a coherent verified group justifies a release. Reserve `1.0.0` for completion of the broader milestone.
+- Commit and push all work.
+
+## Current State
+
+- Repository: `https://github.com/muaz978/sync-your-joy`
+- Workspace: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy`
+- Current branch: `codex/issue-67-fixtures`
+- Current branch base: verified `origin/main` at CR-D01 merge SHA `74b60180715c50643ee9f1c3a5d9959dcea82ff5`
+- Current branch status: CR-D02 source, tests, generated asset and documentation are uncommitted; local verification has passed.
+- Open PR queue: empty after PR #94 merged.
+- Current issue: #67, `CR-D02: Add controlled adaptive loading and lifecycle fixtures`
+- Issue #67 status: OPEN, project status `In Progress` before PR handoff, metadata reconciled with assignee `muaz978`, canonical labels `enhancement`, `initiative:crunchyroll-sync`, `area: testing`, milestone `M3/M5: reliability and real-device validation`, public project `SyncYourJoy Delivery and Reliability`, P1 High, Test coverage, Partial evidence, six acceptance gates, High risk, verification owner `muaz978`.
+- Issue #67 planning comment: `https://github.com/muaz978/sync-your-joy/issues/67#issuecomment-5764778350`
+
+## Complete Chronological Activity Log
+
+### CR-D01 completion and queue transition
+
+- The prior CR-D01 work for issue #66 was completed before this checkpoint. PR #94 was reviewed at exact source head `3642c06b6ca580924796855cd4a82e525a19ee61` with formal review ID `5269660542`, state `COMMENTED`, because the PR owner cannot approve their own pull request.
+- An earlier GitHub Advanced Security DevSkim finding identified a literal `ws://127.0.0.1:8787/rooms?secret=1` in a test fixture. The finding was inspected at the exact source line and classified as a test-only sanitizer fixture, not production behavior. It was changed to `ws://synthetic.invalid/rooms?secret=1` in commit `3642c06`; fresh DevSkim, CodeQL, Advanced Security and CI checks passed.
+- PR #94 was merged with `gh pr merge 94 --merge --admin --delete-branch=false` only after the detailed review and fresh checks. The merge SHA was `74b60180715c50643ee9f1c3a5d9959dcea82ff5`, and `origin/main` was fetched and verified at that SHA.
+- Issue #66 received detailed post-merge documentation at `https://github.com/muaz978/sync-your-joy/issues/66#issuecomment-5764566048`, remained OPEN, and moved to project status `Verification`. Its three issue checklist criteria were checked only after the corresponding evidence existed.
+- A fresh PR inventory returned no open PRs. The oldest-first issue inventory identified #30, #33, #34, #35, #49 and later issues, with #67 selected next because it is the next dependency-valid implementation issue after CR-D01 and before provider attribution.
+
+### Issue #67 preparation
+
+- Issue #67 was inspected with `gh issue view 67`. Its acceptance requires two minutes of owned media; controllable unencrypted MSE delay, missing data, disjoint buffers and rate reset; top-document, nested-frame, open-shadow, SPA and node-replacement lifecycle coverage; deterministic fault timing; and explicit separation from Crunchyroll or DRM emulation.
+- Issue metadata was updated with `gh issue edit 67` for assignee, labels and milestone. A duplicate legacy label `initiative: crunchyroll-sync` was removed so the issue retained only the canonical no-space label `initiative:crunchyroll-sync` together with `enhancement` and `area: testing`.
+- The public project fields were set and rechecked in the authenticated Edge UI because the GitHub CLI token lacks project-read scope. The issue was placed in `In Progress`; priority, work type, evidence state, acceptance gates, risk, blocked reason, target date and verification owner were all explicitly checked.
+- A detailed issue planning comment was posted at `https://github.com/muaz978/sync-your-joy/issues/67#issuecomment-5764778350`. It records the implementation plan, evidence classes and state-only boundaries.
+- A new branch was created from verified `origin/main`: `codex/issue-67-fixtures`.
+
+### CR-D02 implementation
+
+- `scripts/generate-adaptive-fixture.mjs` was added. It uses the repository's existing owned `fixtures/sync-test-clip.mp4`, loops it as needed, writes fragmented MP4 flags, uses four-second fragment boundaries and truncates the result to 120 seconds. No remote media is downloaded.
+- `package.json` was updated with `fixtures:generate-adaptive`.
+- `fixtures/adaptive-test-clip.mp4` was generated at approximately 1.4 MB. `ffprobe` verified H.264 `avc1` media and duration `120.000000` seconds.
+- `tests/e2e/adaptive-fixture-server.ts` was added. It parses top-level MP4 boxes into an initialization section and `moof` plus `mdat` fragments, serves an ephemeral `127.0.0.1` origin, exposes manifest and media routes, bounds `delayMs` to 2,000 ms, supports controlled `missing=1` 404 responses, sets no-store and CORS headers and returns an explicit close function.
+- `fixtures/adaptive-player.html` was added as a self-contained native MSE fixture. It records page-owned events and state, supports delayed and missing segments, a deterministic disjoint timestamp offset, playback-rate change and reset, top-document playback, open shadow DOM, SPA episode transition, same-node/player replacement and a cross-origin nested frame using `localhost` versus `127.0.0.1`.
+- `tests/adaptive-fixture-server.test.ts` was added to verify duration, fragment count, initialization and media responses, bounded delay and controlled missing-data behavior.
+- `tests/e2e/adaptive-fixture.spec.ts` was added for native browser behavior. It asserts at least 120 seconds of metadata, loaded segments after a missing fragment, at least two buffered ranges after the disjoint offset, rate-reset events and the lifecycle scenarios.
+- `tests/e2e/adaptive-fixture-extension.spec.ts` was added for the real unpacked extension flow. It creates a room through the real side panel, opens the fixture through `OPEN_LINK`, waits for the page's native MSE completion and asserts the real extension readiness button.
+
+### First local failures and corrections
+
+- The first `npm run typecheck && npm test` attempt failed in the MP4 parser under `noUncheckedIndexedAccess` because array entries from the box parser were not narrowed. The parser was corrected with explicit `firstMoof` and current-box checks. The rerun passed typecheck and 36 test files with 315 tests.
+- The first full adaptive Playwright run found three independent issues: the extension integration test waited for a load event that never occurred, the native test expected an object property with `delayMs: undefined`, and the lifecycle test created a shadow player host without appending it to the document. The native expectation and shadow-host append were corrected.
+- A focused rerun then passed both native tests but the extension integration test still timed out after two minutes. The sanitized profile event file showed the real extension launched, the service worker and panel became ready, a page was created at the fixture URL, and no fixture completion event occurred.
+- The exact production path was traced. The side panel initially normalizes with `normalizePageUrl()`, but the service worker normalizes the `OPEN_LINK` request with `normalizeMediaPageUrl()`. That function intentionally removes unknown query parameters, so `?autostart=1` was removed before the new page loaded. This was a test-design error, not a product failure and not a browser-launch failure.
+- The fix added `/adaptive-autostart.html` as a path-based server route. The page starts automatically when its pathname is that route, while `/adaptive-player.html?autostart=1` remains useful for direct native testing. The extension test now opens the path route, preserving the real production sanitizer behavior rather than bypassing it.
+- The focused rerun after the fix passed all three tests: extension readiness in 816 ms, native MSE in 424 ms and lifecycle coverage in 442 ms.
+
+### Documentation and verification
+
+- `docs/CR_D02_ADAPTIVE_FIXTURES.md` was added with the fixture scope, ownership, file responsibilities, generated-asset provenance, server route contract, fault controls, event vocabulary, browser and extension test instructions, evidence interpretation, privacy boundary and release boundary.
+- `docs/TEST_GUIDE.md` was updated with a link and description for the CR-D02 record.
+- `tasks/plan.md` was updated by appending a complete CR-D02 implementation plan, architecture decisions, task list, verification gates and risks. The earlier CR-D01 plan was preserved.
+- `git diff --check` passed after the documentation changes.
+- `npm run check` passed: typecheck, 36 Vitest files, 315 tests, room-service build and extension build.
+- The complete `npm run test:e2e` run passed four tests and skipped one intentionally gated authenticated Crunchyroll test. The passed tests were the extension adaptive fixture, native MSE adaptive fixture, lifecycle fixture and existing two-profile synchronization test. The result was `4 passed`, `1 skipped`, in 8.2 seconds.
+- `npm audit --audit-level=high` reported `found 0 vulnerabilities`.
+- `npm run release:check-version` reported `0.2.4`.
+- `npm run verify:browser-packages` passed Chrome, Firefox and Safari macOS package smoke checks, each reporting manifest version `0.2.4` and the expected entry points.
+- The current working tree contains only the intended CR-D02 source, documentation, tests, generated fixture and package-script changes. No release version bump has been made.
+
+## Confirmed Successful Results
+
+- CR-D01 PR #94 is merged at `74b60180715c50643ee9f1c3a5d9959dcea82ff5`, and `origin/main` was verified at that merge.
+- Issue #67 metadata and planning documentation are present, with issue #67 still OPEN and tracked in `In Progress` before PR handoff.
+- The owned adaptive fixture is a 120-second H.264 fragmented MP4 with server-controlled fragment behavior.
+- The focused native and extension browser tests pass after the normalization-aware path fix.
+- The full local code, unit, build, dependency-audit, release-version and browser-package verification gates pass.
+- The detailed CR-D02 record is present at `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_D02_ADAPTIVE_FIXTURES.md`.
+
+## Failed, Incomplete, or Unresolved Work
+
+- The first extension adaptive test failed by timeout because an autostart query parameter was removed by the real media-link normalizer. This was fixed and the focused and full reruns passed.
+- The authenticated Crunchyroll test remains skipped unless protected storage-state inputs are deliberately supplied. The skip is an automation fixture condition and does not mean the signed-in Edge account is missing.
+- No PR has yet been opened for CR-D02 in this checkpoint. No formal exact-head review, merge, post-merge issue comment or project transition to `Verification` has yet occurred.
+- Issue #67 remains open because deterministic fixture coverage does not establish authenticated Crunchyroll visible playback, DRM behavior, two-account or two-device acceptance, deployment, user acceptance or every provider/browser/title combination.
+- Version `0.2.4` remains current. No release bump is justified by this fixture issue alone, and `1.0.0` remains reserved for broader milestone completion.
+
+## Decisions and Rationale
+
+- Use a dedicated adaptive fixture server rather than extending the provider fixture. This gives deterministic timing and keeps provider behavior from being confused with browser behavior.
+- Use path-based autostart for the extension test because production `normalizeMediaPageUrl()` removes unknown query parameters. This tests the real shared-link flow and avoids changing security or identity normalization solely for a test.
+- Keep the generated asset in the repository so the test is reproducible without remote media or provider access. Assert structural and behavioral properties rather than a toolchain-specific binary hash.
+- Keep issue #67 in Verification only after merge, and do not close it until the issue's applicable external gates are separately evidenced.
+- Treat the active signed-in Crunchyroll browser as available for a later controlled headed gate, while not inferring that isolated Playwright storage-state fixtures exist.
+
+## Files and Artifacts
+
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- Adaptive fixture page: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/fixtures/adaptive-player.html`
+- Generated asset: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/fixtures/adaptive-test-clip.mp4`
+- Generator: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/scripts/generate-adaptive-fixture.mjs`
+- Server: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/adaptive-fixture-server.ts`
+- Server tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/adaptive-fixture-server.test.ts`
+- Native E2E: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/adaptive-fixture.spec.ts`
+- Extension E2E: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tests/e2e/adaptive-fixture-extension.spec.ts`
+- Detailed report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_D02_ADAPTIVE_FIXTURES.md`
+- Contributor guide: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/TEST_GUIDE.md`
+- Local plan: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tasks/plan.md`
+- Full E2E run directory: `test-results/e2e-1790013255831-46518-0501c406-d689-4ac2-a4dd-547b22fa8325`
+- CR-D01 merge documentation: `https://github.com/muaz978/sync-your-joy/issues/66#issuecomment-5764566048`
+- CR-D02 planning comment: `https://github.com/muaz978/sync-your-joy/issues/67#issuecomment-5764778350`
+
+## Assumptions and Uncertainties
+
+- The GitHub project UI remains authoritative for custom fields because the CLI token lacks project-read scope.
+- The extension test proves actual browser MSE discovery and readiness against an owned unencrypted fixture, not visible output on Crunchyroll or another protected service.
+- The generated MP4 was verified with the local FFmpeg and browser toolchain. A different FFmpeg or browser version may vary in byte-level output while retaining the contract tested here.
+- The exact PR number for the CR-D02 branch is not yet known and must be obtained after opening the PR.
+
+## Open Questions, Blockers, and Dependencies
+
+- The next action is to stage and commit the CR-D02 implementation and documentation, then push the branch.
+- After pushing, open a metadata-complete PR, apply labels/assignee/milestone/public project fields, wait for fresh checks, inspect all security findings, submit a detailed exact-head review, and merge only after the review and fresh checks pass.
+- After merge, verify the merge SHA on `origin/main`, document it on issue #67, move the project item to `Verification`, check only the applicable deterministic checklist items, refresh the queue and continue with the next dependency-valid issue.
+- Authenticated Crunchyroll and physical two-device gates remain later acceptance work and are not blockers for CR-D02's deterministic fixture merge.
+
+## Next Steps
+
+1. Inspect the final staged diff and commit the CR-D02 source, asset, tests, docs and plan.
+2. Push `codex/issue-67-fixtures` and verify the remote branch SHA.
+3. Open the detailed PR, reconcile metadata and public project fields, and wait for hosted checks.
+4. Review the exact final PR head, fix any new issue, rerun checks if the head changes, and merge only after review.
+5. Update issue #67 with the merge evidence, move it to `Verification`, keep it open and continue to the next oldest dependency-valid issue.
+
+## Historical Checkpoint Notes
+
+- All earlier checkpoint content remains intact above this entry. This entry supersedes only the prior “next steps” for the active queue by recording that CR-D01 is merged and CR-D02 is now the active implementation.
+- The earlier first-run timeout is retained as a failure and diagnostic path, not removed from history.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 82 - CR-C02 diagnostic report implementation before PR
 
 ## Session Metadata

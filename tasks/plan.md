@@ -56,3 +56,70 @@ Issue #66 hardens the real two-profile browser test so every run uses an isolate
 
 - The later protected Crunchyroll gate still requires secure storage-state inputs and is not proven by the deterministic fixture run. This issue only improves its build and diagnostic boundary.
 - Video recording remains optional and is not enabled by default because screenshots or recordings may expose protected provider content.
+
+---
+
+# Implementation Plan: CR-D02 controlled adaptive loading and lifecycle fixtures
+
+## Overview
+
+Issue #67 is the controlled-fixture dependency after CR-D01. It supplies owned browser evidence for long loading, segment starvation, disjoint buffers, playback-rate resets and player lifecycle changes before any failure is attributed to Crunchyroll, DRM, account state or deployment. The issue tracker remains authoritative; this section records the local plan and the evidence boundary.
+
+## Architecture decisions
+
+- Use a generated, test-owned fragmented MP4 rather than a remote provider asset.
+- Serve the initialization section and media fragments from a dedicated ephemeral test server so delay and missing-data behavior are explicit and bounded.
+- Keep the fixture page self-contained and expose only a page-owned event snapshot for assertions.
+- Use a path-based autostart entry point for the extension test because `normalizeMediaPageUrl()` intentionally removes unknown query parameters from shared media links.
+- Exercise native MSE first, then the real unpacked extension readiness path.
+- Keep browser/adaptive evidence separate from authenticated Crunchyroll, DRM, visible-motion, two-account, two-device and deployment gates.
+
+## Task list
+
+### Phase 1: owned asset and server
+
+- [x] Add deterministic fragmented-MP4 generation command and generated 120-second asset.
+- [x] Parse the asset into initialization and media fragments without relying on a remote source.
+- [x] Add manifest, segment, bounded-delay and controlled-missing routes.
+- [x] Add Vitest coverage for duration, fragment structure and fault controls.
+
+### Phase 2: native browser behavior
+
+- [x] Add native MSE loading with delay, missing segment, disjoint timestamp offset and rate-reset controls.
+- [x] Add native event and fixture-state recording.
+- [x] Cover top document, open shadow root, SPA transition, same-node replacement and cross-origin nested frame.
+- [x] Verify native tests against the actual browser rather than a mocked media clock.
+
+### Phase 3: extension integration
+
+- [x] Open the fixture through the real side-panel room and shared-link flow.
+- [x] Verify the real extension readiness button after native MSE discovery.
+- [x] Preserve the production URL-normalization behavior and avoid passing test-only query data through the shared-link protocol.
+
+### Phase 4: documentation and handoff
+
+- [x] Document the fixture, controls, file ownership, evidence classes and privacy boundary in `docs/CR_D02_ADAPTIVE_FIXTURES.md`.
+- [x] Link the record from `docs/TEST_GUIDE.md`.
+- [x] Preserve the issue and release boundaries. Do not close #67 until every applicable external gate is evidenced.
+- [ ] Commit, push, open a metadata-complete PR, review the exact final head, merge only after review and fresh checks, then move #67 to Verification with a detailed evidence comment.
+
+## Verification gates
+
+| Gate | Evidence | Status |
+| --- | --- | --- |
+| Source review | Fixture page, server, generator and tests reviewed together | Pending final PR review |
+| Typecheck and unit tests | `npm run check` and fixture server Vitest tests | Pending final run |
+| Browser test | Native MSE and lifecycle Playwright tests | Passed in focused run |
+| Extension integration | Real side-panel `OPEN_LINK` and readiness path | Passed in focused run |
+| Provider acceptance | Authenticated Crunchyroll visible playback | Separate, not claimed by CR-D02 |
+| User acceptance | Controlled headed/browser and physical-device reports | Separate, not claimed by CR-D02 |
+
+## Risks and mitigations
+
+| Risk | Impact | Mitigation |
+| --- | --- | --- |
+| Query-only autostart is removed by media URL normalization | Medium | Use `/adaptive-autostart.html` as a path-based fixture entry point and test the real sanitized flow. |
+| Missing fragment is mistaken for a successful load | High | Assert the 404, record `segment-missing`, and require later segments plus `load-complete`. |
+| Synthetic media is treated as provider proof | High | Label the page and documentation as owned, unencrypted and non-provider evidence. |
+| A media clock advances without visible output | High | Keep visible-motion and native frame evidence as separate acceptance gates. |
+| Generated asset differs between FFmpeg versions | Low | Assert duration and fragment structure, not a toolchain-specific byte hash. |
