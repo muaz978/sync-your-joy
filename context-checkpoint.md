@@ -3988,6 +3988,126 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 81 - CR-C01 reviewed merge, issue handoff and next queue selection
+
+## Session Metadata
+
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 81
+- Date and time: 2026-09-21 16:02-16:12 Europe/Istanbul
+- Coverage period: CR-C01 PR publication, metadata, project verification, security review, exact-head review, merge, issue evidence and queue rescan
+- Current context status: PR #90 is merged into `main`; issue #62 remains open with detailed evidence. No open PRs remain. The next dependency-aware implementation issue is #63, CR-C02.
+
+## User Objective and Requirements
+
+- Verify the review before merging, merge only after the exact-head review and hosted checks, then continue systematically.
+- Keep detailed issue and PR documentation, labels, assignee, milestone and public project linkage on future PRs.
+- Commit and push repository changes, preserve the signed-in Crunchyroll assumption, and do not close issues until all applicable gates are complete.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 16:00 - CR-C01 PR publication and metadata
+
+- Created PR #90, `fix: bound stalled play recovery`, from branch `codex/issue-62-sync-recovery`.
+- PR #90 exact source head was `04f7012e23dfa0e5dbabcebd80f1306e54160176`; base `main` was `94924c569c9e3f5e0b575e59610b047ba236478e`.
+- The PR body recorded root cause, bounded timeout behavior, callback ownership, file list, focused and full verification, security/privacy boundary, remaining gates and non-closure policy. It referenced #62 without a closing keyword.
+- Applied and verified labels `enhancement`, `initiative: crunchyroll-sync`, `area: extension` and `area: testing`.
+- Applied and verified assignee `muaz978` and milestone `M3/M5: reliability and real-device validation`.
+- Used the signed-in Edge browser to verify the public project linkage. GitHub automation added PR #90 to `SyncYourJoy Delivery and Reliability`, showing status `Todo`, assignee, labels, milestone and the `See more fields` control. No public project custom-field mutation was performed.
+
+### 2026-09-21 16:02 - Hosted checks and security finding
+
+- `gh pr checks 90` returned all five checks as pass: Analyze (javascript-typescript), CodeQL, DevSkim, Typecheck, test, and build, and lowercase `devskim`.
+- GitHub Advanced Security posted DevSkim heuristic `DS172411` on the new `setTimeout` callback. Read the exact comment and code-scanning alert.
+- Determined it is not an exploitable sink in this diff: the call receives a function callback, not a string, and the delay is the fixed internal numeric `PLAYBACK_STARTUP_TIMEOUT_MS` constant. No HTTP, user-submitted or provider-controlled value is evaluated as code.
+- Replied to the security thread at `https://github.com/muaz978/sync-your-joy/pull/90#discussion_r4062377895`, recording the exact-head disposition and the passing DevSkim and CodeQL checks.
+
+### 2026-09-21 16:07 - Exact-head review
+
+- Wrote detailed review documentation at `/private/tmp/syj-cr-c01-review.md` covering correctness, concurrency, security, privacy, architecture, performance, tests, hosted checks, evidence boundaries and remaining acceptance gates.
+- Submitted the review with `gh pr review 90 --comment --body-file /private/tmp/syj-cr-c01-review.md`.
+- Verified review ID `5266948221`, state `COMMENTED`, is attached to exact commit `04f7012e23dfa0e5dbabcebd80f1306e54160176`.
+- The review found no blocking issue. GitHub's owner self-review restriction kept the PR's formal decision as `REVIEW_REQUIRED`; no false approval was claimed.
+- Rechecked all five hosted checks after the review and confirmed they remained green.
+
+### 2026-09-21 16:08 - Authorized merge and remote verification
+
+- Merged PR #90 with `gh pr merge 90 --merge --admin --delete-branch=false` after the exact-head review and all checks passed.
+- GitHub reported merge commit `b5e7c5de074fe926f674624dc6e22ef811fe043b` at `2026-09-21T13:08:37Z`.
+- Fetched `origin/main` and verified local `origin/main` and remote `refs/heads/main` both resolve to `b5e7c5de074fe926f674624dc6e22ef811fe043b`.
+- Retained the feature branch for audit continuity. Its remote head remains `04f7012e23dfa0e5dbabcebd80f1306e54160176`.
+
+### 2026-09-21 16:09 - Issue #62 post-merge evidence
+
+- Wrote post-merge documentation at `/private/tmp/syj-cr-c01-issue-62-merge.md`.
+- Posted it to issue #62 at `https://github.com/muaz978/sync-your-joy/issues/62#issuecomment-5761018036`.
+- The comment records exact source and review heads, the security disposition, merge identity, local and remote ref verification, retained branch, completed implementation, all local and hosted evidence, the state-only boundary and remaining provider, installation, device, deployment and user-acceptance gates.
+- Re-read issue #62 metadata and verified it remains `OPEN` with assignee `muaz978`, its four labels and milestone intact. No closure was performed.
+
+### 2026-09-21 16:10-16:12 - Queue rescan
+
+- `gh pr list --state open --limit 50` returned `[]`, confirming there is no open PR waiting for review.
+- Reran the oldest-first issue query with `gh issue list --state open --limit 100 --search 'sort:created-asc'`.
+- Confirmed older open issues #30, #33, #34 and #35 are real-provider, two-account, two-device and headed-browser evidence gates. Confirmed #49-#62 include already-implemented code slices whose remaining external or acceptance gates keep them open.
+- Selected issue #63, `CR-C02: Make diagnostic reports explain operation failures`, as the next dependency-aware unimplemented implementation slice. It was created after #62, has no assignee, and carries `enhancement`, `initiative: crunchyroll-sync`, `area: extension` and `area: protocol` with the same milestone.
+
+## Confirmed Successful Results
+
+- PR #90 was documented, labeled, assigned, milestone-tagged, project-linked, checked, reviewed on its exact final head and merged.
+- All five hosted checks passed on the exact reviewed head.
+- The DevSkim security heuristic was investigated, correctly classified as non-blocking for this callback and answered publicly with technical evidence.
+- `main` and the remote `main` ref match merge commit `b5e7c5de074fe926f674624dc6e22ef811fe043b`.
+- Issue #62 has detailed post-merge evidence and remains open with truthful metadata.
+- No open PRs remain. Issue #63 is the next dependency-aware implementation target.
+
+## Failed, Incomplete, or Unresolved Work
+
+- GitHub cannot record an approving review from the PR owner. The exact detailed review is `COMMENTED`, and the authorized administrator merge path was used only after source review and all hosted checks passed.
+- The DevSkim comment remains a visible heuristic review comment even though the check passed and its thread now records the non-exploitable callback disposition.
+- Issue #62 remains open for authenticated visible Crunchyroll, installation, two-account, two-device, deployment and final user-acceptance gates.
+- Older issues #30, #33, #34, #35 and #49-#61 remain open for their exact remaining gates. No closure or release claim was made.
+- Public project custom fields beyond automatic linkage, status, assignee, labels and milestone were not changed.
+- Release remains `0.2.4`; `1.0.0` remains reserved for complete milestone acceptance.
+
+## Decisions and Rationale
+
+- The security heuristic was handled by source inspection and explicit thread documentation. The callback and fixed numeric delay do not create a string-evaluation path, and the hosted security checks passed.
+- The feature branch was retained after merge to preserve post-merge audit and checkpoint continuity; no branch deletion was requested.
+- The next work item is #63 because no PR is open and it is the next unimplemented dependency-aware issue after CR-C01. Older open issues remain visible in the queue but are not reimplemented when their code slice is already merged.
+
+## Files and Artifacts
+
+- CR-C01 implementation branch: `codex/issue-62-sync-recovery`
+- Final source head: `04f7012e23dfa0e5dbabcebd80f1306e54160176`
+- Merge commit: `b5e7c5de074fe926f674624dc6e22ef811fe043b`
+- Durable checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- PR body: `/private/tmp/syj-cr-c01-pr.md`
+- Security reply: `https://github.com/muaz978/sync-your-joy/pull/90#discussion_r4062377895`
+- Review body: `/private/tmp/syj-cr-c01-review.md`
+- Review: `https://github.com/muaz978/sync-your-joy/pull/90#pullrequestreview-5266948221`
+- Issue merge evidence: `/private/tmp/syj-cr-c01-issue-62-merge.md`
+- Issue comment: `https://github.com/muaz978/sync-your-joy/issues/62#issuecomment-5761018036`
+- PR: `https://github.com/muaz978/sync-your-joy/pull/90`
+- Issue: `https://github.com/muaz978/sync-your-joy/issues/62`
+- Next issue: `https://github.com/muaz978/sync-your-joy/issues/63`
+
+## Open Questions, Blockers, and Dependencies
+
+- CR-C02's exact source surfaces and acceptance criteria must be inspected before implementation.
+- Public project custom fields still require separate action-time confirmation if they are to be populated.
+- The signed-in Crunchyroll session remains available for the live gate; it has not been used as evidence for CR-C01.
+
+## Next Steps
+
+1. Commit and push this post-merge checkpoint on the retained CR-C01 branch.
+2. Create a fresh branch from verified `origin/main` at the CR-C01 merge commit for issue #63.
+3. Read and classify #63, audit actual diagnostic-report source and tests, implement with detailed report and regressions, then repeat the commit, push, PR metadata, hosted checks, exact-head review and authorized merge workflow.
+
+## Historical Checkpoint Notes
+
+- Checkpoints 1-80 remain preserved. This checkpoint records CR-C01's full PR and issue lifecycle and the next queue selection.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 80 - CR-C01 bounded stalled-play recovery implementation and verification
 
 ## Session Metadata
