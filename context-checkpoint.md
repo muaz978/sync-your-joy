@@ -3988,6 +3988,41 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+### 2026-09-21 - Corrected PR hosted checks and final exact-head review
+
+- Updated PR #89 body with the corrected malformed/partial contract migration scope and final counts.
+- Pushed correction commit `cb4a3660c0f1b660e90354353054ece08ddace5f` and verified the local and remote PR branch resolve to the same SHA.
+- Hosted checks reran for the corrected head and all five passed: Analyze (javascript-typescript), Typecheck, test, and build, DevSkim, CodeQL and devskim.
+- Opened PR #89 in the signed-in Edge browser for public metadata verification. GitHub visibly showed the PR was automatically added to the public `SyncYourJoy Delivery and Reliability` project, assigned to `muaz978`, labeled with all five requested labels, and attached to milestone `M3/M5: reliability and real-device validation`.
+- Read the project custom fields without editing them. Status is currently `Todo`; Priority, Work type, Evidence state, Acceptance gates, Risk, Blocked reason, Target date and Verification owner are still unpopulated on the PR item. The CLI `projectItems` response remained empty because the token lacks project scope, so the browser UI is the authoritative observation.
+- Read the final diff again after the correction and confirmed the branch is clean, `git diff --check` passes, and only the intended eight PR files are present relative to `origin/main`.
+- Published detailed PR review `PRR_kwDOTzrIvM8AAAABOeSZwQ` with state `COMMENTED`, tied to exact head `cb4a3660c0f1b660e90354353054ece08ddace5f`. The review covers correctness, readability, architecture, security, performance, tests, hosted checks and evidence boundaries, and records no blocking finding after the partial-contract fix.
+- Confirmed PR #89 remains `OPEN`, `REVIEW_REQUIRED`, with all five checks successful. No merge, branch deletion, issue closure, project-field mutation or release bump was performed.
+
+## Confirmed Successful Results
+
+- Corrected CR-B07 implementation commit `cb4a3660c0f1b660e90354353054ece08ddace5f` is committed and pushed.
+- Full local verification passes with 31 test files and 292 tests, typechecking, builds, audit, smoke and Wrangler dry run.
+- All five hosted checks pass on the corrected exact head.
+- Detailed review `PRR_kwDOTzrIvM8AAAABOeSZwQ` is published and verified on the corrected exact head.
+- PR #89 has labels, assignee, milestone and automatic public project linkage visible in the GitHub UI.
+- Issue #61 remains open and no release version was changed.
+
+## Failed, Incomplete, or Unresolved Work
+
+- GitHub cannot record an approving review from the PR owner. The detailed review is `COMMENTED`, and the PR UI states that an independent reviewer or protected administrator bypass is required.
+- Public project custom fields on the PR item remain unpopulated. Editing these fields is a public UI mutation and requires action-time confirmation before proceeding.
+- PR #89 has not been merged. No administrator bypass has been used for this PR.
+- Issue #61 remains open for old-server/new-client fixture coverage as a separately tracked acceptance concern if required, plus remote staging, authenticated live Crunchyroll, two-account, two-device, installation, user acceptance and release qualification gates.
+- Release `0.2.4` remains current. Release `1.0.0` remains reserved for complete milestone acceptance.
+
+## Next Steps
+
+1. Obtain explicit user confirmation to populate the PR's public project custom fields and select values consistent with issue #61: In Progress, P1 High, Security hardening, Partial evidence, the documented acceptance gates, High risk and verification owner `muaz978`, leaving blocked reason and target date blank unless a real value exists.
+2. Obtain explicit user authorization to use the protected administrator merge path for PR #89, or wait for independent approval. Merge only after that authorization, without deleting the retained branch unless separately requested.
+3. After merge, verify the merge SHA, `origin/main`, checks and PR metadata, then post detailed evidence to issue #61 without closing it.
+4. Continue with the next dependency-aware issue only after the PR and issue reach their truthful post-merge states.
+
 # Checkpoint 77 - CR-B07 final review correction for malformed persisted contracts
 
 ## Session Metadata
