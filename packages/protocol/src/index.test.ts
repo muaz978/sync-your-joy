@@ -1,6 +1,6 @@
 import type { MediaFingerprint } from './index.ts'
 import { describe, expect, it } from 'vitest'
-import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomOperation, mediaMatches, negotiateRoomMode, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
+import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomContractSnapshot, isRoomOperation, mediaMatches, negotiateRoomMode, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
 
 describe('media identity matching', () => {
   it('does not treat two missing players as a video match', () => {
@@ -404,5 +404,12 @@ describe('operation identity and compatibility contract', () => {
     })).toEqual({
       mode: 'legacy', mediaEpoch: 4, sharedCapabilities: [], operation: null,
     })
+    expect(isRoomContractSnapshot({
+      mode: 'legacy', mediaEpoch: 0, sharedCapabilities: [], operation: null,
+    })).toBe(true)
+    expect(isRoomContractSnapshot({ mode: 'legacy', mediaEpoch: 0, sharedCapabilities: [] })).toBe(false)
+    expect(isRoomContractSnapshot({
+      mode: 'legacy', mediaEpoch: 0, sharedCapabilities: ['unknown-capability'], operation: null,
+    })).toBe(false)
   })
 })

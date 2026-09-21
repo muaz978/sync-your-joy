@@ -627,6 +627,29 @@ export function normalizeRoomContractSnapshot(value: unknown): RoomContractSnaps
   }
 }
 
+/**
+ * Reports whether persisted data contains a complete contract boundary. A
+ * normalizer can safely turn malformed data into legacy defaults for a
+ * snapshot, but migration also needs to know whether an adjacent legacy seek
+ * is safe to retain or must be discarded as pre-contract evidence.
+ */
+export function isRoomContractSnapshot(value: unknown): value is RoomContractSnapshot {
+  if (!isRecord(value)
+    || (value.mode !== 'legacy' && value.mode !== 'transactional')
+    || !isNonNegativeInteger(value.mediaEpoch)
+    || !Array.isArray(value.sharedCapabilities))
+    return false
+
+  const sharedCapabilities = normalizeCapabilities(value.sharedCapabilities)
+  if (sharedCapabilities.length !== value.sharedCapabilities.length)
+    return false
+  if (value.operation !== null && !isRoomOperation(value.operation))
+    return false
+  if (value.operation !== null && (value.operation as RoomOperation).mediaEpoch !== value.mediaEpoch)
+    return false
+  return value.mode !== 'transactional' || supportsTransactionalOperations(sharedCapabilities)
+}
+
 function cloneLegacyRoomContractDefaults(): RoomContractSnapshot {
   return {
     mode: LEGACY_ROOM_CONTRACT_DEFAULTS.mode,

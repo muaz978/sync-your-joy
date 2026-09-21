@@ -832,6 +832,113 @@ describe('RoomCoordinator', () => {
     expect(paused).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
   })
 
+  it('migrates a pre-contract pending seek to a paused-safe state without reusing historical ACKs', () => {
+    const room = createRoom()
+    const sought = room.control('participant_host', {
+      actionId: 'action_pre_contract_seek',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 120,
+    })
+    if (!sought.ok || !sought.snapshot.seek)
+      throw new Error('Expected a legacy pending seek.')
+
+    const stored = room.exportState()
+    delete stored.contract
+    stored.pendingSeek = {
+      ...sought.snapshot.seek,
+      acknowledgedParticipantIds: ['participant_host'],
+    }
+    const restored = RoomCoordinator.fromState(stored, () => 20_000)
+
+    expect(restored.snapshot()).toMatchObject({
+      playback: { status: 'paused', positionSeconds: 120 },
+      seek: null,
+      contract: { mode: 'legacy', operation: null },
+    })
+    expect(restored.pendingSeekDeadlineMs()).toBeNull()
+    expect(restored.acknowledgeSeek('participant_host', stored.pendingSeek.revision, 120)).toBeNull()
+    expect(restored.exportState().stateVersion).toBe(2)
+  })
+
+  it('migrates a partially written contract with a pending seek to the same paused-safe state', () => {
+    const room = createRoom()
+    const sought = room.control('participant_host', {
+      actionId: 'action_partial_contract_seek',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 150,
+    })
+    if (!sought.ok || !sought.snapshot.seek)
+      throw new Error('Expected a legacy pending seek.')
+
+    const stored = room.exportState()
+    stored.contract = { mode: 'legacy' } as NonNullable<typeof stored.contract>
+    stored.pendingSeek = {
+      ...sought.snapshot.seek,
+      acknowledgedParticipantIds: ['participant_host'],
+    }
+    const restored = RoomCoordinator.fromState(stored, () => 20_000)
+
+    expect(restored.snapshot()).toMatchObject({
+      playback: { status: 'paused', positionSeconds: 150 },
+      seek: null,
+      contract: { mode: 'legacy', operation: null },
+    })
+    expect(restored.pendingSeekDeadlineMs()).toBeNull()
+    expect(restored.acknowledgeSeek('participant_host', stored.pendingSeek.revision, 150)).toBeNull()
+  })
+
+  it('preserves an explicitly versioned legacy seek instead of treating it as pre-contract state', () => {
+    const room = createRoom()
+    const sought = room.control('participant_host', {
+      actionId: 'action_current_legacy_seek',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 90,
+    })
+    expect(sought).toMatchObject({ ok: true, snapshot: { seek: { positionSeconds: 90 } } })
+
+    const restored = RoomCoordinator.fromState(room.exportState(), () => 10_000)
+    expect(restored.snapshot()).toEqual(room.snapshot())
+  })
+
+  it('keeps a mixed-version room on the legacy path and ignores transactional ACKs', () => {
+    const room = new RoomCoordinator(
+      { roomId: 'mixed_version_room', code: 'MIXED123' },
+      { id: 'participant_host', name: 'Muaz', media, capabilities: CURRENT_CLIENT_CAPABILITIES },
+      () => 10_000,
+    )
+    room.join({ id: 'participant_old', name: 'Legacy', media })
+    room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_old', true)
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_old', true, media)
+
+    expect(room.snapshot().contract).toMatchObject({ mode: 'legacy', sharedCapabilities: [] })
+    const control = room.control('participant_host', {
+      actionId: 'action_mixed_play',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 0,
+    })
+    expect(control).toMatchObject({ ok: true, snapshot: { playback: { status: 'playing' }, contract: { operation: null } } })
+    expect(room.acknowledgeOperation('participant_host', {
+      mediaEpoch: 0,
+      operationId: 'operation_mixed_123456',
+      phase: 'prepared',
+      participantId: 'participant_host',
+      bindingId: 'binding_host_123456',
+      sourceGeneration: 1,
+      sampleSequence: 1,
+      observedPositionSeconds: 0,
+      observedAtLocalMs: 10_001,
+    })).toBeNull()
+  })
+
   it('lets a pending seek resolve after an unrelated readiness change bumps the room revision without clearing it', () => {
     const room = createRoom()
     joinApproved(room, { id: 'participant_friend', name: 'Rana', media })

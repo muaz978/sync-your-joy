@@ -3988,6 +3988,178 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+### 2026-09-21 - Corrected PR hosted checks and final exact-head review
+
+- Updated PR #89 body with the corrected malformed/partial contract migration scope and final counts.
+- Pushed correction commit `cb4a3660c0f1b660e90354353054ece08ddace5f` and verified the local and remote PR branch resolve to the same SHA.
+- Hosted checks reran for the corrected head and all five passed: Analyze (javascript-typescript), Typecheck, test, and build, DevSkim, CodeQL and devskim.
+- Opened PR #89 in the signed-in Edge browser for public metadata verification. GitHub visibly showed the PR was automatically added to the public `SyncYourJoy Delivery and Reliability` project, assigned to `muaz978`, labeled with all five requested labels, and attached to milestone `M3/M5: reliability and real-device validation`.
+- Read the project custom fields without editing them. Status is currently `Todo`; Priority, Work type, Evidence state, Acceptance gates, Risk, Blocked reason, Target date and Verification owner are still unpopulated on the PR item. The CLI `projectItems` response remained empty because the token lacks project scope, so the browser UI is the authoritative observation.
+- Read the final diff again after the correction and confirmed the branch is clean, `git diff --check` passes, and only the intended eight PR files are present relative to `origin/main`.
+- Published detailed PR review `PRR_kwDOTzrIvM8AAAABOeSZwQ` with state `COMMENTED`, tied to exact head `cb4a3660c0f1b660e90354353054ece08ddace5f`. The review covers correctness, readability, architecture, security, performance, tests, hosted checks and evidence boundaries, and records no blocking finding after the partial-contract fix.
+- Confirmed PR #89 remains `OPEN`, `REVIEW_REQUIRED`, with all five checks successful. No merge, branch deletion, issue closure, project-field mutation or release bump was performed.
+
+## Confirmed Successful Results
+
+- Corrected CR-B07 implementation commit `cb4a3660c0f1b660e90354353054ece08ddace5f` is committed and pushed.
+- Full local verification passes with 31 test files and 292 tests, typechecking, builds, audit, smoke and Wrangler dry run.
+- All five hosted checks pass on the corrected exact head.
+- Detailed review `PRR_kwDOTzrIvM8AAAABOeSZwQ` is published and verified on the corrected exact head.
+- PR #89 has labels, assignee, milestone and automatic public project linkage visible in the GitHub UI.
+- Issue #61 remains open and no release version was changed.
+
+## Failed, Incomplete, or Unresolved Work
+
+- GitHub cannot record an approving review from the PR owner. The detailed review is `COMMENTED`, and the PR UI states that an independent reviewer or protected administrator bypass is required.
+- Public project custom fields on the PR item remain unpopulated. Editing these fields is a public UI mutation and requires action-time confirmation before proceeding.
+- PR #89 has not been merged. No administrator bypass has been used for this PR.
+- Issue #61 remains open for old-server/new-client fixture coverage as a separately tracked acceptance concern if required, plus remote staging, authenticated live Crunchyroll, two-account, two-device, installation, user acceptance and release qualification gates.
+- Release `0.2.4` remains current. Release `1.0.0` remains reserved for complete milestone acceptance.
+
+## Next Steps
+
+1. Obtain explicit user confirmation to populate the PR's public project custom fields and select values consistent with issue #61: In Progress, P1 High, Security hardening, Partial evidence, the documented acceptance gates, High risk and verification owner `muaz978`, leaving blocked reason and target date blank unless a real value exists.
+2. Obtain explicit user authorization to use the protected administrator merge path for PR #89, or wait for independent approval. Merge only after that authorization, without deleting the retained branch unless separately requested.
+3. After merge, verify the merge SHA, `origin/main`, checks and PR metadata, then post detailed evidence to issue #61 without closing it.
+4. Continue with the next dependency-aware issue only after the PR and issue reach their truthful post-merge states.
+
+# Checkpoint 77 - CR-B07 final review correction for malformed persisted contracts
+
+## Session Metadata
+
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 77
+- Date and time: 2026-09-21 Europe/Istanbul
+- Coverage period: PR #89 metadata completion, hosted checks, exact-diff review, review finding and corrective amendment
+- Current context status: PR #89 remains open at a local uncommitted corrective amendment. The original pushed head `05700b454260888721b01bb7c5f0a6e859fb24f8` passed all five hosted checks, but formal review was deliberately held after a migration edge case was found. The corrective change is locally tested and still needs full checks, commit, push, hosted checks, exact-head review and user-authorized merge.
+
+## User Objective and Requirements
+
+- Continue systematically with PR #89 for issue #61 after PR #88 and the CR-B06 lifecycle.
+- Review the exact final head before any merge, and do not close issue #61 until all applicable gates are evidenced.
+- Preserve detailed documentation, labels, assignee, milestone and project metadata requirements.
+- Treat the signed-in Crunchyroll account as available, while keeping deterministic source evidence separate from live-provider acceptance.
+- Keep release `0.2.4` until a coherent verified group is complete and reserve `1.0.0` for milestone completion.
+- Commit and push every repository change.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 - Checkpoint restoration and review skill application
+
+- Continued from the prior checkpoint after PR #89 creation and metadata command dispatch.
+- Read the latest relevant `context-checkpoint.md` records, including Checkpoint 76 and its CR-B07 implementation, verification and pending PR lifecycle entries.
+- Read the `code-review-and-quality` skill and `git-workflow-and-versioning` skill because this stage is a pre-merge review and shipping workflow.
+- Polled the running metadata command. It completed successfully and applied the PR labels, assignee and milestone.
+
+### 2026-09-21 - PR #89 metadata and hosted checks verified
+
+- Read PR #89 metadata from GitHub.
+- Confirmed PR #89 is open, not draft, targets `main`, and its pushed head is `05700b454260888721b01bb7c5f0a6e859fb24f8`.
+- Confirmed labels `enhancement`, `initiative: crunchyroll-sync`, `area: protocol`, `area: backend` and `area: testing`.
+- Confirmed assignee `muaz978` and milestone `M3/M5: reliability and real-device validation`.
+- Confirmed all five hosted checks passed: Analyze (javascript-typescript), Typecheck, test, and build, DevSkim, CodeQL and lowercase `devskim`.
+- Confirmed the local branch was clean at the pushed commit and `git diff --check` passed.
+
+### 2026-09-21 - Exact-diff review
+
+- Reviewed tests before implementation as required by the review workflow.
+- Inspected the room-service mixed-version transport test, coordinator migration tests, implementation diff, transactional smoke changes, report and checkpoint documentation.
+- Verified the PR body documents the issue link without auto-closing, implementation scope, local and hosted evidence, dry-run boundary, security/privacy boundary and release policy.
+- Verified the review scope across correctness, readability, architecture, security and performance.
+- Confirmed that all-new transactional smoke and new-server/old-client mixed transport behavior were covered, and that transactional acknowledgements are ignored in legacy mode.
+
+### 2026-09-21 - Review finding: malformed contract boundary
+
+- Found a correctness gap in `RoomCoordinator` restoration: a malformed but present `contract` object, such as `{ mode: 'legacy' }`, was normalized to legacy defaults but still allowed a persisted `pendingSeek` and its historical acknowledgement list to remain active.
+- This could violate CR-B07's safe migration requirement for partially written stored state, even though an entirely missing `contract` section was already migrated safely.
+- Held the formal GitHub review instead of accepting the original head.
+
+### 2026-09-21 - Corrective amendment
+
+- Added `isRoomContractSnapshot()` to `packages/protocol/src/index.ts`. It distinguishes a complete persisted contract boundary from data that the snapshot normalizer can only safely downgrade to defaults.
+- Added protocol assertions for complete, incomplete and unknown-capability contract shapes in `packages/protocol/src/index.test.ts`.
+- Updated `packages/sync-engine/src/room.ts` to migrate any state without a complete contract boundary, not only state with an absent `contract` property.
+- Added a coordinator regression test in `packages/sync-engine/src/room.test.ts` for a partially written legacy contract with a pending seek and historical acknowledgement.
+- Updated `docs/CR_B07_MIXED_VERSION_MIGRATION_REPORT.md` to document malformed/partial contract migration and corrected focused/full test totals from 96/291 to 97/292.
+- The correction has not yet been committed, pushed or included in the PR's hosted checks.
+
+### 2026-09-21 - Corrective focused verification
+
+- Ran `npx vitest run packages/protocol/src/index.test.ts packages/sync-engine/src/room.test.ts`: 2 files and 82 tests passed.
+- Ran `git diff --check`: passed.
+- The working tree now contains only the intended corrective protocol, coordinator, test and report changes in addition to the already pushed PR files.
+
+## Confirmed Successful Results
+
+- PR #89 exists at `https://github.com/muaz978/sync-your-joy/pull/89` with the required repository labels, assignee and milestone.
+- The original pushed PR head `05700b454260888721b01bb7c5f0a6e859fb24f8` passed all five hosted checks.
+- The exact-diff review found and prevented one real malformed-state migration gap before formal review and merge.
+- The corrective focused test run passed with 82 tests.
+- Issue #61 remains open and no merge or release action has been taken for PR #89.
+
+## Failed, Incomplete, or Unresolved Work
+
+- The corrective amendment is uncommitted and unpushed.
+- PR #89 hosted checks do not yet cover the corrective amendment.
+- The formal review has not yet been posted for the corrected final head.
+- PR #89 has not been merged. No administrator merge has been attempted.
+- Issue #61 remains open. Its old-server/new-client, remote staging, authenticated live Crunchyroll, two-account, two-device, installation, user-acceptance and release gates remain separate evidence classes unless directly verified.
+- The CLI token lacks `read:project`; public project custom-field verification or editing remains a separate browser/UI action and has not been claimed as complete.
+
+## Decisions and Rationale
+
+- The original PR head was not formally reviewed or merged after the malformed-state finding because a stale pending seek could survive a partially written contract object.
+- The correction uses a strict persisted-contract boundary while preserving complete current legacy contracts and their valid legacy pending seek behavior.
+- No release bump or live provider action is justified by this correction. The package remains `0.2.4`, and `1.0.0` remains reserved.
+
+## Files and Artifacts
+
+- Protocol helper: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.ts`
+- Protocol tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/protocol/src/index.test.ts`
+- Coordinator implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`
+- Coordinator tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.test.ts`
+- CR-B07 report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B07_MIXED_VERSION_MIGRATION_REPORT.md`
+- PR #89: `https://github.com/muaz978/sync-your-joy/pull/89`
+- Issue #61: `https://github.com/muaz978/sync-your-joy/issues/61`
+
+## Next Steps
+
+1. Run the full repository checks, audit, smoke, dry-run deployment and diff hygiene against the correction.
+2. Update the detailed PR body with the corrected scope and test totals.
+3. Commit and push the amendment, verify local and remote SHA, and wait for all hosted checks.
+4. Review the exact corrected head across all five review axes and record the review on GitHub.
+5. Obtain explicit merge authorization if a protected-branch administrator merge is required. Merge only after the corrected review and required checks pass.
+6. Add a detailed post-merge issue comment while keeping #61 open for remaining external gates.
+
+## Historical Checkpoint Notes
+
+- Checkpoints 1-76 remain preserved. This checkpoint supersedes the earlier statement that the first CR-B07 implementation was ready for formal review without qualification.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
+## Checkpoint 76 continuation - final mixed-transport review
+
+### Complete chronological activity log
+
+- Added a local room-service integration test for an all-current host with an old client that omits capabilities.
+- The first focused run failed after 15 tests because the new fixture waited for `participant_joined`, while the coordinator's actual authoritative reason is `join_approved`. This was a test expectation error, not a product failure.
+- Read the coordinator source to verify the actual reason, corrected the fixture, and reran `npx vitest run apps/room-service/src/server.test.ts packages/sync-engine/src/room.test.ts packages/protocol/src/index.test.ts`.
+- The corrected focused run passed with 3 files and 96 tests.
+- Updated the CR-B07 report to reflect the final focused and full-suite counts.
+- Reran `npm run check`, which passed with 31 files and 291 tests, typecheck and builds.
+- Ran `npm audit --audit-level=high`, which passed with 0 vulnerabilities.
+- Ran `git diff --check`, which passed.
+
+### Confirmed successful results
+
+- The final mixed-version local transport test proves that an omitted capability advertisement keeps the room in legacy mode, legacy playback control continues, no transactional operation is created, and a transactional acknowledgement produces no broadcast.
+- The final full check is 31 test files and 291 tests passed.
+- The current working tree contains only the intended CR-B07 source, tests, smoke script, report and checkpoint changes.
+
+### Failed, incomplete, or unresolved work
+
+- The initial wrong-event-name test attempt is preserved here as a failed intermediate attempt and is superseded by the corrected passing test.
+- CR-B07 still needs commit, push, PR metadata, hosted checks, exact-head review, and merge before its issue can receive post-merge evidence.
+
 # Checkpoint 75 - CR-B06 edge health implementation, PR review, and protected merge blocker
 
 ## Session Metadata
@@ -4158,6 +4330,213 @@
 3. Add a detailed post-merge Verification comment to issue #60 with PR URL, review id, merge SHA, hosted checks, local and Wrangler evidence, and the staging limitation.
 4. Move issue #60 to project Verification and set the evidence state only as high as the actual merged evidence supports. Do not mark Deployment or User acceptance complete from a dry run.
 5. Continue to the next dependency-aware unimplemented issue only after PR #88 and issue #60 reach the appropriate post-merge verification state.
+
+# Checkpoint 76 - CR-B06 reviewed merge and CR-B07 mixed-version migration start
+
+## Session Metadata
+
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 76
+- Date and time: 2026-09-21 Europe/Istanbul
+- Coverage period: after Checkpoint 75 through CR-B06 merge verification and CR-B07 implementation start
+- Current context status: PR #88 is reviewed and merged. Issue #60 remains open. CR-B07 issue #61 is assigned, documented, and implementation is in progress on branch `codex/issue-61-mixed-version-migration`.
+
+## User Objective and Requirements
+
+- The user asked why a PR would be merged without review and instructed that the necessary reviews must happen before merge.
+- The established workflow remains review first, merge second, with exact-head review, hosted checks, detailed documentation, commit and push verification, and no premature issue closure.
+- The user expects future PRs and issues to include labels, assignee, milestone, public project metadata where available, and detailed documentation for every action.
+- The user has a signed-in Crunchyroll account available in the controlled Edge browser. Missing isolated provider storage-state fixtures must not be described as a missing account.
+- Release `1.0.0` remains reserved for complete milestone acceptance. The current package version remains `0.2.4`.
+
+## Current State
+
+- PR #88, `fix: preserve edge health state across alarms`, was reviewed twice and merged into `main`.
+- Final reviewed PR head: `ca17d4b3f6c930c37dadd34b0e576aab768b331d`.
+- Merge SHA: `53046e452df151be9b2647138450f106786fc722`.
+- `origin/main` and independent `git ls-remote` verification both resolve to the merge SHA.
+- The CR-B06 branch was intentionally not deleted.
+- Issue #60 is still open. Its detailed post-merge comment is `https://github.com/muaz978/sync-your-joy/issues/60#issuecomment-5753373344`.
+- The issue comment was corrected after a final read-only check because it initially stated that a project-status move had happened. The corrected record says the project-status edit is still pending explicit action confirmation.
+- There are no open pull requests in the current repository scan.
+- The next dependency-aware issue is #61, `CR-B07: Verify mixed versions and stored-state migration`.
+- Issue #61 remains open, has the existing enhancement, initiative, protocol, backend and testing labels, has milestone `M3/M5: reliability and real-device validation`, is assigned to `muaz978`, and has a detailed implementation-plan comment `https://github.com/muaz978/sync-your-joy/issues/61#issuecomment-5759496095`.
+- The working branch is `codex/issue-61-mixed-version-migration`, created from verified `origin/main`.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 - User clarified the review-before-merge requirement
+
+- User asked why the PR would be merged without review and instructed that review must occur before merge.
+- Assistant clarified that the workflow was review first, merge second. The PR had already received an implementation review and a final exact-head review, and the current turn would re-verify those reviews and all hosted checks before merge.
+
+### 2026-09-21 - Exact-head review and hosted verification confirmed
+
+- Re-read PR #88 metadata.
+- Confirmed final head `ca17d4b3f6c930c37dadd34b0e576aab768b331d`.
+- Confirmed review IDs `5261993944` and `5262012956`, both owner-authored detailed `COMMENTED` reviews with no blocking correctness or security findings.
+- Confirmed all five hosted checks passed: Analyze, Typecheck/test/build, DevSkim, CodeQL and devskim.
+- Normal merge was previously blocked by protected-branch policy because GitHub requires an independent approval and the PR author cannot self-approve.
+
+### 2026-09-21 - Authorized protected-branch merge
+
+- Ran `gh pr merge 88 --merge --admin` without `--delete-branch`, because the user requested merge after review but did not request branch deletion.
+- Merge succeeded.
+- Ran `git fetch origin main`, which advanced `origin/main` to `53046e4`.
+- `gh pr view 88` confirmed state `MERGED`, merge time `2026-09-20T23:10:43Z`, merge commit `53046e452df151be9b2647138450f106786fc722`, and source head `ca17d4b3f6c930c37dadd34b0e576aab768b331d`.
+- `git rev-parse origin/main` and `git ls-remote origin refs/heads/main` independently returned `53046e452df151be9b2647138450f106786fc722`.
+- Local working tree was clean at this point.
+
+### 2026-09-21 - Detailed issue #60 post-merge documentation
+
+- Created temporary post-merge documentation at `/private/tmp/syj-cr-b06-issue-60-merge.md` using `apply_patch`.
+- Published it to issue #60 with `gh issue comment 60 --body-file`.
+- The comment documented review IDs, exact reviewed head, all hosted checks, local tests, Wrangler dry run, merge SHA, remote ref verification, branch retention, implementation scope, remaining external gates and release boundary.
+- A read-only `gh issue view 60` confirmed the issue remained `OPEN` and the comment was present.
+- Discovered that the comment initially said the issue had been moved to Verification even though the separate public project-field edit had not been performed.
+- Corrected the same comment through the GitHub API so it truthfully states that the status move remains pending explicit action confirmation.
+- No issue was closed.
+
+### 2026-09-21 - Current queue re-scan
+
+- Ran `gh pr list --state open`, which returned an empty list.
+- The first `gh issue list` attempt requested `projectItems` and failed because the GitHub token lacks `read:project` scope. This was a metadata-read limitation, not a repository failure.
+- Retried with repository issue fields only and obtained the current open issue queue.
+- Confirmed #61 is the next dependency after #60 and depends explicitly on #57, #59 and #60.
+- Confirmed older external acceptance issues #30, #33, #34 and #35 remain open and are not being falsely closed by deterministic source work.
+
+### 2026-09-21 - CR-B07 source audit
+
+- Read issue #61 body and acceptance criteria.
+- Inspected `packages/protocol/src/index.ts`, protocol tests, `packages/sync-engine/src/room.ts`, coordinator tests, local room transport, edge worker, extension state normalization, and `scripts/smoke-room-service.mjs`.
+- Confirmed the protocol already has additive capabilities, fail-closed negotiation, legacy defaults and transactional acknowledgement validation.
+- Found the implementation gap: `RoomCoordinatorState.contract` is optional for migration, but `pendingSeek` was restored independently. A pre-contract stored seek could therefore retain historical acknowledgement state after restart.
+- Found the smoke gap: the smoke script omitted current capability advertisements and used legacy `seek_applied`, so it did not verify the current transactional controller and peer acknowledgement contract.
+- Reviewed remediation-plan language requiring additive capabilities, explicit legacy/update-required behavior, restored old-room testing, rollback to paused legacy-safe state and no silent reinterpretation of an in-flight operation.
+
+### 2026-09-21 - CR-B07 issue planning and metadata
+
+- Created `/private/tmp/syj-cr-b07-plan.md` with the source audit, implementation steps, acceptance boundary, security boundary and release boundary.
+- Assigned issue #61 to `muaz978` with `gh issue edit 61 --add-assignee muaz978`.
+- Published the detailed plan at `https://github.com/muaz978/sync-your-joy/issues/61#issuecomment-5759496095`.
+- Did not silently change the public project status because the available CLI token lacks project scope and a browser project-field edit is a separate public action requiring confirmation at action time.
+
+### 2026-09-21 - CR-B07 branch setup and baseline
+
+- Created branch `codex/issue-61-mixed-version-migration` from `origin/main`.
+- The first `git switch -c` attempt failed because the sandbox could not write `.git/index.lock`; the same non-destructive command was retried with filesystem escalation and succeeded.
+- Baseline `npm run check` passed with 31 test files and 287 tests, typecheck and builds.
+
+### 2026-09-21 - CR-B07 implementation changes
+
+- Updated `packages/sync-engine/src/room.ts`:
+  - added optional `stateVersion` to the persisted state shape;
+  - added `ROOM_STATE_VERSION = 2`;
+  - emitted `stateVersion: 2` from `exportState()`;
+  - validated restored pending seek data;
+  - treated state without a contract section as pre-contract state;
+  - discarded historical pending-seek acknowledgements;
+  - restored pre-contract rooms paused at the fixed pending-seek target or safe stored position;
+  - advanced the revision and control barrier during migration.
+- Updated `packages/sync-engine/src/room.test.ts` with tests for:
+  - pre-contract pending-seek migration and ignored historical ACK;
+  - explicit current legacy pending-seek preservation;
+  - mixed-version legacy fallback and ignored transactional ACK.
+- Updated `scripts/smoke-room-service.mjs`:
+  - both participants advertise `CURRENT_CLIENT_CAPABILITIES`;
+  - transactional play and seek use prepared and started acknowledgements from controller and peer;
+  - incomplete preparation rolls back to a failed paused operation;
+  - rapid pause and transactional play remain covered;
+  - final output records `transactionalContractVerified: true`.
+- Added report `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B07_MIXED_VERSION_MIGRATION_REPORT.md`.
+
+### 2026-09-21 - CR-B07 verification
+
+- `npx vitest run packages/sync-engine/src/room.test.ts packages/protocol/src/index.test.ts` passed with 2 files and 81 tests.
+- `node --check scripts/smoke-room-service.mjs` passed.
+- `npm run typecheck` passed.
+- `git diff --check` passed.
+- Started local room service with `npm run dev:server` at `ws://127.0.0.1:8787/rooms`.
+- Ran `npm run smoke:edge -- ws://127.0.0.1:8787/rooms`.
+- Smoke passed with output including `transactionalContractVerified: true`, `seekPositionSeconds: 137`, `seekTimeoutReleaseMs: 1855`, both diagnostic participants, buffering safeguards and `ok: true`.
+- Stopped the local server with Ctrl-C after the smoke completed.
+- Final `npm run check` passed with 31 test files and 290 tests, typecheck and builds.
+- The first Wrangler dry run failed only because Wrangler could not create `/Users/muazsabbagh/Library/Preferences/.wrangler` under the sandbox permission profile. No deployment occurred.
+- Retried `npx wrangler deploy --config apps/edge-service/wrangler.jsonc --dry-run` with filesystem escalation. It passed, recognized `env.ROOMS (RoomDurableObject)`, and reported 83.93 KiB upload and 16.33 KiB gzip. No remote deployment occurred.
+- Current diff contains only the three implementation/test/smoke files and the new CR-B07 report. No release version files were changed.
+
+## Confirmed Successful Results
+
+- PR #88 was reviewed at its implementation and exact final head, then merged into `main` as `53046e452df151be9b2647138450f106786fc722`.
+- `origin/main` and the remote `main` ref independently match the merge SHA.
+- Issue #60 remains open with corrected detailed post-merge evidence.
+- There are no open PRs in the current repository scan.
+- Issue #61 is assigned to `muaz978` and has a published detailed implementation plan.
+- CR-B07 state migration implementation and tests are present on branch `codex/issue-61-mixed-version-migration`.
+- The local room smoke verifies the new transactional capability path and rollback behavior.
+- `npm run check` passes with 31 files and 290 tests.
+- Wrangler dry run passes without deploying.
+- No release bump, issue closure, provider credential access, media access or DRM access occurred.
+
+## Failed, Incomplete, or Unresolved Work
+
+- CR-B07 has not yet been committed, pushed, reviewed in a pull request, or merged.
+- The public project status for issue #61 has not been changed through the UI.
+- Remote staging execution, authenticated live Crunchyroll visible behavior, two-account and two-device acceptance, installation validation, user acceptance and release qualification remain unperformed.
+- The GitHub CLI token still lacks `read:project`, so project field verification must use the browser UI or a separately authorized connector.
+- No hosted checks exist yet for CR-B07 because no PR has been opened.
+- The issue #60 project-status edit remains pending and must not be described as completed.
+
+## Decisions and Rationale
+
+- CR-B07 was selected next because there are no open PRs and #61 is the next dependency-aware issue after the merged #60 slice, with explicit dependencies on #57, #59 and #60.
+- The protocol version remains 1. Additive capabilities are the compatible migration mechanism already defined by the repository policy.
+- Only pre-contract state without a contract section is migrated to paused-safe state. An explicitly contract-aware legacy room retains its valid legacy seek barrier, preventing accidental behavior changes for current legacy rooms.
+- Transactional acknowledgements are never accepted in legacy mode, and old peers cannot be silently counted in a transactional quorum.
+- The smoke path was upgraded to transactional mode so the release smoke proves the current contract, not only the fallback legacy path.
+- The report separates deterministic source and transport evidence from live provider, deployment and user-acceptance claims.
+
+## Files and Artifacts
+
+- CR-B07 implementation: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.ts`
+- CR-B07 tests: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/packages/sync-engine/src/room.test.ts`
+- Transactional smoke: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/scripts/smoke-room-service.mjs`
+- CR-B07 report: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/docs/CR_B07_MIXED_VERSION_MIGRATION_REPORT.md`
+- This checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- CR-B07 issue: `https://github.com/muaz978/sync-your-joy/issues/61`
+- CR-B07 plan comment: `https://github.com/muaz978/sync-your-joy/issues/61#issuecomment-5759496095`
+- CR-B06 PR: `https://github.com/muaz978/sync-your-joy/pull/88`
+- CR-B06 issue evidence: `https://github.com/muaz978/sync-your-joy/issues/60#issuecomment-5753373344`
+
+## Assumptions and Uncertainties
+
+- The public project UI remains authoritative for project fields because the CLI token lacks project-read scope.
+- The signed-in Crunchyroll Edge session remains available for the later controlled headed gate. No live provider claim is inferred from the current deterministic smoke.
+- The local smoke uses the current repository server implementation. It is not a remote staging or authenticated provider result.
+- The current code path treats an absent persisted contract as pre-contract state. Explicit malformed contract semantics remain governed by `normalizeRoomContractSnapshot()` and are not expanded beyond this slice without a separate test requirement.
+
+## Open Questions, Blockers, and Dependencies
+
+- CR-B07 needs a final diff review, commit and push, PR metadata, hosted checks and exact-head review before merge.
+- Issue #61 should remain open until its documented source and transport gates are complete, and it must not be closed based only on local tests.
+- After CR-B07, the next queue item is #62, CR-C01, unless a fresh dependency or security scan changes the ordering.
+- Issue #60 still needs its separate public project status transition when explicitly authorized at action time.
+- External issue #30 remains the future controlled headed Crunchyroll E2E gate and must use the already signed-in account rather than assuming an absent account.
+
+## Next Steps
+
+1. Review the CR-B07 diff, run secret and generated-artifact checks, then commit the implementation and documentation.
+2. Push `codex/issue-61-mixed-version-migration` and verify the remote SHA.
+3. Open a metadata-complete PR for #61 with labels, assignee, milestone, project fields where available, detailed body and report link.
+4. Wait for hosted checks, review the exact final head, and merge only after the review and required checks pass.
+5. Add the detailed post-merge issue evidence without closing #61 unless every applicable gate is verified.
+
+## Historical Checkpoint Notes
+
+- Checkpoints 1-75 remain intact above.
+- Checkpoint 75's pre-merge blocker is superseded by the confirmed PR #88 merge recorded here.
+- The earlier issue #60 comment wording that claimed a project-status move is superseded by the corrected same-comment text and this checkpoint.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
 ## Historical Checkpoint Notes
 
