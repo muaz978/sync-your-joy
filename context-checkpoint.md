@@ -8082,3 +8082,97 @@
 - Checkpoints 1-93 remain intact. Checkpoint 94 records the complete merge, documentation, metadata and reconciliation activity after checkpoint 93.
 - Earlier plan statements saying that PR creation, review, merge and issue documentation were pending are superseded by the confirmed results in this checkpoint and by the updated CR-D03 checklist in `tasks/plan.md`.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+---
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue delivery, PR #97 documentation reconciliation.
+- Checkpoint number: 95.
+- Date and time: 2026-09-22 00:26 Europe/Istanbul.
+- Coverage period: Since checkpoint 94, covering the documentation branch, PR #97 metadata, hosted checks, and final-head preparation.
+- Current context status: The reconciliation commit is pushed and PR #97 is open with all hosted checks passing. Final review is the next action. Issue #68 remains open.
+
+## User Objective and Requirements
+- Keep the review-first workflow: inspect the exact final PR head and fresh checks, review it, and merge only after review.
+- Commit and push repository documentation changes and retain detailed, chronological evidence.
+- Keep PR and issue metadata complete, including labels, assignee, milestone, public project and useful custom fields.
+- Do not close issue #68 or claim a release until the remaining acceptance gates are actually verified.
+
+## Current State
+- `origin/main` remains `1d22c5b231ae4f886cc1e92ad7af2a130e5f1a1f`, the PR #96 merge commit.
+- PR #97 is open at its current source head, which will be recorded after the final checkpoint commit and push below.
+- PR #97 labels are `documentation`, `area: testing`, and `initiative:crunchyroll-sync`; assignee is `muaz978`; milestone is `M3/M5: reliability and real-device validation`.
+- PR #97 is linked to the public project `SyncYourJoy Delivery and Reliability` with status `In Progress`, priority `P3 Low`, work type `Documentation`, evidence state `Local deterministic`, acceptance gates `Source review` and `Typecheck`, and risk `Low`. Blocked reason, target date and verification owner are blank.
+- All five hosted checks for PR #97 are successful: Analyze (javascript-typescript), CodeQL, DevSkim, devskim and Typecheck, test, and build.
+- Issue #68 remains open with its merge evidence comment. Release `0.2.4` remains unchanged and `1.0.0` is not claimed.
+
+## Complete Chronological Activity Log
+
+### 2026-09-22 - Created the documentation reconciliation branch and commit
+- Action taken: Switched to `codex/issue-68-reconciliation` from `origin/main` while carrying the already reviewed local edits to `tasks/plan.md` and `context-checkpoint.md`.
+- Action taken: Ran `git diff --check`.
+- Result: No whitespace errors.
+- Action taken: Committed the two documentation files with `docs: reconcile CR-D03 delivery evidence`.
+- Result: Commit `c81dfb1c1844dba41620b6990f76da54b0fe6c37` was created with 114 insertions and 3 deletions.
+- Action taken: Pushed the branch to `origin/codex/issue-68-reconciliation`.
+- Result: Local `HEAD` and the remote branch both resolved to `c81dfb1c1844dba41620b6990f76da54b0fe6c37`.
+
+### 2026-09-22 - Opened PR #97 and applied delivery metadata
+- Action taken: Opened PR #97, `docs: reconcile CR-D03 delivery evidence`, from the reconciliation branch into `main`.
+- Action taken: Applied labels `documentation`, `area: testing`, and `initiative:crunchyroll-sync`, assignee `muaz978`, and milestone `M3/M5: reliability and real-device validation`.
+- Result: `gh pr view 97` verified those metadata values and reported `MERGEABLE` with the expected base and head SHAs.
+- Action taken: Confirmed the GitHub project automation linked PR #97 to `SyncYourJoy Delivery and Reliability`.
+- Action taken: Used the signed-in Edge GitHub browser to set status `In Progress`, priority `P3 Low`, work type `Documentation`, evidence state `Local deterministic`, acceptance gates `Source review` and `Typecheck`, and risk `Low`.
+- Result: Fresh browser accessibility and screenshot evidence showed all selected values. The blank blocked reason, target date and verification owner were left unclaimed.
+
+### 2026-09-22 - PR #97 hosted verification
+- Action taken: Ran `gh pr checks 97` and inspected `gh pr view 97 --json ...`.
+- Result: All five hosted checks passed. The PR was mergeable, but review was correctly reported as required because no approving reviewer exists yet.
+- Action taken: Ran `git diff --check origin/main...HEAD` and inspected the complete two-file diff.
+- Result: The diff contains only the CR-D03 plan checklist reconciliation and the appended chronological checkpoint content. No source code, runtime behavior, release version or issue state changes are present.
+- Decision: Before review, append this checkpoint so the repository record no longer ends with the pre-PR state from checkpoint 94.
+
+## Confirmed Successful Results
+- Documentation reconciliation commit `c81dfb1c1844dba41620b6990f76da54b0fe6c37` exists locally and on the remote branch.
+- PR #97 is open with complete labels, assignee, milestone, public project linkage and verified project custom fields.
+- All five hosted checks for PR #97 passed.
+- The diff is documentation-only and passes `git diff --check`.
+- Issue #68 remains open and its detailed merge evidence is already published. No release was bumped.
+
+## Failed, Incomplete, or Unresolved Work
+- PR #97 has not yet received the final exact-head review comment and has not yet been merged.
+- The Verification owner custom text field is blank because GitHub did not persist that sidebar edit for PR #96 or PR #97. It is explicitly not claimed as complete.
+- Issue #68 still lacks authenticated Crunchyroll, navigation dependency #65, two-account/two-device, deployment and user-acceptance evidence.
+
+## Decisions and Rationale
+- Use PR #97 for the docs reconciliation so `main` receives the corrected plan and checkpoint through the same review-first workflow as code changes.
+- Keep the docs PR low risk and local deterministic because it changes only repository records and contains no runtime code.
+- Review the final head after the checkpoint commit and hosted checks, not the earlier `c81dfb1` state if another commit is added.
+
+## Files and Artifacts
+- Plan: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/tasks/plan.md`.
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`.
+- PR #97: `https://github.com/muaz978/sync-your-joy/pull/97`.
+- PR branch: `codex/issue-68-reconciliation`.
+
+## Assumptions and Uncertainties
+- The current GitHub CLI token cannot expose project-item data, so project linkage and custom fields are verified through the signed-in browser UI.
+- GitHub project automation may move the PR status after merge. While open, the intended status is `In Progress`; after merge, it should become `Done` and must be verified.
+
+## Open Questions, Blockers, and Dependencies
+- The owner-author cannot submit an approving review on their own PR. A formal review comment documenting the exact-head review is required, followed by the authorized admin merge if GitHub still requires approval.
+- Issue #68 remains dependent on #65 for navigation coverage and on external provider, device, deployment and user-acceptance evidence.
+
+## Next Steps
+1. Commit and push this checkpoint 95 append and verify the final remote SHA.
+2. Refresh PR #97’s body to reference the final head and the complete checkpoint state.
+3. Re-run `git diff --check`, inspect the exact final diff and confirm all hosted checks on the final head.
+4. Submit the formal final-head review comment, then merge PR #97 with the user-authorized review-first process.
+5. Verify the merge SHA, project status and main branch, then add the PR #97 merge record to issue #68 without closing issue #68.
+6. Inventory remaining open PRs before issues and continue oldest-first.
+
+## Historical Checkpoint Notes
+- Checkpoint 94 remains intact as the pre-PR reconciliation snapshot. This checkpoint supersedes its pending-delivery statements with confirmed PR #97 branch, metadata and hosted-check results.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
