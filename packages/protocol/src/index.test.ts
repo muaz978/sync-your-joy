@@ -1,6 +1,6 @@
 import type { MediaFingerprint } from './index.ts'
 import { describe, expect, it } from 'vitest'
-import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomContractSnapshot, isRoomOperation, mediaMatches, negotiateRoomMode, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
+import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomContractSnapshot, isRoomOperation, mediaMatches, mediaMatchesPageUrl, negotiateRoomMode, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
 
 describe('media identity matching', () => {
   it('does not treat two missing players as a video match', () => {
@@ -34,6 +34,33 @@ describe('media identity matching', () => {
     }
 
     expect(mediaMatches(base, { ...base, canonicalId: 'crunchyroll:GOTHER123456' })).toBe(false)
+  })
+
+  it('recognizes a localized Crunchyroll link as the same strong episode identity', () => {
+    const current: MediaFingerprint = {
+      service: 'crunchyroll',
+      canonicalId: 'crunchyroll:GE00345558JAJP',
+      title: 'Episode 12',
+      durationSeconds: 1_470,
+      pageUrl: 'https://www.crunchyroll.com/ar/watch/GE00345558JAJP/titre-localise',
+    }
+
+    expect(mediaMatchesPageUrl(current, 'https://crunchyroll.com/watch/GE00345558JAJP/original-title')).toBe(true)
+    expect(mediaMatchesPageUrl(current, 'https://crunchyroll.com/watch/GOTHER123456/next-episode')).toBe(false)
+    expect(mediaMatchesPageUrl(current, 'https://video.example/watch/GE00345558JAJP/lookalike')).toBe(false)
+  })
+
+  it('does not treat a weak generic page identity as unchanged across different URLs', () => {
+    const current: MediaFingerprint = {
+      service: 'html5',
+      canonicalId: 'page:episode-1',
+      title: 'Episode 1',
+      durationSeconds: 1_200,
+      pageUrl: 'https://video.example/watch?id=1',
+    }
+
+    expect(mediaMatchesPageUrl(current, 'https://video.example/watch?id=1&utm_source=room')).toBe(true)
+    expect(mediaMatchesPageUrl(current, 'https://video.example/watch?id=2')).toBe(false)
   })
 
   it('matches the same Qfilm video across page variants without relying on signed player URLs', () => {

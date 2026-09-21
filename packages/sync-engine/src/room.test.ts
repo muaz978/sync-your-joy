@@ -12,12 +12,24 @@ const media: MediaFingerprint = {
   durationSeconds: 600,
 }
 
-function createRoom(now: () => number = () => 10_000): RoomCoordinator {
+const crunchyMedia: MediaFingerprint = {
+  service: 'crunchyroll',
+  canonicalId: 'crunchyroll:GE00345558JAJP',
+  title: 'Episode 12',
+  durationSeconds: 1_470,
+  pageUrl: 'https://www.crunchyroll.com/ar/watch/GE00345558JAJP/titre-localise',
+}
+
+function createRoomWithMedia(roomMedia: MediaFingerprint, now: () => number = () => 10_000): RoomCoordinator {
   return new RoomCoordinator(
     { roomId: 'room_123456', code: 'ABCDEFGH' },
-    { id: 'participant_host', name: 'Muaz', media },
+    { id: 'participant_host', name: 'Muaz', media: roomMedia },
     now,
   )
+}
+
+function createRoom(now: () => number = () => 10_000): RoomCoordinator {
+  return createRoomWithMedia(media, now)
 }
 
 /**
@@ -500,6 +512,48 @@ describe('RoomCoordinator', () => {
       },
     })
     expect(opened.snapshot.participants.every(participant => !participant.ready && !participant.mediaMatches)).toBe(true)
+  })
+
+  it('does not restart the room for the same Crunchyroll episode on a localized link', () => {
+    const room = createRoomWithMedia(crunchyMedia)
+    room.setReady('participant_host', true, crunchyMedia)
+    const before = room.snapshot()
+
+    const opened = room.openLink('participant_host', {
+      actionId: 'action_same_episode_localized',
+      basedOnRevision: before.revision,
+      leaseEpoch: before.controller.leaseEpoch,
+      url: 'https://crunchyroll.com/watch/GE00345558JAJP/original-title',
+    })
+
+    expect(opened).toMatchObject({ ok: true, reason: 'navigation_unchanged' })
+    expect(opened.snapshot.revision).toBe(before.revision)
+    expect(opened.snapshot.contract?.mediaEpoch).toBe(before.contract?.mediaEpoch)
+    expect(opened.snapshot.media).toEqual(before.media)
+    expect(opened.snapshot.participants).toEqual(before.participants)
+  })
+
+  it('cancels old work and requires fresh readiness for a new shared link', () => {
+    const room = createTransactionalRoom(() => 10_000)
+    const started = controlTransactional(room, 'play', 30)
+    expect(started.snapshot.contract?.operation?.phase).toBe('preparing')
+
+    const opened = room.openLink('participant_host', {
+      actionId: 'action_new_episode_transaction',
+      basedOnRevision: started.snapshot.revision,
+      leaseEpoch: started.snapshot.controller.leaseEpoch,
+      url: 'https://video.example/watch/next-episode',
+    })
+
+    expect(opened).toMatchObject({
+      ok: true,
+      reason: 'link_opened',
+      snapshot: {
+        playback: { status: 'paused', positionSeconds: 0 },
+        contract: { mediaEpoch: 1, operation: null },
+      },
+    })
+    expect(opened.snapshot.participants.every(participant => !participant.ready && !participant.mediaMatches && participant.playbackStatus === 'wrong-media')).toBe(true)
   })
 
   it('starts a freshly shared link at position zero instead of carrying over the previous video\'s position', () => {
