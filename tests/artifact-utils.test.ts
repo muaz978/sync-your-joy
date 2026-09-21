@@ -10,7 +10,7 @@ describe('E2E artifact sanitization', () => {
   })
 
   it('redacts unsupported URL schemes and credential-like diagnostics', () => {
-    expect(sanitizeBrowserUrl('ws://127.0.0.1:8787/rooms?secret=1')).toBe('ws://redacted')
+    expect(sanitizeBrowserUrl('ws://synthetic.invalid/rooms?secret=1')).toBe('ws://redacted')
     expect(sanitizeDiagnosticText('https://www.crunchyroll.com/watch/episode?token=secret password=private'))
       .toBe('https://www.crunchyroll.com/watch/episode password=<redacted>')
   })
