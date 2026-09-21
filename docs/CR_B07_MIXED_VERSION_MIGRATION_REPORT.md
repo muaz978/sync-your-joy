@@ -17,7 +17,7 @@ Before this change:
 - `packages/protocol/src/index.ts` already defined the operation contract version, required transactional capabilities, fail-closed negotiation, optional create/join advertisements, and legacy defaults.
 - A missing or incompatible advertisement normalized to legacy mode, and `canAcknowledgeOperation()` rejected transactional acknowledgements in legacy mode.
 - `RoomCoordinator.refreshNegotiation()` cancelled an active transactional operation when an incompatible peer appeared.
-- `RoomCoordinatorState.contract` was optional for migration, but `pendingSeek` was restored independently. A pre-contract stored room could therefore retain a legacy seek barrier and its historical acknowledgement list after a cold restore.
+- `RoomCoordinatorState.contract` was optional for migration, but `pendingSeek` was restored independently. A pre-contract or partially written stored room could therefore retain a legacy seek barrier and its historical acknowledgement list after a cold restore.
 - `scripts/smoke-room-service.mjs` omitted capability advertisements and exercised the legacy `seek_applied` path, so it did not prove the current transactional controller acknowledgement path.
 
 ## Implementation
@@ -26,7 +26,7 @@ Before this change:
 
 `RoomCoordinatorState` now emits `stateVersion: 2`. Older state remains readable because the field is optional on input.
 
-When a restored state has no contract section, it is treated as pre-contract state:
+When a restored state has no complete contract boundary, including a missing or malformed contract section, it is treated as pre-contract state:
 
 1. The stored pending seek is validated but never restored as an active barrier.
 2. The acknowledgement list is discarded, so a historical host acknowledgement cannot count as new preparation evidence.
@@ -34,7 +34,7 @@ When a restored state has no contract section, it is treated as pre-contract sta
 4. The revision and control barrier advance, preventing an old control context from being reused.
 5. The normalized legacy contract is then refreshed against the connected participant advertisements.
 
-An explicitly versioned current legacy room retains its valid legacy pending seek. This distinction avoids unnecessarily changing a room that was already written by the current contract-aware state machine while still migrating genuinely pre-contract state safely.
+A complete contract-aware current legacy room retains its valid legacy pending seek. This distinction avoids unnecessarily changing a room that was already written by the current contract-aware state machine while still migrating genuinely pre-contract or partially written state safely.
 
 ### Mixed-version policy
 
@@ -69,10 +69,10 @@ Baseline before CR-B07 changes:
 
 Final local evidence:
 
-- `npx vitest run apps/room-service/src/server.test.ts packages/sync-engine/src/room.test.ts packages/protocol/src/index.test.ts`: 3 files, 96 tests passed.
+- `npx vitest run apps/room-service/src/server.test.ts packages/sync-engine/src/room.test.ts packages/protocol/src/index.test.ts`: 3 files, 97 tests passed.
 - `node --check scripts/smoke-room-service.mjs`: passed.
 - `npm run typecheck`: passed.
-- `npm run check`: 31 test files, 291 tests passed, typecheck and builds passed.
+- `npm run check`: 31 test files, 292 tests passed, typecheck and builds passed.
 - `npm run smoke:edge -- ws://127.0.0.1:8787/rooms` against a local room service: passed with `transactionalContractVerified: true`, both diagnostics participants, fixed seek position `137`, timeout rollback, and buffering safeguards.
 - `npx wrangler deploy --config apps/edge-service/wrangler.jsonc --dry-run`: passed, recognized `env.ROOMS (RoomDurableObject)`, 83.93 KiB upload and 16.33 KiB gzip. No remote deployment occurred.
 - `git diff --check`: passed.

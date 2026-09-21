@@ -862,6 +862,35 @@ describe('RoomCoordinator', () => {
     expect(restored.exportState().stateVersion).toBe(2)
   })
 
+  it('migrates a partially written contract with a pending seek to the same paused-safe state', () => {
+    const room = createRoom()
+    const sought = room.control('participant_host', {
+      actionId: 'action_partial_contract_seek',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 150,
+    })
+    if (!sought.ok || !sought.snapshot.seek)
+      throw new Error('Expected a legacy pending seek.')
+
+    const stored = room.exportState()
+    stored.contract = { mode: 'legacy' } as NonNullable<typeof stored.contract>
+    stored.pendingSeek = {
+      ...sought.snapshot.seek,
+      acknowledgedParticipantIds: ['participant_host'],
+    }
+    const restored = RoomCoordinator.fromState(stored, () => 20_000)
+
+    expect(restored.snapshot()).toMatchObject({
+      playback: { status: 'paused', positionSeconds: 150 },
+      seek: null,
+      contract: { mode: 'legacy', operation: null },
+    })
+    expect(restored.pendingSeekDeadlineMs()).toBeNull()
+    expect(restored.acknowledgeSeek('participant_host', stored.pendingSeek.revision, 150)).toBeNull()
+  })
+
   it('preserves an explicitly versioned legacy seek instead of treating it as pre-contract state', () => {
     const room = createRoom()
     const sought = room.control('participant_host', {

@@ -15,6 +15,7 @@ import type {
 } from '@syncyourjoy/protocol'
 import {
   isCurrentOperation,
+  isRoomContractSnapshot,
   mediaMatches,
   negotiateRoomMode,
   normalizeClientCapabilities,
@@ -133,9 +134,10 @@ export class RoomCoordinator {
       const restoredPendingSeek = normalizeRestoredPendingSeek(restoredState.pendingSeek)
       for (const request of restoredState.pendingJoinRequests ?? [])
         this.pendingJoinRequests.set(request.id, structuredClone(request))
+      const hasValidContractBoundary = isRoomContractSnapshot(restoredState.contract)
       this.contract = normalizeRoomContractSnapshot(restoredState.contract)
-      this.pendingSeek = restoredState.contract === undefined ? null : restoredPendingSeek
-      if (restoredState.contract === undefined)
+      this.pendingSeek = hasValidContractBoundary ? restoredPendingSeek : null
+      if (!hasValidContractBoundary)
         this.migratePreContractState(restoredPendingSeek)
       this.refreshNegotiation()
       return
