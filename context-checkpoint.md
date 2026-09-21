@@ -8088,6 +8088,106 @@
 # Context Checkpoint
 
 ## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue delivery, post-CR-D03 queue continuation.
+- Checkpoint number: 96.
+- Date and time: 2026-09-22 00:37 Europe/Istanbul.
+- Coverage period: Since checkpoint 95, covering PR #97 merge verification and the oldest-open-issue #30 baseline.
+- Current context status: PR #97 is merged and documented. Issue #30 is the oldest open issue and is waiting for protected external acceptance inputs, not waiting because the existing signed-in account is absent.
+
+## User Objective and Requirements
+- Continue open PRs before issues, then process issues oldest-first and dependency-aware.
+- Finish each issue completely before closing it. Preserve partial evidence and do not convert skipped or unavailable external runs into passes.
+- Recognize the user’s existing signed-in Crunchyroll account. Ask explicitly when a second account/profile, device, deployment target or other external input is genuinely required.
+- Commit and push repository changes, document the exact work, and keep `0.2.4` unchanged until a release group is actually complete.
+
+## Current State
+- `origin/main` is `f3215c4fb4f47f367cdf49c2d347c6cc7355fff5`, the merge commit for PR #97.
+- PRs: no open pull requests remain after PR #97 merged.
+- Issue #30 is the oldest open issue, state `OPEN`, with labels `documentation`, `security`, `initiative: crunchyroll-sync`, and `area: testing`, assignee `muaz978`, and milestone `M3/M5: reliability and real-device validation`.
+- Issue #30 has the existing provider harness from PR #71 and detailed prior evidence comments. The signed-in Edge account was previously confirmed available, but a usable authenticated player and the complete two-profile acceptance run have not been established.
+- The safe command `npm run test:e2e:crunchyroll` was rerun against the current tree. The local room service started, the extension built in an isolated output directory, the provider test was discovered, and it was safely skipped because the protected provider URL and both storage-state paths were not supplied.
+- The exact remaining #30 inputs are two dedicated authorized protected states, an HTTPS Crunchyroll `/watch/` URL authorized for both states, a second device or controlled second-device environment, the exact candidate/deployment identity, and final user acceptance.
+- Issue #30 received a detailed baseline comment at `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5767863328` and remains open. It is not labeled as blocked because the existing account is absent.
+- Release `0.2.4` remains unchanged. No `1.0.0` release is claimed.
+
+## Complete Chronological Activity Log
+
+### 2026-09-22 - Verified PR #97 final merge and project automation
+- Action taken: Fetched `origin/main` and verified PR #97 after the exact-head review and user-authorized administrative merge.
+- Result: PR #97 is `MERGED` at merge commit `f3215c4fb4f47f367cdf49c2d347c6cc7355fff5`; the final source head is `282a7842b55d2184f3e2cb113e22e1297df95585`; the source branch was preserved.
+- Action taken: Reloaded the signed-in GitHub Edge PR tab and inspected the project card.
+- Result: The public project `SyncYourJoy Delivery and Reliability` automatically moved PR #97 to `Status: Done`. Its labels, assignee, milestone and custom fields remained visible.
+- Action taken: Updated the merged PR description so its project status states `In Progress` during review and `Done` after merge, and its final review language is historical and accurate.
+- Action taken: Added the PR #97 merge record to issue #68.
+- Result: Issue #68 remains open with the follow-up merge comment and no release change.
+
+### 2026-09-22 - Inventoried the systematic queue
+- Action taken: Ran `gh pr list --state open`.
+- Result: No open pull requests remain.
+- Action taken: Ran the open issue inventory with `sort:created-asc`.
+- Result: The oldest open issue is #30, followed by #33, #34, #35, #49, #50 and the later dependency sequence. This matches the user’s requested old-first order, subject to external gates.
+- Action taken: Read issue #30’s body and all existing comments.
+- Result: The code and manual provider harness are already present from PR #71. Prior comments correctly identify the missing protected two-profile states, two-device evidence, deployment identity and user acceptance. One earlier controlled watch-page observation showed a login/trial surface without a usable native player, so it is not a provider pass.
+
+### 2026-09-22 - Reran the safe oldest-issue provider baseline
+- Action taken: Ran `npm run test:e2e:crunchyroll` from the current `0.2.4` tree.
+- Result: The local room service started at an ephemeral loopback endpoint, an isolated extension build was created under `test-results`, the authenticated provider test was discovered, and Playwright reported `1 skipped`. Exit status was successful for the safe-skip baseline.
+- Boundary: This result is an environment/input result. It is not authenticated playback evidence, two-account evidence, two-device evidence, deployment evidence or user acceptance.
+- Action taken: Added a detailed current-baseline comment to issue #30.
+- Result: The comment states that the existing signed-in account is available and identifies the exact second protected state, authorized URL, second-device, deployment identity and acceptance inputs still required. No account data, cookies, storage states, signed URLs, media bytes or DRM data were accessed or recorded.
+
+## Confirmed Successful Results
+- PR #97 is merged, fully reviewed at its exact final head, and represented on `main` at `f3215c4fb4f47f367cdf49c2d347c6cc7355fff5`.
+- No open PRs remain in the repository queue.
+- Issue #30 is confirmed as the oldest open issue and has a fresh safe-skip provider baseline.
+- The existing Crunchyroll account is explicitly recognized as available. The current blocker is the missing second protected authorized state and second-device acceptance environment, not absence of the user’s account.
+- Issue #30 remains open and has not been falsely marked complete or closed.
+
+## Failed, Incomplete, or Unresolved Work
+- The authenticated Crunchyroll two-profile test did not run because its protected URL and both storage-state paths were not supplied.
+- Issue #30 still lacks authenticated two-profile playback, two-account evidence, two-device evidence, exact candidate/deployment identity and user acceptance.
+- The current Edge session cannot safely be copied into committed or chat-visible storage-state files. Dedicated protected states must be supplied through protected local files or protected CI secrets.
+- No implementation change is justified by the safe-skip baseline alone.
+
+## Decisions and Rationale
+- Do not label issue #30 as blocked because the account is missing. The existing signed-in account is available, and the open gate is the declared two-profile/two-device acceptance matrix.
+- Do not copy daily-use browser cookies or storage state. The repository’s provider workflow explicitly requires protected dedicated states and prohibits recording their contents.
+- Pause issue #30 at its external-input gate before moving to #33, because the user requested finishing old issues systematically and #30 is the oldest unresolved item.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`.
+- Issue #30 baseline comment: `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5767863328`.
+- Issue #68 merge evidence: `https://github.com/muaz978/sync-your-joy/issues/68#issuecomment-5767836531`.
+- PR #97: `https://github.com/muaz978/sync-your-joy/pull/97`.
+- Safe provider run artifact directory: `test-results/e2e-1790026537617-20035-4d906b5f-cf3d-4c3c-974a-0c461901ce51/`.
+
+## Assumptions and Uncertainties
+- The two protected storage states may represent two dedicated authorized accounts or two authorized profiles according to the operator’s final test setup. They must both be authorized for the supplied `/watch/` URL.
+- A second physical device or a controlled second-device environment is still required for the issue’s two-device gate; the local three-profile matrix does not substitute for it.
+- The existing provider harness and manual CI workflow are assumed current because they are on merged `main` and the safe command executed them successfully through setup and discovery.
+
+## Open Questions, Blockers, and Dependencies
+- User input is required for the second dedicated authorized Crunchyroll state/profile and the second-device or controlled second-device environment.
+- The exact candidate extension and coordinator deployment identity must be supplied or selected before the provider acceptance report can be final.
+- Issue #65 remains a separate navigation dependency for CR-D03, while issue #33 is the broader two-account and cross-provider matrix after #30’s provider gate.
+
+## Next Steps
+1. Obtain the second protected authorized Crunchyroll state/profile, HTTPS `/watch/` URL valid for both states, and second-device environment from the user when ready. Do not paste secrets into chat or issues.
+2. Materialize the states only in protected local files or protected CI secrets and run `npm run test:e2e:crunchyroll`.
+3. Record a sanitized provider report separating native media state, aggregate progress, visible motion, roles, seeks, episode transitions and failures.
+4. Execute the two-device and deployment portions of issue #30 and request explicit user acceptance.
+5. Only after every applicable gate is evidenced, prepare a review-first PR or close the issue. Until then, keep #30 open.
+
+## Historical Checkpoint Notes
+- Checkpoints 1-95 remain intact. Checkpoint 96 records the PR #97 merge and the oldest-open-issue #30 baseline.
+- This checkpoint intentionally stops at the external-input gate and does not claim a provider pass, issue closure or release bump.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+---
+
+# Context Checkpoint
+
+## Session Metadata
 - Task or project: SyncYourJoy systematic PR and issue delivery, PR #97 documentation reconciliation.
 - Checkpoint number: 95.
 - Date and time: 2026-09-22 00:26 Europe/Istanbul.
