@@ -1,4 +1,14 @@
 import { defineConfig } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const repoRoot = resolve(here, '..', '..')
+const outputDirectory = process.env.SYNCYOURJOY_E2E_OUTPUT_DIR
+  ?? resolve(repoRoot, 'test-results', `e2e-${Date.now()}-${process.pid}-${randomUUID()}`)
+
+process.env.SYNCYOURJOY_E2E_OUTPUT_DIR = outputDirectory
 
 // This project is intentionally separate from vitest.config.ts (see
 // docs/TEST_GUIDE.md, "Real two-browser-profile end-to-end test"). It
@@ -16,13 +26,14 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 120_000,
+  outputDir: outputDirectory,
   expect: {
     timeout: 15_000,
   },
   globalSetup: './global-setup.ts',
-  reporter: [['list']],
+  reporter: [['list'], [resolve(here, './artifact-reporter.ts')]],
   use: {
-    trace: 'retain-on-failure',
-    video: 'retain-on-failure',
+    trace: 'off',
+    video: process.env.SYNCYOURJOY_E2E_VIDEO === '1' ? 'retain-on-failure' : 'off',
   },
 })

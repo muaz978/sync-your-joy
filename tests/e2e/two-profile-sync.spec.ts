@@ -27,7 +27,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { launchExtensionProfile, type ExtensionProfile } from './extension-profile.ts'
+import { launchExtensionProfiles, type ExtensionProfile } from './extension-profile.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const extensionDistDir = resolve(here, '..', '..', 'apps/extension/dist')
@@ -46,10 +46,17 @@ test.describe('two-profile playback synchronization', () => {
 
   test.beforeAll(async () => {
     const dist = process.env.SYNCYOURJOY_E2E_EXTENSION_DIST ?? extensionDistDir
-    ;[profileA, profileB] = await Promise.all([
-      launchExtensionProfile(dist, 'a'),
-      launchExtensionProfile(dist, 'b'),
+    const artifactDirectory = process.env.SYNCYOURJOY_E2E_ARTIFACT_DIR
+    const trace = process.env.SYNCYOURJOY_E2E_TRACE === '1'
+    const profileOptions = {
+      ...(artifactDirectory ? { artifactDirectory } : {}),
+      trace,
+    }
+    ;[profileA, profileB] = await launchExtensionProfiles(dist, [
+      { label: 'a', options: profileOptions },
+      { label: 'b', options: profileOptions },
     ])
+    await Promise.all([profileA.recordState('initial'), profileB.recordState('initial')])
   })
 
   test.afterAll(async () => {
@@ -80,6 +87,7 @@ test.describe('two-profile playback synchronization', () => {
     await profileA.panel.click('[data-approve-join]')
     await profileB.panel.waitForSelector('#copy-code')
     await expect(profileB.panel.locator('#copy-code .font-mono').first()).toHaveText(roomCode!)
+    await Promise.all([profileA.recordState('room-created'), profileB.recordState('room-joined')])
 
     // --- Profile A (the controller) shares the local test-player page ------
     // This is the product's real "share code -> both open the same video"
@@ -114,6 +122,7 @@ test.describe('two-profile playback synchronization', () => {
     await profileB.panel.waitForSelector('#ready-button', { timeout: 20_000 })
     await profileA.panel.click('#ready-button')
     await profileB.panel.click('#ready-button')
+    await Promise.all([profileA.recordState('ready-clicked'), profileB.recordState('ready-clicked')])
     // Profile A is the controller: its remote only enables once every
     // connected participant (including itself) is ready and on the right
     // video (apps/extension/src/sidepanel.ts, controllerControls()).
@@ -121,6 +130,7 @@ test.describe('two-profile playback synchronization', () => {
 
     // --- Controller (profile A) plays; profile B's real video mirrors it ---
     await profileA.panel.click('#primary-control')
+    await Promise.all([profileA.recordState('play-requested'), profileB.recordState('play-requested')])
     await assertBothPlayersAdvance(profileAVideoPage, profileBVideoPage)
     await assertPositionsConverge(profileAVideoPage, profileBVideoPage)
 
@@ -173,9 +183,13 @@ test.describe('two-profile playback synchronization', () => {
     // it to settle back to a clickable play/pause state first.
     await profileA.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 10_000 })
     await profileA.panel.click('#primary-control')
+    await Promise.all([profileA.recordState('pause-requested'), profileB.recordState('pause-requested')])
     await profileAVideoPage.waitForFunction(() => document.querySelector('video')?.paused === true, undefined, { timeout: 10_000 })
     await profileBVideoPage.waitForFunction(() => document.querySelector('video')?.paused === true, undefined, { timeout: 15_000 })
     await assertPositionsConverge(profileAVideoPage, profileBVideoPage)
+
+    if (process.env.SYNCYOURJOY_E2E_INJECT_FAILURE === '1')
+      throw new Error('[product-assertion] Intentional fixture assertion failure for CR-D01 artifact verification.')
   })
 })
 
