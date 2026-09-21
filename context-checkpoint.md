@@ -3988,6 +3988,70 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 78 - CR-B07 PR #89 verified merge and issue acceptance handoff
+
+## Session Metadata
+
+- Task or project: SyncYourJoy systematic PR and issue remediation
+- Checkpoint number: 78
+- Date and time: 2026-09-21 Europe/Istanbul
+- Coverage period: PR #89 final verification, protected merge, remote-main verification, issue #61 post-merge documentation and transition to the next queue scan
+- Current context status: PR #89 is reviewed and merged. Issue #61 remains open with detailed post-merge evidence. Release remains `0.2.4`. The retained CR-B07 branch is available for audit documentation, and the next implementation queue scan is pending.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 - Final PR #89 verification
+
+- Re-read PR #89 metadata before merging.
+- Confirmed final source head `b54261a95ba7ab98712103d6f27dcf4802c69c69`.
+- Confirmed the final detailed `COMMENTED` review is attached to that exact head. The review records no blocking correctness, security, architecture, performance or verification finding after the malformed-contract migration correction.
+- Confirmed all five hosted checks passed on that exact head.
+- Confirmed labels, assignee `muaz978`, milestone `M3/M5: reliability and real-device validation`, clean local branch and matching remote feature-branch SHA.
+- The user explicitly instructed: verify the review, merge, and continue.
+
+### 2026-09-21 - Protected merge
+
+- Merged PR #89 through the authorized administrator path with `--merge --admin --delete-branch=false`.
+- GitHub reported PR #89 as `MERGED` at `2026-09-21T12:30:43Z`.
+- Merge commit: `94924c569c9e3f5e0b575e59610b047ba236478e`.
+- Fetched `origin/main` and independently verified both local `origin/main` and remote `refs/heads/main` resolve to the merge commit.
+- Verified the retained feature branch still resolves to the reviewed source head. No branch deletion was performed.
+
+### 2026-09-21 - Issue #61 post-merge evidence
+
+- Created detailed post-merge documentation at `/private/tmp/syj-cr-b07-issue-61-merge.md`.
+- Published it to issue #61 at `https://github.com/muaz978/sync-your-joy/issues/61#issuecomment-5760528851`.
+- The comment records the reviewed head, review limitation, merge commit, local and remote ref verification, retained branch, completed migration scope, all local/hosted evidence, state-only boundary, signed-in-account availability and remaining external gates.
+- Issue #61 remains open. It was not closed because old-server/new-client fixture coverage, staging, authenticated live Crunchyroll, installation, two-device and user-acceptance gates remain separately unverified.
+- No release bump occurred. Version `0.2.4` remains current and `1.0.0` remains reserved for complete milestone acceptance.
+- The public PR project custom fields were not edited in this step. Labels, assignee, milestone and automatic project linkage remain present.
+
+## Confirmed Successful Results
+
+- PR #89 is merged into `main` at `94924c569c9e3f5e0b575e59610b047ba236478e`.
+- `origin/main` and the remote `main` ref match the merge commit.
+- The detailed final review was verified before merge on the exact source head.
+- Issue #61 contains detailed post-merge evidence at comment `5760528851` and remains open.
+- The retained CR-B07 feature branch was not deleted.
+
+## Failed, Incomplete, or Unresolved Work
+
+- Issue #61 is not complete and must not be closed yet. External and old-server/new-client fixture gates remain.
+- Public project custom fields for PR #89 remain unpopulated beyond automatic linkage, labels, assignee and milestone.
+- Remote staging, authenticated live Crunchyroll visible behavior, installation, two-account/two-device acceptance, final user acceptance and release qualification remain unperformed.
+- No release bump occurred.
+
+## Next Steps
+
+1. Re-scan open PRs and issues, confirming no unreviewed PR is waiting and selecting the next oldest dependency-aware implementation issue.
+2. Continue the same source-first workflow: classify the issue, inspect actual code and runtime surfaces, add regressions, implement, verify, document, commit, push, open a metadata-complete PR, review its exact final head, and merge only after authorization.
+3. Keep issue #61 open for its remaining acceptance gates and revisit project custom fields only with explicit public-field action confirmation.
+
+## Historical Checkpoint Notes
+
+- Checkpoints 1-77 remain preserved. This checkpoint supersedes only the pre-merge state for PR #89 and the pending issue #61 handoff.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 ### 2026-09-21 - Corrected PR hosted checks and final exact-head review
 
 - Updated PR #89 body with the corrected malformed/partial contract migration scope and final counts.
