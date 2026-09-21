@@ -4,7 +4,11 @@ export const SEEK_COMPLETION_PROBE_MS = 80
 export const SEEK_ACK_RETRY_MS = 250
 export const SEEK_RETRY_INTERVAL_MS = 120
 export const SEEK_INTENT_DEDUP_MS = 1_000
-export const SEEK_BARRIER_MAX_WAIT_MS = 1_800
+// A room command waits for every ready participant, not only the controller.
+// Three isolated browser profiles can require more than one scheduling turn
+// to acknowledge the same local seek or play preparation, so keep this
+// bounded window above the local player timeout without making it unbounded.
+export const SEEK_BARRIER_MAX_WAIT_MS = 3_000
 export const LOCAL_SEEK_MAX_WAIT_MS = 1_500
 
 export function isSeekAligned(currentSeconds: number, targetSeconds: number): boolean {

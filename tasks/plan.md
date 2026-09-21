@@ -123,3 +123,98 @@ Issue #67 is the controlled-fixture dependency after CR-D01. It supplies owned b
 | Synthetic media is treated as provider proof | High | Label the page and documentation as owned, unencrypted and non-provider evidence. |
 | A media clock advances without visible output | High | Keep visible-motion and native frame evidence as separate acceptance gates. |
 | Generated asset differs between FFmpeg versions | Low | Assert duration and fragment structure, not a toolchain-specific byte hash. |
+
+---
+
+# Implementation Plan: CR-D03 complete local three-profile browser matrix
+
+## Overview
+
+Issue #68 is the local browser evidence task after the CR-D01 artifact and CR-D02 adaptive-fixture work. It uses three isolated Chromium profiles, the real unpacked extension, the in-process room service and an owned local media fixture. The issue tracker remains authoritative. This section records the implementation sequence, evidence boundaries and remaining gates.
+
+## Architecture decisions
+
+- Use three persistent Chromium profiles to require a real fixed quorum rather than relying on two-member behavior.
+- Use the generated 120-second adaptive fixture so the 30-second sustained window cannot mistake the short fixture's loop boundary for a controller correction.
+- Observe native frame progress, native paused state, exact seek destinations and bounded hard current-time writes separately from room-clock convergence.
+- Exercise source replacement, controlled `NotAllowedError`, local gesture recovery, in-panel Sync, explicit readiness re-admission, controller transfer, reconnect and native scrubbing as separate lifecycle gates.
+- Keep navigation scenarios out of the CR-D03 claim until CR-C04 issue #65 is complete.
+- Use a token-gated local room-service disconnect control only in the E2E harness because browser-context offline emulation cannot reliably close an MV3 service-worker WebSocket. Do not expose the route in production or edge service construction.
+- Treat reconnect as membership restoration followed by explicit controller resume because the coordinator pauses safely when a participant disconnects.
+- Serialize overlapping MV3 timeout and alarm reconnect callbacks with a single-flight promise so duplicate join handshakes cannot race on one socket.
+
+## Task list
+
+### Phase 1: three-profile scenario
+
+- [x] Add a real three-profile Playwright spec with host approval and fixed quorum.
+- [x] Add a 30-second sustained window with paired drift, frame-progress and hard-write metrics.
+- [x] Assert exact seek destinations and native scrub convergence.
+- [x] Cover source replacement, readiness re-detection and one-shot playback rejection recovery.
+- [x] Cover controller transfer to B and back to A.
+
+### Phase 2: evidence-driven runtime corrections
+
+- [x] Preserve native frame progress during the transactional startup grace window.
+- [x] Rebase steady-play health timing when delayed started acknowledgements arrive.
+- [x] Do not expire an operation after every required participant has confirmed start.
+- [x] Increase the bounded seek barrier ceiling to the required three-profile scheduling window and retain the corresponding unit assertion.
+- [x] Add `requestVideoFrameCallback` observation with lifecycle attach and detach handling.
+- [x] Add a loopback-only playback rejection hook that is unavailable on provider pages.
+- [x] Use the long adaptive fixture for the sustained window rather than the short looping fixture.
+- [x] Add bounded operation diagnostics to the side panel.
+- [x] Make the reconnect handshake single-flight across timeout and alarm wakeups.
+
+### Phase 3: deterministic reconnect harness
+
+- [x] Add an ephemeral token to the E2E room-service setup.
+- [x] Add a local-only participant disconnect route, absent unless the token is supplied.
+- [x] Add direct room-service coverage for wrong tokens, exact participant closure and participant-disconnected publication.
+- [x] Verify the extension enters reconnecting, rejoins the same room and preserves readiness.
+- [x] Verify the coordinator safety pause and explicit post-reconnect controller resume.
+
+### Phase 4: documentation and delivery
+
+- [x] Add [`docs/CR_D03_BROWSER_MATRIX.md`](../docs/CR_D03_BROWSER_MATRIX.md) with scope, metrics, privacy boundary, route boundary and limitations.
+- [x] Link CR-D03 from [`docs/TEST_GUIDE.md`](../docs/TEST_GUIDE.md).
+- [x] Record the CR-D03 plan and evidence boundary in this file.
+- [x] Pass the focused three-profile matrix.
+- [x] Run `npm run check` against the final working tree: 36 Vitest files and 319 tests passed, followed by successful server and extension builds.
+- [x] Run the complete `npm run test:e2e` suite: 5 passed and the opt-in authenticated Crunchyroll test skipped because protected storage-state inputs were not supplied.
+- [x] Run `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e`: 5 passed and the same opt-in provider test skipped; the three-profile matrix passed in headed Chromium in 44.4 seconds.
+- [ ] Commit atomically, push the branch and verify the remote SHA.
+- [ ] Open a metadata-complete PR for #68, review the exact final head and fresh hosted checks, then merge only after review.
+- [ ] Add the merge evidence to issue #68 while retaining the issue until remaining dependency, deployment and user-acceptance gates are complete.
+
+## Verification gates
+
+| Gate | Evidence | Status |
+| --- | --- | --- |
+| Source review | Matrix, fixture, room service, service worker, health and coordinator changes reviewed together | Pending final PR review |
+| Typecheck | `npm run typecheck` | Passed in final `npm run check` |
+| Unit tests | `npm run check`, 36 files and 319 tests | Passed |
+| Browser test | Three-profile local matrix and complete `npm run test:e2e` | Passed, 5 tests passed and 1 opt-in provider test skipped |
+| Headed browser test | `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e` | Passed, 5 tests passed and 1 opt-in provider test skipped |
+| Navigation | CR-C04 scenarios | Not claimed, blocked by issue #65 |
+| Crunchyroll provider acceptance | Authenticated provider run | Separate, not claimed by CR-D03 |
+| Physical-device acceptance | Two-device network and sleep/wake run | Separate, not claimed by CR-D03 |
+| User acceptance | Controlled headed and live-provider reports | Pending separate evidence |
+
+## Risks and mitigations
+
+| Risk | Impact | Mitigation |
+| --- | --- | --- |
+| Three participants are treated as a two-member shortcut | High | Fixed quorum and three isolated profiles |
+| A room clock advances while native media is frozen | High | Presented-frame and native paused assertions |
+| A short fixture loops during the sustained window | Medium | Use the 120-second adaptive fixture |
+| Context offline does not close an MV3 worker socket | High | Token-gated local server-side disconnect control |
+| Disconnect recovery resumes stale playback silently | High | Coordinator safety pause plus explicit post-reconnect controller resume |
+| Timeout and alarm send duplicate reconnect joins | High | Single-flight reconnect promise |
+| Test controls leak into production | High | Route requires an ephemeral option that normal and deployed constructors never pass |
+| Local fixture success is mistaken for Crunchyroll proof | High | Separate provider, physical-device, deployment and user-acceptance gates |
+
+## Open questions
+
+- Issue #65 navigation coverage remains outstanding.
+- Hosted PR checks and the exact final-head review must be completed before merge.
+- Authenticated Crunchyroll, deployment, two-account, two-device and user-acceptance gates remain separate and must not be inferred from this deterministic fixture.

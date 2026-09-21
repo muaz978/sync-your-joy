@@ -41,6 +41,40 @@ describe('player health evidence', () => {
     expect(state.progressEvidence).toBe('frames')
   })
 
+  it('retains native progress observed during transactional startup grace', () => {
+    let state = createPlayerHealthState(baseline)
+    state = observePlayerHealth(state, {
+      nowMs: 500,
+      positionSeconds: 0,
+      frames: 0,
+      paused: false,
+      seeking: false,
+      localSeeking: false,
+      roomPlaying: true,
+      playShouldHaveStarted: false,
+      lacksPlayableData: false,
+      explicitlyBuffering: false,
+      localIntentHold: false,
+    })
+    state = observePlayerHealth(state, {
+      nowMs: 1_000,
+      positionSeconds: 0.5,
+      frames: 12,
+      paused: false,
+      seeking: false,
+      localSeeking: false,
+      roomPlaying: true,
+      playShouldHaveStarted: false,
+      lacksPlayableData: false,
+      explicitlyBuffering: false,
+      localIntentHold: false,
+    })
+
+    expect(state.progressed).toBe(true)
+    expect(state.progressEvidence).toBe('frames')
+    expect(state.hasRealPlaybackProgress).toBe(true)
+  })
+
   it('does not treat a reset frame counter as progress', () => {
     let state = createPlayerHealthState({ ...baseline, frames: 30 })
     state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 20 })

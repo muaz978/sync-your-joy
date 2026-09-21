@@ -22,7 +22,7 @@ describe('seek barrier alignment', () => {
     expect(SEEK_COMPLETION_PROBE_MS).toBeLessThan(100)
     expect(SEEK_ACK_RETRY_MS).toBeLessThanOrEqual(250)
     expect(SEEK_RETRY_INTERVAL_MS).toBeLessThanOrEqual(150)
-    expect(SEEK_BARRIER_MAX_WAIT_MS).toBeLessThanOrEqual(2_000)
+    expect(SEEK_BARRIER_MAX_WAIT_MS).toBeLessThanOrEqual(3_000)
     expect(SEEK_BARRIER_MAX_WAIT_MS).toBeGreaterThan(LOCAL_SEEK_MAX_WAIT_MS)
   })
 

@@ -12,7 +12,7 @@
 // a fresh extension there. The canonical apps/extension/dist release output
 // is never used as the E2E build target.
 import type { FullConfig } from '@playwright/test'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, relative, resolve } from 'node:path'
@@ -37,7 +37,8 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
   process.env.SYNCYOURJOY_E2E_EXTENSION_DIST = extensionDistDir
 
   try {
-    service = await createRoomService({ port: 0 })
+    const testControlToken = randomBytes(24).toString('base64url')
+    service = await createRoomService({ port: 0, testControlToken })
     const roomServerUrl = service.url // e.g. ws://127.0.0.1:54321/rooms
     const testPlayerUrl = `${roomServerUrl.replace(/^ws:/, 'http:').replace(/\/rooms$/, '')}/test-player`
 
@@ -45,6 +46,7 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
 
     process.env.SYNCYOURJOY_E2E_ROOM_SERVER_URL = roomServerUrl
     process.env.SYNCYOURJOY_E2E_TEST_PLAYER_URL = testPlayerUrl
+    process.env.SYNCYOURJOY_E2E_CONTROL_TOKEN = testControlToken
 
     await buildExtension(roomServerUrl, extensionDistDir)
     await writeProvenance(artifactDirectory, extensionDistDir, roomServerUrl)
@@ -58,12 +60,14 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     })
     await service?.close()
     service = null
+    delete process.env.SYNCYOURJOY_E2E_CONTROL_TOKEN
     throw error
   }
 
   return async () => {
     await service?.close()
     service = null
+    delete process.env.SYNCYOURJOY_E2E_CONTROL_TOKEN
   }
 }
 

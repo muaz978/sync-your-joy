@@ -73,6 +73,10 @@ let state: ExtensionState = {
 let socket: WebSocket | null = null
 let connectionPromise: Promise<void> | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+// The timeout and chrome.alarms fallback can wake the service worker at the
+// same time. Keep their join handshake single-flight so two callbacks never
+// send duplicate join_room messages on one newly opened socket.
+let reconnectPromise: Promise<void> | null = null
 let pingTimer: ReturnType<typeof setInterval> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let reconnectAttempts = 0
@@ -690,24 +694,40 @@ async function connect(roomCode: string): Promise<void> {
 }
 
 async function reconnectIfNeeded(): Promise<void> {
+  if (reconnectPromise)
+    return reconnectPromise
   if (!state.snapshot || socket?.readyState === WebSocket.OPEN)
     return
 
+  reconnectPromise = (async () => {
+    try {
+      const roomCode = state.snapshot?.code
+      if (!roomCode)
+        return
+      await connect(roomCode)
+      if (!state.snapshot || socket?.readyState !== WebSocket.OPEN)
+        return
+      sendToServer({
+        type: 'join_room',
+        protocolVersion: 1,
+        participantId: state.participantId,
+        name: state.displayName,
+        code: roomCode,
+        media: state.currentMedia,
+        capabilities: CURRENT_CLIENT_CAPABILITIES,
+        ...(state.sessionToken ? { sessionToken: state.sessionToken } : {}),
+      })
+    }
+    catch {
+      scheduleReconnect()
+    }
+  })()
+
   try {
-    await connect(state.snapshot.code)
-    sendToServer({
-      type: 'join_room',
-      protocolVersion: 1,
-      participantId: state.participantId,
-      name: state.displayName,
-      code: state.snapshot.code,
-      media: state.currentMedia,
-      capabilities: CURRENT_CLIENT_CAPABILITIES,
-      ...(state.sessionToken ? { sessionToken: state.sessionToken } : {}),
-    })
+    await reconnectPromise
   }
-  catch {
-    scheduleReconnect()
+  finally {
+    reconnectPromise = null
   }
 }
 

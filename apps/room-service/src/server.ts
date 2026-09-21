@@ -54,12 +54,13 @@ export interface RoomService {
   close: () => Promise<void>
 }
 
-export async function createRoomService(options: { port?: number; host?: string } = {}): Promise<RoomService> {
+export async function createRoomService(options: { port?: number; host?: string; testControlToken?: string } = {}): Promise<RoomService> {
   const rooms = new Map<string, RoomEntry>()
   const clients = new Map<WebSocket, ConnectedClient>()
   const recoveryTimers = new Map<string, NodeJS.Timeout>()
   const socketRemoteAddresses = new WeakMap<WebSocket, string>()
   const roomCountByIp = new Map<string, number>()
+  const testControlToken = options.testControlToken?.trim() || null
 
   function releaseRoomIpSlot(ip: string): void {
     const count = roomCountByIp.get(ip)
@@ -98,6 +99,41 @@ export async function createRoomService(options: { port?: number; host?: string 
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES })
 
   const httpServer = createServer((request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost')
+
+    // This route is intentionally absent unless an in-process test supplies
+    // an unpredictable token. It lets the local browser matrix sever one
+    // participant's real WebSocket, which browser-context offline emulation
+    // cannot reliably do for an MV3 service-worker target. Production and
+    // deployed room-service instances never pass testControlToken.
+    if (request.method === 'POST' && url.pathname === '/__test/disconnect' && testControlToken !== null) {
+      if (request.headers['x-syncyourjoy-test-token'] !== testControlToken) {
+        response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ error: 'not_found' }))
+        return
+      }
+
+      const roomCode = url.searchParams.get('room')
+      const participantId = url.searchParams.get('participant')
+      const room = roomCode ? rooms.get(roomCode) : undefined
+      if (!room || !participantId) {
+        response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ error: 'not_found' }))
+        return
+      }
+
+      let closedSockets = 0
+      for (const socket of room.sockets) {
+        if (clients.get(socket)?.participantId !== participantId)
+          continue
+        closedSockets += 1
+        socket.close(4002, 'test_disconnect')
+      }
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: true, closedSockets }))
+      return
+    }
+
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
       response.end(JSON.stringify({ ok: true, rooms: rooms.size }))

@@ -62,6 +62,45 @@ describe('room service', () => {
     friend.close()
   })
 
+  it('keeps the local disconnect control token-gated and closes only the selected participant', async () => {
+    service = await createRoomService({ port: 0, testControlToken: 'local-test-token' })
+    const host = await connect(service.url)
+    const friend = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'DISC1234', media: null,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    await joinAndApprove(host, friend, created.snapshot.code, 'participant_friend', 'Rana', null)
+
+    const endpoint = `${service.url.replace(/^ws:/, 'http:').replace(/\/rooms$/, '')}/__test/disconnect?room=${created.snapshot.code}&participant=participant_friend`
+    const unauthorized = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'x-syncyourjoy-test-token': 'wrong-token' },
+    })
+    expect(unauthorized.status).toBe(404)
+
+    const hostUpdate = nextRoomSnapshot(host, 'participant_disconnected')
+    const friendClosed = new Promise<void>(resolve => friend.once('close', () => resolve()))
+    const disconnected = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'x-syncyourjoy-test-token': 'local-test-token' },
+    })
+    expect(disconnected.status).toBe(200)
+    await expect(disconnected.json()).resolves.toEqual({ ok: true, closedSockets: 1 })
+    await expect(friendClosed).resolves.toBeUndefined()
+    await expect(hostUpdate).resolves.toMatchObject({
+      snapshot: {
+        participants: expect.arrayContaining([
+          expect.objectContaining({ id: 'participant_friend', connected: false }),
+        ]),
+      },
+    })
+
+    host.close()
+  })
+
   it('lets the controller approve a pending join request, admitting the requester on both sides', async () => {
     service = await createRoomService({ port: 0 })
     const host = await connect(service.url)

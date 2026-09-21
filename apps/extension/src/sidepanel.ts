@@ -551,6 +551,7 @@ function playerDiagnosticsCard(current: ExtensionState): string {
   const diagnostics = current.playerDiagnostics
   const sample = current.lastPlayerSample
   const health = diagnostics?.health
+  const operation = current.snapshot?.contract?.operation
   const frame = current.playerFrameId === null ? 'Not bound' : current.playerFrameId === 0 ? 'Top page' : `Embedded frame ${current.playerFrameId}`
   const source = diagnostics?.currentSrcKind ?? 'none'
   return `
@@ -566,6 +567,10 @@ function playerDiagnosticsCard(current: ExtensionState): string {
         <span class="color-fade">Progress evidence</span><span class="text-right">${escapeHtml(sample?.progressEvidence ?? health?.progressEvidence ?? 'unknown')}</span>
         <span class="color-fade">Rendered progress</span><span class="text-right">${sample ? sample.progressed ? 'Yes' : 'No' : health?.hasRealPlaybackProgress ? 'Observed' : 'Not observed'}</span>
         <span class="color-fade">Play start failure</span><span class="text-right">${sample ? sample.playbackStartFailed ? 'Yes' : 'No' : health?.playbackStartFailed ? 'Yes' : 'No'}</span>
+        <span class="color-fade">Operation phase</span><span class="text-right">${escapeHtml(operation?.phase ?? 'none')}</span>
+        <span class="color-fade">Prepared acknowledgements</span><span class="text-right font-mono">${operation ? `${operation.preparedParticipantIds.length}/${operation.requiredParticipantIds.length}` : '—'}</span>
+        <span class="color-fade">Started acknowledgements</span><span class="text-right font-mono">${operation ? `${operation.startedParticipantIds.length}/${operation.requiredParticipantIds.length}` : '—'}</span>
+        <span class="color-fade">Operation reason</span><span class="text-right">${escapeHtml(operation?.reason ?? '—')}</span>
         <span class="color-fade">Ready state</span><span class="text-right font-mono">${diagnostics?.readyState ?? '—'}</span>
         <span class="color-fade">Network state</span><span class="text-right font-mono">${diagnostics?.networkState ?? '—'}</span>
         <span class="color-fade">Duration</span><span class="text-right font-mono tabular-nums">${sample?.durationSeconds == null ? '—' : formatTime(sample.durationSeconds)}</span>
