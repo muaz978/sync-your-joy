@@ -50,6 +50,10 @@ export class PlayerOperations {
     return this.activeSeek
   }
 
+  get hasActivePlay(): boolean {
+    return this.activePlay !== null
+  }
+
   snapshot(): OperationGeneration {
     return {
       commandGeneration: this.commandGeneration,

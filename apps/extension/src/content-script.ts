@@ -1,6 +1,6 @@
 import type { MediaFingerprint, OperationAcknowledgement, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { canApplySoftDriftCorrection, canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isPlaybackRateAccepted, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
+import { canApplySoftDriftCorrection, canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isPlaybackRateAccepted, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, PLAYBACK_STARTUP_TIMEOUT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
@@ -15,6 +15,7 @@ import { discoverOpenShadowRoots, discoverVideoElements } from './video-discover
 const PLAYER_SCAN_INTERVAL_MS = 2_000
 const SAMPLE_INTERVAL_MS = 1_000
 const MEDIA_HEARTBEAT_INTERVAL_MS = 1_000
+const PLAY_REQUEST_TIMEOUT_MS = PLAYBACK_STARTUP_TIMEOUT_MS
 const SEEK_RECOVERY_GRACE_MS = 2_500
 const SOFT_CORRECTION_MAX_MS = 2_500
 const PLAYER_PILL_LAYER = '2147483600'
@@ -35,6 +36,7 @@ let lastMediaReportAt = 0
 let localSeeking = false
 let localIntentHoldUntil = 0
 let expectedPlayUntil = 0
+let playAttemptTimer: ReturnType<typeof setTimeout> | null = null
 let expectedPauseUntil = 0
 let expectedSeek: { positionSeconds: number; until: number } | null = null
 let pendingSeek: { token: OperationToken; positionSeconds: number; since: number; lastAttemptAt: number; roomRevision: number | null; timedOut?: boolean } | null = null
@@ -607,6 +609,7 @@ function detachPlayer(target: HTMLVideoElement | null): void {
 }
 
 function invalidatePlayRequest(): void {
+  clearPlayAttemptTimer()
   playerOperations.retirePlay()
   expectedPlayUntil = 0
   playerHealth = clearPlaybackStartFailed(playerHealth)
@@ -997,7 +1000,9 @@ function applyAuthoritativeState(): void {
 
   // Let an adaptive player finish fetching/decoding the pending destination.
   // Chasing the advancing room clock here aborts that seek every heartbeat.
-  if (pendingSeek || video.seeking)
+  if (pendingSeek || video.seeking || playerOperations.hasActivePlay)
+    return
+  if (playbackRecoveryRequested)
     return
 
   const timeUntilPlayMs = snapshot.playback.effectiveAtServerMs - estimatedServerNowMs
@@ -1081,7 +1086,7 @@ function applyAuthoritativeState(): void {
     restorePlaybackRate()
   }
 
-  if (video.paused && !video.seeking && pendingSeek === null)
+  if (video.paused && !video.seeking && pendingSeek === null && !playbackRecoveryRequested)
     playVideo()
 }
 
@@ -1162,11 +1167,27 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
     return
   expectPlayEvent()
   const isCurrent = () => playerOperations.isCurrentPlay(operation) && video === target && target.currentSrc === source
+  playAttemptTimer = setTimeout(() => {
+    playAttemptTimer = null
+    if (!isCurrent())
+      return
+    playerOperations.retirePlay()
+    expectedPlayUntil = 0
+    playbackRecoveryRequested = true
+    if (!target.paused) {
+      expectPauseEvent()
+      target.pause()
+    }
+    onFailed?.()
+    showNotice('The player did not respond to the synchronized play. Press Sync to retry without refreshing.')
+    void reportPlayerStatus(true)
+  }, PLAY_REQUEST_TIMEOUT_MS)
   void target.play().then(() => {
     if (!isCurrent()) {
       playerOperations.settlePlay(operation)
       return
     }
+    clearPlayAttemptTimer()
     playerOperations.settlePlay(operation)
     onStarted()
   }).catch((error: unknown) => {
@@ -1174,6 +1195,7 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
       playerOperations.settlePlay(operation)
       return
     }
+    clearPlayAttemptTimer()
     playerOperations.settlePlay(operation)
     expectedPlayUntil = 0
     // pause(), load(), and source replacement can interrupt play(). They
@@ -1191,6 +1213,12 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
     showNotice(name === 'NotAllowedError' ? blockedNotice : 'The video could not start. Check the player, then press Sync to retry.')
     void reportPlayerStatus(true)
   })
+}
+
+function clearPlayAttemptTimer(): void {
+  if (playAttemptTimer)
+    clearTimeout(playAttemptTimer)
+  playAttemptTimer = null
 }
 
 function currentEpisodeMatchesRoom(): boolean {
