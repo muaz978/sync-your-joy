@@ -209,7 +209,26 @@ export interface ParticipantState {
   connected: boolean
   mediaMatches: boolean
   latencyMs: number | null
+  /** Bounded, privacy-safe playback state for the room panel. */
+  playbackStatus?: ParticipantPlaybackStatus
 }
+
+/**
+ * Public participant state deliberately contains a coarse status instead of
+ * the participant's raw PlayerSample. This lets the panel explain recovery
+ * without exposing timestamps, source details, media bytes or credentials.
+ */
+export type ParticipantPlaybackStatus =
+  | 'unknown'
+  | 'preparing'
+  | 'ready'
+  | 'playing'
+  | 'seeking'
+  | 'blocked'
+  | 'buffering'
+  | 'silent'
+  | 'wrong-media'
+  | 'recovery-required'
 
 export interface RoomPolicy {
   buffering: 'pause-all' | 'catch-up'

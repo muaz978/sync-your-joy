@@ -640,7 +640,7 @@ describe('RoomCoordinator', () => {
       sampledAtLocalMs: nowMs,
     })
 
-    expect(result).toBeNull()
+    expect(result).toMatchObject({ ok: true, reason: 'participant_status_changed', snapshot: { participants: [expect.objectContaining({ playbackStatus: 'buffering' })] } })
     expect(room.snapshot().playback.status).toBe('playing')
   })
 
@@ -666,7 +666,7 @@ describe('RoomCoordinator', () => {
       sampledAtLocalMs: nowMs,
     })
 
-    expect(result).toBeNull()
+    expect(result).toMatchObject({ ok: true, reason: 'participant_status_changed', snapshot: { participants: [expect.objectContaining({ playbackStatus: 'recovery-required' })] } })
     expect(room.snapshot().playback.status).toBe('playing')
   })
 
@@ -690,7 +690,7 @@ describe('RoomCoordinator', () => {
       buffering: true,
       sampledAtLocalMs: nowMs,
       playbackStarted: false,
-    })).toBeNull()
+    })).toMatchObject({ ok: true, reason: 'participant_status_changed', snapshot: { participants: [expect.objectContaining({ playbackStatus: 'buffering' })] } })
   })
 
   it('stops the room clock when the browser explicitly rejects synchronized play', () => {
@@ -1058,7 +1058,7 @@ describe('RoomCoordinator', () => {
     expect(participant).not.toHaveProperty('lastSampleReceivedAtMs')
     expect(participant).not.toHaveProperty('lastProgressAtServerMs')
     expect(Object.keys(participant ?? {}).sort()).toEqual(
-      ['connected', 'id', 'latencyMs', 'mediaMatches', 'name', 'ready', 'role'].sort(),
+      ['connected', 'id', 'latencyMs', 'mediaMatches', 'name', 'playbackStatus', 'ready', 'role'].sort(),
     )
   })
 

@@ -211,7 +211,8 @@ describe('adaptive streaming coordination regressions', () => {
     const waiting = { ...playerState, progressed: false, playbackStarted: false }
 
     nowMs = state.playback.effectiveAtServerMs + 4_000
-    expect(room.updatePlayerStatus('guest', state.revision, sample(nowMs, 20, waiting))).toBeNull()
+    const firstStatus = room.updatePlayerStatus('guest', state.revision, sample(nowMs, 20, waiting))
+    expect(firstStatus === null || firstStatus.ok && firstStatus.reason === 'participant_status_changed').toBe(true)
     nowMs = deadline - 1
     expect(room.updatePlayerStatus('guest', state.revision, sample(nowMs, 20, waiting))).toBeNull()
     nowMs = deadline
@@ -361,7 +362,7 @@ describe('adaptive streaming coordination regressions', () => {
       progressed: false,
       paused: true,
       buffering: true,
-    }))).toBeNull()
+    }))).toMatchObject({ ok: true, reason: 'participant_status_changed', snapshot: { participants: expect.arrayContaining([expect.objectContaining({ id: 'guest', playbackStatus: 'buffering' })]) } })
     expect(room.snapshot().playback.status).toBe('playing')
   })
 
