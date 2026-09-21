@@ -3988,6 +3988,121 @@
 - Checkpoints 1-43 remain intact. This checkpoint records the post-merge automatic-close correction and supersedes only the transient closed/Done state.
 - No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
 
+# Checkpoint 84 - Post-CR-C02 queue audit and controlled provider observation
+
+## Session Metadata
+- Task or project: SyncYourJoy systematic PR and issue delivery workflow
+- Checkpoint number: 84
+- Date and time: 2026-09-21 17:05 +03
+- Coverage period: From the completed CR-C02 PR #91 merge and Checkpoint 83 through the open-PR rescan, oldest issue audit, controlled signed-in Crunchyroll observation, issue documentation updates and selection of the next implementation issue.
+- Current context status: PR #91 is reviewed and merged. No PRs are open. Issues #30, #33, #34, #35, #49 and #50 remain open with their deterministic implementation evidence documented and their remaining provider, device, deployment or user-acceptance gates kept explicit. Issue #64 is the next unstarted implementation slice.
+
+## User Objective and Requirements
+- Verify the exact PR review and merge state, then continue systematically.
+- Process open PRs before issues and continue oldest-first, while respecting dependencies and not claiming an external acceptance gate without direct evidence.
+- Keep the signed-in Crunchyroll account available as a valid testing resource. Do not label work blocked because an account is absent when the account is present.
+- Do not close an issue until all applicable acceptance gates are complete.
+- Keep detailed evidence and documentation for every PR and issue, commit and push repository changes, and preserve the release policy of keeping `0.2.4` until a coherent verified group is ready. Reserve `1.0.0` for complete milestone acceptance.
+
+## Complete Chronological Activity Log
+
+### 2026-09-21 17:00 +03 - Exact repository and queue verification
+- Verified the retained branch state with `git status --short --branch`. The branch is `codex/issue-63-diagnostic-reports`, tracking `origin/codex/issue-63-diagnostic-reports`, with no working-tree changes.
+- Verified the recent history. The retained branch contains the checkpoint commit `da2443763c0c76bf00ed0b108bb725b1e428998b` after the CR-C02 source commit `673c87441e7dd6b9967dfb48df24528d65971c8`; `origin/main` remains at merged commit `a9e8b08868c614a63b49810696fbfdc34ec79943`.
+- Rescanned open pull requests. The result was an empty list, so there is no unreviewed or unmerged PR to process before returning to issues.
+- Queried issue #64 directly. It is open, unassigned, labeled `enhancement`, `initiative:crunchyroll-sync` and `area:extension`, assigned to milestone `M3/M5: reliability and real-device validation`, and has no comments yet. Its scope is `CR-C03: Explain waiting and recovery in the player and panel`.
+- Confirmed issue #64 acceptance scope: distinguish preparing, seeking, blocked, silent, wrong-media and recovery states; match actions to the real reason; never claim `In sync` while health is stale or unknown, preparation is incomplete or the room is paused; and verify representative state rendering plus real panel/in-page Sync behavior where available.
+
+### 2026-09-21 17:01 +03 - Safe Crunchyroll E2E harness audit for issue #30
+- Ran the repository's safe authenticated Crunchyroll harness command, `npm run test:e2e:crunchyroll`, without accessing credentials, cookies or storage-state contents.
+- The harness completed successfully as a controlled skip because the protected two-profile storage-state inputs were not configured. This is an automation-fixture limitation, not evidence that the signed-in account is missing and not a two-account acceptance pass.
+- Confirmed the workflow contract still requires an HTTPS watch URL plus two separately authorized protected storage-state values before the two-profile test can run.
+
+### 2026-09-21 17:02 +03 - Controlled signed-in browser observation
+- Used the existing signed-in Edge Crunchyroll tab within the user's requested browser-testing scope. The watchlist page exposed a generic authenticated user/account area.
+- Opened the selected watch URL in the same tab. The accessibility surface showed a trial/login-oriented watch-page state and no usable player or visible video surface.
+- Did not click login, enter credentials, inspect cookies or storage, collect source URLs, collect media bytes, or capture private account data.
+- Classified the result as an unresolved provider/entitlement/readiness mismatch. It is not a missing-account conclusion and not a successful playback or synchronization result.
+- Posted the observation to issue #30 at `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5761714520` and posted the queue audit at `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5761673402`.
+
+### 2026-09-21 17:03 +03 - Oldest manual-gate issue audit and metadata correction
+- Reconfirmed the existing documentation for #33, #34 and #35. Each remains open because the required real two-account, two-device, headed-browser, deployment or user-acceptance evidence is not complete. Their existing comments correctly identify a missing device or controlled environment where applicable, not a missing Crunchyroll account.
+- Reconfirmed issue #49's deterministic identity matrix evidence and its remaining headed nested-frame/provider rows. Posted the controlled observation at `https://github.com/muaz978/sync-your-joy/issues/49#issuecomment-5761713725`, recording the same account-area versus no-player watch-page mismatch without collecting protected data.
+- Corrected issue #63's missing assignee through the GitHub issue assignees API, assigning `muaz978`. The public project UI still showed the issue's status as `Todo`; it was not incorrectly represented as `Verification`.
+- Audited the latest comments for issues #51 through #62. All remain open with merged implementation evidence and explicit remaining runtime, provider, device, deployment or user-acceptance gates. No additional implementation PR was falsely inferred from those comments.
+
+### 2026-09-21 17:04 +03 - Issue #50 focused verification
+- Ran `npm exec vitest run apps/extension/src/player-operations.test.ts apps/extension/src/content-script.test.ts` for issue #50.
+- The focused run passed 2 test files and 64 tests.
+- Posted the current queue audit to `https://github.com/muaz978/sync-your-joy/issues/50#issuecomment-5761728488`, documenting deterministic cancellation and timeout evidence while retaining the provider, device, deployment and user-acceptance gates.
+- Kept #30, #33, #34, #35, #49 and #50 open. No issue was closed because no complete applicable acceptance record exists.
+
+### 2026-09-21 17:05 +03 - Next implementation decision
+- Determined that the oldest open issues are now external acceptance gates whose missing inputs cannot be fabricated safely: second authorized account/profile state, second device or controlled second-device environment, exact deployed candidate identity and user acceptance.
+- Chose issue #64 as the next implementation slice because it is the next planned, unstarted issue after the already merged deterministic CR-C02 and earlier implementation series. This preserves oldest-first sequencing while preventing external-environment limitations from being misrepresented as completed work.
+- No release bump was made. The repository version remains `0.2.4`, and `1.0.0` remains reserved for complete milestone acceptance.
+
+## Confirmed Successful Results
+- No open pull requests remain after PR #91 was reviewed and merged.
+- The retained branch is clean and tracks its remote branch.
+- `origin/main` remains verified at merge commit `a9e8b08868c614a63b49810696fbfdc34ec79943`.
+- The safe Crunchyroll E2E harness completed with a documented protected-input skip, without accessing credentials or protected storage contents.
+- The signed-in Crunchyroll account area was observed in Edge, proving account presence in that browser context. The selected watch page did not expose a usable player, so no live playback acceptance was claimed.
+- Issue #50 focused verification passed 64 tests.
+- Issue #63 is assigned to `muaz978`; its project status was not overstated.
+- Issues #30, #33, #34, #35, #49 and #50 remain open with detailed evidence and unresolved gates recorded.
+- Issue #64 was selected as the next implementation issue. Its current body and acceptance criteria were read directly from GitHub.
+
+## Failed, Incomplete, or Unresolved Work
+- The protected two-profile Crunchyroll E2E test remains unexecuted because its two authorized storage-state fixtures are not configured. This does not mean the active account is absent.
+- The controlled watch-page observation did not produce a usable player. The cause is not yet isolated between provider entitlement, watch-page state, browser session context or the selected URL's readiness.
+- Issue #30 still needs two authorized account/profile states, two-device evidence, exact candidate/deployment identity and user acceptance before closure.
+- Issues #33, #34 and #35 still need their specified real-device, cross-browser, network-chaos, headed-browser, deployment and user-acceptance gates.
+- Issue #49 still needs the remaining headed nested-frame/provider identity rows.
+- Issue #50 still needs its external provider/device/deployment/user-acceptance gates.
+- Issue #64 has not yet been implemented, tested, documented in a PR, reviewed or merged.
+- The issue #63 project status remains `Todo` pending an explicit project-field update. This is a project-tracking cleanup item, not a source or merge blocker.
+
+## Decisions and Rationale
+- A signed-in account-area observation is retained as positive account-presence evidence, while a watch page with no usable player is recorded as a separate readiness or entitlement finding. These facts must not be collapsed into a false missing-account blocker or a false playback pass.
+- The oldest external-gate issues remain open because their completion requires controlled inputs that are not present in the current harness or environment. Continuing with issue #64 is the most faithful way to maintain implementation progress without closing or skipping those gates.
+- No credentials, cookies, protected media, signed URLs, provider-private APIs or account secrets were accessed.
+- The current version stays at `0.2.4`; no single issue or incomplete external gate justifies a release bump.
+
+## Files and Artifacts
+- Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`
+- PR #91: `https://github.com/muaz978/sync-your-joy/pull/91`
+- Issue #30 queue audit: `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5761673402`
+- Issue #30 controlled observation: `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5761714520`
+- Issue #49 controlled observation: `https://github.com/muaz978/sync-your-joy/issues/49#issuecomment-5761713725`
+- Issue #50 queue audit: `https://github.com/muaz978/sync-your-joy/issues/50#issuecomment-5761728488`
+- Safe E2E command: `npm run test:e2e:crunchyroll`
+- Focused issue #50 command: `npm exec vitest run apps/extension/src/player-operations.test.ts apps/extension/src/content-script.test.ts`
+- Issue #64: `https://github.com/muaz978/sync-your-joy/issues/64`
+
+## Assumptions and Uncertainties
+- The account-area observation confirms an authenticated browser context but does not establish entitlement to every watch URL or prove that the extension can bind to a usable player.
+- The watch-page mismatch may require a later user-guided provider check, but no additional account action is requested yet because issue #64 can be implemented independently.
+- GitHub's CLI project read scope remains limited, so the public project UI is authoritative for custom project fields.
+
+## Open Questions, Blockers, and Dependencies
+- Issue #64 depends on #57, #62 and #63. Their deterministic source slices are merged, while their external gates remain tracked separately.
+- The next implementation pass must inspect the current side-panel and content-script state model before changing UI or state semantics.
+- Later completion of #30, #33, #34, #35 or #49 will require the exact missing external inputs to be supplied or made available in a controlled test environment.
+
+## Next Steps
+1. Commit and push this Checkpoint 84 to the retained branch.
+2. Create a fresh branch from verified `origin/main` for issue #64, after confirming the retained branch is clean.
+3. Read the current side-panel, content-script and focused tests, then add red regressions for truthful waiting, recovery and stale-health presentation.
+4. Implement issue #64 within the state-only boundary, add detailed permanent documentation and link it from the test guide.
+5. Run focused and full checks, package smoke and any safe browser evidence available, then commit and push.
+6. Open a metadata-complete PR, review the exact final head, merge only after checks and review are verified, document the issue without closing it prematurely, and append the next checkpoint.
+
+## Historical Checkpoint Notes
+- Checkpoints 1 through 83 remain intact. The file contains historical checkpoints in the order they were restored or appended by earlier work; this new checkpoint is appended at the end and does not replace prior records.
+- This checkpoint supersedes only the prior next-step assumption that the next implementation issue was #56. The current direct queue read shows the next unstarted issue selected for continuation is #64 after the CR-B02 through CR-C02 implementation evidence already recorded.
+- No passwords, access tokens, cookies, storage-state contents, private keys, signed stream URLs, protected-media bytes or DRM data were recorded.
+
 # Checkpoint 83 - CR-C02 PR #91 review, merge and issue handoff
 
 ## Session Metadata
