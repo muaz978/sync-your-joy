@@ -8104,8 +8104,8 @@
 ## Current State
 - PR #99, `release: prepare SyncYourJoy 0.2.5 test release`, was reviewed at source head `b4c6546859ce2702ef39f57abdc380dbc2f9d91f` against base `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`.
 - PR #99 review result was a non-blocking exact-head owner review comment because the PR author cannot self-approve.
-- PR #99 merged successfully with merge commit `423b6f7c77dad2a4b14db6932711be025aac8163`.
-- `origin/main` was fetched and verified at `423b6f7c77dad2a4b14db6932711be025aac8163`.
+- PR #99 merged successfully with merge commit `423b6f7c77dad2b4a14db6932711be025aac8163`.
+- `origin/main` was fetched and verified at `423b6f7c77dad2b4a14db6932711be025aac8163`.
 - The merged root package, extension package, extension manifest and lockfile report `0.2.5`.
 - Annotated tag `v0.2.5` was created on the verified `origin/main` merge commit and pushed to GitHub.
 - The tag-triggered `Release extension` workflow run `35662329637` completed successfully.
@@ -8120,7 +8120,7 @@
 
 ### 2026-09-22 - Verified PR #99 merge
 - Action taken: Queried PR #99 after the authorized administrative merge.
-- Result: State `MERGED`; final source head `b4c6546859ce2702ef39f57abdc380dbc2f9d91f`; base `main` at `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`; merge commit `423b6f7c77dad2a4b14db6932711be025aac8163`.
+- Result: State `MERGED`; final source head `b4c6546859ce2702ef39f57abdc380dbc2f9d91f`; base `main` at `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`; merge commit `423b6f7c77dad2b4a14db6932711be025aac8163`.
 - Action taken: Called the Codex artifact attachment for PR #99.
 - Result: PR #99 is attached to this task.
 - Action taken: Fetched `origin/main` after the merge.
@@ -8168,7 +8168,7 @@
 
 ## Confirmed Successful Results
 - PR #99 was reviewed at its exact final head and merged.
-- The merged release commit is `423b6f7c77dad2a4b14db6932711be025aac8163`.
+- The merged release commit is `423b6f7c77dad2b4a14db6932711be025aac8163`.
 - Tag `v0.2.5` points to the verified merged `main` commit and is pushed remotely.
 - The release workflow completed successfully.
 - The public GitHub Release exists with both expected assets.
@@ -8196,7 +8196,7 @@
 ## Files and Artifacts
 - Release PR: `https://github.com/muaz978/sync-your-joy/pull/99`.
 - Release page: `https://github.com/muaz978/sync-your-joy/releases/tag/v0.2.5`.
-- Tag target: `423b6f7c77dad2a3c3fd4e2963ca55475408f4d`.
+- Tag target: `423b6f7c77dad2b4a14db6932711be025aac8163`.
 - Issue #30 release and test plan comment: `https://github.com/muaz978/sync-your-joy/issues/30#issuecomment-5768368434`.
 - Repository changelog: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/CHANGELOG.md`.
 - Checkpoint: `/Users/muazsabbagh/Codex/Projects/SyncYourJoy/context-checkpoint.md`.
