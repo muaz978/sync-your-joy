@@ -39,7 +39,11 @@ Evidence classes, from weakest to strongest: none < doc-only < source-review < u
 - **user-acceptance.** Earned only after the user reviews the sanitized report and states acceptance in writing.
 - **Counters are not playback proof.** A moving room clock or aggregate counter never proves native playback. If a counter advances while the video is black or frozen, record FAIL or UNRESOLVED.
 - **The harness cannot substitute.** `tests/e2e/crunchyroll-two-profile.spec.ts` builds a test-mode extension against an in-process local room service on one machine. A harness pass is real-provider-single evidence at most. It cannot stand in for the release package, the deployed coordinator, or two devices.
-- **The harness is not usable for acceptance yet.** `tests/e2e/extension-profile.ts` passes `storageState` to `chromium.launchPersistentContext`. The Playwright 1.63 type definition for persistent-context options has no `storageState` option, so the protected states may never be applied and the profiles may launch unauthenticated. This is being investigated and fixed in a separate PR that references #30. Until that PR proves both protected states are actually applied, do not run the protected harness as provider evidence, and do not claim that it works.
+- **The harness is not usable for acceptance yet.** `tests/e2e/extension-profile.ts` passes `storageState` to `chromium.launchPersistentContext`.
+  - Confirmed on 2026-09-24 against the repository's Playwright 1.63.0: a persistent context silently ignores `storageState`. Dummy cookies and localStorage entries were absent from the persistent context, while a control `browser.newContext({ storageState })` applied the same file.
+  - No saved Crunchyroll states are configured locally or in CI. The `e2e-crunchyroll.yml` workflow has never run, and its secrets do not exist. No protected state has ever been applied by this harness.
+  - The supported path is `BrowserContext.setStorageState` on the persistent context. The fix is a separate PR that references #30.
+  - Until that PR proves both protected states are actually applied, do not run the protected harness as provider evidence, and do not claim that it works.
 
 ### Result vocabulary
 

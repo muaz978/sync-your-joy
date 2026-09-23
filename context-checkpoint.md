@@ -8575,3 +8575,111 @@
 ## Historical Checkpoint Notes
 - Checkpoint 94 remains intact as the pre-PR reconciliation snapshot. This checkpoint supersedes its pending-delivery statements with confirmed PR #97 branch, metadata and hosted-check results.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy open-issue acceptance readiness: v0.2.5 controlled test-session kit, acceptance-evidence audit, provenance corrections (PR #101).
+- Checkpoint number: 99.
+- Date and time: 2026-09-24, Europe/Istanbul.
+- Coverage period: 2026-09-23 to 2026-09-24, since checkpoint 98.
+- Current context status: PR #101 (documentation only) is open. The public v0.2.5 release notes' malformed SHA is corrected. PR #102 (#54 report correction) is open. A separate #30 harness fix is in progress on `codex/issue-30-storage-state-harness`. No issue is closed and no acceptance gate has passed.
+
+## User Objective and Requirements
+- Treat the audit as a readiness review. Do not close any issue or claim provider acceptance.
+- Keep real-provider playback, two-device testing, deployed-coordinator verification and user acceptance as separate evidence classes.
+- Do not run #30 against the old coordinator deployment. The coordinator must come from the same runtime candidate as the extension: `423b6f7c77dad2b4a14db6932711be025aac8163` (tag `v0.2.5`).
+- Publish the session kit and audit as a documentation-only PR on a `codex/` branch, with `Refs` only and complete metadata. Review the exact final head, then merge.
+- Correct the malformed SHA references in `context-checkpoint.md` and in the public v0.2.5 release notes, without creating a new version or tag.
+- Investigate the `storageState` harness defect against the repository's Playwright version, and fix it in a separate PR.
+- Describe the review history exactly, correct the #54 report for the PR #96 barrier change, and classify Firefox accurately.
+
+## Current State
+- `origin/main` is `15680494f939bffbd84f4ab395dc70b8a2089a59`. Relative to tag `v0.2.5` (commit `423b6f7c77dad2b4a14db6932711be025aac8163`), only `context-checkpoint.md` differs.
+- PR #101 `docs: add v0.2.5 test session kit and acceptance audit` is open from `codex/issue-30-acceptance-readiness-docs`, with labels `documentation`, `area: testing` and `initiative:crunchyroll-sync`, assignee `muaz978`, and milestone `M3/M5: reliability and real-device validation`.
+- PR #102 `docs: record PR #96 seek-barrier window change in CR-A07 report` is open from `codex/issue-54-seek-barrier-report`, with the same assignee and milestone.
+- The production coordinator's last recorded deployment is still Worker version `209278f7-9154-4ad0-974a-3ad565a67581`, from `1ac5b1c` (v0.2.4, run 35387667519). No deployment was performed in this checkpoint.
+
+## Complete Chronological Activity Log
+
+### 2026-09-23 - Read-only readiness audit
+- Action taken: Ran a read-only multi-agent audit of #30, #33, #34, #35 and #49–#69, with one auditor and one adversarial verifier per issue group, followed by a completeness critic and one revision pass.
+- Result: 25 issues audited, 178 verifier corrections, 27 critic problems fixed. No issue is closure-eligible. The strongest evidence anywhere is e2e-headed-fixture.
+- Result: Found the coordinator gap (last deploy from v0.2.4 source), the harness `storageState` suspicion, and the malformed provenance SHAs.
+
+### 2026-09-24 - Corrected the public v0.2.5 release-notes SHA
+- Action taken: Replaced the malformed "Tagged merge commit" value `423b6f7c77dad2a3c3fd4e2963ca55475408f4d` with `423b6f7c77dad2b4a14db6932711be025aac8163` using `gh release edit v0.2.5 --notes-file`. This was a one-line body change.
+- Result: The public page now shows only the full correct SHA. Release ID `393334537`, name, draft/prerelease flags, the latest flag, tag refs (`2bf96211631b7f500dbce143876ce29bcf68df13` → `423b6f7c77dad2b4a14db6932711be025aac8163`), both asset IDs, sizes, digests (ZIP `sha256:7fb39e25c8c96ae2987cd6eb5cf4d1cefb3ed10e6f98325b9652d3eeb586b942`, sidecar `sha256:c5e4fb429b7c9fbf92f62afa7ef79cbe79672a4b2c37a618ed57b9283d70b63d`) and asset timestamps were verified unchanged. No new version or tag was created.
+
+### 2026-09-24 - Corrected checkpoint SHAs
+- Action taken: Corrected the transposed `423b6f7c77dad2a4b14db6932711be025aac8163` in the checkpoint 98 entries (four places), and the malformed 39-character "Tag target" value, to `423b6f7c77dad2b4a14db6932711be025aac8163`.
+- Result: `context-checkpoint.md` now contains no malformed form of the v0.2.5 tag-commit SHA.
+
+### 2026-09-24 - Verified review history for PRs #70–#100
+- Action taken: Read GitHub review records and check rollups for PRs #70–#100.
+- Result: PRs #71–#100 each have a detailed owner `COMMENTED` review. For every PR except #81 it is on the exact final head; #81's is on `7c84be9`, not the final head `dd702d4`. All five hosted checks passed on every final head.
+- Result: Every PR still reports `REVIEW_REQUIRED`, because ruleset 23670565 requires a code-owner approval that the author cannot provide. The authorized administrative merge path was used.
+- Result: #70 has no review object: the approval attempt was rejected for the author, and the review is recorded in a checkpoint.
+- Decision: The audit wording now states this exactly. It no longer says review was "bypassed".
+
+### 2026-09-24 - Opened PR #101
+- Action taken: Created `codex/issue-30-acceptance-readiness-docs` from `origin/main` `15680494f939bffbd84f4ab395dc70b8a2089a59`. Committed `docs/V0_2_5_CONTROLLED_TEST_SESSION.md`, `docs/ACCEPTANCE_EVIDENCE_AUDIT_2026-09-23.md` and the checkpoint SHA corrections as `92cc08031254bd9d0d5c0bc279252ff345d5ad74`, and pushed.
+- Action taken: Opened PR #101 with `Refs #30`, `Refs #34` and `Refs #35` (no closing keywords), labels, assignee and milestone.
+- Result: All five hosted checks passed on `92cc080`: Analyze (javascript-typescript), CodeQL, DevSkim, devskim, and Typecheck, test, and build.
+- Result: The browser pane used for project fields is not signed in to GitHub, and the CLI token lacks `project` scope. Public-project membership and project custom fields were therefore not set or verified in this checkpoint.
+
+### 2026-09-24 - Confirmed the #30 harness defect
+- Action taken: Probed Playwright 1.63.0, the version pinned in `package-lock.json`, using dummy storage states only. The probes used a local 127.0.0.1 origin, fake cookie and localStorage entries, and no real account data.
+- Result: `chromium.launchPersistentContext(dir, { storageState })` silently ignores the state. No cookies or localStorage appeared, whether the state was a path or inline. A missing path throws only because the client reads the file first.
+- Result: The control `chromium.launch()` + `browser.newContext({ storageState })` applied the same file. The unmodified repository helper also launched both profiles without applying either state.
+- Result: No saved Crunchyroll states are configured locally (all three environment variables are unset) or in CI (`e2e-crunchyroll.yml` has 0 runs; only `CLOUDFLARE_API_TOKEN` exists as a repository secret). No protected state has ever been applied by this harness.
+- Decision: Fix it in a separate implementation PR using `BrowserContext.setStorageState`, with a fail-closed self-check, a dummy-state regression test and red/green evidence. It will reference #30 and not close it.
+
+### 2026-09-24 - Opened PR #102 for the #54 report
+- Action taken: Verified that PR #96 commit `d5ceef784b4ab73050b6f83b7a127f24a0ce541c` changed `SEEK_BARRIER_MAX_WAIT_MS` from 1,800 ms to 3,000 ms, and that the CR-A07 report did not document it.
+- Action taken: Added a "Post-merge implementation change" section to `docs/CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md` on `codex/issue-54-seek-barrier-report` (`fe00943`), and opened PR #102 with `Refs #54`.
+
+## Confirmed Successful Results
+- The public v0.2.5 release notes show the correct tag commit, and the package checksum is unchanged.
+- The checkpoint SHA references are corrected.
+- PR #101 is open with passing hosted checks on its first head. PR #102 is open.
+- The harness defect is confirmed with reproducible dummy-state probes.
+
+## Failed, Incomplete, or Unresolved Work
+- GitHub Project fields for PRs #101 and #102 (project membership, status, priority, work type, evidence state, acceptance gates, risk, verification owner) are not set or verified. The CLI token lacks `project` scope and no signed-in browser session was available.
+- The coordinator has not been redeployed from the v0.2.5 candidate. That needs explicit user authorization for the specific deploy run.
+- Device B information, the second authorized state and an entitled `/watch/` URL are still outstanding.
+- No local tests were run for PR #101 or PR #102. Both are documentation only, and dependencies were unavailable in those worktrees.
+
+## Decisions and Rationale
+- Deploy the coordinator from the tag (`gh workflow run deploy-edge.yml --ref v0.2.5`) so the deployed source commit is exactly the extension's runtime candidate. The `main` fallback is allowed only with proven runtime identity and both identities recorded.
+- Treat `G0-MISMATCH` and unresolved `G0-AMBIGUOUS` as hard stops for #30.
+- Classify Firefox as `NOT CLAIMED` for this session. It is installed, so it is never `BLOCKED` for a missing runtime.
+- Keep the harness fix and the #54 correction in separate PRs so each has issue-specific scope.
+
+## Files and Artifacts
+- `docs/V0_2_5_CONTROLLED_TEST_SESSION.md`
+- `docs/ACCEPTANCE_EVIDENCE_AUDIT_2026-09-23.md`
+- `docs/CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md` (PR #102)
+- PR #101: https://github.com/muaz978/sync-your-joy/pull/101
+- PR #102: https://github.com/muaz978/sync-your-joy/pull/102
+
+## Assumptions and Uncertainties
+- The recorded coordinator version `209278f7-…` is assumed to be active until Wrangler read access confirms otherwise. An out-of-band deployment cannot be ruled out without it.
+- The audit is a 2026-09-23 snapshot. Project fields could not be read.
+
+## Open Questions, Blockers, and Dependencies
+- Explicit user authorization for the coordinator deployment run and for one synthetic smoke-room write.
+- Device B: OS, browser and version, separate account or authorized profile, a shared HTTPS `/watch/` URL, whether a network interruption can be applied, and remote control or the friend following the runbook.
+- `project` scope for the GitHub CLI (`gh auth refresh -h github.com -s project`), or manual project-field entry.
+
+## Next Steps
+1. Push this checkpoint, confirm the hosted checks on the final head of PR #101, review the exact final head, then merge through the authorized path.
+2. Rebase PR #102 onto the merged `main`, append its checkpoint, review and merge.
+3. Complete, review and open the separate #30 harness PR.
+4. After authorization, deploy the coordinator from `v0.2.5` and complete Gate 0.
+5. Run #30, then #34, then the applicable #35 checks, only after every prerequisite passes.
+
+## Historical Checkpoint Notes
+- Checkpoint 98 remains the v0.2.5 release record. Its SHA typos are corrected in place, and this checkpoint records the correction.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
