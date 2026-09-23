@@ -8685,3 +8685,62 @@
 ## Historical Checkpoint Notes
 - Checkpoint 98 remains the v0.2.5 release record. Its SHA typos are corrected in place, and this checkpoint records the correction.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy issue #54 (CR-A07) report correction for the PR #96 seek-barrier window change (PR #102).
+- Checkpoint number: 100.
+- Date and time: 2026-09-24, Europe/Istanbul.
+- Coverage period: Since checkpoint 99.
+- Current context status: PR #101 is merged as `ee6a5226f5144f5a9d5d53ffe2930f81a70ba0bb`. PR #102 is rebased onto that `main` for final review. Issue #54 remains open.
+
+## User Objective and Requirements
+- If PR #96 changed the seek-barrier timeout and the #54 report does not document it, add a separate documentation correction so the report matches the merged implementation.
+- Do not rewrite the historical review record inaccurately, and do not change any acceptance state.
+
+## Current State
+- `docs/CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md` has a new section, "Post-merge implementation change: barrier window (PR #96)".
+- PR #102 carries `Refs #54` only, with labels `documentation`, `area: sync-engine` and `initiative:crunchyroll-sync`, assignee `muaz978`, and milestone `M3/M5: reliability and real-device validation`.
+
+## Complete Chronological Activity Log
+
+### 2026-09-24 - Verified the undocumented change
+- Action taken: Read commit `d5ceef784b4ab73050b6f83b7a127f24a0ce541c` (PR #96, merge `1d22c5b231ae4f886cc1e92ad7af2a130e5f1a1f`).
+- Result: `SEEK_BARRIER_MAX_WAIT_MS` changed from `1_800` to `3_000`, and the unit bound changed from `<= 2_000` to `<= 3_000`. The CR-A07 report did not mention the window or the change.
+- Action taken: Traced the constant's uses in `packages/sync-engine/src/room.ts`.
+- Result: It sets `deadlineAtServerMs` for the pending seek barrier and for transactional operations (CR-B02).
+- Action taken: Checked the exact-deadline regression in `room-streaming-regressions.test.ts`.
+- Result: It reads `deadlineAtServerMs` from the snapshot. The remaining `1_800` literals in the engine tests belong to `PLAYBACK_PROGRESS_TIMEOUT_MS`, which is unchanged.
+
+### 2026-09-24 - Opened PR #102
+- Action taken: Committed the report section as `fe00943` on `codex/issue-54-seek-barrier-report`, opened PR #102, and rebased it onto `ee6a5226f5144f5a9d5d53ffe2930f81a70ba0bb` after PR #101 merged.
+
+## Confirmed Successful Results
+- The CR-A07 report now states the merged 3,000 ms window, its stated reason, its scope, and that no new CR-A07 acceptance run followed the change.
+
+## Failed, Incomplete, or Unresolved Work
+- No local tests were run. Dependencies were not installed in this worktree, and the change is documentation only.
+- GitHub Project fields for PR #102 are not set or verified (no `project` token scope).
+- Issue #54 still lacks browser, provider, two-device, deployment and user-acceptance evidence.
+
+## Decisions and Rationale
+- Keep this correction in its own PR so it has issue-specific scope, separate from the #30 readiness documentation.
+- Leave historical records that mention 1.8 s (for example `docs/GATE_1_3_CLOSEOUT.md`) unchanged, because they record past state.
+
+## Files and Artifacts
+- `docs/CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md`
+- PR #102: https://github.com/muaz978/sync-your-joy/pull/102
+
+## Assumptions and Uncertainties
+- None beyond the recorded limitations.
+
+## Open Questions, Blockers, and Dependencies
+- The external gates for #54 are unchanged.
+
+## Next Steps
+1. Confirm the hosted checks on PR #102's final head, review that exact head, and merge through the authorized path.
+2. Add a post-merge record to #54 without closing it.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
