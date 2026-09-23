@@ -35,6 +35,7 @@ The provenance file contains hashes and bounded local endpoint identity only. It
 - URLs reduced to scheme, host and path, with query strings and fragments removed;
 - extension ID and isolated-run classification;
 - safe side-panel booleans for create/join forms, room visibility, shared-link visibility, readiness and primary-control availability;
+- for a profile given a storage state, one `storage-state-applied` event with cookie, localStorage and declared session-cookie counts only;
 - named state checkpoints from the test flow.
 
 Room codes, account names, page text, cookies, storage-state contents, provider media data and token-bearing URL components are not recorded.
@@ -49,7 +50,9 @@ Traces are disabled by default. This protects authenticated provider runs from a
 SYNCYOURJOY_E2E_TRACE=1 npm run test:e2e
 ```
 
-The profile helper explicitly calls `context.tracing.start()` and `context.tracing.stop()` with screenshots, page snapshots and sources disabled. It writes one trace archive per profile under the unique run directory. Do not enable this for protected provider runs unless the operator has reviewed the environment and accepted the trace's diagnostic scope. The default provider workflow does not enable it.
+The profile helper explicitly calls `context.tracing.start()` and `context.tracing.stop()` with screenshots, page snapshots and sources disabled. It starts this trace only after any storage state has been applied and checked, so the trace does not contain the state. It writes one trace archive per profile under the unique run directory. Do not enable this for protected provider runs unless the operator has reviewed the environment and accepted the trace's diagnostic scope. The default provider workflow does not enable it.
+
+The Playwright runner's own `trace`, `screenshot` and `video` options are a separate path. The runner starts its trace as soon as a browser context exists, which is before a storage state is applied, so `--trace on` would put every saved cookie and localStorage value into the runner's `trace.zip`. The authenticated provider spec sets all three to `off` for its file, which outranks `--trace` and UI mode, and checks the resolved values before launching. The profile helper also refuses to apply a storage state while `PWDEBUG`, `PWPAUSE` or Playwright protocol or channel `DEBUG` logging is on.
 
 Video recording is also disabled by default. It can be explicitly enabled with `SYNCYOURJOY_E2E_VIDEO=1`, but protected provider runs should use the sanitized state logs instead.
 

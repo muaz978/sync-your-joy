@@ -289,12 +289,13 @@ Issue [#30](https://github.com/muaz978/sync-your-joy/issues/30) adds an opt-in p
 
 The provider run is deliberately state-only. It does not read or print cookies, credentials, signed media URLs, media bytes, screenshots, page HTML, DRM data, or private player APIs. Its browser assertions are limited to native media state and frame-progress evidence. A passing provider run proves the tested URL, browser, account state, extension build, and coordinator combination for that run only. It does not prove every Crunchyroll title, locale, timed edition, browser, graphics path, or future provider deployment.
 
-The provider spec is skipped by the ordinary `npm run test:e2e` command unless all three variables below are supplied. This keeps normal contributor runs deterministic and prevents accidental use of a signed-in account:
+The provider spec is skipped by the ordinary `npm run test:e2e` command unless all four variables below are supplied. If only some of them are set, the run fails with a configuration error. This keeps normal contributor runs deterministic and prevents accidental use of a signed-in account. `SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES` is a comma-separated list of the names, never the values, of the cookies that carry the signed-in Crunchyroll session. The operator takes them from a freshly saved, signed-in state:
 
 ```bash
 export SYNCYOURJOY_CRUNCHYROLL_URL='https://www.crunchyroll.com/watch/REDACTED'
 export SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A='/secure/path/crunchyroll-a.json'
 export SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B='/secure/path/crunchyroll-b.json'
+export SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES='REDACTED_SESSION_COOKIE_NAME'
 npm run test:e2e -- --grep 'authenticated Crunchyroll'
 ```
 
@@ -306,7 +307,17 @@ npm run test:e2e:crunchyroll
 
 The two storage-state files are sensitive authentication material. Create them only in a protected local directory or a protected CI secret, never commit them, never paste them into an issue or pull request, and remove or rotate them after the acceptance run. Do not copy browser cookies manually from a daily-use profile. Use dedicated authorized test profiles and the normal Playwright storage-state format.
 
-The separately tuned manual CI workflow is `.github/workflows/e2e-crunchyroll.yml`. Run it from GitHub Actions with an HTTPS Crunchyroll `/watch/` URL and the two repository secrets `SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A_B64` and `SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B_B64`. The workflow decodes those secrets only into the ephemeral runner temp directory, validates that they are JSON, runs the provider spec, and never echoes their contents. It is manual by design because authenticated provider accounts and protected media must not be used on ordinary pull requests or fork builds.
+Playwright 1.63 has no `storageState` option on `launchPersistentContext`, and it silently ignores one, so profiles launched that way start with no cookies. `tests/e2e/extension-profile.ts` therefore applies each file with `BrowserContext.setStorageState` right after the profile starts. It then compares the file with `BrowserContext.storageState()` before the side panel or any provider page opens. The launch stops with a count-only error, and the provider test fails instead of running, in any of these cases:
+
+- an unexpired cookie from the file is missing from the profile. Cookies match by name, domain including a leading dot, path, and whether they are partitioned;
+- a localStorage key from the file is missing;
+- a cookie named in `SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES` is absent from the file, has already expired there, or did not reach the profile. This catches an old state whose session expired, a state saved while signed out, and a state saved for another site, even when other cookies in it are still live.
+
+Other cookies that had already expired in the file are skipped and counted. The profile log records only these counts, as a `storage-state-applied` event. Before either profile launches, the spec also refuses two paths to the same file, two identical files, and two files that share a declared session cookie, so the run cannot silently use one session twice. `tests/e2e/extension-profile-storage-state.spec.ts` covers the application and session checks in the ordinary `npm run test:e2e` run with dummy loopback states generated at runtime, so it needs no secrets. These checks run locally and never contact Crunchyroll. They cannot prove that Crunchyroll still accepts a session that it revoked on its side, or that the two states belong to two different accounts rather than two sign-ins of one account.
+
+The Playwright runner's own trace, screenshots and video start when a browser context is created, before the state is applied, so a runner trace would contain every saved cookie and localStorage value and the provider's Cookie request headers. The provider spec therefore sets `trace`, `screenshot` and `video` to `off` for its file. That override outranks `--trace` on the command line and the trace that UI mode requests. The spec also checks the resolved values before any profile launches. The profile helper refuses to apply any storage state while `PWDEBUG`, `PWPAUSE` or a `DEBUG` setting that enables Playwright's protocol or channel logging is set, because those print every protocol parameter. The helper's own opt-in trace, `SYNCYOURJOY_E2E_TRACE=1`, starts only after the state is applied and checked, so it does not contain the state.
+
+The separately tuned manual CI workflow is `.github/workflows/e2e-crunchyroll.yml`. Run it from GitHub Actions with an HTTPS Crunchyroll `/watch/` URL and the three repository secrets `SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A_B64`, `SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B_B64` and `SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES`. Before it touches any secret, the workflow runs the no-secret storage-state regression spec. It then decodes the two states only into the ephemeral runner temp directory and checks that each one parses as a storage state. A parse failure prints a fixed message and never the file's text. The workflow then runs the provider spec and deletes the decoded files when the job ends, whether it passed or failed. It is manual by design because authenticated provider accounts and protected media must not be used on ordinary pull requests or fork builds.
 
 ### CR-D04 two-account and cross-provider acceptance
 
