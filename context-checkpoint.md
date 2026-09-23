@@ -8625,7 +8625,9 @@
 ### 2026-09-24 - Opened PR #101
 - Action taken: Created `codex/issue-30-acceptance-readiness-docs` from `origin/main` `15680494f939bffbd84f4ab395dc70b8a2089a59`. Committed `docs/V0_2_5_CONTROLLED_TEST_SESSION.md`, `docs/ACCEPTANCE_EVIDENCE_AUDIT_2026-09-23.md` and the checkpoint SHA corrections as `92cc08031254bd9d0d5c0bc279252ff345d5ad74`, and pushed.
 - Action taken: Opened PR #101 with `Refs #30`, `Refs #34` and `Refs #35` (no closing keywords), labels, assignee and milestone.
-- Result: All five hosted checks passed on `92cc080`: Analyze (javascript-typescript), CodeQL, DevSkim, devskim, and Typecheck, test, and build.
+- Result: On `92cc080`, four of the five standard checks passed (Analyze (javascript-typescript), CodeQL, DevSkim, and Typecheck, test, and build). The lowercase `devskim` check stayed queued on that head and never ran.
+- Result: On the next head `6da4eb9296b5112019a8f8d4201911490f0349df`, all five standard checks passed, including `devskim`.
+- Result: On both heads the optional dynamic job "Code scanning AI findings on PR #101" (`github-advanced-security`) failed with a GitHub service error, `CAPIError: 400 The requested model is not supported`. It produced no findings, and the PR has 0 open code-scanning alerts. It is not one of the five checks recorded for earlier PRs. It is recorded here as an infrastructure failure, not as a pass.
 - Result: The browser pane used for project fields is not signed in to GitHub, and the CLI token lacks `project` scope. Public-project membership and project custom fields were therefore not set or verified in this checkpoint.
 
 ### 2026-09-24 - Confirmed the #30 harness defect
@@ -8642,7 +8644,7 @@
 ## Confirmed Successful Results
 - The public v0.2.5 release notes show the correct tag commit, and the package checksum is unchanged.
 - The checkpoint SHA references are corrected.
-- PR #101 is open with passing hosted checks on its first head. PR #102 is open.
+- PR #101 is open, and all five standard hosted checks passed on `6da4eb9`. PR #102 is open.
 - The harness defect is confirmed with reproducible dummy-state probes.
 
 ## Failed, Incomplete, or Unresolved Work
@@ -8674,7 +8676,7 @@
 - `project` scope for the GitHub CLI (`gh auth refresh -h github.com -s project`), or manual project-field entry.
 
 ## Next Steps
-1. Push this checkpoint, confirm the hosted checks on the final head of PR #101, review the exact final head, then merge through the authorized path.
+1. Push this checkpoint correction, confirm the five standard hosted checks on the final head of PR #101, review the exact final head, then merge through the authorized path. The final-head SHA and check results are recorded in the PR review comment.
 2. Rebase PR #102 onto the merged `main`, append its checkpoint, review and merge.
 3. Complete, review and open the separate #30 harness PR.
 4. After authorization, deploy the coordinator from `v0.2.5` and complete Gate 0.
