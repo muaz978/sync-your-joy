@@ -14,6 +14,9 @@ import { createHash } from 'node:crypto'
 import { readFile, realpath } from 'node:fs/promises'
 import type { BrowserContext } from '@playwright/test'
 
+/** Matched by artifact-reporter.ts, which then records a setup failure. */
+const setupMarker = '[browser-launch]'
+
 export type StorageStateFile = Exclude<Parameters<BrowserContext['setStorageState']>[0], string>
 
 type CookieIdentity = { name: string, domain: string, path: string, partitionKey?: unknown }
@@ -98,7 +101,9 @@ export function parseStorageStateFile(text: string, label: string): StorageState
 
 /**
  * Compares the file with what the context reports after `setStorageState`.
- * Cookies match by name, domain, path and whether they are partitioned.
+ * Cookies match by name, domain, path and whether they are partitioned, and
+ * are counted with multiplicity, so each of two partitioned cookies that
+ * differ only by partition must arrive.
  */
 export function checkStorageStateApplied(
   expected: StorageStateFile,
@@ -106,8 +111,10 @@ export function checkStorageStateApplied(
   nowSeconds: number,
 ): StorageStateCheck {
   const liveCookies = expected.cookies.filter(cookie => isLiveCookie(cookie, nowSeconds))
-  const expectedCookies = new Set(liveCookies.map(cookieKey))
-  const appliedCookies = new Set(actual.cookies.map(cookieKey))
+  const appliedCounts = countKeys(actual.cookies.map(cookieKey))
+  let cookiesApplied = 0
+  for (const [key, count] of countKeys(liveCookies.map(cookieKey)))
+    cookiesApplied += Math.min(count, appliedCounts.get(key) ?? 0)
 
   const expectedOrigins = expected.origins.filter(origin => origin.localStorage.length > 0)
   let localStorageOriginsApplied = 0
@@ -126,8 +133,8 @@ export function checkStorageStateApplied(
   }
 
   return {
-    cookiesExpected: expectedCookies.size,
-    cookiesApplied: [...expectedCookies].filter(key => appliedCookies.has(key)).length,
+    cookiesExpected: liveCookies.length,
+    cookiesApplied,
     cookiesExpiredInFile: expected.cookies.length - liveCookies.length,
     localStorageOriginsExpected: expectedOrigins.length,
     localStorageOriginsApplied,
@@ -246,6 +253,52 @@ export async function assertDistinctStorageStateFiles(
 }
 
 /**
+ * Everything an authenticated provider run must prove before any profile
+ * launches: the runner's own trace, screenshots and video are off, and the
+ * two states are two different sessions. Refusals carry the `[browser-launch]`
+ * marker, so the artifact reporter records them as setup failures rather than
+ * product assertions.
+ */
+export async function preflightAuthenticatedRun(
+  runnerArtifacts: { trace?: unknown, screenshot?: unknown, video?: unknown },
+  pathA: string,
+  pathB: string,
+  session: StorageStateSession,
+): Promise<void> {
+  try {
+    const enabled = enabledRunnerArtifacts(runnerArtifacts)
+    if (enabled.length > 0)
+      throw new Error(`Playwright runner ${enabled.join(', ')} must stay off for authenticated provider runs.`)
+    await assertDistinctStorageStateFiles(pathA, pathB, session)
+  }
+  catch (error) {
+    throw new Error(`${setupMarker} ${(error as Error).message}`)
+  }
+}
+
+/**
+ * Repeats the helper's fail-closed result after launch, so a provider run can
+ * never start unauthenticated if the helper changes. Carries the setup marker.
+ */
+export function assertLaunchedWithSession(
+  check: StorageStateCheck | undefined,
+  sessionCheck: StorageStateSessionCheck | undefined,
+  session: StorageStateSession,
+  label: string,
+): void {
+  const applied = check !== undefined
+    && check.cookiesExpected > 0
+    && check.cookiesApplied === check.cookiesExpected
+    && check.localStorageOriginsApplied === check.localStorageOriginsExpected
+    && check.localStorageKeysApplied === check.localStorageKeysExpected
+  const signedIn = sessionCheck !== undefined
+    && sessionCheck.sessionCookiesExpected === new Set(session.cookieNames).size
+    && sessionCheck.sessionCookiesApplied === sessionCheck.sessionCookiesExpected
+  if (!applied || !signedIn)
+    throw new Error(`${setupMarker} Profile ${label} did not report a fully applied, signed-in storage state.`)
+}
+
+/**
  * Playwright's own debug channels print every protocol parameter, so they
  * would print the saved cookies and localStorage values. Returns the name of
  * the variable that turns one on, if any.
@@ -292,13 +345,21 @@ function isLiveCookie(cookie: { expires?: number }, nowSeconds: number): boolean
  * stays in the key. An IP address has no subdomains and Chrome reports
  * `.127.0.0.1` as `127.0.0.1`, so the dot is dropped there only. Chrome
  * rewrites a partition key to its top-level site, so the key records only
- * whether the cookie is partitioned.
+ * whether the cookie is partitioned. `checkStorageStateApplied` counts keys
+ * with multiplicity, so partitioned siblings are not merged.
  */
 function cookieKey(cookie: CookieIdentity): string {
   const domain = cookie.domain.toLowerCase()
   const bare = domain.replace(/^\./, '')
   const ipAddress = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(bare) || /^\[?[\da-f]*:[\da-f:.]*\]?$/.test(bare)
   return JSON.stringify([cookie.name, ipAddress ? bare : domain, cookie.path, typeof cookie.partitionKey === 'string'])
+}
+
+function countKeys(keys: string[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const key of keys)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  return counts
 }
 
 function isOnSite(domain: string, site: string): boolean {
