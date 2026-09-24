@@ -871,3 +871,101 @@ describe('adaptive player lifecycle', () => {
     expect(video.play).toHaveBeenCalledOnce()
   })
 })
+
+describe('autoplay permission rejection (#68)', () => {
+  const notAllowed = () => new DOMException('User activation required', 'NotAllowedError')
+
+  async function settle(): Promise<void> {
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  function lastReport() {
+    return statuses().at(-1)?.sample
+  }
+
+  async function blockAndLetRoomPause(): Promise<void> {
+    video.play.mockRejectedValueOnce(notAllowed())
+    apply('playing')
+    await settle()
+    expect(lastReport()?.playbackStartFailed).toBe(true)
+    // The coordinator answers the rejection by pausing the room, which
+    // reaches this player as an ordinary command change.
+    apply('paused')
+    await settle()
+    messages.length = 0
+    video.play.mockClear()
+  }
+
+  it('keeps reporting the rejection after the room pauses in response', async () => {
+    await blockAndLetRoomPause()
+    await vi.advanceTimersByTimeAsync(3_000)
+
+    expect(statuses().length).toBeGreaterThan(0)
+    expect(statuses().every(message => message.sample.playbackStartFailed === true)).toBe(true)
+    expect(video.play).not.toHaveBeenCalled()
+  })
+
+  it('clears the rejection once the page accepts a play gesture', async () => {
+    await blockAndLetRoomPause()
+
+    // The person clicks the video and the browser accepts playback.
+    video.paused = false
+    video.dispatchEvent(new Event('play'))
+
+    expect(lastReport()?.playbackStartFailed).toBe(false)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(lastReport()?.playbackStartFailed).toBe(false)
+  })
+
+  it('retries the permission check from panel Sync and stays paused with the room', async () => {
+    await blockAndLetRoomPause()
+
+    listener({ type: 'FORCE_SYNC' })
+    expect(video.play).toHaveBeenCalledOnce()
+    await settle()
+
+    expect(video.paused).toBe(true)
+    expect(lastReport()?.playbackStartFailed).toBe(false)
+  })
+
+  it('keeps the rejection when panel Sync finds the browser still blocked', async () => {
+    await blockAndLetRoomPause()
+    video.play.mockRejectedValueOnce(notAllowed())
+
+    listener({ type: 'FORCE_SYNC' })
+    expect(video.play).toHaveBeenCalledOnce()
+    await settle()
+
+    expect(lastReport()?.playbackStartFailed).toBe(true)
+  })
+
+  it('does not start a play probe from panel Sync when nothing is blocked', () => {
+    apply('paused')
+    listener({ type: 'FORCE_SYNC' })
+    expect(video.play).not.toHaveBeenCalled()
+  })
+
+  it('forgets the rejection when the player source is replaced', async () => {
+    await blockAndLetRoomPause()
+
+    video.currentSrc = 'blob:replacement'
+    video.dispatchEvent(new Event('emptied'))
+
+    let context: unknown
+    listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, response => { context = response })
+    expect(context).toMatchObject({ sample: { playbackStartFailed: false } })
+  })
+
+  it('forgets the rejection when the room is left', async () => {
+    await blockAndLetRoomPause()
+
+    state = structuredClone(state)
+    state.snapshot = null
+    listener({ type: 'APPLY_ROOM_STATE', state })
+
+    let context: unknown
+    listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, response => { context = response })
+    expect(context).toMatchObject({ sample: { playbackStartFailed: false } })
+  })
+})

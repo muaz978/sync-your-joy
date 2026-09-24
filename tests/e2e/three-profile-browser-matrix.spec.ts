@@ -194,6 +194,12 @@ test.describe('three-profile local browser matrix', () => {
     catch (error) {
       throw new Error(`${error instanceof Error ? error.message : String(error)}\nPermission fixture state: ${JSON.stringify(await readFixtureState(videoPages[2]!))}`)
     }
+    // The room's own pause and C's routine reports used to erase the blocked
+    // state within about 100 ms (#68). It must now outlast several report
+    // intervals and stay until the recovery gesture below.
+    await profileC.panel.waitForTimeout(3_000)
+    await expect(profileC.panel.getByText('Playback blocked', { exact: true }).first()).toBeVisible({ timeout: 1_000 })
+    await waitForAllPaused(videoPages)
     await videoPages[2]!.locator('#allow-playback').click()
     await profileC.panel.waitForSelector('#sync-now:not([disabled])', { timeout: 15_000 })
     await profileC.panel.click('#sync-now')

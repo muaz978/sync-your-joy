@@ -37,6 +37,14 @@ export interface InternalParticipant extends ParticipantState {
   lastSample: PlayerSample | null
   lastSampleReceivedAtMs?: number
   lastProgressAtServerMs?: number
+  /**
+   * Room-owned record that this participant's browser rejected play() with a
+   * permission error. Unlike `lastSample` it survives command resets and
+   * room-wide status updates, so everyone keeps seeing who paused the room
+   * until that participant reports that the browser accepted playback again.
+   * Coordinator-local, like the raw samples it is derived from.
+   */
+  playbackBlocked?: boolean
   /** Optional for migration: old persisted participants predate CR-B02. */
   capabilities?: ClientCapabilities
   lastOperationObservation?: OperationObservationIdentity
@@ -246,7 +254,9 @@ export class RoomCoordinator {
         existing.sessionToken = participant.sessionToken
       existing.ready = wasReady && existing.mediaMatches
       existing.playbackStatus = existing.mediaMatches
-        ? existing.ready ? this.playback.status === 'playing' ? 'preparing' : 'ready' : 'preparing'
+        ? existing.playbackBlocked
+          ? 'blocked'
+          : existing.ready ? this.playback.status === 'playing' ? 'preparing' : 'ready' : 'preparing'
         : 'wrong-media'
       this.pauseForMembershipChange()
       this.refreshNegotiation()
@@ -331,11 +341,15 @@ export class RoomCoordinator {
     participant.media = media
     participant.mediaMatches = mediaMatches(this.media, media)
     participant.ready = ready && participant.mediaMatches
+    // Readiness is quorum membership, not browser permission: re-readying
+    // does not clear a recorded playback block.
     participant.playbackStatus = !participant.mediaMatches
       ? 'wrong-media'
-      : participant.ready
-        ? this.playback.status === 'playing' ? 'preparing' : 'ready'
-        : 'preparing'
+      : participant.playbackBlocked
+        ? 'blocked'
+        : participant.ready
+          ? this.playback.status === 'playing' ? 'preparing' : 'ready'
+          : 'preparing'
     if (participant.ready === previousReady && participant.mediaMatches === previousMediaMatches)
       return this.success('readiness_unchanged')
     if (!participant.ready)
@@ -693,6 +707,8 @@ export class RoomCoordinator {
           other.playbackStatus = 'unknown'
         else if (!other.mediaMatches)
           other.playbackStatus = 'wrong-media'
+        else if (other.playbackBlocked)
+          other.playbackStatus = 'blocked'
         else if (other.id === participant.id)
           other.playbackStatus = failureReason === 'participant_playback_silent' ? 'silent' : 'recovery-required'
         else
@@ -817,6 +833,9 @@ export class RoomCoordinator {
     for (const participant of this.participants.values()) {
       participant.ready = false
       participant.mediaMatches = false
+      // A new page starts a new player binding; its first report decides
+      // whether that browser still refuses playback.
+      participant.playbackBlocked = false
       participant.playbackStatus = participant.connected ? 'wrong-media' : 'unknown'
     }
     this.media = {
@@ -879,6 +898,12 @@ export class RoomCoordinator {
     participant.lastSampleReceivedAtMs = nowMs
     if (progressed || participant.lastProgressAtServerMs === undefined)
       participant.lastProgressAtServerMs = nowMs
+    // The extension keeps reporting a permission rejection until its browser
+    // accepts a play request again, so the participant's own accepted report
+    // is what sets or clears the block. Command resets and room-wide status
+    // updates leave it alone.
+    const wasPlaybackBlocked = participant.playbackBlocked === true
+    participant.playbackBlocked = sample.playbackStartFailed === true
     participant.playbackStatus = this.participantPlaybackStatus(participant, nowMs)
     const stallWatchdogActive = !waitingForTransactionalStart
       || isPlaybackPastStartupGrace(this.playback, nowMs)
@@ -890,7 +915,11 @@ export class RoomCoordinator {
     const startupTimedOut = !progressed
       && hasPlaybackStartupTimedOut(this.playback, sample.playbackStarted, nowMs)
       && nowMs - participant.lastProgressAtServerMs >= PLAYBACK_STARTUP_TIMEOUT_MS
+    // A repeated report of an already-recorded rejection must not pause the
+    // room again while it is paused, for example after that participant
+    // re-readies before recovering. It still stops a room that is playing.
     const explicitPlaybackFailure = sample.playbackStartFailed === true
+      && (!wasPlaybackBlocked || this.playback.status === 'playing')
     if (basedOnRevision === this.revision
       && participant.connected
       && participant.ready
@@ -924,13 +953,14 @@ export class RoomCoordinator {
       this.revision += 1
       this.markStateBarrier()
       // A rejected play() call means this participant's browser won't start
-      // without a fresh user gesture -- nothing else in the room state
-      // reflects that. Without clearing readiness here, everyoneReady()
-      // still reports true, so a controller who immediately presses play
-      // again re-triggers the identical rejection, and the room now has no
-      // record of who caused the pause or why it keeps recurring. Buffering
-      // and stall reports are left alone: those usually resolve on their
-      // own without a click.
+      // without a fresh user gesture. Without clearing readiness here,
+      // everyoneReady() still reports true, so a controller who immediately
+      // presses play again re-triggers the identical rejection. The room
+      // also keeps a record of who caused the pause: `playbackBlocked` stays
+      // set (and the participant stays 'blocked') until that participant
+      // reports that its browser accepted playback again. Re-readying does
+      // not clear it. Buffering and stall reports are left alone: those
+      // usually resolve on their own without a click.
       if (explicitPlaybackFailure)
         participant.ready = false
       participant.playbackStatus = explicitPlaybackFailure ? 'blocked' : 'recovery-required'
@@ -1018,6 +1048,7 @@ export class RoomCoordinator {
             lastSample: _lastSample,
             lastSampleReceivedAtMs: _lastSampleReceivedAtMs,
             lastProgressAtServerMs: _lastProgressAtServerMs,
+            playbackBlocked: _playbackBlocked,
             capabilities: _capabilities,
             lastOperationObservation: _lastOperationObservation,
             ...publicParticipant
@@ -1042,6 +1073,7 @@ export class RoomCoordinator {
       connected: participant.connected,
       ready: participant.ready,
       mediaMatches: participant.mediaMatches,
+      playbackBlocked: participant.playbackBlocked === true,
       playback: this.playback,
       operation: this.contract.operation,
       pendingSeek: this.pendingSeek !== null,
@@ -1058,6 +1090,8 @@ export class RoomCoordinator {
         participant.playbackStatus = 'unknown'
       else if (!participant.mediaMatches)
         participant.playbackStatus = 'wrong-media'
+      else if (participant.playbackBlocked)
+        participant.playbackStatus = 'blocked'
       else if (!participant.ready)
         participant.playbackStatus = 'preparing'
       else

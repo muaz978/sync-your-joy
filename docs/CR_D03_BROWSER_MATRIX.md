@@ -16,7 +16,7 @@ The scenario covers:
 4. Paired drift, presented-frame progress and hard current-time write limits.
 5. Exact forward seek destination acknowledgement, followed by convergence.
 6. Source replacement and readiness re-detection on participant C.
-7. One-shot local `NotAllowedError`, visible playback-blocked state, local gesture, in-panel Sync and explicit readiness recovery.
+7. One-shot local `NotAllowedError`, a playback-blocked state that stays visible across routine reports until the local gesture, in-panel Sync and explicit readiness recovery.
 8. Controller transfer from A to B, B playback, and transfer back to A.
 9. A real server-side disconnect of C, service-worker reconnect, room-code preservation, readiness preservation and explicit post-reconnect resume.
 10. Native controller scrubbing at a paused room boundary and remote convergence.
