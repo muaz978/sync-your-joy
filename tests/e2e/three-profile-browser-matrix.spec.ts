@@ -152,10 +152,19 @@ test.describe('three-profile local browser matrix', () => {
     // The controller's real +10 button is checked against the requested
     // destination, not merely against "moved forward". It runs after the
     // sustained window has completed, so its barrier has no older seek to
-    // overlap with.
-    const requestedSeek = Number(await profileA.panel.locator('[data-seek]').last().getAttribute('data-seek'))
-    expect(Number.isFinite(requestedSeek)).toBe(true)
+    // overlap with. The panel re-renders the +10 target from the advancing
+    // position about once a second, so record the destination carried by the
+    // exact button that receives the click instead of reading it beforehand.
+    await profileA.panel.evaluate(() => {
+      document.addEventListener('click', (event) => {
+        const button = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-seek]') : null
+        if (button?.dataset.seek)
+          document.documentElement.dataset.requestedSeek = button.dataset.seek
+      }, { capture: true, once: true })
+    })
     await profileA.panel.locator('[data-seek]').last().click()
+    const requestedSeek = Number(await profileA.panel.evaluate(() => document.documentElement.dataset.requestedSeek))
+    expect(Number.isFinite(requestedSeek)).toBe(true)
     try {
       await expect.poll(async () => {
         const states = await readFixtureStates(videoPages)
