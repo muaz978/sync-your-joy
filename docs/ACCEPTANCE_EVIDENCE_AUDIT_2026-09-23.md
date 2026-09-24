@@ -9,8 +9,8 @@
 
 ## 1. Method
 
-- **Read-only multi-agent audit.** Each issue group had an auditor and an adversarial verifier. The verifier re-checked every claim against git, the GitHub CLI and local artifacts, then raised or lowered states and evidence classes (see §7). Every verified group result is included. No group is missing ("not audited" list: none).
-- **Critic pass.** A second read-only review on 2026-09-23 corrected the Firefox finding, added the coordinator-side heartbeat gap, and fixed several state, class and reference mismatches. Those corrections are folded into the sections below and listed at the end of §7.
+- **Read-only two-pass audit.** Each issue group was audited, then independently re-checked. The re-check verified every claim against git, the GitHub CLI and local artifacts, then raised or lowered states and evidence classes (see §7). Every verified group result is included. No group is missing ("not audited" list: none).
+- **Completeness review.** A second read-only review on 2026-09-23 corrected the Firefox finding, added the coordinator-side heartbeat gap, and fixed several state, class and reference mismatches. Those corrections are folded into the sections below and listed at the end of §7.
 - **No local test runs.** Dependencies (`node_modules`) are not installed in the audit worktree, and org policy blocks package installs. Test evidence therefore comes from hosted CI: `gh pr view --json statusCheckRollup` and `gh run view`. These are historical CI results for the exact commits they ran on, not new local test results, and they prove nothing about provider playback, two devices, the deployed coordinator or user acceptance. The main HEAD CI run is 35663363774 (36 files, 319 tests). Local Playwright artifacts under the main checkout's `test-results/` were read in sanitized form only. Storage-state files, cookies, tokens, `.env` files and signed URLs were not opened.
 - **Project fields.** The gh token lacks `read:project`, so ProjectV2 fields cannot be read. Where a status is given, it comes from comments, checkpoints or readable timeline status events.
 - **Acceptance philosophy.** A merged PR, green unit tests or a filled template is not acceptance. A moving room clock or an advancing aggregate counter does not prove native playback. Dry-run or local results do not prove a remote deployment. 1.0.0 is reserved for the end-of-milestone gate.
@@ -85,7 +85,7 @@
 
 ## 5. Device A work vs external blockers
 
-Test runs need a checkout where `npm ci` is allowed; this audit worktree has no dependencies. Device A host values: macOS 27.0 (26A428) arm64, Chrome 153.0.8010.53, Edge 153.0.4234.48, Safari 27.0, Xcode 27.0, **Firefox 156.0.1**. Firefox presence is settled: `/Applications/Firefox.app` reports `CFBundleShortVersionString` 156.0.1 (re-checked 2026-09-23), matching the #33 and #51 verifiers. The #35 verifier's "absent" reading was wrong. Firefox rows are local work, not an unavailable runtime.
+Test runs need a checkout where `npm ci` is allowed; this audit worktree has no dependencies. Device A host values: macOS 27.0 (26A428) arm64, Chrome 153.0.8010.53, Edge 153.0.4234.48, Safari 27.0, Xcode 27.0, **Firefox 156.0.1**. Firefox presence is settled: `/Applications/Firefox.app` reports `CFBundleShortVersionString` 156.0.1 (re-checked 2026-09-23), matching the #33 and #51 re-checks. The #35 re-check's "absent" reading was wrong. Firefox rows are local work, not an unavailable runtime.
 
 ### Can be done now on Device A, without the second device
 - **Coordinator identity, read-only:** `gh run list/view` for deploy-edge.yml, and `npx wrangler deployments status/list` with the user's login. `npm run smoke:edge` creates a synthetic room and needs user authorization. (#30, #34, #35, #49–#65, #69)
@@ -156,7 +156,7 @@ Test runs need a checkout where `npm ci` is allowed; this audit worktree has no 
 | 10 Reload/rehydration | partial | e2e-headed-fixture | spec:236-256 | 2D, PP, 2A, LA | No E2E reloads a page |
 | 11 Network interruption | partial | e2e-headed-fixture | spec:236-256 | NET, 2D, PP | A test-route close is not a network fault |
 | 12 Player replacement | partial | e2e-headed-fixture | spec:170-183 | PP, HB, 2D | Element/frame/document rebinding is unit-only |
-| 13 Leave cleanup | partial | source-review | service-worker.ts:904-931 | 2D, LA | No leave test exists (verifier lowered from unit) |
+| 13 Leave cleanup | partial | source-review | service-worker.ts:904-931 | 2D, LA | No leave test exists (re-check lowered from unit) |
 | 14 Evidence classes separated | missing | doc-only | templates | 2D, PP, UA | The plan's field list omits several classes |
 | 15 Two authorized states | partial | doc-only | research notes:3-16 | 2A, PP, LA | No second state; storageState dropped |
 | 16 Candidate and coordinator identity | partial | doc-only | run 35387667519 | DEP, 2D | Coordinator predates 0.2.5 |
@@ -210,7 +210,7 @@ Test runs need a checkout where `npm ci` is allowed; this audit worktree has no 
 | 13 No stale resurrection | partial | integration | server.test.ts:453 | 2D, NET, DEP, UA | |
 | 14 Pass bar | partial | integration | server.test.ts:307 | 2D, NET, DEP, UA | Native/visible recovery unevidenced |
 | 15 Report completed | missing | doc-only | template:142-164 | 2D, DEP, UA | |
-| Body: real hardware fault recovery | missing | none | checkpoint:6452 | 2D, NET, DEP, UA | Verifier lowered from partial/unit |
+| Body: real hardware fault recovery | missing | none | checkpoint:6452 | 2D, NET, DEP, UA | Re-check lowered from partial/unit |
 | User acceptance | missing | none | — | UA | |
 
 **Closure blockers:** no device run; Device B unavailable; no OS-level fault method chosen; coordinator identity unproven; coordinator-side disconnect detection for silent outages is unverified and has no server-side deadline; no role-swap, sleep/wake or pending-op fault runs; no native/visible recovery evidence; no user acceptance.
@@ -243,7 +243,7 @@ Test runs need a checkout where `npm ci` is allowed; this audit worktree has no 
 | 5 Competing videos | partial | unit | player-tab.test.ts:34, 57 | HB | videoCandidateScore untested |
 | 6 Lock UI | partial | unit | service-worker.test.ts:555 | HB | Toggle only, no picker |
 | 7 Nested frame | partial | unit | content-script.test.ts:104-186 | HB | Edge attempt blocked by policy |
-| 8 Ready/play/pause/seek | partial | e2e-headed-fixture | two-profile-sync.spec.ts:160-175; runs e2e-1790023961882 (headless) and e2e-1790024025583 (headed), both passed, both dirty trees | HB | Backward seek is asserted (auditor was wrong). Playwright bundled Chromium, not a human-operated branded browser |
+| 8 Ready/play/pause/seek | partial | e2e-headed-fixture | two-profile-sync.spec.ts:160-175; runs e2e-1790023961882 (headless) and e2e-1790024025583 (headed), both passed, both dirty trees | HB | Backward seek is asserted (the initial audit was wrong). Playwright bundled Chromium, not a human-operated branded browser |
 | 9 Reload/source replace | partial | unit | content-script.test.ts:761 | HB | |
 | 10 Visible playback | missing | doc-only | CR_D03:58 | HB, UA | |
 | 11 Diagnostics identity | partial | unit | sidepanel.ts:553-583 | HB | |
@@ -317,7 +317,7 @@ Test runs need a checkout where `npm ci` is allowed; this audit worktree has no 
 | Criterion | State | Class | Refs | Gaps | Notes |
 |---|---|---|---|---|---|
 | One in-flight write | partial | unit | player-operations.test.ts:5-13 | HB, PP | |
-| Command/source generation | partial | unit | content-script.test.ts:205 | LA, HB | Verifier lowered from complete |
+| Command/source generation | partial | unit | content-script.test.ts:205 | LA, HB | Re-check lowered from complete |
 | Late seeked | partial | unit | content-script.test.ts:773-805 | HB, PP | |
 | Late play resolution | partial | unit | content-script.test.ts:422-460 | HB | |
 | Late play rejection | partial | unit | content-script.test.ts:411-420 | HB | |
@@ -941,7 +941,7 @@ Test runs need a checkout where `npm ci` is allowed; this audit worktree has no 
 
 10. **Headed fixture evidence comes from unverified local trees.** All e2e-headed-fixture evidence (#30, #33, #49–#57, #62, #64, #66–#68) comes from local runs labelled d5ceef7/950d641. The eight-character values below are provenance `trackedSourceSha256` prefixes written by `writeProvenance` in tests/e2e/global-setup.ts, not git objects. Recomputed from git with the same algorithm: a clean d5ceef7 hashes to 773c452b and a clean 950d641 to d183e506, while the retained runs labelled with those commits record af627916, d909996b, 39bb82a8 and others, so those trees were dirty. No retained matrix or headed run matches the merged #96 head (merge 1d22c5b, PR head 73536d0, tree 847b90a3; prefix a93f90b2) or the release source (tag commit 423b6f7, tree 48517c46; prefix 51963471). The only a93f90b2 run, e2e-1790026537617 (labelled 282a784, whose tracked source equals 1d22c5b), is a Crunchyroll safe-skip with no executed test. Several records say d5ceef7 is "same as HEAD" apart from test hooks; treat that as unverified until a clean run is done.
 11. **Clock-only progress counts as real progress.** It drives "Playing, confirmed", the transactional started ACK, and coordinator health (#52, #53, #57, #58, #64). PR #96's rVFC counter bypasses the hidden-tab fallback and has no tests.
-12. **Firefox presence on Device A (resolved).** `/Applications/Firefox.app` reports 156.0.1 (re-checked 2026-09-23), as the #33 and #51 records said. The "absent" finding in the #35 record came from a faulty initial host check supplied to the auditors, and was wrong. Firefox rows for #35 and #51 are local work that needs a separate `build:extension:firefox` package with an explicit `SYNCYOURJOY_ROOM_SERVER_URL`, run headed. They are not blocked by an unavailable runtime.
+12. **Firefox presence on Device A (resolved).** `/Applications/Firefox.app` reports 156.0.1 (re-checked 2026-09-23), as the #33 and #51 records said. The "absent" finding in the #35 record came from a faulty initial host check supplied to the audit, and was wrong. Firefox rows for #35 and #51 are local work that needs a separate `build:extension:firefox` package with an explicit `SYNCYOURJOY_ROOM_SERVER_URL`, run headed. They are not blocked by an unavailable runtime.
 
 **Process**
 
@@ -957,8 +957,8 @@ Test runs need a checkout where `npm ci` is allowed; this audit worktree has no 
     - Most reports still say 0.2.4 and pre-merge status.
 15. **Project fields.** They cannot be verified without `read:project`. #68's item is In Progress, not Done, and #60's move to Verification never happened.
 
-### Verifier corrections summary
-Verifiers logged **about 180 correction entries** (178 by this document's count) across all 25 issues. None marked an issue closable.
+### Re-check corrections summary
+The re-check logged **about 180 correction entries** (178 by this document's count) across all 25 issues. None marked an issue closable.
 
 **Raises.** Mostly to e2e-headed-fixture on the strength of local headed artifacts (#30 criteria 2, 4–12; #52, #53, #54, #62, #64, #66), plus unit or integration upgrades where CI-run tests were overlooked (#34 criteria 8, 13, 14; #35 criteria 3–5, 15; #59 verification; #61 rollback).
 
@@ -976,13 +976,13 @@ Verifiers logged **about 180 correction entries** (178 by this document's count)
 
 **Factual fixes:**
 - The backward seek is asserted (#35).
-- Firefox presence: 156.0.1 is installed (#33, #51 records were right); the #35 verifier's "absent" finding is corrected (re-checked 2026-09-23).
+- Firefox presence: 156.0.1 is installed (#33, #51 records were right); the #35 re-check's "absent" finding is corrected (re-checked 2026-09-23).
 - #68's "Done" project status belongs to PR #96's item.
 - #67 is a dependency of #68.
 - #88 (#60): the approval requirement was not satisfied by a second reviewer. After the owner's final-head review and explicit user authorization, the authorized administrative merge path was used.
 - Coverage claims were overstated in #50 comments and in the PR #79, #80 and #82 docs.
 
-**Critic pass (2026-09-23):**
+**Completeness review (2026-09-23):**
 - States lowered: #55 stale-operation rejection and #56 controller ownership (complete → partial); #60 criterion 5 (complete → partial); #33 criterion 1 (partial → missing).
 - Classes and references aligned: #52 bounded policy, #54 deadline and receipt-time expiry, #56 failed prepare and #67 AC3 now cite the tests that exercise them; #65 controller-follow lowered to source-review; #57 verification split into suites (unit/integration) and local scenario (partial, e2e-headless); #35 row 8, #49 selected-frame binding and #57 receives-preparation relabelled to match the cited evidence.
 - Added: the coordinator-side heartbeat gap (item 9), closure blockers for #67 and #69, the merge-history commits for #60 and #68, and provenance labels (item 10).
