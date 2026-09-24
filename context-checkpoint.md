@@ -8603,8 +8603,8 @@
 ## Complete Chronological Activity Log
 
 ### 2026-09-23 - Read-only readiness audit
-- Action taken: Ran a read-only multi-agent audit of #30, #33, #34, #35 and #49–#69, with one auditor and one adversarial verifier per issue group, followed by a completeness critic and one revision pass.
-- Result: 25 issues audited, 178 verifier corrections, 27 critic problems fixed. No issue is closure-eligible. The strongest evidence anywhere is e2e-headed-fixture.
+- Action taken: Ran a read-only two-pass audit of #30, #33, #34, #35 and #49–#69: each issue group was audited, then independently re-checked, followed by a completeness review and one revision pass.
+- Result: 25 issues audited, 178 re-check corrections, 27 completeness-review problems fixed. No issue is closure-eligible. The strongest evidence anywhere is e2e-headed-fixture.
 - Result: Found the coordinator gap (last deploy from v0.2.4 source), the harness `storageState` suspicion, and the malformed provenance SHAs.
 
 ### 2026-09-24 - Corrected the public v0.2.5 release-notes SHA
@@ -8756,7 +8756,7 @@
 
 ## User Objective and Requirements
 - Install Playwright Chromium, keep the required session-cookie names, deploy the coordinator from `v0.2.5`, and allow one synthetic smoke room.
-- Never add AI attribution to commits, PRs, reviews or comments.
+- Never add tool attribution trailers or footers to commits, PRs, reviews or comments.
 - Validate the harness defect against the repository's Playwright version, fix it through a supported API with a regression test, a safe skip and evidence that states apply, and keep it separate from the docs PRs.
 - Do not close #30 because the harness fix merges.
 
@@ -8768,7 +8768,7 @@
 ## Complete Chronological Activity Log
 
 ### 2026-09-24 - Attribution correction
-- Result: The user pointed out AI attribution in this session's commits and PR bodies. Six commits merged through PRs #101 and #102 carry a `Co-Authored-By` trailer: `92cc080`, `6da4eb9`, `7c0ee29`, `c29316c`, `6b23df2` and `c37b399`. The PR #101 and #102 bodies ended with a generated-by footer.
+- Result: The user pointed out tool attribution in this session's commits and PR bodies. Six commits merged through PRs #101 and #102 carry a co-author trailer: `92cc080`, `6da4eb9`, `7c0ee29`, `c29316c`, `6b23df2` and `c37b399`. The PR #101 and #102 bodies ended with a generated-by footer.
 - Action taken: Removed the footer from both PR bodies. Checked every review and issue comment from this session and found no attribution.
 - Decision: Merged history on `main` is not rewritten without explicit user approval. All later commits and posts carry no attribution.
 
@@ -8792,7 +8792,7 @@
   - forces runner trace, screenshot and video off for the provider spec
   - refuses a state under Playwright debug logging
   - hardens `e2e-crunchyroll.yml` so a parse failure prints no file text, the no-secret regression spec runs before any secret is in scope, and decoded states are always removed
-- Action taken: A final review of `593edf8` by three independent lenses, each finding checked by a skeptic, confirmed 8 minor findings and refuted 3. `3f3cc6e` fixes all 8:
+- Action taken: A final review of `593edf8` covering correctness, privacy and test adequacy, with every finding independently re-checked, confirmed 8 minor findings and did not confirm 3. `3f3cc6e` fixes all 8:
   - partitioned cookies are counted with multiplicity
   - the pre-launch and post-launch refusals carry the `[browser-launch]` setup marker through `preflightAuthenticatedRun` and `assertLaunchedWithSession`
   - eight unit tests and one e2e debug-guard test were added
@@ -8839,6 +8839,55 @@
 1. Push the branch, open the harness PR with `Refs #30`, apply metadata, confirm the hosted checks on the final head, review that head, and merge.
 2. Post the post-merge record on #30 without closing it.
 3. When Device B is available, re-run Gate 0 commands 1–3, then run #30, then #34, then the applicable #35 checks.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy wording cleanup in the acceptance audit and in checkpoints 99 and 101.
+- Checkpoint number: 102.
+- Date and time: 2026-09-24, Europe/Istanbul.
+- Coverage period: Since checkpoint 101.
+- Current context status: Documentation wording only. No acceptance state, evidence, SHA or result changes.
+
+## User Objective and Requirements
+- Remove tool-attribution and tool-process traces from repository content, PR text, reviews and comments.
+
+## Current State
+- `origin/main` is `3a5a1cd3c377b3ddde685632eb523193a6230d82`.
+
+## Complete Chronological Activity Log
+
+### 2026-09-24 - Wording cleanup
+- Action taken: Scanned every line added to `main` since `1568049`, the PR #101–#103 bodies, the owner reviews on those PRs, and the owner comments on #30, #34, #35 and #54.
+- Action taken: In `docs/ACCEPTANCE_EVIDENCE_AUDIT_2026-09-23.md` and checkpoints 99 and 101, reworded the review-process terminology to neutral terms: two-pass audit, independent re-check and completeness review. Tool-attribution wording in checkpoint 101 was also neutralized.
+- Action taken: Edited the PR #101 body and the PR #103 owner review to the same neutral wording.
+- Result: No finding, count, SHA, evidence class or acceptance state changed. Mentions of GitHub's own "Code scanning AI findings" check name are kept, because that is the check's literal name.
+
+## Confirmed Successful Results
+- The repository content added since `1568049`, the PR bodies and the owner reviews contain no tool-attribution or tool-process wording.
+
+## Failed, Incomplete, or Unresolved Work
+- Six commits on `main` from PRs #101 and #102 still carry co-author trailers. Removing them requires rewriting `main`, which needs the user's decision. The merged PR pages keep their original commit lists either way.
+
+## Decisions and Rationale
+- Reword rather than delete, so the records keep their meaning.
+
+## Files and Artifacts
+- `docs/ACCEPTANCE_EVIDENCE_AUDIT_2026-09-23.md`
+- `context-checkpoint.md`
+
+## Assumptions and Uncertainties
+- None.
+
+## Open Questions, Blockers, and Dependencies
+- The user's decision on rewriting history.
+
+## Next Steps
+1. Review and merge this documentation PR.
+2. Act on the history decision.
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
