@@ -8744,3 +8744,101 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy #30 readiness: attribution correction, v0.2.5 coordinator deployment and Gate 0, and the `storageState` harness fix (branch `codex/issue-30-storage-state-harness`).
+- Checkpoint number: 101.
+- Date and time: 2026-09-24, Europe/Istanbul.
+- Coverage period: Since checkpoint 100.
+- Current context status: The coordinator runs the v0.2.5 candidate and Gate 0 passed. The harness fix is committed and verified locally. The harness PR is next. #30 remains open. Device B is not available until at least 2026-09-25.
+
+## User Objective and Requirements
+- Install Playwright Chromium, keep the required session-cookie names, deploy the coordinator from `v0.2.5`, and allow one synthetic smoke room.
+- Never add AI attribution to commits, PRs, reviews or comments.
+- Validate the harness defect against the repository's Playwright version, fix it through a supported API with a regression test, a safe skip and evidence that states apply, and keep it separate from the docs PRs.
+- Do not close #30 because the harness fix merges.
+
+## Current State
+- `origin/main` is `ec60ada2a57cab1a50795b710813551fbf4b4fca`.
+- The production coordinator's active version is `6a927c6f-93ea-47dc-b264-a0bc14c9fe1d` at 100%, deployed from `423b6f7c77dad2b4a14db6932711be025aac8163`.
+- The harness branch has two commits on `ec60ada`: `593edf85e9cd96c8aa6eafc2223a2016cf35ce8b` and `3f3cc6e`.
+
+## Complete Chronological Activity Log
+
+### 2026-09-24 - Attribution correction
+- Result: The user pointed out AI attribution in this session's commits and PR bodies. Six commits merged through PRs #101 and #102 carry a `Co-Authored-By` trailer: `92cc080`, `6da4eb9`, `7c0ee29`, `c29316c`, `6b23df2` and `c37b399`. The PR #101 and #102 bodies ended with a generated-by footer.
+- Action taken: Removed the footer from both PR bodies. Checked every review and issue comment from this session and found no attribution.
+- Decision: Merged history on `main` is not rewritten without explicit user approval. All later commits and posts carry no attribution.
+
+### 2026-09-24 - Coordinator deployment from the candidate
+- Action taken: Recorded the pre-deploy identity: Worker version `209278f7-9154-4ad0-974a-3ad565a67581`, the latest deploy run `35387667519` from `1ac5b1c`, and `/health` ok.
+- Action taken: With user authorization, dispatched `deploy-edge.yml` at ref `v0.2.5`.
+- Result: Run https://github.com/muaz978/sync-your-joy/actions/runs/35930963461 succeeded with `headSha` `423b6f7c77dad2b4a14db6932711be025aac8163`. 36 test files passed before the deploy. The run log reports `Current Version ID: 6a927c6f-93ea-47dc-b264-a0bc14c9fe1d`.
+- Result: After the user ran `npx wrangler login`, `wrangler deployments status` showed 100% `6a927c6f-…`, created 2026-09-23T22:55:59Z. `wrangler deployments list` shows no newer deployment.
+- Action taken: Downloaded the public v0.2.5 ZIP.
+- Result: `shasum -c` reported OK. `service-worker.js` contains only `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`, and the manifest version is `0.2.5`.
+- Action taken: Ran the user-authorized `npm run smoke:edge`.
+- Result: `ok:true`, `transactionalContractVerified:true`, `seekTimeoutReleaseMs:2980`. The room code was not recorded.
+- Result: Gate 0 outcome `G0-PASS`, posted on #30 (comment 5804399724).
+
+### 2026-09-24 - Harness defect confirmed and fixed
+- Result: With Playwright 1.63.0, `launchPersistentContext` silently drops `storageState`. The client reads the file, the protocol validator drops the key, and the server never applies it. Dummy-state probes showed empty cookies and localStorage, while `browser.newContext` applied the same file.
+- Result: No saved Crunchyroll states exist locally or in CI.
+- Action taken: `593edf8` applies the state with `BrowserContext.setStorageState` and verifies it with `storageState()`, count-only and fail-closed. It also:
+  - requires `SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES` (user decision to keep it)
+  - refuses identical or shared-session states
+  - forces runner trace, screenshot and video off for the provider spec
+  - refuses a state under Playwright debug logging
+  - hardens `e2e-crunchyroll.yml` so a parse failure prints no file text, the no-secret regression spec runs before any secret is in scope, and decoded states are always removed
+- Action taken: A final review of `593edf8` by three independent lenses, each finding checked by a skeptic, confirmed 8 minor findings and refuted 3. `3f3cc6e` fixes all 8:
+  - partitioned cookies are counted with multiplicity
+  - the pre-launch and post-launch refusals carry the `[browser-launch]` setup marker through `preflightAuthenticatedRun` and `assertLaunchedWithSession`
+  - eight unit tests and one e2e debug-guard test were added
+- Result: Six deliberate mutations were each caught by a test.
+- Result: The Playwright Chromium cache disappeared outside this session between about 01:28 and 01:33. With user authorization, it was reinstalled with `npx playwright install chromium --no-shell`, then `chromium-headless-shell`.
+
+### 2026-09-24 - Verification results
+- Result: The regression spec failed 6 of 6 against the unfixed helper (red) and passed 6 of 6 with the fix (green).
+- Result: typecheck exit 0; `npm test` 37 files and 350 tests passed; build ok; `verify:browser-packages` ok; `npm audit --omit=dev` found 0 vulnerabilities; `git diff --check` clean.
+- Result: The final full `npm run test:e2e` gave 11 passed and 1 skipped (the opt-in provider test).
+- Result: The CR-D03 three-profile matrix fails intermittently, including on unmodified `main`:
+  - Unmodified `main`: 1 failure in 15 runs.
+  - This branch: 5 failures in 20 runs.
+  - Interleaved A/B runs recorded a failure on `main` too.
+  - The matrix passes no storage state, so its launch path through the helper is unchanged.
+  - The new spec leaves no stray Chromium processes or listeners.
+  - A follow-up investigation was offered to the user as a separate task.
+
+## Confirmed Successful Results
+- The coordinator is deployed from the extension's runtime candidate. Gate 0 passed, with identity recorded on #30.
+- The harness defect is confirmed and fixed through the supported API, with red/green, mutation and full-suite evidence using dummy states only.
+
+## Failed, Incomplete, or Unresolved Work
+- The protected two-profile harness has not run with real states. No second authorized state, no required-cookie-names value and no CI secrets exist yet.
+- Six commits on `main` still carry attribution trailers, pending the user's decision.
+- Matrix flakiness is unresolved and is outside this PR.
+- Device B information is outstanding.
+
+## Decisions and Rationale
+- Deploy from the tag rather than `main`, so the deployed source commit equals the extension candidate.
+- Keep the required session-cookie names, so an expired or signed-out state cannot pass.
+- Record the matrix failures as observed, not as passes, and investigate them separately.
+
+## Files and Artifacts
+- `tests/e2e/storage-state.ts`, `tests/e2e/extension-profile.ts`, `tests/e2e/crunchyroll-two-profile.spec.ts`, `tests/e2e/extension-profile-storage-state.spec.ts`, `tests/storage-state.test.ts`, `.github/workflows/e2e-crunchyroll.yml`, `docs/TEST_GUIDE.md`, `docs/CR_D01_E2E_ARTIFACTS.md`.
+
+## Assumptions and Uncertainties
+- The check proves the saved cookies and localStorage keys reached the profile, and that the declared session cookies are live in the file. It cannot prove that Crunchyroll still accepts a session it revoked on its side.
+
+## Open Questions, Blockers, and Dependencies
+- Device B details, the second authorized state, a shared `/watch/` URL, and the session-cookie names for the provider run.
+
+## Next Steps
+1. Push the branch, open the harness PR with `Refs #30`, apply metadata, confirm the hosted checks on the final head, review that head, and merge.
+2. Post the post-merge record on #30 without closing it.
+3. When Device B is available, re-run Gate 0 commands 1–3, then run #30, then #34, then the applicable #35 checks.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.

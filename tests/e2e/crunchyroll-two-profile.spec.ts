@@ -5,7 +5,10 @@
 // protected CI workflow supplies two Playwright storage-state files and one
 // HTTPS /watch URL. The assertions stay at the native media-state boundary:
 // currentTime, paused, duration, readyState, seeking, and frame progress.
-import { access } from 'node:fs/promises'
+// extension-profile.ts applies each state with `setStorageState` and stops
+// the run before any provider page opens if a state is not fully applied, or
+// if a declared session cookie is missing or expired;
+// extension-profile-storage-state.spec.ts covers that path without secrets.
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
@@ -16,12 +19,21 @@ import {
   providerVideoSnapshot,
   waitForProviderVideos,
 } from './provider-playback.ts'
+import {
+  assertLaunchedWithSession,
+  preflightAuthenticatedRun,
+  type StorageStateSession,
+} from './storage-state.ts'
 
 interface CrunchyrollE2EConfig {
   providerUrl: string
   storageStateA: string
   storageStateB: string
+  session: StorageStateSession
 }
+
+// RFC 6265 cookie-name token characters.
+const cookieNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 
 const here = dirname(fileURLToPath(import.meta.url))
 const extensionDistDir = resolve(here, '..', '..', 'apps/extension/dist')
@@ -30,13 +42,19 @@ function readCrunchyrollConfig(): CrunchyrollE2EConfig | null {
   const providerUrl = process.env.SYNCYOURJOY_CRUNCHYROLL_URL
   const storageStateA = process.env.SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A
   const storageStateB = process.env.SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B
+  // Names, never values, of the cookies that carry the signed-in session.
+  const requiredCookieNames = process.env.SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES
 
-  if (!providerUrl && !storageStateA && !storageStateB)
+  if (!providerUrl && !storageStateA && !storageStateB && !requiredCookieNames)
     return null
   if (!providerUrl || !storageStateA || !storageStateB) {
     throw new Error(
       'Crunchyroll E2E requires SYNCYOURJOY_CRUNCHYROLL_URL and both storage-state paths.',
     )
+  }
+  if (!requiredCookieNames) {
+    throw new Error('Crunchyroll E2E requires SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES, '
+      + 'the comma-separated names of the cookies that carry the signed-in session.')
   }
 
   const parsedUrl = new URL(providerUrl)
@@ -45,11 +63,22 @@ function readCrunchyrollConfig(): CrunchyrollE2EConfig | null {
     || !/^\/watch\//i.test(parsedUrl.pathname)) {
     throw new Error('SYNCYOURJOY_CRUNCHYROLL_URL must be an HTTPS Crunchyroll /watch URL.')
   }
+  const cookieNames = requiredCookieNames.split(',').map(name => name.trim()).filter(Boolean)
+  if (cookieNames.length === 0 || !cookieNames.every(name => cookieNamePattern.test(name)))
+    throw new Error('SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES must be a comma-separated list of cookie names.')
 
-  return { providerUrl, storageStateA, storageStateB }
+  return { providerUrl, storageStateA, storageStateB, session: { site: 'crunchyroll.com', cookieNames } }
 }
 
 const config = readCrunchyrollConfig()
+
+// The runner's own trace, screenshots and video start when a browser context
+// is created, which is before the helper applies a storage state. A runner
+// trace would record every saved cookie and localStorage value, and the
+// provider's Cookie request headers. This file-level override outranks
+// `--trace` and UI mode, which both set the option at config level, and
+// beforeAll checks the result before any profile launches.
+test.use({ trace: 'off', screenshot: 'off', video: 'off' })
 
 test.describe('authenticated Crunchyroll two-profile playback', () => {
   test.skip(!config, 'Provide the protected storage-state paths to run live Crunchyroll coverage.')
@@ -57,21 +86,30 @@ test.describe('authenticated Crunchyroll two-profile playback', () => {
   let profileA: ExtensionProfile
   let profileB: ExtensionProfile
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ trace, screenshot, video }) => {
     if (!config)
       return
-    await Promise.all([config.storageStateA, config.storageStateB].map(path => access(path)))
+    // Refuses runner artifacts and missing, identical or shared-session
+    // states before any profile launches, as a setup failure.
+    await preflightAuthenticatedRun({ trace, screenshot, video }, config.storageStateA, config.storageStateB, config.session)
     const dist = process.env.SYNCYOURJOY_E2E_EXTENSION_DIST ?? extensionDistDir
     const artifactDirectory = process.env.SYNCYOURJOY_E2E_ARTIFACT_DIR
-    const trace = process.env.SYNCYOURJOY_E2E_TRACE === '1'
+    // The helper's own opt-in trace starts only after the states are applied.
+    const helperTrace = process.env.SYNCYOURJOY_E2E_TRACE === '1'
     const profileOptions = {
       ...(artifactDirectory ? { artifactDirectory } : {}),
-      trace,
+      trace: helperTrace,
     }
     ;[profileA, profileB] = await launchExtensionProfiles(dist, [
-      { label: 'crunchyroll-a', options: { ...profileOptions, storageState: config.storageStateA } },
-      { label: 'crunchyroll-b', options: { ...profileOptions, storageState: config.storageStateB } },
+      { label: 'crunchyroll-a', options: { ...profileOptions, storageState: config.storageStateA, storageStateSession: config.session } },
+      { label: 'crunchyroll-b', options: { ...profileOptions, storageState: config.storageStateB, storageStateSession: config.session } },
     ])
+    // The helper already refuses to launch a profile whose saved state was
+    // not fully applied or has no live declared session cookie. Repeating the
+    // count check here keeps this provider run from ever starting
+    // unauthenticated if that helper changes.
+    assertLaunchedWithSession(profileA.storageStateCheck, profileA.storageStateSessionCheck, config.session, 'crunchyroll-a')
+    assertLaunchedWithSession(profileB.storageStateCheck, profileB.storageStateSessionCheck, config.session, 'crunchyroll-b')
     await Promise.all([profileA.recordState('initial'), profileB.recordState('initial')])
   })
 
