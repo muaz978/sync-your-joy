@@ -121,3 +121,78 @@ The final local verification completed after the implementation and documentatio
 - `SYNCYOURJOY_E2E_HEADED=1 npm run test:e2e`: 5 passed, 1 skipped. The three-profile matrix passed in the visible headed runtime in 38.3 seconds.
 
 These results establish source, unit, build and local Chromium evidence for CR-D03. They do not close issue #68 because navigation depends on #65 and live-provider, deployment, physical-device and user-acceptance gates remain separate.
+
+## Intermittent failure investigation (2026-09-24)
+
+### Reported symptoms
+
+On 2026-09-24 the matrix failed intermittently on macOS 27.0 arm64 with Playwright 1.63.0 and Chromium 1243, run as `npx playwright test --config tests/e2e/playwright.config.ts tests/e2e/three-profile-browser-matrix.spec.ts` (`workers: 1`, `fullyParallel: false`):
+
+- Unmodified `origin/main` `ec60ada2a57cab1a50795b710813551fbf4b4fca`: 1 failure in 15 runs. After a later message-only history rewrite, the same file tree is commit `275d197c05acf142d17de276ae3fd46202276df3`; references to `ec60ada` below mean that tree.
+- `codex/issue-30-storage-state-harness`, whose launch path for this spec is identical: 5 failures in 20 runs.
+
+Two messages were reported: `A player paused during the sustained window` and `expect(locator).toBeVisible() failed`.
+
+### Method
+
+The spec was repeated with a temporary room-service trace. It was gated by an environment variable, left uncommitted and removed before the verification below. It recorded one JSON line for every player report (revision, current revision, paused, buffering, progress and start-failure flags), operation acknowledgement, controller command and broadcast reason.
+
+Traced reproduction on `ec60ada`: 20 runs, **12 passed and 8 failed**. Seven failures were sustained-window pauses. One was an exact-seek destination miss.
+
+### Finding 1: the coordinator discarded a racing progress report (product, fixed)
+
+Every sustained-window pause was a room-wide pause issued by the coordinator itself: `participant_playback_stalled`, operation `cancelled` with reason `manual-recovery`. All three players paused within about 10 ms of each other, about 2.0–2.4 seconds after the synchronized start.
+
+The sequence:
+
+1. The three test-player pages open at the same instant, so each content script's one-second status timer fires within about 10 ms of the others.
+2. During the transactional start, one participant can prove frame progress on its first tick (about +0.5 s), while another needs a second tick (about +1.5 s).
+3. The late participant's `started` acknowledgement advances the room revision. On that same tick, the early participant's progress report was stamped with the revision its content script last received, so it arrives stale.
+4. `RoomCoordinator.updatePlayerStatus` rejected any report whose `basedOnRevision` differed from the current revision, including its progress evidence.
+5. The early participant's last accepted progress was therefore its first-tick acknowledgement. Its next report is a full second away, but `PLAYBACK_PROGRESS_TIMEOUT_MS` is 1,800 ms. The health timer declared it stalled and paused the room.
+
+Evidence: all 5 traced pauses with distinguishable participants (`base-08`, `-12`, `-13`, `-15`, `-16`) show the flagged participant's last accepted progress at +415 to +510 ms, a dropped report at +1,418 to +1,514 ms with revision 14 or 15 against current revision 16, and the stall 1,811–1,894 ms after the last accepted progress. The 2 earlier pauses were recorded before participant labels were distinguishable in the trace. Their revision sequence shows the same stale report immediately before the stall.
+
+PR #96 already rebased the *acknowledging* participant's progress clock on its own `started` acknowledgement. The remaining gap was the *other* participants' reports that race that acknowledgement. A single lost report was enough to pause the room, because the report cadence (1 s) leaves only 0.8 s of slack under the 1.8 s deadline.
+
+The fix is in `packages/sync-engine/src/room.ts`:
+
+- The coordinator records the latest unbroken run of revisions that were produced only by `started` acknowledgements (`startAcknowledgementRun`).
+- `isSampleRevisionCurrent` accepts a report stamped at the current revision, or at a revision inside that run, but only while the run still ends at the current revision.
+- Any later command, pause, seek, readiness or media change makes the check exact again, so reports from a superseded command stay rejected.
+- Failure classification (stall, buffering, start rejection) still requires an exact revision match, so a stale report can prove progress but can never pause the room.
+- The run is not persisted in exported coordinator state, so a restored room starts with the previous exact check.
+
+### Finding 2: the +10 seek destination was read before the click (test, fixed)
+
+In one traced run every player seeked to 41.355 s while the test expected 40.353 s, a difference of exactly 1.002 s. The panel renders the forward button's `data-seek` as the current position plus 10 seconds and re-renders about once a second while playing. The test read the attribute and then clicked, so the clicked button could carry a newer target. The product seeks to exactly the value of the button that was clicked.
+
+The spec now records the destination from the exact button element that receives the trusted click, through a one-shot capturing listener. A missed capture produces `NaN`, which fails the existing finiteness check.
+
+### Finding 3: "Playback blocked" erases itself (product, not fixed here)
+
+The rarer `toBeVisible()` failure is the `Playback blocked` assertion on profile C. The coordinator does classify the rejected start (`participant_playback_blocked`, C marked `blocked`), but:
+
+1. The room's own blocked-pause reaches C as a command change.
+2. The content script's command-change path (`invalidatePlayRequest` and `resetPlaybackHealthBaseline`) clears the local `playbackStartFailed` flag.
+3. C's next routine report therefore carries `playbackStartFailed: false`, and `participantPlaybackStatus` recomputes C from `blocked` to `preparing`.
+
+Across 42 traced runs that reached this step, the `blocked` status lasted 16–155 ms (median 85 ms) before it was overwritten. Passing runs won a race between Playwright polling and that window. The window was similar with and without the fix: 44–155 ms (median 94 ms, 12 traced baseline runs) against 16–131 ms (median 84 ms, 30 traced runs with the fix). In all 30 runs with the fix, the report that erased the state was accepted at the exact current revision, so the fix's stale-report path is not involved. The failure appears more often with the fix mainly because more runs now reach this step instead of failing earlier in the sustained window. The samples are small, so a timing difference cannot be ruled out entirely. A real participant would see the state flash and disappear while the room stays paused and they are no longer ready.
+
+Deciding what should end the blocked state (the local gesture, **Sync me now** or re-readiness) is a product decision. It is recorded as a separate follow-up and is not changed here.
+
+### Observations
+
+- `Connected · Offline` appeared in all 44 failure panels on disk, whatever the failure mode. It is a constant of this harness, not a signal of any of the failures above, and it was not root-caused here.
+- A git worktree without its own `node_modules` resolves `@syncyourjoy/*` through the parent checkout's `node_modules`, which points at the *main checkout's* `apps/` and `packages/`. For this investigation the main checkout (`a1533c1`) had byte-identical `apps`, `packages`, `scripts`, `tests` and `fixtures` to `ec60ada`, so the baseline was not affected. Verification of the fix used worktree-local `node_modules/@syncyourjoy` links so the fixed coordinator was actually bundled. The E2E provenance hashes the worktree's sources and would not reveal this substitution.
+- The fix is scoped to start acknowledgements. Other revision bumps that do not change the play command, for example a join request or readiness change during playback, can still discard an in-flight report. That was not observed in the matrix and is not changed here.
+
+### Verification of the fix
+
+- Unit tests: two new coordinator regressions. One is the exact traced race (red before the fix, green after). The other shows that a report from a start-acknowledgement run is rejected once a newer command supersedes it; a mutation that removed the run-currency check made it fail. The existing superseded-command, stale-buffering and out-of-order-sample regressions pass unchanged.
+- Traced E2E with the fix: 30 runs, **27 passed and 3 failed**. All 3 failures are Finding 3 (`Playback blocked` windows of 43, 17 and 16 ms). There were 0 sustained-window pauses and 0 seek-destination misses, although racing stale-revision progress reports occurred in 20 of the 30 runs (35 reports).
+- Untraced E2E with the fix, on exactly the committed change: 20 runs, **18 passed and 2 failed**. Both failures are the `Playback blocked` assertion from Finding 3. There were 0 sustained-window pauses and 0 seek-destination misses.
+- Untraced E2E on unmodified `ec60ada` in the same session and on the same host, for comparison: 20 runs, **16 passed and 4 failed**. Three failures are sustained-window pauses (Finding 1) and one is `Playback blocked` (Finding 3), which shows that Finding 3 predates this change. The untraced counts alone are small (3 of 20 against 0 of 20 sustained-window pauses). The case for the fix rests on the traced mechanism, the two unit regressions and the combined 0 of 61 matrix runs with the fix.
+- Repository checks on the branch rebased onto `2f92f852d337fb7d5e3f2efd34c512ae770cb73f`: `npm run check` passed (both typechecks, 37 Vitest files and 352 tests, server and extension builds). The full `npm run test:e2e` suite on commit `1ecf89264ce18f2c36094415883c2935208d75e8` gave 11 passed and 1 skipped (the opt-in authenticated Crunchyroll test, because no protected state was supplied). The matrix passed within that run. A further 10 matrix runs on that commit gave **7 passed and 3 failed**, all 3 the `Playback blocked` assertion from Finding 3, with 0 sustained-window pauses and 0 seek-destination misses. This covers the changed E2E launch helper that the rebase brought in.
+
+A failed run is counted as a failure in every figure above. None of these runs is Crunchyroll, protected-media, two-device, deployment or user-acceptance evidence, and issue #68 remains open for the gates listed earlier in this record.
