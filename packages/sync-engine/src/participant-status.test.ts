@@ -34,6 +34,7 @@ function base(overrides: Partial<Parameters<typeof participantPlaybackStatus>[0]
     connected: true,
     ready: true,
     mediaMatches: true,
+    playbackBlocked: false,
     playback: paused,
     operation: null,
     pendingSeek: false,
@@ -61,6 +62,21 @@ describe('public participant playback statuses', () => {
     expect(participantPlaybackStatus(base({ playback: playing, sample: sample({ playbackStartFailed: true }) }))).toBe('blocked')
     expect(participantPlaybackStatus(base({ playback: playing, sample: sample({ buffering: true, progressed: false }) }))).toBe('buffering')
     expect(participantPlaybackStatus(base({ playback: playing, sample: sample({ paused: true, progressed: false }) }))).toBe('recovery-required')
+  })
+
+  it('keeps a recorded playback block after a routine report omits the failure', () => {
+    // The room's own pause after a rejected play() used to make the next
+    // routine report say playbackStartFailed=false and erase the state (#68).
+    const routine = sample({ paused: true, progressed: false, playbackStartFailed: false })
+    expect(participantPlaybackStatus(base({ ready: false, playbackBlocked: true, sample: routine }))).toBe('blocked')
+    expect(participantPlaybackStatus(base({ ready: true, playbackBlocked: true, sample: null }))).toBe('blocked')
+    expect(participantPlaybackStatus(base({ playbackBlocked: true, pendingSeek: true }))).toBe('blocked')
+    expect(participantPlaybackStatus(base({ ready: false, playbackBlocked: false, sample: routine }))).toBe('preparing')
+  })
+
+  it('still reports connection and media problems before a recorded block', () => {
+    expect(participantPlaybackStatus(base({ connected: false, playbackBlocked: true }))).toBe('unknown')
+    expect(participantPlaybackStatus(base({ mediaMatches: false, playbackBlocked: true }))).toBe('wrong-media')
   })
 
   it('reports silent startup and silent status streams without exposing raw samples', () => {
