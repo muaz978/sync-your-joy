@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 import { expect, test } from '@playwright/test'
 import { artifactFileName } from './artifact-utils.ts'
-import { launchExtensionProfiles, type ExtensionProfile } from './extension-profile.ts'
+import { launchExtensionProfile, launchExtensionProfiles, type ExtensionProfile } from './extension-profile.ts'
 import type { StorageStateFile } from './storage-state.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -289,6 +289,35 @@ test.describe('extension profile storage-state application', () => {
       .toBe('[browser-launch] Storage state for storage-state-missing could not be read (ENOENT).')
     // The file is read before Chrome starts, so this profile never launched a browser.
     const types = await readEventTypes(missingDirectory, 'storage-state-missing')
+    expect(types).toContain('browser-launch-failure')
+    expect(types).not.toContain('browser-launched')
+  })
+
+  test('refuses to apply a state while Playwright protocol logging is on', async () => {
+    const debugDirectory = join(stateDirectory, 'debug-guard')
+    const previous = process.env.DEBUG
+    // The guard runs before Chrome starts, so no protocol message is ever sent.
+    process.env.DEBUG = 'pw:protocol'
+    let outcome: unknown
+    try {
+      outcome = await launchExtensionProfile(dist, 'storage-state-debug', {
+        artifactDirectory: debugDirectory,
+        storageState: statePaths.a,
+      }).then(async (profile) => {
+        await profile.close()
+        return undefined
+      }, (error: unknown) => error)
+    }
+    finally {
+      if (previous === undefined)
+        delete process.env.DEBUG
+      else
+        process.env.DEBUG = previous
+    }
+    expect(outcome).toBeInstanceOf(Error)
+    expect((outcome as Error).message).toBe('[browser-launch] Storage state for storage-state-debug was not applied '
+      + 'because DEBUG is set, and Playwright would log the saved cookies. Unset DEBUG and rerun.')
+    const types = await readEventTypes(debugDirectory, 'storage-state-debug')
     expect(types).toContain('browser-launch-failure')
     expect(types).not.toContain('browser-launched')
   })

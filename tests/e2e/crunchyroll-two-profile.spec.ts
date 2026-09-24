@@ -9,7 +9,6 @@
 // the run before any provider page opens if a state is not fully applied, or
 // if a declared session cookie is missing or expired;
 // extension-profile-storage-state.spec.ts covers that path without secrets.
-import { access } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
@@ -21,8 +20,8 @@ import {
   waitForProviderVideos,
 } from './provider-playback.ts'
 import {
-  assertDistinctStorageStateFiles,
-  enabledRunnerArtifacts,
+  assertLaunchedWithSession,
+  preflightAuthenticatedRun,
   type StorageStateSession,
 } from './storage-state.ts'
 
@@ -90,11 +89,9 @@ test.describe('authenticated Crunchyroll two-profile playback', () => {
   test.beforeAll(async ({ trace, screenshot, video }) => {
     if (!config)
       return
-    const runnerArtifacts = enabledRunnerArtifacts({ trace, screenshot, video })
-    if (runnerArtifacts.length > 0)
-      throw new Error(`Playwright runner ${runnerArtifacts.join(', ')} must stay off for authenticated provider runs.`)
-    await Promise.all([config.storageStateA, config.storageStateB].map(path => access(path)))
-    await assertDistinctStorageStateFiles(config.storageStateA, config.storageStateB, config.session)
+    // Refuses runner artifacts and missing, identical or shared-session
+    // states before any profile launches, as a setup failure.
+    await preflightAuthenticatedRun({ trace, screenshot, video }, config.storageStateA, config.storageStateB, config.session)
     const dist = process.env.SYNCYOURJOY_E2E_EXTENSION_DIST ?? extensionDistDir
     const artifactDirectory = process.env.SYNCYOURJOY_E2E_ARTIFACT_DIR
     // The helper's own opt-in trace starts only after the states are applied.
@@ -111,15 +108,8 @@ test.describe('authenticated Crunchyroll two-profile playback', () => {
     // not fully applied or has no live declared session cookie. Repeating the
     // count check here keeps this provider run from ever starting
     // unauthenticated if that helper changes.
-    for (const profile of [profileA, profileB]) {
-      const check = profile.storageStateCheck
-      const sessionCheck = profile.storageStateSessionCheck
-      expect(check?.cookiesExpected).toBeGreaterThan(0)
-      expect(check?.cookiesApplied).toBe(check?.cookiesExpected)
-      expect(check?.localStorageKeysApplied).toBe(check?.localStorageKeysExpected)
-      expect(sessionCheck?.sessionCookiesExpected).toBe(new Set(config.session.cookieNames).size)
-      expect(sessionCheck?.sessionCookiesApplied).toBe(sessionCheck?.sessionCookiesExpected)
-    }
+    assertLaunchedWithSession(profileA.storageStateCheck, profileA.storageStateSessionCheck, config.session, 'crunchyroll-a')
+    assertLaunchedWithSession(profileB.storageStateCheck, profileB.storageStateSessionCheck, config.session, 'crunchyroll-b')
     await Promise.all([profileA.recordState('initial'), profileB.recordState('initial')])
   })
 

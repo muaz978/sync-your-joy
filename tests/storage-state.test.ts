@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   assertDistinctStorageStateFiles,
+  assertLaunchedWithSession,
   assertNoSecretLogging,
   assertStorageStateApplied,
   assertStorageStateSession,
@@ -12,6 +13,7 @@ import {
   describeStorageStateCheck,
   enabledRunnerArtifacts,
   parseStorageStateFile,
+  preflightAuthenticatedRun,
   readStorageStateFile,
   secretLoggingSource,
   type StorageStateFile,
@@ -94,6 +96,22 @@ describe('E2E storage-state application check', () => {
     expect(message).not.toMatch(secretLike)
   })
 
+  it('fails closed when only a cookie is missing', () => {
+    const check = checkStorageStateApplied(state, { cookies: [appliedCookies[0]!], origins: appliedOrigins }, now)
+    const message = thrownMessage(() => assertStorageStateApplied(check, 'profile-a'))
+    expect(message).toContain('(cookies 1/2 (1 expired in file, skipped), localStorage origins 1/1, keys 2/2)')
+    expect(message).not.toMatch(secretLike)
+  })
+
+  it('counts a localStorage key only under its own origin', () => {
+    const check = checkStorageStateApplied(state, {
+      cookies: appliedCookies,
+      origins: [{ origin: 'https://other.synthetic.invalid', localStorage: [{ name: 'syn_key_1' }, { name: 'syn_key_2' }] }],
+    }, now)
+    expect(check).toMatchObject({ localStorageOriginsApplied: 0, localStorageKeysApplied: 0 })
+    expect(() => assertStorageStateApplied(check, 'profile-a')).toThrow('localStorage origins 0/1, keys 0/2')
+  })
+
   it('treats an empty context as not applied', () => {
     const check = checkStorageStateApplied(state, { cookies: [], origins: [] }, now)
     expect(() => assertStorageStateApplied(check, 'profile-b')).toThrow(/cookies 0\/2.*keys 0\/2/)
@@ -172,6 +190,27 @@ describe('E2E storage-state application check', () => {
     expect(both).toMatchObject({ cookiesExpected: 2, cookiesApplied: 2 })
   })
 
+  it('requires each partitioned cookie that differs only by partition', () => {
+    const partitioned = { ...cookie, name: 'syn_p', domain: 'www.synthetic.invalid', sameSite: 'None' as const }
+    // Saved states carry partitionKey, which the setStorageState input type omits.
+    const siblings = {
+      cookies: [
+        { ...partitioned, value: 'a', partitionKey: 'https://a.synthetic.invalid' },
+        { ...partitioned, value: 'b', partitionKey: 'https://b.synthetic.invalid' },
+      ],
+      origins: [],
+    } as unknown as StorageStateFile
+    const reported = (partitionKey: string) => ({ name: 'syn_p', domain: 'www.synthetic.invalid', path: '/', partitionKey })
+    const one = checkStorageStateApplied(siblings, { cookies: [reported('https://a.synthetic.invalid')], origins: [] }, now)
+    expect(one).toMatchObject({ cookiesExpected: 2, cookiesApplied: 1 })
+    expect(() => assertStorageStateApplied(one, 'profile-a')).toThrow('cookies 1/2')
+    const both = checkStorageStateApplied(siblings, {
+      cookies: [reported('https://a.synthetic.invalid'), reported('https://b.synthetic.invalid')],
+      origins: [],
+    }, now)
+    expect(both).toMatchObject({ cookiesExpected: 2, cookiesApplied: 2 })
+  })
+
   it('refuses a state with no unexpired cookies', () => {
     const expiredOnly = { ...state, cookies: [state.cookies[2]!] }
     const check = checkStorageStateApplied(expiredOnly, { cookies: [], origins: [] }, now)
@@ -226,6 +265,29 @@ describe('E2E storage-state session check', () => {
     expect(check).toMatchObject({ sessionCookiesApplied: 0, sessionCookiesExpected: 1 })
   })
 
+  it('requires every declared session cookie when several are named', () => {
+    const twoNames = { site: 'synthetic.invalid', cookieNames: ['syn_session', 'syn_refresh'] }
+    const refresh = { ...cookie, name: 'syn_refresh', value: 'synthetic-refresh', domain: '.synthetic.invalid' }
+    const expiredRefresh: StorageStateFile = { ...state, cookies: [...state.cookies, { ...refresh, expires: now - 60 }] }
+    const applied = { cookies: [...appliedCookies, { name: 'syn_refresh', domain: '.synthetic.invalid', path: '/' }], origins: appliedOrigins }
+    const check = checkStorageStateSession(expiredRefresh, applied, twoNames, now)
+    expect(check).toMatchObject({ sessionCookiesExpected: 2, sessionCookiesApplied: 1 })
+    expect(() => assertStorageStateSession(check, 'profile-a')).toThrow('(session cookies 1/2')
+    const liveRefresh: StorageStateFile = { ...state, cookies: [...state.cookies, { ...refresh, expires: now + 60 }] }
+    expect(checkStorageStateSession(liveRefresh, applied, twoNames, now).sessionCookiesApplied).toBe(2)
+  })
+
+  it('does not treat a lookalike host as the provider site', () => {
+    const lookalike: StorageStateFile = {
+      cookies: [{ ...cookie, name: 'syn_session', value: 'synthetic-session', domain: '.xsynthetic.invalid' }],
+      origins: [],
+    }
+    const applied = { cookies: [{ name: 'syn_session', domain: '.xsynthetic.invalid', path: '/' }], origins: [] }
+    const check = checkStorageStateSession(lookalike, applied, session, now)
+    expect(check).toEqual({ siteCookiesApplied: 0, sessionCookiesExpected: 1, sessionCookiesApplied: 0 })
+    expect(() => assertStorageStateSession(check, 'profile-a')).toThrow('(session cookies 0/1, provider-site cookies 0)')
+  })
+
   it('refuses a requirement with no cookie names', () => {
     const check = checkStorageStateSession(state, { cookies: appliedCookies, origins: [] }, { ...session, cookieNames: [] }, now)
     expect(() => assertStorageStateSession(check, 'profile-a'))
@@ -275,6 +337,75 @@ describe('E2E storage-state pair check', () => {
       for (const failure of failures)
         expect(failure).not.toMatch(secretLike)
     })
+  })
+})
+
+describe('E2E authenticated-run preflight', () => {
+  const off = { trace: 'off', screenshot: 'off', video: 'off' }
+  const withStates = async (run: (paths: Record<'a' | 'b' | 'copy' | 'shared', string>, directory: string) => Promise<void>): Promise<void> => {
+    const directory = await mkdtemp(join(tmpdir(), 'syncyourjoy-storage-state-preflight-'))
+    const paths = { a: join(directory, 'a.json'), b: join(directory, 'b.json'), copy: join(directory, 'copy.json'), shared: join(directory, 'shared.json') }
+    const refresh = { ...cookie, name: 'syn_refresh', domain: '.synthetic.invalid' }
+    const withRefresh = (base: StorageStateFile, value: string): StorageStateFile => ({ ...base, cookies: [...base.cookies, { ...refresh, value }] })
+    const other: StorageStateFile = { ...state, cookies: state.cookies.map(entry => ({ ...entry, value: `${entry.value}-other` })) }
+    try {
+      await writeFile(paths.a, JSON.stringify(withRefresh(state, 'synthetic-refresh-a')))
+      await writeFile(paths.b, JSON.stringify(withRefresh(other, 'synthetic-refresh-b')))
+      await writeFile(paths.copy, JSON.stringify(withRefresh(state, 'synthetic-refresh-a')))
+      // A different primary session that still shares the second declared cookie.
+      await writeFile(paths.shared, JSON.stringify(withRefresh(other, 'synthetic-refresh-a')))
+      await run(paths, directory)
+    }
+    finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  }
+  const twoNames = { site: 'synthetic.invalid', cookieNames: ['syn_session', 'syn_refresh'] }
+
+  it('passes two distinct states with the runner artifacts off', async () => {
+    await withStates(async (paths) => {
+      await expect(preflightAuthenticatedRun(off, paths.a, paths.b, twoNames)).resolves.toBeUndefined()
+    })
+  })
+
+  it('refuses with the setup marker, never a product failure', async () => {
+    await withStates(async (paths, directory) => {
+      const failures = await Promise.all([
+        preflightAuthenticatedRun({ ...off, trace: 'on' }, paths.a, paths.b, twoNames),
+        preflightAuthenticatedRun({ ...off, video: { mode: 'retain-on-failure' } }, paths.a, paths.b, twoNames),
+        preflightAuthenticatedRun(off, paths.a, paths.copy, twoNames),
+        preflightAuthenticatedRun(off, paths.a, paths.shared, twoNames),
+        preflightAuthenticatedRun(off, paths.a, join(directory, 'missing.json'), twoNames),
+      ].map(run => run.then(() => '', String)))
+      expect(failures).toEqual([
+        'Error: [browser-launch] Playwright runner trace must stay off for authenticated provider runs.',
+        'Error: [browser-launch] Playwright runner video must stay off for authenticated provider runs.',
+        'Error: [browser-launch] The two storage states have identical contents. Each profile needs its own signed-in account.',
+        'Error: [browser-launch] The two storage states share a session cookie, so both profiles would be one session. '
+        + 'Each profile needs its own signed-in account.',
+        'Error: [browser-launch] A storage state could not be resolved (ENOENT).',
+      ])
+      for (const failure of failures)
+        expect(failure).not.toMatch(secretLike)
+    })
+  })
+
+  it('refuses a launched profile without a fully applied, signed-in state', () => {
+    const applied = { cookies: appliedCookies, origins: appliedOrigins }
+    const check = checkStorageStateApplied(state, applied, now)
+    const sessionCheck = checkStorageStateSession(state, applied, session, now)
+    expect(() => assertLaunchedWithSession(check, sessionCheck, session, 'crunchyroll-a')).not.toThrow()
+    const refused = '[browser-launch] Profile crunchyroll-a did not report a fully applied, signed-in storage state.'
+    for (const [candidate, candidateSession, requirement] of [
+      [undefined, sessionCheck, session],
+      [check, undefined, session],
+      [{ ...check, cookiesApplied: 1 }, sessionCheck, session],
+      [{ ...check, localStorageKeysApplied: 1 }, sessionCheck, session],
+      [{ ...check, cookiesExpected: 0, cookiesApplied: 0 }, sessionCheck, session],
+      [check, { ...sessionCheck, sessionCookiesApplied: 0 }, session],
+      [check, sessionCheck, twoNames],
+    ] as const)
+      expect(() => assertLaunchedWithSession(candidate, candidateSession, requirement, 'crunchyroll-a')).toThrow(refused)
   })
 })
 
