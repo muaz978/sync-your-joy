@@ -1208,6 +1208,102 @@ describe('RoomCoordinator', () => {
       expect(room.evaluateHealth()).toMatchObject({ reason: 'participant_playback_stalled' })
     })
 
+    it('keeps an early starter\'s progress report that races a later start acknowledgement', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+      const startAtMs = committed.snapshot.contract.operation.effectiveAtServerMs
+
+      // The host proves playback on its first one-second report tick.
+      nowMs = startAtMs + 500
+      room.updatePlayerStatus('participant_host', room.snapshot().revision, {
+        positionSeconds: 40.5,
+        durationSeconds: 600,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: true,
+        playbackStarted: true,
+      })
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+      const hostRevision = room.snapshot().revision
+
+      // On the next tick the friend's start acknowledgement advances the
+      // revision a few milliseconds before the host's heartbeat, stamped with
+      // the revision the host last received, reaches the coordinator.
+      nowMs = startAtMs + 1_500
+      expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 41.5, 2)))
+        .toMatchObject({ reason: 'operation_started' })
+      nowMs += 4
+      room.updatePlayerStatus('participant_host', hostRevision, {
+        positionSeconds: 41.5,
+        durationSeconds: 600,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: true,
+        playbackStarted: true,
+      })
+      const hostHeartbeatAtMs = nowMs
+      nowMs = startAtMs + 2_000
+      room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
+        positionSeconds: 42,
+        durationSeconds: 600,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: true,
+        playbackStarted: true,
+      })
+
+      // Only a start acknowledgement separates the heartbeat from the current
+      // revision, so it still proves progress for the unchanged play command.
+      nowMs = startAtMs + 500 + PLAYBACK_PROGRESS_TIMEOUT_MS
+      expect(room.evaluateHealth()).toBeNull()
+      nowMs = hostHeartbeatAtMs + PLAYBACK_PROGRESS_TIMEOUT_MS
+      expect(room.evaluateHealth()).toMatchObject({
+        reason: 'participant_playback_stalled',
+        snapshot: { participants: expect.arrayContaining([expect.objectContaining({ id: 'participant_host', playbackStatus: 'recovery-required' })]) },
+      })
+    })
+
+    it('rejects a report from a start acknowledgement run once a newer command supersedes it', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+      const startAtMs = committed.snapshot.contract.operation.effectiveAtServerMs
+
+      nowMs = startAtMs + 500
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+      const hostRevision = room.snapshot().revision
+      nowMs = startAtMs + 1_500
+      room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 41.5, 2))
+      controlTransactional(room, 'pause', 41.5)
+      const paused = room.snapshot()
+
+      const delayed = room.updatePlayerStatus('participant_host', hostRevision, {
+        positionSeconds: 41.6,
+        durationSeconds: 600,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: true,
+        playbackStarted: true,
+      })
+
+      expect(delayed).toBeNull()
+      expect(room.snapshot()).toMatchObject({ revision: paused.revision, playback: { status: 'paused' } })
+      expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastSample?.positionSeconds).not.toBe(41.6)
+    })
+
     it('does not expire an operation after every participant has confirmed start', () => {
       let nowMs = 10_000
       const room = createTransactionalRoom(() => nowMs)
