@@ -8891,3 +8891,82 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy CR-D03 matrix flake, persistent playback-blocked state (#68).
+- Checkpoint number: 103.
+- Date and time: 2026-09-24, Europe/Istanbul.
+- Coverage period: Since checkpoint 102.
+- Current context status: Code, unit-test, E2E-spec and documentation change on branch `fix/issue-68-playback-blocked`, kept separate from the heartbeat-race fix.
+
+## User Objective and Requirements
+- Decide and implement what clears the `blocked` participant status, and make it persist until that recovery signal.
+- Keep the coordinator's documented intent in `room.ts`: a rejected play needs a fresh user gesture, and the room keeps a record of who caused the pause.
+- Add unit coverage in the sync engine and extension, then run the three-profile matrix at least 20 times and record honest counts.
+- Refer to #68 with `Refs #68` only. Keep the change focused and separate from the heartbeat-race fix.
+
+## Current State
+- Base: `origin/main` `2f92f852d337fb7d5e3f2efd34c512ae770cb73f`. Work began on `3a5a1cd`, which was rewritten on `main` as `e335f7e8c85d68077879068b0ce444d85b57506f` with an identical tree, and the branch was moved onto the new history.
+- Fix commit: `11dd535` (`fix: keep playback blocked until the browser accepts play`). Its code tree is identical to `b96c683`, the pre-rebase commit that the E2E runs exercised.
+
+## Complete Chronological Activity Log
+
+### 2026-09-24 - Root cause restated from the 2026-09-24 room-service trace
+- Result: `updatePlayerStatus` classified the `NotAllowedError` correctly. It cancelled with `start-rejected`, paused the room, cleared readiness and broadcast `participant_playback_blocked`.
+- Result: The room's own pause reached participant C as a command change. `invalidatePlayRequest()` and `resetPlayerHealthBaseline()` both cleared `playbackStartFailed`, so C's next routine report derived `preparing`. The panel showed "Playback blocked" for roughly 40 to 100 ms.
+- Result: `markParticipantStatuses`, `evaluateHealth`, `setReady` and reconnect also rewrote a non-ready participant's status to `preparing` without consulting the failure, so a sticky client flag alone would still flicker.
+
+### 2026-09-24 - Decision on the recovery signal
+- Decision: only evidence that the browser accepted playback clears `blocked`: a native `play` event, a resolved `play()` or a `playing` event.
+- Decision: while blocked, the side panel's Sync me now retries the existing play-then-pause probe. A gesture already given to the page therefore counts, and a still-blocked browser keeps the state. A panel click is not treated as page activation, consistent with `docs/CRUNCHYROLL_REMEDIATION_PLAN.md`.
+- Decision: explicit re-readying does not clear `blocked`. It only readmits the participant to the quorum.
+- Decision: a new player binding (source, element or page identity change), leaving the room, or the controller opening a new page resets the state.
+
+### 2026-09-24 - Implementation
+- Action taken: The extension keeps `playbackStartFailed` across command changes and baseline resets. `resetPlayerOperations()` and room detachment clear it explicitly. Panel `FORCE_SYNC` runs `activateSynchronizedPlayback()` when the local player is blocked and the room is paused.
+- Action taken: The coordinator stores a coordinator-local `playbackBlocked` record per participant. It is set and cleared only by that participant's accepted reports, persisted through `exportState`, stripped from snapshots, and consulted by every status writer.
+- Action taken: A repeated report of an already-recorded rejection does not re-pause a paused room. It still stops a playing room.
+- Action taken: The matrix waits 3 seconds after "Playback blocked" first appears and requires it to still be visible, with all players paused, before the recovery gesture.
+
+### 2026-09-24 - Verification
+- Result: `npm run check` passed: typecheck, 37 Vitest files and 366 tests, and the room-service and extension builds. `npm audit --omit=dev --audit-level=high` found 0 vulnerabilities, with no dependency changes. `git diff --check` is clean.
+- Result: Against the unfixed sources, 9 of the new unit tests failed. They cover routine-report erasure, controller commands, health checks, persistence, the baseline reset and panel Sync recovery. The other new tests are recovery-contract tests that pass on both versions.
+- Result: Unfixed code with the stricter spec (detached worktree at the same code tree): 0 of 3 passed. All 3 failed at the new persistence check (`toBeVisible`, 1,000 ms timeout, 3 s after the badge first appeared). The original visibility assertion passed in all 3, which shows it only caught the brief flash.
+- Result: This branch with the stricter spec, 25 sequential runs of `npx playwright test --config tests/e2e/playwright.config.ts tests/e2e/three-profile-browser-matrix.spec.ts`: 25 of 25 passed, 43 to 44 s each. No heartbeat-race failure occurred in these 25 runs; at the previously observed rate of about 1 in 20, that is not evidence that the race is absent.
+- Result: This branch combined with the uncommitted heartbeat-race diff as of 2026-09-24 03:54 (`room.ts`, `room.test.ts` and the matrix spec, without the temporary trace), in a disposable worktree: the patch applied without conflicts, typecheck passed, 275 of 275 sync-engine and extension tests passed, and 20 of 20 stricter matrix runs passed. The disposable worktree was removed afterwards.
+- Result: `npm run verify:browser-packages` reported `ok: true` for every package on the rebased head.
+
+## Confirmed Successful Results
+- The blocked state persists across routine reports, controller commands, health failures, reconnects and restores until the browser accepts playback. Unit tests, the stricter matrix and its red run against unfixed code show this.
+- The matrix step that raced Playwright polling is now deterministic: 25 of 25 on this branch and 20 of 20 combined with the heartbeat-race fix.
+
+## Failed, Incomplete, or Unresolved Work
+- Real provider autoplay policies and the remaining #68 gates are not exercised here.
+- Readiness is not gated on the block. A re-readied but unrecovered participant still lets the controller start playback, and the room then stops immediately.
+- The heartbeat-race fix is a separate change and is not part of this branch.
+
+## Decisions and Rationale
+- Tie clearing to evidence rather than intent, because only an accepted play proves the fresh-gesture requirement is met.
+- Keep a coordinator record in addition to the client flag, because room-wide status writers would otherwise still rewrite `blocked`.
+- Do not gate readiness on the record, to keep the change focused. A re-readied but unrecovered participant is stopped as soon as the room plays.
+
+## Files and Artifacts
+- `packages/sync-engine/src/room.ts`, `packages/sync-engine/src/participant-status.ts` and their tests.
+- `apps/extension/src/content-script.ts`, `apps/extension/src/player-health.ts` and their tests.
+- `tests/e2e/three-profile-browser-matrix.spec.ts`, `docs/CR_D03_BROWSER_MATRIX.md`, `context-checkpoint.md`.
+
+## Assumptions and Uncertainties
+- Chromium in the matrix simulates the rejection through the loopback-only fixture marker. Real provider autoplay policies were not exercised.
+- An older extension still clears its flag on command changes, so against a newer coordinator it keeps the previous short-lived behavior. There is no regression.
+
+## Open Questions, Blockers, and Dependencies
+- Merge order with the heartbeat-race fix. The two changes apply to each other without conflicts.
+
+## Next Steps
+1. Review and merge this PR.
+2. After both fixes land, re-run the matrix on `main` and record the combined count on #68.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
