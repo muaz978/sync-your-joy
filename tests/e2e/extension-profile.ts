@@ -15,10 +15,34 @@ import {
   sanitizeError,
   type SanitizedArtifactEvent,
 } from './artifact-utils.ts'
+import {
+  assertNoSecretLogging,
+  assertStorageStateApplied,
+  assertStorageStateSession,
+  checkStorageStateApplied,
+  checkStorageStateSession,
+  describeStorageStateCheck,
+  describeStorageStateSessionCheck,
+  readStorageStateFile,
+  type StorageStateCheck,
+  type StorageStateFile,
+  type StorageStateSession,
+  type StorageStateSessionCheck,
+} from './storage-state.ts'
 
 export interface ExtensionProfile {
   context: BrowserContext
   extensionId: string
+  /**
+   * Count-only proof that `options.storageState` reached this profile.
+   * Absent when no storage state was requested.
+   */
+  storageStateCheck?: StorageStateCheck
+  /**
+   * Count-only proof that the declared session cookies reached this profile.
+   * Absent when no `storageStateSession` was requested.
+   */
+  storageStateSessionCheck?: StorageStateSessionCheck
   /**
    * The extension's side panel, opened here as an ordinary tab at its
    * chrome-extension:// URL rather than docked into the browser's side
@@ -36,9 +60,19 @@ export interface ExtensionProfileOptions {
   /**
    * Optional Playwright storage-state JSON. It is intended for opt-in
    * authenticated provider runs and must never be committed to the repo or
-   * printed in test output.
+   * printed in test output. It is applied with `setStorageState` and
+   * verified before any page opens; the launch fails if any unexpired cookie
+   * or localStorage key from the file is missing. The launch also refuses to
+   * apply it while PWDEBUG, PWPAUSE or Playwright protocol DEBUG logging is on.
    */
   storageState?: string
+  /**
+   * Provider site and session cookie names that `storageState` must carry.
+   * When set, the launch also fails unless every named cookie is unexpired in
+   * the file and present in the profile, so an expired or signed-out state
+   * cannot pass. Names only, never values.
+   */
+  storageStateSession?: StorageStateSession
   /** Directory for sanitized profile logs and optional trace output. */
   artifactDirectory?: string
   /** Start and explicitly stop a metadata-only Playwright trace. */
@@ -58,6 +92,8 @@ export async function launchExtensionProfile(
     ? join(artifactDirectory, artifactFileName(label, 'trace.zip'))
     : undefined
   let context: BrowserContext | undefined
+  let storageStateCheck: StorageStateCheck | undefined
+  let storageStateSessionCheck: StorageStateSessionCheck | undefined
   let traceStarted = false
   let closed = false
 
@@ -77,8 +113,16 @@ export async function launchExtensionProfile(
   }
 
   try {
+    if (options.storageStateSession && !options.storageState)
+      throw new Error(`Profile ${label} was given a storage-state session requirement without a storage state.`)
+    if (options.storageState)
+      assertNoSecretLogging(label)
+    const storageState = options.storageState
+      ? await readStorageStateFile(options.storageState, label)
+      : undefined
+    // No `storageState` here: `launchPersistentContext` has no such option
+    // and Playwright 1.63 silently drops it (issue #30). It is applied below.
     const browserContext = await chromium.launchPersistentContext(userDataDir, {
-      ...(options.storageState ? { storageState: options.storageState } : {}),
       // Chrome's classic headless mode never loaded extensions. Chrome's
       // newer "--headless=new" mode does, so it is passed explicitly here
       // rather than relying on Playwright's own `headless: true` (which, at
@@ -96,6 +140,24 @@ export async function launchExtensionProfile(
     })
     context = browserContext
     await recordEvent('browser-launched', { headed, extensionOutput: sanitizeBrowserUrl(`file://${extensionDistDir}`) })
+    if (storageState) {
+      // Applied and verified before this helper's own opt-in trace starts and
+      // before any page opens, so that trace cannot record the state and no
+      // provider page loads without it (extension-profile-storage-state.spec.ts
+      // checks the order). The Playwright runner's `trace`, `screenshot` and
+      // `video` options are separate: the runner starts its trace as soon as
+      // this context exists, before the state is applied, so a spec that
+      // passes real states must turn them off. crunchyroll-two-profile.spec.ts
+      // does, and checks it. Only counts are recorded or printed.
+      const applied = await applyStorageState(browserContext, storageState, label, options.storageStateSession)
+      storageStateCheck = applied.check
+      storageStateSessionCheck = applied.sessionCheck
+      await recordEvent('storage-state-applied', { ...storageStateCheck, ...storageStateSessionCheck })
+      const session = storageStateSessionCheck
+        ? `, ${describeStorageStateSessionCheck(storageStateSessionCheck)}`
+        : ''
+      console.log(`[e2e] ${label} storage state applied: ${describeStorageStateCheck(storageStateCheck)}${session}`)
+    }
     if (tracePath) {
       await browserContext.tracing.start({ screenshots: false, snapshots: false, sources: false })
       traceStarted = true
@@ -126,6 +188,8 @@ export async function launchExtensionProfile(
     return {
       context: browserContext,
       extensionId,
+      ...(storageStateCheck ? { storageStateCheck } : {}),
+      ...(storageStateSessionCheck ? { storageStateSessionCheck } : {}),
       panel,
       recordEvent,
       recordState: async (stateLabel: string) => {
@@ -186,6 +250,31 @@ export async function launchExtensionProfiles(
     (results[0] as PromiseFulfilledResult<ExtensionProfile>).value,
     (results[1] as PromiseFulfilledResult<ExtensionProfile>).value,
   ]
+}
+
+/**
+ * Applies a parsed storage state through Playwright's supported persistent
+ * context path and proves it arrived. The file was read once, so the applied
+ * state and the expectations cannot diverge. `storageState()` reads
+ * localStorage through a hidden page whose requests Playwright fulfills
+ * locally, so the check itself sends nothing to the provider.
+ */
+async function applyStorageState(
+  context: BrowserContext,
+  state: StorageStateFile,
+  label: string,
+  session: StorageStateSession | undefined,
+): Promise<{ check: StorageStateCheck, sessionCheck?: StorageStateSessionCheck }> {
+  await context.setStorageState(state)
+  const applied = await context.storageState()
+  const nowSeconds = Date.now() / 1000
+  const check = checkStorageStateApplied(state, applied, nowSeconds)
+  assertStorageStateApplied(check, label)
+  if (!session)
+    return { check }
+  const sessionCheck = checkStorageStateSession(state, applied, session, nowSeconds)
+  assertStorageStateSession(sessionCheck, label)
+  return { check, sessionCheck }
 }
 
 async function readSafePanelState(panel: Page): Promise<Record<string, unknown>> {

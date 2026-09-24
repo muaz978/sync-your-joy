@@ -35,17 +35,27 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      # No secrets are in scope yet. This proves the helper still applies a
+      # storage state and refuses one that did not arrive (issue #30).
+      - name: Check storage-state application with dummy states
+        run: npx playwright test --config tests/e2e/playwright.config.ts tests/e2e/extension-profile-storage-state.spec.ts
+
       - name: Materialize protected browser state files
         env:
           STORAGE_STATE_A_B64: ${{ secrets.SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A_B64 }}
           STORAGE_STATE_B_B64: ${{ secrets.SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B_B64 }}
+          REQUIRED_COOKIE_NAMES: ${{ secrets.SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES }}
         run: |
           set -euo pipefail
           test -n "$STORAGE_STATE_A_B64" || { echo 'Missing SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A_B64.' >&2; exit 1; }
           test -n "$STORAGE_STATE_B_B64" || { echo 'Missing SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B_B64.' >&2; exit 1; }
+          test -n "$REQUIRED_COOKIE_NAMES" || { echo 'Missing SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES.' >&2; exit 1; }
           printf '%s' "$STORAGE_STATE_A_B64" | base64 --decode > "$RUNNER_TEMP/syncyourjoy-crunchyroll-a.json"
           printf '%s' "$STORAGE_STATE_B_B64" | base64 --decode > "$RUNNER_TEMP/syncyourjoy-crunchyroll-b.json"
-          node -e "for (const path of process.argv.slice(1)) JSON.parse(require('node:fs').readFileSync(path, 'utf8'))" \
+          # An uncaught JSON.parse error prints the offending line of the file,
+          # which would put cookie values in this public log. Print a fixed
+          # message instead.
+          node -e "const fs = require('node:fs'); for (const path of process.argv.slice(1)) { let state; try { state = JSON.parse(fs.readFileSync(path, 'utf8')) } catch { state = undefined } if (!state || !Array.isArray(state.cookies)) { console.error('A protected storage-state secret is not a Playwright storage-state JSON file.'); process.exit(1) } }" \
             "$RUNNER_TEMP/syncyourjoy-crunchyroll-a.json" \
             "$RUNNER_TEMP/syncyourjoy-crunchyroll-b.json"
 
@@ -53,4 +63,9 @@ jobs:
         env:
           SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_A: ${{ runner.temp }}/syncyourjoy-crunchyroll-a.json
           SYNCYOURJOY_CRUNCHYROLL_STORAGE_STATE_B: ${{ runner.temp }}/syncyourjoy-crunchyroll-b.json
+          SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES: ${{ secrets.SYNCYOURJOY_CRUNCHYROLL_REQUIRED_COOKIE_NAMES }}
         run: npm run test:e2e:crunchyroll
+
+      - name: Remove protected browser state files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/syncyourjoy-crunchyroll-a.json" "$RUNNER_TEMP/syncyourjoy-crunchyroll-b.json"
