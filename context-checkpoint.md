@@ -8891,3 +8891,87 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy Crunchyroll prepare stall: analysis, two coordinator fixes and stall diagnostics.
+- Checkpoint number: 105. Checkpoints 103 and 104 are appended by PRs #105 and #106, which are still open, so this number leaves room for them.
+- Date and time: 2026-09-26, Europe/Istanbul.
+- Coverage period: Since checkpoint 102.
+- Current context status: Source, tests and documentation are complete on a branch cut from `origin/main` `2f92f852d337fb7d5e3f2efd34c512ae770cb73f`. Nothing is deployed and no version was bumped.
+
+## User Objective and Requirements
+- Investigate a live Crunchyroll Play failure reported in a detailed diagnostic report, confirm the root cause before changing behavior, improve the diagnostics, evaluate the three proposed options with written rationale, and open a pull request with tests and a manual validation note. No version bump or release. Issues are referenced with `Refs` only.
+
+## Current State
+- Branch `fix/paused-seek-settle-stall-diagnostics`, cut from `origin/main`. The pull request targets `main`: the tip of `codex/release-0.2.5` is already contained in `main`, and `v0.2.5` is 16 documentation and harness commits behind it.
+- PRs #105 and #106 (matrix flake fix and persistent blocked state) are still open. This change touches the same files (`room.ts`, `participant-status.ts`, `content-script.ts` and their tests, and this checkpoint file) and will need a textual merge with whichever lands second.
+
+## Complete Chronological Activity Log
+
+### 2026-09-26 - Analysis
+- Action taken: Read the diagnostic report and traced every field against the coordinator, extension, protocol and diagnostics code. Cross-checked each finding with an independent second reading.
+- Result: The brief's deadlock hypothesis (an aligned, paused element at `readyState` 1 that nothing wakes) does not match the report. Each `buffering: true` status starts 1.5 to 1.6 s after a new operation, which requires a pending seek and therefore `video.seeking`. Relaxing the prepared check would not have fired. The retained window holds 44 and 43 of 1,172 and 1,485 dropped events and starts after the last operation began, so it holds no acknowledgement.
+
+### 2026-09-26 - Reproduced defects
+- Action taken: Wrote a failing coordinator test for a committed paused seek at its preparation deadline, confirmed it failed for the expected reason, fixed it, and confirmed it fails again without the fix. Extended `two-profile-sync.spec.ts` with a paused native seek observed 4.5 s later.
+- Result: On unmodified `main`, real extension profiles and the real coordinator show `failed` with `start-timeout` 4.5 s after a paused seek. With the change the operation stays `committed` and both participants stay `ready`.
+- Action taken: Wrote failing tests for repeated Play presses. Five presses 500 ms apart moved the deadline from 13,000 to 15,500 before the change.
+- Result: A repeated Play for the Play that is preparing is answered `control_play_unchanged` and changes nothing.
+
+### 2026-09-26 - Player side effect found and fixed
+- Action taken: A probe showed that a settled paused seek left in the snapshot made the content script re-apply it every second without the controller's local-intent hold, which pulled a native scrub back to the old target. A first version of the coordinator fix kept the seek in the snapshot until replaced; an independent review showed that an unchanged 0.2.5 controller would then be exposed indefinitely, with its scrub reverted and reported as the old target.
+- Result: The coordinator now keeps the settled seek only for its original window (about 3 s, the same exposure the 0.2.5 coordinator already had) and then clears it (`operation_seek_settled`). `currentTransactionalOperation()` ignores a settled paused seek, so the ordinary paused-room path applies for updated extensions. A controller test failed before and passes now; a guest test still pulls a self-scrubbed guest back.
+
+### 2026-09-26 - Diagnostics
+- Action taken: Added optional report fields (seeking, error code, buffered and seekable ranges, buffered ahead, pending seek age, media keys present), merged identical heartbeat and status events across interleaving events, and added three side panel rows.
+- Result: 150 interleaved heartbeat and failing-status pairs leave two events and drop none. Before the change the same run evicted every earlier room event. The worst case for the new fields is 376 bytes.
+
+### 2026-09-26 - Fixture
+- Action taken: `fixtures/adaptive-player.html` read an absent `missingSegment` as segment 0 (`Number(null)`). The default fixture therefore sat at `readyState` 1 with nothing before 20 s buffered.
+- Result: An absent parameter now means none. A new browser test fails before and passes after.
+
+### 2026-09-26 - Verification
+- Action taken: `npm run check`, the full `npm run test:e2e`, ten sequential runs of the three-profile matrix against this change, and independent reviews of the coordinator and player behavior and of the diagnostics, privacy and tests.
+- Result: See Confirmed Successful Results.
+
+## Confirmed Successful Results
+- `npm run check`: typecheck, 38 Vitest files, 383 tests, server and extension builds. `npm run verify:browser-packages` exit 0. `npm audit --omit=dev --audit-level=high`: 0 vulnerabilities. `git diff --check` clean.
+- `npm run test:e2e`: 12 passed, 1 skipped (opt-in authenticated Crunchyroll), 57 s.
+- Three-profile matrix, 20 sequential untraced runs on this change: 17 passed, 2 sustained-window pauses, 1 `Playback blocked` not visible. Both classes are the ones PR #105 root-caused. Every failure counted; no new class.
+- Each behavior change has a test that failed before it and passes after; the two-profile E2E fails against the unchanged coordinator with `failed` and `start-timeout` 4.5 s after a paused seek.
+
+## Failed, Incomplete, or Unresolved Work
+- The stall in the report is not fixed and its cause is not established. The likely state is a native seek that never completes; whether the provider only fetches while playing or refused the stream cannot be told from the report.
+- Options (a) accept prepared at metadata, (b) a muted play-then-pause nudge and (c) a per-room legacy fallback were evaluated and not built. The reasoning and the conditions that would reverse each are in `docs/CRUNCHYROLL_PREPARE_STALL_ANALYSIS.md`.
+- Tasks to land PR #106 on top of PR #105 and to run the matrix on `main` after it were blocked because PR #105 is not merged.
+- Follow-ups recorded, not done: the 10 s startup timeout is unreachable behind the 4,300 ms operation deadline; a committed operation with a partial start (`startedParticipantIds` of 1 of 2) fails `isRoomOperation`, so an edge Durable Object restore drops it and pauses the room (reproduced); whether a seek issued during a preparing Play should keep its resume intent.
+
+## Decisions and Rationale
+- Ship the two reproduced defects and the diagnostics, and not an unverified recovery, because nothing in the report shows that a change to when the player is asked to play would help.
+- Keep a committed paused seek in the snapshot for its original window and then clear it, instead of keeping it indefinitely or clearing it at commit. Indefinite exposes unchanged 0.2.5 controllers (reproduced), and clearing at commit would make `docs/V0_2_5_CONTROLLED_TEST_SESSION.md` steps 12a and 12b unable to read `committed`. The extension also stops applying it, which protects updated clients inside the window.
+- Do not change any deadline or grace constant: both players stayed at `readyState` 1 for 20 to 33 s, so a longer window would only lengthen the wait.
+
+## Files and Artifacts
+- `packages/sync-engine/src/operation-state.ts`, `room.ts`, `participant-status.ts`, `index.ts` and their tests.
+- `packages/protocol/src/index.ts` and its test.
+- `apps/extension/src/content-script.ts`, `service-worker.ts`, `internal.ts`, `sidepanel.ts`, `media-ranges.ts` and tests.
+- `fixtures/adaptive-player.html`, `tests/e2e/two-profile-sync.spec.ts`, `tests/e2e/adaptive-fixture.spec.ts`.
+- `docs/CRUNCHYROLL_PREPARE_STALL_ANALYSIS.md`, and updates to `CR_B03_EXTENSION_ACK_REPORT.md`, `CR_C02_DIAGNOSTIC_REPORTS.md`, `CR_D02_ADAPTIVE_FIXTURES.md`, `PRIVACY_POLICY.md` and `V0_2_5_CONTROLLED_TEST_SESSION.md`.
+
+## Assumptions and Uncertainties
+- The `operation_timeout_paused` at revision 44 in the report is assumed to be a paused seek reaching its deadline. The retained window does not show its reason.
+- A 0.2.5 extension talking to the fixed coordinator applies a settled paused seek once a second for the seek's window (about 3 s). A controller scrub whose 60 ms intent debounce overlaps that alignment is written back and reported as the old target. This exposure already existed for the same window; the change does not lengthen it. Its real-browser frequency was not measured.
+
+## Open Questions, Blockers, and Dependencies
+- A live two-profile Crunchyroll capture with the new diagnostics, per the manual validation section of the analysis.
+- PR #105 must merge before the #106 landing tasks can start.
+
+## Next Steps
+1. Review and merge this pull request, resolving the textual overlap with #105 and #106.
+2. Run the manual validation on two Crunchyroll profiles and read the new fields against the reversal conditions.
+3. Decide follow-ups from that evidence.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. The room code in the report is intentionally not repeated.

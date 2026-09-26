@@ -131,7 +131,7 @@ After the effective time:
 - a pending seek or missing target preparation keeps the player paused and retries the current target;
 - a paused player starts through the existing `requestVideoPlay()` operation guard;
 - a player that is already in the current play attempt is not re-seeked merely because the playback clock has advanced beyond the original operation target;
-- a paused seek with `resumeWhenReady: false` aligns and remains paused without sending a started acknowledgement.
+- a paused seek with `resumeWhenReady: false` aligns and remains paused without sending a started acknowledgement. The coordinator treats it as settled at `committed`, clears it when its window closes, and the player stops applying it as a live operation; see [the prepare stall analysis](CRUNCHYROLL_PREPARE_STALL_ANALYSIS.md).
 
 ### Started evidence
 
