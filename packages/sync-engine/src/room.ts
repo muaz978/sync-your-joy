@@ -26,6 +26,7 @@ import {
 } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
 import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { isSettledPausedSeek } from './operation-state.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
@@ -526,6 +527,10 @@ export class RoomCoordinator {
 
     if (operation.phase !== 'committed' && operation.phase !== 'started')
       return null
+    // A paused seek has nothing to start. Accepting a start here would leave a
+    // partially started operation that fails snapshot validation.
+    if (isSettledPausedSeek(operation))
+      return null
     if (operation.startedParticipantIds.includes(participantId))
       return this.success('operation_start_duplicate')
     if (operation.effectiveAtServerMs === null || nowMs < operation.effectiveAtServerMs)
@@ -555,6 +560,14 @@ export class RoomCoordinator {
       || operation.phase === 'started'
       || nowMs < operation.deadlineAtServerMs)
       return null
+    if (isSettledPausedSeek(operation)) {
+      // A paused seek never starts, so its window closing is not a failure.
+      // Every participant already prepared and the room is paused at the
+      // target. Clear the operation so no player keeps applying it as live.
+      this.contract.operation = null
+      this.revision += 1
+      return this.success('operation_seek_settled')
+    }
     const previousPhase = operation.phase
     operation.phase = 'failed'
     operation.reason = previousPhase === 'committed'
@@ -753,6 +766,7 @@ export class RoomCoordinator {
     const operation = this.contract.operation
     return this.contract.mode === 'transactional'
       && operation?.phase === 'committed'
+      && !isSettledPausedSeek(operation)
       && !operation.startedParticipantIds.includes(participantId)
   }
 
@@ -869,6 +883,7 @@ export class RoomCoordinator {
       ? this.contract.operation
       : null
     const waitingForTransactionalStart = activeTransactionalOperation?.phase === 'committed'
+      && !isSettledPausedSeek(activeTransactionalOperation)
       && !activeTransactionalOperation.startedParticipantIds.includes(participantId)
     // Explicit progress evidence is authoritative. currentTime can advance
     // due to correction seeks even when an adaptive player decodes no frames.
@@ -1084,6 +1099,14 @@ export class RoomCoordinator {
       return this.success('control_pause')
     }
 
+    // A repeated press for a Play that is already preparing must not restart
+    // it. Replacing the operation discards every prepared acknowledgement and
+    // opens a fresh preparation window, so a burst of presses (the buttons are
+    // not disabled while preparing) would keep a slow participant from ever
+    // finishing and keep the room from ever failing.
+    if (kind === 'play' && this.isEquivalentPendingPlay(positionSeconds, nowMs))
+      return this.success('control_play_unchanged')
+
     const resumeWhenReady = kind === 'seek' && this.playback.status === 'playing'
     this.cancelOperation('superseded', nowMs)
     this.pendingSeek = null
@@ -1110,6 +1133,25 @@ export class RoomCoordinator {
     this.markParticipantStatuses(kind === 'seek' ? 'seeking' : 'preparing')
     this.revision += 1
     return this.success(kind === 'seek' ? 'control_seek_pending' : 'control_play_pending')
+  }
+
+  /**
+   * True when `positionSeconds` asks for the Play that is already preparing:
+   * same media, same target and still inside its window. Any change of who
+   * must prepare (a join, a leave, a readiness change) already cancels the
+   * operation, so a live operation always has the current participants. A
+   * committed Play is deliberately excluded: a press then is a restart, for
+   * example after a participant's play() was rejected.
+   */
+  private isEquivalentPendingPlay(positionSeconds: number, nowMs: number): boolean {
+    const operation = this.contract.operation
+    if (!operation || operation.kind !== 'play'
+      || (operation.phase !== 'preparing' && operation.phase !== 'prepared')
+      || operation.mediaEpoch !== this.contract.mediaEpoch
+      || nowMs >= operation.deadlineAtServerMs
+      || !isSeekAligned(positionSeconds, operation.targetPositionSeconds ?? Number.NaN))
+      return false
+    return true
   }
 
   private requiredParticipantIds(): string[] {
