@@ -258,6 +258,74 @@ describe('media identity matching', () => {
     })).toBeNull()
   })
 
+  describe('media-element evidence in diagnostic reports', () => {
+    const base = {
+      extensionVersion: '0.2.5',
+      generatedAtLocalMs: 10_000,
+      userAgent: 'Chrome test',
+      connection: 'connected',
+      roomRevision: 7,
+      playbackStatus: 'paused',
+      playerFrameId: 0,
+      playerAreaPixels: 500_000,
+      playerLastSeenAtMs: 9_900,
+      mediaService: 'crunchyroll',
+      mediaCanonicalId: 'crunchyroll:GRQW9GW7R',
+      mediaPageUrl: 'https://www.crunchyroll.com/watch/GRQW9GW7R',
+      sample: null,
+      events: [],
+    }
+    const evidence = {
+      playerSeeking: true,
+      playerErrorCode: 3,
+      playerBufferedRangeCount: 1,
+      playerBufferedRanges: [0, 60],
+      playerSeekableRangeCount: 1,
+      playerSeekableRanges: [0, 1_420],
+      playerBufferedAheadSeconds: 0,
+      playerPendingSeekAgeMs: 2_100,
+      playerHasMediaKeys: true,
+    }
+    const parse = (report: Record<string, unknown>) => parseClientMessage({ type: 'diagnostics_response', reportId: 'report_123456', report })
+
+    it('accepts the evidence, its absence, and null for each field', () => {
+      expect(parse({ ...base, ...evidence })).not.toBeNull()
+      expect(parse(base)).not.toBeNull()
+      expect(parse({ ...base, ...Object.fromEntries(Object.keys(evidence).map(key => [key, null])) })).not.toBeNull()
+    })
+
+    it('rejects an out-of-range error code, an odd, over-long or inverted range list, and non-finite numbers', () => {
+      for (const bad of [
+        { playerErrorCode: 0 },
+        { playerErrorCode: 5 },
+        { playerErrorCode: 1.5 },
+        { playerErrorCode: '3' },
+        { playerBufferedRanges: [0] },
+        { playerBufferedRanges: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] },
+        { playerBufferedRanges: [5, 3] },
+        { playerBufferedRanges: [0, Number.POSITIVE_INFINITY] },
+        { playerBufferedRanges: [-1, 3] },
+        { playerBufferedRanges: ['0', '3'] },
+        { playerSeekableRanges: [0, 1, 2, 3, 4, 5] },
+        { playerBufferedRangeCount: -1 },
+        { playerBufferedRangeCount: 10_001 },
+        { playerBufferedAheadSeconds: Number.NaN },
+        { playerBufferedAheadSeconds: 10_000_001 },
+        { playerPendingSeekAgeMs: -5 },
+        { playerSeeking: 'yes' },
+        { playerHasMediaKeys: 1 },
+      ]) {
+        expect(parse({ ...base, ...bad }), JSON.stringify(bad)).toBeNull()
+      }
+    })
+
+    it('still relays unknown report fields untouched, which is what keeps older coordinators compatible', () => {
+      const parsed = parse({ ...base, ...evidence, someFutureField: { nested: [1, 2, 3] } }) as unknown as { report: Record<string, unknown> }
+      expect(parsed.report.someFutureField).toEqual({ nested: [1, 2, 3] })
+      expect(parsed.report.playerBufferedRanges).toEqual([0, 60])
+    })
+  })
+
   it('accepts a valid respond_to_join controller message and rejects a malformed one', () => {
     expect(parseClientMessage({
       type: 'respond_to_join',

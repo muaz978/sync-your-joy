@@ -268,6 +268,201 @@ describe('adaptive player lifecycle', () => {
     expect(status?.bindingId).toBe('binding_content_document')
   })
 
+  describe('a player stuck at metadata during a transactional prepare', () => {
+    const target = 197.442125
+
+    async function beginPlayPrepare(): Promise<void> {
+      const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+      sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+        messages.push(request)
+        return request.type === 'MEDIA_DETECTED'
+          ? { ok: true, state, playerBindingId: 'binding_stuck' }
+          : { ok: true, state }
+      })
+      messages.length = 0
+      listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+      await Promise.resolve()
+      await Promise.resolve()
+      state.snapshot!.playback = { status: 'paused', positionSeconds: target, effectiveAtServerMs: Date.now(), playbackRate: 1 }
+      state.snapshot!.contract = {
+        mode: 'transactional',
+        mediaEpoch: 0,
+        sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+        operation: {
+          mediaEpoch: 0,
+          operationId: 'operation_play_stuck1',
+          kind: 'play',
+          phase: 'preparing',
+          requiredParticipantIds: ['guest'],
+          preparedParticipantIds: [],
+          startedParticipantIds: [],
+          targetPositionSeconds: target,
+          resumeWhenReady: true,
+          effectiveAtServerMs: null,
+          deadlineAtServerMs: Date.now() + 3_000,
+        },
+      }
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+
+    function acknowledgements(): RuntimeRequest[] {
+      return messages.filter(message => message.type === 'OPERATION_ACK')
+    }
+
+    function latestMediaDiagnostics() {
+      const detections = messages.filter((message): message is Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }> => message.type === 'MEDIA_DETECTED')
+      return detections.at(-1)?.diagnostics
+    }
+
+    it('never claims prepared, never starts playback and does not thrash the element while a seek never completes', async () => {
+      // The observed report: readyState 1, networkState 2 (loading), a blob
+      // source, and a seek that the element never finishes.
+      video.readyState = FakeVideo.HAVE_METADATA
+      video.networkState = 2
+      Object.assign(video, { buffered: { length: 1, start: () => 0, end: () => 60.04 } })
+      await beginPlayPrepare()
+      expect(video.writes).toEqual([target])
+      expect(video.seeking).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(4_000)
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await Promise.resolve()
+
+      expect(acknowledgements()).toEqual([])
+      expect(video.play).not.toHaveBeenCalled()
+      // One write only: repeated snapshots adopt the pending seek instead of restarting it.
+      expect(video.writes).toEqual([target])
+    })
+
+    it('reports the element state that separates a stalled fetch from a refused stream', async () => {
+      video.readyState = FakeVideo.HAVE_METADATA
+      video.networkState = 2
+      Object.assign(video, { buffered: { length: 1, start: () => 0, end: () => 60.04 } })
+      await beginPlayPrepare()
+      await vi.advanceTimersByTimeAsync(2_500)
+
+      expect(latestMediaDiagnostics()).toMatchObject({
+        readyState: 1,
+        networkState: 2,
+        currentSrcKind: 'blob',
+        seeking: true,
+        errorCode: null,
+        bufferedRangeCount: 1,
+        bufferedRanges: [0, 60],
+        seekableRangeCount: 1,
+        seekableRanges: [0, 1_420],
+        bufferedAheadSeconds: 0,
+        hasMediaKeys: false,
+      })
+      expect(latestMediaDiagnostics()?.pendingSeekAgeMs).toBeGreaterThanOrEqual(1_500)
+
+      // A decode failure surfaces as its code, and only as its code.
+      Object.assign(video, { mediaKeys: {}, error: { code: 3, message: 'https://cdn.example/segment.m4s?token=never-reported' } })
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(latestMediaDiagnostics()).toMatchObject({ errorCode: 3, hasMediaKeys: true })
+      expect(JSON.stringify(latestMediaDiagnostics())).not.toContain('never-reported')
+    })
+
+    it('does not prepare an element that is on target but has no data yet, so a cold player never resumes on a guess', async () => {
+      // The brief's original hypothesis: aligned, paused, not seeking, but only
+      // HAVE_METADATA. Acknowledging here would report a player as prepared
+      // that has nothing to show, which is the unsafe resume the prepared
+      // gate exists to prevent (docs/CRUNCHYROLL_PREPARE_STALL_ANALYSIS.md).
+      video.readyState = FakeVideo.HAVE_METADATA
+      video.networkState = 2
+      video.position = target
+      await beginPlayPrepare()
+      await vi.advanceTimersByTimeAsync(4_000)
+
+      expect(video.writes).toEqual([])
+      expect(acknowledgements()).toEqual([])
+      expect(video.play).not.toHaveBeenCalled()
+
+      // The moment data arrives the same element is prepared, without a new operation.
+      video.readyState = FakeVideo.HAVE_CURRENT_DATA
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(acknowledgements()).toContainEqual(expect.objectContaining({
+        acknowledgement: expect.objectContaining({ phase: 'prepared', operationId: 'operation_play_stuck1' }),
+      }))
+    })
+  })
+
+  describe('a committed paused seek that the room still holds in its snapshot', () => {
+    async function holdCommittedPausedSeek(role: 'controller' | 'member'): Promise<void> {
+      const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+      sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+        messages.push(request)
+        return request.type === 'MEDIA_DETECTED'
+          ? { ok: true, state, playerBindingId: 'binding_settled' }
+          : { ok: true, state }
+      })
+      state.participantId = 'me'
+      state.snapshot!.controller = { participantId: role === 'controller' ? 'me' : 'host', leaseEpoch: 1 }
+      state.snapshot!.participants = [
+        { id: 'me', name: 'Me', role: role === 'controller' ? 'controller' : 'member', ready: true, mediaMatches: true, connected: true, latencyMs: 0 },
+        ...(role === 'member' ? [{ id: 'host', name: 'Host', role: 'controller' as const, ready: true, mediaMatches: true, connected: true, latencyMs: 0 }] : []),
+      ]
+      messages.length = 0
+      listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+      await Promise.resolve()
+      await Promise.resolve()
+      video.position = 60
+      state.snapshot!.playback = { status: 'paused', positionSeconds: 60, effectiveAtServerMs: Date.now(), playbackRate: 1 }
+      state.snapshot!.contract = {
+        mode: 'transactional',
+        mediaEpoch: 0,
+        sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+        operation: {
+          mediaEpoch: 0,
+          operationId: 'operation_seek_settled1',
+          kind: 'seek',
+          phase: 'committed',
+          requiredParticipantIds: role === 'member' ? ['host', 'me'] : ['me'],
+          preparedParticipantIds: role === 'member' ? ['host', 'me'] : ['me'],
+          startedParticipantIds: [],
+          targetPositionSeconds: 60,
+          resumeWhenReady: false,
+          effectiveAtServerMs: Date.now(),
+          deadlineAtServerMs: Date.now() + 3_000,
+        },
+      }
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(video.writes).toEqual([])
+    }
+
+    function scrubNatively(toSeconds: number): void {
+      video.position = toSeconds
+      video.seeking = true
+      video.dispatchEvent(new Event('seeking'))
+    }
+
+    it('lets the controller scrub again instead of pulling the player back to the old target', async () => {
+      // The coordinator keeps a settled paused seek in the snapshot until its
+      // window closes. Treating it as a live operation would run the
+      // transactional alignment every second, without the controller's
+      // local-intent hold, and undo the controller's next scrub.
+      await holdCommittedPausedSeek('controller')
+      scrubNatively(90)
+      await vi.advanceTimersByTimeAsync(1_100)
+
+      expect(video.writes).toEqual([])
+      expect(video.position).toBe(90)
+      expect(messages).toContainEqual(expect.objectContaining({ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: 90 }))
+    })
+
+    it('still pulls a guest that scrubbed by itself back to the room position', async () => {
+      await holdCommittedPausedSeek('member')
+      scrubNatively(90)
+      video.seeking = false
+      await vi.advanceTimersByTimeAsync(1_100)
+
+      expect(video.writes).toEqual([60])
+    })
+  })
+
   it('prepares a transactional operation and confirms started only after real progress', async () => {
     const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
     sendMessage.mockImplementation(async (request: RuntimeRequest) => {

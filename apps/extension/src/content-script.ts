@@ -1,7 +1,8 @@
 import type { MediaFingerprint, OperationAcknowledgement, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
-import { canApplySoftDriftCorrection, canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isPlaybackRateAccepted, isSeekAligned, LOCAL_SEEK_MAX_WAIT_MS, PLAYBACK_STARTUP_TIMEOUT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
+import { canApplySoftDriftCorrection, canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isPlaybackRateAccepted, isSeekAligned, isSettledPausedSeek, LOCAL_SEEK_MAX_WAIT_MS, PLAYBACK_STARTUP_TIMEOUT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
+import { MAX_BUFFERED_PAIRS, MAX_SEEKABLE_PAIRS, summarizeTimeRanges } from './media-ranges.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
 import { PlayerOperations, type OperationToken } from './player-operations.ts'
@@ -954,12 +955,24 @@ function playerDiagnostics(target: HTMLVideoElement): PlayerDiagnostics {
   }
   const rootNode = target.getRootNode()
   const origin: PlayerOrigin = rootNode instanceof ShadowRoot ? 'open-shadow-dom' : 'light-dom'
+  const buffered = summarizeTimeRanges(target.buffered, target.currentTime, MAX_BUFFERED_PAIRS)
+  const seekable = summarizeTimeRanges(target.seekable, target.currentTime, MAX_SEEKABLE_PAIRS)
+  const errorCode = target.error?.code
   return {
     origin,
     readyState: target.readyState,
     networkState: target.networkState,
     currentSrcKind,
     hasSourceObject: target.srcObject !== null,
+    seeking: target.seeking === true,
+    errorCode: typeof errorCode === 'number' && errorCode >= 1 && errorCode <= 4 ? errorCode : null,
+    bufferedRangeCount: buffered.count,
+    bufferedRanges: buffered.ranges,
+    seekableRangeCount: seekable.count,
+    seekableRanges: seekable.ranges,
+    bufferedAheadSeconds: buffered.aheadSeconds,
+    pendingSeekAgeMs: pendingSeek && target === video ? Math.max(0, Math.round(performance.now() - pendingSeek.since)) : null,
+    hasMediaKeys: target.mediaKeys != null,
     health: {
       buffering: playerHealth.buffering,
       progressEvidence: playerHealth.progressEvidence,
@@ -1273,7 +1286,13 @@ function currentTransactionalOperation(): RoomOperation | null {
   const operation = activeState?.snapshot?.contract?.mode === 'transactional'
     ? activeState.snapshot.contract.operation
     : null
+  // A settled paused seek stays in the snapshot until its window closes, but
+  // there is nothing left to prepare or start. Applying it would run the
+  // transactional alignment every second without the controller's local-intent
+  // hold, and undo the controller's next scrub. The ordinary paused-room path
+  // keeps the player aligned and honours that hold.
   return operation && (operation.phase === 'preparing' || operation.phase === 'prepared' || operation.phase === 'committed')
+    && !isSettledPausedSeek(operation)
     ? operation
     : null
 }
