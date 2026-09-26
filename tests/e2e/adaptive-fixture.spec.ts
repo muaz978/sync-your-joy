@@ -49,6 +49,24 @@ test.describe('owned adaptive loading and lifecycle fixture', () => {
     }
   })
 
+  test('loads every segment by default, so an unconfigured fixture is a healthy player rather than a stuck one', async ({ browser }) => {
+    const page = await browser.newPage()
+    try {
+      await page.goto(`${fixture.origin}/adaptive-player.html?autostart=1`)
+      await page.waitForFunction(() => window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__?.snapshot().events.some(event => event.type === 'load-complete'), undefined, { timeout: 120_000 })
+      const snapshot = await page.evaluate(() => window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__?.snapshot())
+      // An absent `missingSegment` used to read as segment 0 (Number(null)),
+      // which left the element at readyState 1 with nothing before 20 s buffered.
+      expect(snapshot!.missingSegments).toEqual([])
+      expect(snapshot!.loadedSegments).toHaveLength(30)
+      expect(snapshot!.bufferedRanges[0]?.[0]).toBe(0)
+      expect(await page.evaluate(() => document.querySelector('video')?.readyState)).toBeGreaterThanOrEqual(2)
+    }
+    finally {
+      await page.close()
+    }
+  })
+
   test('covers open shadow, SPA, node replacement and cross-origin nested-frame lifecycles', async ({ browser }) => {
     const page = await browser.newPage()
     try {
