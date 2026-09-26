@@ -1,6 +1,7 @@
-import type { PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
+import type { PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
 import { PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_REPORT_SILENCE_TIMEOUT_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { isSettledPausedSeek } from './operation-state.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
 
 const paused: PlaybackState = {
@@ -55,6 +56,33 @@ describe('public participant playback statuses', () => {
     expect(participantPlaybackStatus(base({ mediaMatches: false }))).toBe('wrong-media')
     expect(participantPlaybackStatus(base({ ready: false }))).toBe('preparing')
     expect(participantPlaybackStatus(base({ pendingSeek: true, playback: playing, sample: sample() }))).toBe('seeking')
+  })
+
+  it('reports a committed paused seek as settled, not as still seeking', () => {
+    const seek: RoomOperation = {
+      mediaEpoch: 1,
+      operationId: 'operation_settledpausedseek',
+      kind: 'seek',
+      phase: 'committed',
+      requiredParticipantIds: ['participant_host'],
+      preparedParticipantIds: ['participant_host'],
+      startedParticipantIds: [],
+      targetPositionSeconds: 20,
+      resumeWhenReady: false,
+      effectiveAtServerMs: 1_000,
+      deadlineAtServerMs: 1_500,
+    }
+    expect(isSettledPausedSeek(seek)).toBe(true)
+    expect(participantPlaybackStatus(base({ operation: seek }))).toBe('ready')
+
+    // Only a paused seek is settled at `committed`: a resuming seek and a play
+    // still owe a start, and an operation that has not committed is preparing.
+    expect(isSettledPausedSeek({ ...seek, resumeWhenReady: true })).toBe(false)
+    expect(isSettledPausedSeek({ ...seek, kind: 'play' })).toBe(false)
+    expect(isSettledPausedSeek({ ...seek, phase: 'prepared' })).toBe(false)
+    expect(isSettledPausedSeek(null)).toBe(false)
+    expect(participantPlaybackStatus(base({ operation: { ...seek, resumeWhenReady: true } }))).toBe('seeking')
+    expect(participantPlaybackStatus(base({ operation: { ...seek, phase: 'preparing' } }))).toBe('seeking')
   })
 
   it('distinguishes blocked, buffering and local recovery states', () => {

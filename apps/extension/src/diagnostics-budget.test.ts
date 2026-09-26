@@ -66,4 +66,26 @@ describe('diagnostics message budget', () => {
     expect(fitted.eventsDropped).toBeGreaterThan(0)
     expect(fitted.payloadTruncated).toBe(true)
   })
+
+  it('spends a bounded number of bytes on the media-element evidence, even at its largest', () => {
+    const without = report(0)
+    const largest: DiagnosticsReport = {
+      ...without,
+      playerSeeking: true,
+      playerErrorCode: 4,
+      playerBufferedRangeCount: 10_000,
+      playerBufferedRanges: [1_234_567.8, 1_234_567.9, 2_234_567.8, 2_234_567.9, 3_234_567.8, 3_234_567.9, 4_234_567.8, 4_234_567.9],
+      playerSeekableRangeCount: 10_000,
+      playerSeekableRanges: [1_234_567.8, 9_234_567.9, 9_234_567.8, 9_999_999.9],
+      playerBufferedAheadSeconds: 9_999_999.9,
+      playerPendingSeekAgeMs: 3_600_000,
+      playerHasMediaKeys: true,
+    }
+    const cost = serializedDiagnosticsBytes(largest) - serializedDiagnosticsBytes(without)
+    // 376 bytes at the worst, about 250 for a typical stalled player. The cap
+    // keeps a future field from quietly eating the event budget that the start
+    // of a failure depends on.
+    expect(cost).toBeLessThanOrEqual(400)
+    expect(serializedDiagnosticsBytes(fitDiagnosticsReport({ ...largest, events: report(120).events }))).toBeLessThanOrEqual(DIAGNOSTIC_MESSAGE_BUDGET_BYTES)
+  })
 })

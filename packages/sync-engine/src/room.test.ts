@@ -1325,6 +1325,163 @@ describe('RoomCoordinator', () => {
       })).toBeNull()
     })
 
+    it('settles a committed paused seek when its window closes instead of failing the room', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'seek', 180)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 180, 1))
+      expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 180, 1))).toMatchObject({
+        reason: 'operation_seek_committed_paused',
+      })
+      const committed = room.snapshot()
+      const deadlineMs = committed.contract!.operation!.deadlineAtServerMs
+
+      // Inside the window the seek is still reported as committed, and a
+      // heartbeat from a paused, aligned player must not flip a participant
+      // back to `seeking`.
+      nowMs += 1_000
+      room.updatePlayerStatus('participant_host', committed.revision, {
+        positionSeconds: 180,
+        durationSeconds: 600,
+        paused: true,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+      })
+      expect(room.releaseExpiredOperation(nowMs)).toBeNull()
+      expect(room.snapshot()).toMatchObject({
+        contract: { operation: { kind: 'seek', phase: 'committed' } },
+        participants: [expect.objectContaining({ playbackStatus: 'ready' }), expect.objectContaining({ playbackStatus: 'ready' })],
+      })
+      // A paused seek has nothing to start, so a start acknowledgement is not
+      // accepted: it would leave a partly started operation.
+      nowMs = committed.contract!.operation!.effectiveAtServerMs! + 50
+      expect(room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 180, 2))).toBeNull()
+
+      // A paused seek never sends a `started` acknowledgement, so its window
+      // closing is a completion, not a failed start.
+      expect(room.operationDeadlineMs()).toBe(deadlineMs)
+      nowMs = deadlineMs
+      const settled = room.releaseExpiredOperation(nowMs)
+      expect(settled).toMatchObject({
+        ok: true,
+        reason: 'operation_seek_settled',
+        snapshot: {
+          playback: { status: 'paused', positionSeconds: 180 },
+          contract: { operation: null },
+          participants: [expect.objectContaining({ playbackStatus: 'ready' }), expect.objectContaining({ playbackStatus: 'ready' })],
+        },
+      })
+      expect(settled!.snapshot.revision).toBeGreaterThan(committed.revision)
+      expect(room.operationDeadlineMs()).toBeNull()
+      expect(room.releaseExpiredOperation(nowMs + 60_000)).toBeNull()
+
+      // The room is free for the next command.
+      expect(controlTransactional(room, 'play', 180)).toMatchObject({ reason: 'control_play_pending' })
+    })
+
+    describe('repeated Play presses while a Play is still preparing', () => {
+      let pressCount = 0
+      function press(room: RoomCoordinator, positionSeconds: number): RoomResult {
+        const snapshot = room.snapshot()
+        pressCount += 1
+        // A real client sends a fresh action id for every press.
+        return room.control('participant_host', {
+          actionId: `repeated_press_${pressCount}`,
+          basedOnRevision: snapshot.revision,
+          leaseEpoch: snapshot.controller.leaseEpoch,
+          kind: 'play',
+          positionSeconds,
+        })
+      }
+
+      it('keeps the operation, its prepared evidence and its deadline instead of restarting all three', () => {
+        let nowMs = 10_000
+        const room = createTransactionalRoom(() => nowMs)
+        expect(press(room, 42)).toMatchObject({ reason: 'control_play_pending' })
+        const original = structuredClone(room.snapshot().contract!.operation!)
+        nowMs += 400
+        expect(room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 42, 1)))
+          .toMatchObject({ reason: 'operation_participant_prepared' })
+        const revisionBefore = room.snapshot().revision
+
+        // The storm from the report: presses about 200 ms apart, all for the
+        // position the operation is already preparing.
+        for (const offset of [200, 200, 200]) {
+          nowMs += offset
+          expect(press(room, 42.05)).toMatchObject({ ok: true, reason: 'control_play_unchanged' })
+        }
+
+        expect(room.snapshot().revision).toBe(revisionBefore)
+        expect(room.snapshot().contract!.operation).toMatchObject({
+          operationId: original.operationId,
+          phase: 'preparing',
+          preparedParticipantIds: ['participant_host'],
+          deadlineAtServerMs: original.deadlineAtServerMs,
+        })
+
+        // The peer that was still preparing completes the ORIGINAL operation.
+        expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 42, 1)))
+          .toMatchObject({ reason: 'operation_committed', snapshot: { contract: { operation: { operationId: original.operationId, phase: 'committed' } } } })
+      })
+
+      it('does not stretch the window: the first deadline still fails the operation however many presses arrive', () => {
+        let nowMs = 10_000
+        const room = createTransactionalRoom(() => nowMs)
+        press(room, 42)
+        const original = room.snapshot().contract!.operation!
+        for (let index = 0; index < 5; index += 1) {
+          nowMs += 500
+          press(room, 42)
+        }
+        expect(room.operationDeadlineMs()).toBe(original.deadlineAtServerMs)
+        nowMs = original.deadlineAtServerMs
+        expect(room.releaseExpiredOperation(nowMs)).toMatchObject({
+          reason: 'operation_timeout_paused',
+          snapshot: { contract: { operation: { phase: 'failed', reason: 'deadline-expired' } } },
+        })
+        // After the failure the next press is a new attempt, not a swallowed duplicate.
+        expect(press(room, 42)).toMatchObject({ reason: 'control_play_pending' })
+        expect(room.snapshot().contract!.operation!.operationId).not.toBe(original.operationId)
+      })
+
+      it('still starts a new operation for a different position, once committed, once expired, or after someone joins', () => {
+        let nowMs = 10_000
+        const room = createTransactionalRoom(() => nowMs)
+        press(room, 42)
+        const first = room.snapshot().contract!.operation!.operationId
+
+        // A different position is a different intent.
+        expect(press(room, 90)).toMatchObject({ reason: 'control_play_pending' })
+        const second = room.snapshot().contract!.operation!.operationId
+        expect(second).not.toBe(first)
+
+        // A press arriving after the deadline but before the timer released the
+        // operation must not be swallowed by an operation that is already dead.
+        nowMs += 3_000
+        expect(press(room, 90)).toMatchObject({ reason: 'control_play_pending' })
+        expect(room.snapshot().contract!.operation!.operationId).not.toBe(second)
+
+        // Once every participant prepared, the operation has committed and a
+        // press is a deliberate restart (for example after a rejected play()).
+        room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 90, 1))
+        room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 90, 1))
+        const committed = room.snapshot().contract!.operation!
+        expect(committed.phase).toBe('committed')
+        expect(press(room, 90)).toMatchObject({ reason: 'control_play_pending' })
+        expect(room.snapshot().contract!.operation!.operationId).not.toBe(committed.operationId)
+
+        // A participant joining changes who must prepare; the old operation is
+        // cancelled and the press starts a new one that includes them.
+        const before = room.snapshot().contract!.operation!.operationId
+        room.join({ id: 'participant_third', name: 'Third', media, capabilities: CURRENT_CLIENT_CAPABILITIES })
+        room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_third', true)
+        room.setReady('participant_third', true, media)
+        expect(press(room, 90)).toMatchObject({ reason: 'control_play_pending' })
+        expect(room.snapshot().contract!.operation!.operationId).not.toBe(before)
+        expect(room.snapshot().contract!.operation!.requiredParticipantIds).toContain('participant_third')
+      })
+    })
+
     it('preserves resume intent when a seek supersedes a currently playing operation', () => {
       let nowMs = 10_000
       const room = createTransactionalRoom(() => nowMs)

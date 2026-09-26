@@ -18,6 +18,7 @@
 // service-worker-restart simulation is impractical (see the note at the
 // bottom of this file for why that path was not taken).
 import type { DiagnosticsReport, RoomSnapshot } from '@syncyourjoy/protocol'
+import { parseClientMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -793,6 +794,193 @@ describe('service worker observed episode identity', () => {
       expect.objectContaining({ message: 'command_rejected', details: { code: 'session_invalid' } }),
       expect.objectContaining({ message: 'server_error', details: { code: 'provider-error' } }),
     ]))
+  })
+
+  describe('stall evidence in diagnostic reports', () => {
+    const stuckDiagnostics = {
+      origin: 'light-dom',
+      readyState: 1,
+      networkState: 2,
+      currentSrcKind: 'blob',
+      hasSourceObject: false,
+      seeking: true,
+      errorCode: null,
+      bufferedRangeCount: 1,
+      bufferedRanges: [0, 60.04],
+      seekableRangeCount: 1,
+      seekableRanges: [0, 1_420],
+      bufferedAheadSeconds: 0,
+      pendingSeekAgeMs: 2_100,
+      hasMediaKeys: true,
+    } as const
+    const stalledSample = {
+      positionSeconds: 197.442125,
+      durationSeconds: 1_440,
+      paused: true,
+      buffering: true,
+      progressed: false,
+      sampledAtLocalMs: 0,
+    }
+    const sender = { tab: { id: 42 }, frameId: 0 } as chrome.runtime.MessageSender
+
+    function reportFor(socket: FakeWebSocket, reportId: string): DiagnosticsReport {
+      socket.simulateMessage({ type: 'diagnostics_requested', reportId })
+      const response = socket.sentMessages.find(message => typeof message === 'object' && message !== null
+        && (message as { type?: unknown }).type === 'diagnostics_response'
+        && (message as { reportId?: unknown }).reportId === reportId) as { report: DiagnosticsReport } | undefined
+      if (!response)
+        throw new Error(`No diagnostics response for ${reportId}`)
+      return response.report
+    }
+
+    it('keeps the start of a long stall by merging identical heartbeats and statuses that interleave', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      const socket = FakeWebSocket.instances[0]!
+      // The start of the failure: a run of distinct room changes.
+      for (let revision = 6; revision <= 13; revision += 1)
+        socket.simulateMessage({ type: 'room_snapshot', reason: 'control_play_pending', snapshot: buildRoomSnapshot({ revision }) })
+
+      // A long stall. Heartbeats and failing statuses alternate, so merging only
+      // a status into the event right before it can never help, and each of
+      // them is "critical" by default. 150 rounds is 5 minutes of a 2 s heartbeat.
+      for (let round = 0; round < 150; round += 1) {
+        await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, diagnostics: { ...stuckDiagnostics, bufferedRanges: [...stuckDiagnostics.bufferedRanges], seekableRanges: [...stuckDiagnostics.seekableRanges] } }, sender)
+        await request({ type: 'PLAYER_STATUS', basedOnRevision: 13, sample: { ...stalledSample, sampledAtLocalMs: Date.now() } }, sender)
+      }
+
+      const report = reportFor(socket, 'report_long_stall')
+      expect(report.events.filter(event => event.message === 'room_snapshot').map(event => event.details.revision))
+        .toEqual([6, 7, 8, 9, 10, 11, 12, 13])
+      expect(report.eventsDropped).toBe(0)
+      expect(report.payloadTruncated).toBe(false)
+      const heartbeats = report.events.filter(event => event.message === 'media_detected')
+      expect(heartbeats).toHaveLength(1)
+      expect(heartbeats[0]!.details).toMatchObject({ readyState: 1, seeking: true, errorCode: null, aheadBucket: 'empty', repeatCount: 150 })
+      expect(heartbeats[0]!.details.firstAtLocalMs).toEqual(expect.any(Number))
+      const statuses = report.events.filter(event => event.message === 'player_status')
+      expect(statuses).toHaveLength(1)
+      expect(statuses[0]!.details).toMatchObject({ buffering: true, progressed: false, repeatCount: 150 })
+    })
+
+    it('keeps the freshest heartbeat and status when the byte budget trims the oldest events', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      const socket = FakeWebSocket.instances[0]!
+      const heartbeat = () => request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, diagnostics: { ...stuckDiagnostics, bufferedRanges: [...stuckDiagnostics.bufferedRanges], seekableRanges: [...stuckDiagnostics.seekableRanges] } }, sender)
+      const status = () => request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { ...stalledSample, sampledAtLocalMs: Date.now() } }, sender)
+      await heartbeat()
+      await status()
+      // More distinct critical events than 12,000 bytes can hold, so the budget
+      // has to trim from the front.
+      for (let revision = 6; revision < 90; revision += 1)
+        socket.simulateMessage({ type: 'room_snapshot', reason: 'control_play_pending', snapshot: buildRoomSnapshot({ revision }) })
+      // The same element state and the same failing status again, moments ago.
+      await heartbeat()
+      await status()
+
+      const report = reportFor(socket, 'report_trimmed_tail')
+      expect(report.payloadTruncated).toBe(true)
+      expect(report.events.filter(event => event.message === 'media_detected')).toEqual([expect.objectContaining({ details: expect.objectContaining({ repeatCount: 2 }) })])
+      expect(report.events.filter(event => event.message === 'player_status')).toEqual([expect.objectContaining({ details: expect.objectContaining({ repeatCount: 2 }) })])
+      const times = report.events.map(event => event.atLocalMs)
+      expect(times).toEqual([...times].sort((left, right) => left - right))
+    })
+
+    it('does not merge a heartbeat across a media loss, a reconnect or a room change', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const heartbeat = () => request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, diagnostics: { ...stuckDiagnostics, bufferedRanges: [...stuckDiagnostics.bufferedRanges], seekableRanges: [...stuckDiagnostics.seekableRanges] } }, sender)
+      await heartbeat()
+      await request({ type: 'MEDIA_LOST' }, sender)
+      await heartbeat()
+      socket.simulateMessage({ type: 'room_joined', snapshot: buildRoomSnapshot({ revision: 6 }) } as never)
+      await heartbeat()
+      const messages = reportFor(socket, 'report_boundaries').events.map(event => event.message)
+      expect(messages.filter(message => message === 'media_detected')).toHaveLength(3)
+      expect(messages.indexOf('media_lost')).toBeGreaterThan(messages.indexOf('media_detected'))
+    })
+
+    it('starts a fresh event once the merged one has been evicted from the ring', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const heartbeat = () => request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, diagnostics: { ...stuckDiagnostics, bufferedRanges: [...stuckDiagnostics.bufferedRanges], seekableRanges: [...stuckDiagnostics.seekableRanges] } }, sender)
+      await heartbeat()
+      // 130 distinct events push the heartbeat out of the 100-event ring.
+      for (let revision = 6; revision < 136; revision += 1)
+        socket.simulateMessage({ type: 'room_snapshot', reason: 'control_play_pending', snapshot: buildRoomSnapshot({ revision }) })
+      await heartbeat()
+      const report = reportFor(socket, 'report_evicted_heartbeat')
+      expect(report.events.filter(event => event.message === 'media_detected')).toHaveLength(1)
+    })
+
+    it('starts a new event when the element state changes, so a transition keeps its own timestamp', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const heartbeat = (diagnostics: Record<string, unknown>) => request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, diagnostics: diagnostics as never }, sender)
+      await heartbeat({ ...stuckDiagnostics, seeking: false, bufferedAheadSeconds: 30 })
+      await heartbeat({ ...stuckDiagnostics, seeking: false, bufferedAheadSeconds: 25 })
+      await heartbeat({ ...stuckDiagnostics, seeking: true, bufferedAheadSeconds: 0 })
+      await heartbeat({ ...stuckDiagnostics, seeking: true, errorCode: 3, bufferedAheadSeconds: 0 })
+      const details = reportFor(socket, 'report_transitions').events.filter(event => event.message === 'media_detected').map(event => event.details)
+      expect(details).toEqual([
+        expect.objectContaining({ seeking: false, errorCode: null, aheadBucket: 'ok', repeatCount: 2 }),
+        expect.objectContaining({ seeking: true, errorCode: null, aheadBucket: 'empty' }),
+        expect.objectContaining({ seeking: true, errorCode: 3, aheadBucket: 'empty' }),
+      ])
+    })
+
+    it('reports the element evidence as bounded numbers and never as provider text', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      await request({
+        type: 'MEDIA_DETECTED',
+        media: oldMedia,
+        areaPixels: 500_000,
+        diagnostics: {
+          ...stuckDiagnostics,
+          errorCode: 4,
+          bufferedRanges: [0, 60.04, 100, Number.POSITIVE_INFINITY, 9, 3, 200, 210, 300, 310, 400, 410],
+          errorMessage: 'https://secret.example/stream.mpd?token=must-never-be-reported',
+          mediaKeySystem: 'com.widevine.alpha',
+        } as never,
+      }, sender)
+      const report = reportFor(socket, 'report_element_evidence')
+      expect(report).toMatchObject({
+        playerReadyState: 1,
+        playerNetworkState: 2,
+        playerSeeking: true,
+        playerErrorCode: 4,
+        playerBufferedRangeCount: 1,
+        playerSeekableRangeCount: 1,
+        playerSeekableRanges: [0, 1_420],
+        playerBufferedAheadSeconds: 0,
+        playerPendingSeekAgeMs: 2_100,
+        playerHasMediaKeys: true,
+      })
+      // Non-finite and inverted pairs are dropped and the list is capped at four pairs.
+      expect(report.playerBufferedRanges).toEqual([0, 60, 200, 210, 300, 310, 400, 410])
+      // Both coordinators run the same validator, so the report must pass it.
+      expect(parseClientMessage({ type: 'diagnostics_response', reportId: 'report_element_evidence', report })).not.toBeNull()
+      expect(JSON.stringify(report)).not.toContain('must-never-be-reported')
+      expect(JSON.stringify(report)).not.toContain('widevine')
+    })
+
+    it('leaves the new fields null when the player has not reported them yet', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000 }, sender)
+      expect(reportFor(socket, 'report_no_evidence')).toMatchObject({
+        playerSeeking: null,
+        playerErrorCode: null,
+        playerBufferedRangeCount: null,
+        playerBufferedRanges: null,
+        playerSeekableRanges: null,
+        playerBufferedAheadSeconds: null,
+        playerPendingSeekAgeMs: null,
+        playerHasMediaKeys: null,
+      })
+    })
   })
 })
 

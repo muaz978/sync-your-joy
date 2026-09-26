@@ -188,10 +188,85 @@ test.describe('two-profile playback synchronization', () => {
     await profileBVideoPage.waitForFunction(() => document.querySelector('video')?.paused === true, undefined, { timeout: 15_000 })
     await assertPositionsConverge(profileAVideoPage, profileBVideoPage)
 
+    // --- A paused seek settles; it does not fail when its window closes ----
+    // A paused seek never starts playback, so it has no `started` phase. The
+    // coordinator used to keep the seek's 3 s preparation deadline on it, and
+    // three seconds after every paused seek the room reported `start-timeout`
+    // and asked everyone to recover. Observe well past that window.
+    const pausedTarget = 6
+    await profileAVideoPage.evaluate((target) => {
+      const video = document.querySelector('video')
+      if (!video)
+        throw new Error('Controller video is missing.')
+      video.currentTime = target
+    }, pausedTarget)
+    await Promise.all([profileAVideoPage, profileBVideoPage].map(page => page.waitForFunction(
+      target => {
+        const video = document.querySelector('video')
+        return !!video && !video.seeking && video.paused && Math.abs(video.currentTime - target) < 0.75
+      },
+      pausedTarget,
+      { timeout: 15_000 },
+    )))
+    await expect.poll(async () => (await readRoom(profileA)).operation, { message: 'The paused seek should commit.' }).toMatchObject({ kind: 'seek', phase: 'committed' })
+    const firstSeekId = (await readRoom(profileA)).operation?.operationId
+    await profileA.panel.waitForTimeout(4_500)
+    for (const profile of [profileA, profileB]) {
+      // The window has closed: the seek is cleared, not failed.
+      expect(await readRoom(profile)).toEqual({ operation: null, statuses: ['ready', 'ready'] })
+    }
+    await Promise.all([profileAVideoPage, profileBVideoPage].map(page => page.waitForFunction(() => document.querySelector('video')?.paused === true)))
+    await assertPositionsConverge(profileAVideoPage, profileBVideoPage)
+
+    // The next paused scrub has to work as well: the controller's player must
+    // not be pulled back to the old target, and the room must follow.
+    const secondPausedTarget = 12
+    await profileAVideoPage.evaluate((target) => {
+      const video = document.querySelector('video')
+      if (!video)
+        throw new Error('Controller video is missing.')
+      video.currentTime = target
+    }, secondPausedTarget)
+    await Promise.all([profileAVideoPage, profileBVideoPage].map(page => page.waitForFunction(
+      target => {
+        const video = document.querySelector('video')
+        return !!video && !video.seeking && video.paused && Math.abs(video.currentTime - target) < 0.75
+      },
+      secondPausedTarget,
+      { timeout: 15_000 },
+    )))
+    await expect.poll(async () => (await readRoom(profileB)).operation?.operationId, { message: 'The second paused seek should be its own operation.' })
+      .not.toBe(firstSeekId)
+    await assertPositionsConverge(profileAVideoPage, profileBVideoPage)
+
     if (process.env.SYNCYOURJOY_E2E_INJECT_FAILURE === '1')
       throw new Error('[product-assertion] Intentional fixture assertion failure for CR-D01 artifact verification.')
   })
 })
+
+/** The room operation and participant statuses as this profile's service worker last saw them. */
+async function readRoom(profile: ExtensionProfile): Promise<{ operation: { operationId: string, kind: string, phase: string, reason: string | null } | null, statuses: string[] }> {
+  const worker = profile.context.serviceWorkers()[0]
+    ?? await profile.context.waitForEvent('serviceworker', { timeout: 5_000 })
+  return await worker.evaluate(async () => {
+    const stored = await chrome.storage.session.get('syncYourJoySessionState') as {
+      syncYourJoySessionState?: { snapshot?: { contract?: { operation?: Record<string, unknown> | null }, participants: Array<{ playbackStatus?: string }> } }
+    }
+    const snapshot = stored.syncYourJoySessionState?.snapshot
+    const operation = snapshot?.contract?.operation
+    return {
+      operation: operation
+        ? {
+            operationId: String(operation.operationId),
+            kind: String(operation.kind),
+            phase: String(operation.phase),
+            reason: typeof operation.reason === 'string' ? operation.reason : null,
+          }
+        : null,
+      statuses: (snapshot?.participants ?? []).map(participant => participant.playbackStatus ?? 'unknown'),
+    }
+  })
+}
 
 async function assertBothPlayersAdvance(...pages: Page[]): Promise<void> {
   await Promise.all(pages.map(page => page.evaluate(() => new Promise<void>((resolveProgress, rejectProgress) => {

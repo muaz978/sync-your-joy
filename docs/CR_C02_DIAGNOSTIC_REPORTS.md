@@ -28,7 +28,7 @@ The content script resets the correction count with the existing correction budg
 
 ### Event retention and truncation
 
-Diagnostic events may mark critical transitions. The service worker coalesces consecutive `player_status` events with the same bounded health signature and adds a `repeatCount` detail. It retains transition, error and operation events as critical records. The in-memory ring prefers dropping non-critical events when it reaches its limit, and records `eventsDropped`.
+Diagnostic events may mark critical transitions. The service worker coalesces `player_status` events with the same bounded health signature and adds a `repeatCount` detail (later extended, see the addendum, so events merge across other events too). It retains transition, error and operation events as critical records. The in-memory ring prefers dropping non-critical events when it reaches its limit, and records `eventsDropped`.
 
 Before transport, `fitDiagnosticsReport` enforces the 12,000-byte report budget. It removes non-critical events first, retains critical events while possible, and sets `payloadTruncated` plus an explicit `eventsDropped` count. If the fixed report fields themselves exceed the budget, the final fallback shortens the bounded identity fields and removes events while preserving the truncation evidence.
 
@@ -56,3 +56,11 @@ The full repository check, package verification, audit and any browser or provid
 - Headed authenticated Crunchyroll testing with the user's signed-in browser remains a live-provider acceptance gate.
 - Cross-browser package verification and deployment remain separate gates.
 - Issue #63 must remain open until the implementation, exact PR head checks, review, merge, and any required live validation evidence are complete.
+
+## Addendum: media-element evidence and merged events
+
+A later change ([Crunchyroll prepare stall analysis](CRUNCHYROLL_PREPARE_STALL_ANALYSIS.md)) extends the report without changing its schema version. Every addition is optional, so an older coordinator relays it unvalidated and a newer one validates it only when present.
+
+- `playerSeeking`, `playerErrorCode` (`MediaError.code`, 1 to 4, never the message), `playerBufferedRangeCount`, `playerBufferedRanges` (at most four `[start, end]` pairs), `playerSeekableRangeCount`, `playerSeekableRanges` (at most two pairs), `playerBufferedAheadSeconds`, `playerPendingSeekAgeMs` and `playerHasMediaKeys`. They are plain numbers and booleans, bounded and rounded, so the state-only boundary is unchanged. The worst case costs about 375 bytes of the 12,000-byte budget.
+- `media_detected` events also carry `seeking`, `errorCode` and `aheadBucket`, so a change in element state gets its own event.
+- Identical `media_detected` and `player_status` events are now merged with the previous event of the same kind, not only with the event immediately before them. A merged event moves to the tail, where its latest occurrence belongs, so trimming the oldest events never removes the freshest. `atLocalMs` is the latest occurrence, `details.firstAtLocalMs` the first, and `details.repeatCount` the number of occurrences. A media loss, a socket change or a room join ends a run. This replaces the statement above that only consecutive `player_status` events are coalesced.

@@ -347,11 +347,13 @@ If a screenshot is unavoidable, capture only the SyncYourJoy side panel. Crop ou
    - Do not print `src` or `currentSrc`, do not open the Network or Application panels, and do not copy page HTML.
    - This expression cannot find a player inside a shadow root. In that case record "not available"; do not guess.
 4. **What the extension does not expose.**
-   - Native `seeking` is in neither the panel nor the report.
+   - Native `seeking` is in neither the panel nor the report. Builds that include the stall diagnostics ([analysis](CRUNCHYROLL_PREPARE_STALL_ANALYSIS.md), section 6) add it, the media error code and the buffered and seekable ranges. The `v0.2.5` candidate does not.
    - Room revision, the operation target (`targetPositionSeconds`) and exact `currentTime` appear only in the controller's report.
    - If neither the report nor the console was used, write "n/a (not exposed)".
 
 ### 6.3 Step actions and pass criteria
+
+> **Known defect in the `v0.2.5` coordinator, steps 12a and 12b.** A paused seek is failed with `start-timeout` about three seconds after it was created, and both participants show `recovery-required`, although both prepared. Read the operation within three seconds of the seek, or record the failure as this known defect and not as a synchronization failure. The cause and the fix are in the [analysis](CRUNCHYROLL_PREPARE_STALL_ANALYSIS.md), section 2.1. The fix reaches the room only when the coordinator is redeployed. With the fix the seek reads `committed` for about three seconds and is then cleared without a failure: read the phase within that window, or take the evidence from the report's snapshot reason `operation_seek_committed_paused`.
 
 | # | Who | Action | PASS requires |
 | ---: | --- | --- | --- |

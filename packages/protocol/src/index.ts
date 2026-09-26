@@ -330,6 +330,24 @@ export interface DiagnosticsReport {
   playerNetworkState?: number | null
   playerCurrentSrcKind?: string | null
   playerHasSourceObject?: boolean | null
+  /**
+   * Media-element evidence, all optional and all plain numbers or booleans so
+   * an older coordinator relays them untouched. They exist to tell a player
+   * that never fetched data (empty buffer, still seeking) from one that was
+   * refused it (an error code, a decode failure).
+   */
+  playerSeeking?: boolean | null
+  /** `MediaError.code`, 1 to 4. The provider's error message is never included. */
+  playerErrorCode?: number | null
+  playerBufferedRangeCount?: number | null
+  /** Flat `[start, end, ...]` pairs in seconds, at most four pairs. */
+  playerBufferedRanges?: number[] | null
+  playerSeekableRangeCount?: number | null
+  /** Flat `[start, end, ...]` pairs in seconds, at most two pairs. */
+  playerSeekableRanges?: number[] | null
+  playerBufferedAheadSeconds?: number | null
+  playerPendingSeekAgeMs?: number | null
+  playerHasMediaKeys?: boolean | null
   sample: PlayerSample | null
   events: DiagnosticEvent[]
   /** Correlation fields are optional for reports produced by older clients. */
@@ -1029,6 +1047,15 @@ function validDiagnosticsReport(value: unknown): value is DiagnosticsReport {
     && (value.playerNetworkState === undefined || value.playerNetworkState === null || isFiniteNonNegative(value.playerNetworkState))
     && (value.playerCurrentSrcKind === undefined || value.playerCurrentSrcKind === null || validShortText(value.playerCurrentSrcKind, 20))
     && (value.playerHasSourceObject === undefined || value.playerHasSourceObject === null || typeof value.playerHasSourceObject === 'boolean')
+    && (value.playerSeeking === undefined || value.playerSeeking === null || typeof value.playerSeeking === 'boolean')
+    && (value.playerErrorCode === undefined || value.playerErrorCode === null || Number.isInteger(value.playerErrorCode) && (value.playerErrorCode as number) >= 1 && (value.playerErrorCode as number) <= 4)
+    && (value.playerBufferedRangeCount === undefined || value.playerBufferedRangeCount === null || isBoundedSafeInteger(value.playerBufferedRangeCount, MAX_REPORTED_RANGE_COUNT))
+    && (value.playerBufferedRanges === undefined || value.playerBufferedRanges === null || validRangePairs(value.playerBufferedRanges, MAX_BUFFERED_RANGE_PAIRS))
+    && (value.playerSeekableRangeCount === undefined || value.playerSeekableRangeCount === null || isBoundedSafeInteger(value.playerSeekableRangeCount, MAX_REPORTED_RANGE_COUNT))
+    && (value.playerSeekableRanges === undefined || value.playerSeekableRanges === null || validRangePairs(value.playerSeekableRanges, MAX_SEEKABLE_RANGE_PAIRS))
+    && (value.playerBufferedAheadSeconds === undefined || value.playerBufferedAheadSeconds === null || isBoundedRangeSeconds(value.playerBufferedAheadSeconds))
+    && (value.playerPendingSeekAgeMs === undefined || value.playerPendingSeekAgeMs === null || isFiniteNonNegative(value.playerPendingSeekAgeMs))
+    && (value.playerHasMediaKeys === undefined || value.playerHasMediaKeys === null || typeof value.playerHasMediaKeys === 'boolean')
     && (value.sample === null || validPlayerSample(value.sample))
     && (value.mediaEpoch === undefined || value.mediaEpoch === null || isNonNegativeInteger(value.mediaEpoch))
     && (value.operationId === undefined || value.operationId === null || validId(value.operationId))
@@ -1047,6 +1074,28 @@ function validDiagnosticsReport(value: unknown): value is DiagnosticsReport {
     && (value.eventsCoalesced === undefined || isBoundedSafeInteger(value.eventsCoalesced, 100_000))
     && (value.payloadTruncated === undefined || typeof value.payloadTruncated === 'boolean')
     && value.events.every(validDiagnosticEvent)
+}
+
+const MAX_REPORTED_RANGE_COUNT = 10_000
+const MAX_BUFFERED_RANGE_PAIRS = 4
+const MAX_SEEKABLE_RANGE_PAIRS = 2
+const MAX_REPORTED_RANGE_SECONDS = 10_000_000
+
+function isBoundedRangeSeconds(value: unknown): value is number {
+  return isFiniteNonNegative(value) && value <= MAX_REPORTED_RANGE_SECONDS
+}
+
+/** A flat `[start, end, ...]` list: even length, finite, bounded, ascending pairs. */
+function validRangePairs(value: unknown, maxPairs: number): value is number[] {
+  if (!Array.isArray(value) || value.length % 2 !== 0 || value.length > maxPairs * 2)
+    return false
+  for (let index = 0; index < value.length; index += 2) {
+    const start: unknown = value[index]
+    const end: unknown = value[index + 1]
+    if (!isBoundedRangeSeconds(start) || !isBoundedRangeSeconds(end) || end < start)
+      return false
+  }
+  return true
 }
 
 function validDiagnosticEvent(value: unknown): value is DiagnosticEvent {

@@ -1,4 +1,5 @@
 import type { ParticipantPlaybackStatus, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
+import { isSettledPausedSeek } from './operation-state.ts'
 import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, playbackReportSilenceDeadlineMs, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 
 export interface ParticipantPlaybackStatusInput {
@@ -29,6 +30,7 @@ export function participantPlaybackStatus(input: ParticipantPlaybackStatusInput)
     return 'blocked'
 
   const operation = input.operation && input.operation.phase !== 'cancelled' && input.operation.phase !== 'failed'
+    && !isSettledPausedSeek(input.operation)
     ? input.operation
     : null
   if (input.pendingSeek || operation?.kind === 'seek' && isPreparationPhase(operation.phase))
