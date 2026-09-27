@@ -8896,7 +8896,7 @@
 
 ## Session Metadata
 - Task or project: SyncYourJoy Crunchyroll prepare stall: analysis, two coordinator fixes and stall diagnostics.
-- Checkpoint number: 105. Checkpoints 103 and 104 are appended by PRs #105 and #106, which are still open, so this number leaves room for them.
+- Checkpoint number: 105. PR #105 appends checkpoint 103. PR #106 branches independently from the same main tip and currently also numbers its own entry 103, colliding with #105's; #106 is not stacked on #105 despite earlier notes here assuming it was. Whichever of #105/#106 lands second needs its checkpoint entry renumbered to 104 by hand during that merge's conflict resolution. This entry reserves 105.
 - Date and time: 2026-09-26, Europe/Istanbul.
 - Coverage period: Since checkpoint 102.
 - Current context status: Source, tests and documentation are complete on a branch cut from `origin/main` `2f92f852d337fb7d5e3f2efd34c512ae770cb73f`. Nothing is deployed and no version was bumped.

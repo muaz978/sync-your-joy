@@ -82,7 +82,7 @@ describe('diagnostics message budget', () => {
       playerHasMediaKeys: true,
     }
     const cost = serializedDiagnosticsBytes(largest) - serializedDiagnosticsBytes(without)
-    // 376 bytes at the worst, about 250 for a typical stalled player. The cap
+    // 375 bytes at the worst, about 250 for a typical stalled player. The cap
     // keeps a future field from quietly eating the event budget that the start
     // of a failure depends on.
     expect(cost).toBeLessThanOrEqual(400)
