@@ -573,6 +573,9 @@ function playerDiagnosticsCard(current: ExtensionState): string {
         <span class="color-fade">Operation reason</span><span class="text-right">${escapeHtml(operation?.reason ?? '—')}</span>
         <span class="color-fade">Ready state</span><span class="text-right font-mono">${diagnostics?.readyState ?? '—'}</span>
         <span class="color-fade">Network state</span><span class="text-right font-mono">${diagnostics?.networkState ?? '—'}</span>
+        <span class="color-fade">Seeking</span><span class="text-right">${typeof diagnostics?.seeking === 'boolean' ? diagnostics.seeking ? 'Yes' : 'No' : '—'}</span>
+        <span class="color-fade">Buffered ahead</span><span class="text-right font-mono tabular-nums">${typeof diagnostics?.bufferedAheadSeconds === 'number' ? `${diagnostics.bufferedAheadSeconds.toFixed(1)} s` : '—'}</span>
+        <span class="color-fade">Media error code</span><span class="text-right font-mono">${escapeHtml(String(diagnostics?.errorCode ?? '—'))}</span>
         <span class="color-fade">Duration</span><span class="text-right font-mono tabular-nums">${sample?.durationSeconds == null ? '—' : formatTime(sample.durationSeconds)}</span>
         <span class="color-fade">MediaStream</span><span class="text-right">${diagnostics ? diagnostics.hasSourceObject ? 'Yes' : 'No' : '—'}</span>
       </div>

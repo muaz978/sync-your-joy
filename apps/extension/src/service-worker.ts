@@ -10,6 +10,7 @@ import { shouldConfirmMediaMismatch } from './readiness-state.ts'
 import { connectionQuality } from './connection-quality.ts'
 import { browserApi } from './browser-api.ts'
 import { fitDiagnosticsReport } from './diagnostics-budget.ts'
+import { bufferedAheadBucket, MAX_BUFFERED_PAIRS, MAX_SEEKABLE_PAIRS, sanitizeElapsedMs, sanitizeMediaErrorCode, sanitizeRangeCount, sanitizeRangePairs, sanitizeRangeSeconds } from './media-ranges.ts'
 import { CONTROLLER_FOLLOW_NAVIGATION_ENABLED, shouldFollowControllerNavigation, strongCrunchyrollNavigationKey } from './navigation-transaction.ts'
 
 declare const __ROOM_SERVER_URL__: string
@@ -85,7 +86,20 @@ let clock = new ClockSynchronizer()
 const diagnosticEvents: DiagnosticEvent[] = []
 let diagnosticEventsDropped = 0
 let diagnosticEventsCoalesced = 0
-let lastDiagnosticStatusSignature: string | null = null
+// Repetitive telemetry is merged into its previous occurrence rather than
+// filling the bounded ring, so a long stall cannot push the start of a
+// failure out of a report. A merged event moves to the tail, where its latest
+// occurrence belongs, so trimming the oldest events never removes the
+// freshest one. `atLocalMs` is the latest occurrence, `details.firstAtLocalMs`
+// the first and `details.repeatCount` how many.
+const COALESCED_DIAGNOSTIC_MESSAGES = new Set(['player_status', 'media_detected'])
+// A run ends when the player, the socket or the room changes, so a heartbeat
+// after a reconnect or a media loss is a new event, not more of the old run.
+const DIAGNOSTIC_RUN_BOUNDARIES = new Set(['media_lost', 'player_unreachable', 'player_locked', 'player_unlocked', 'socket_opened', 'socket_closed', 'heartbeat_timeout', 'room_joined'])
+// The protocol caps both counters; a longer-lived worker must not push the
+// whole report over the validator's limit.
+const MAX_REPORTED_DIAGNOSTIC_COUNT = 100_000
+const lastCoalescibleDiagnostics = new Map<string, { event: DiagnosticEvent; signature: string }>()
 let lastDiagnosticReason: DiagnosticReason = 'none'
 let diagnosticCollection: DiagnosticCollection | null = null
 // This identity is deliberately persisted separately from ExtensionState so
@@ -255,6 +269,9 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         networkState: request.diagnostics?.networkState ?? null,
         currentSrcKind: request.diagnostics?.currentSrcKind ?? null,
         hasSourceObject: request.diagnostics?.hasSourceObject ?? null,
+        seeking: typeof request.diagnostics?.seeking === 'boolean' ? request.diagnostics.seeking : null,
+        errorCode: sanitizeMediaErrorCode(request.diagnostics?.errorCode),
+        aheadBucket: bufferedAheadBucket(request.diagnostics?.bufferedAheadSeconds),
       })
       state.currentMedia = candidateMedia
       state.playerDiagnostics = request.diagnostics ?? null
@@ -1263,33 +1280,43 @@ function recordDiagnostic(category: string, message: string, details: Record<str
   const atLocalMs = Date.now()
   const sanitizedDetails = Object.fromEntries(Object.entries(details).slice(0, 20).map(([key, value]) => [key.slice(0, 40), sanitizeDiagnosticValue(value)]))
   const isStatus = message === 'player_status'
-  const statusSignature = isStatus ? diagnosticStatusSignature(sanitizedDetails) : null
+  const signature = !COALESCED_DIAGNOSTIC_MESSAGES.has(message)
+    ? null
+    : isStatus ? diagnosticStatusSignature(sanitizedDetails) : JSON.stringify(sanitizedDetails)
   const critical = options.critical ?? (!isStatus || sanitizedDetails.playbackStartFailed === true || sanitizedDetails.buffering === true && sanitizedDetails.progressed === false)
-  const previous = diagnosticEvents.at(-1)
-  if (isStatus && previous?.message === message && statusSignature === lastDiagnosticStatusSignature) {
-    const repeatCount = typeof previous.details.repeatCount === 'number' ? previous.details.repeatCount : 1
-    previous.atLocalMs = atLocalMs
+  const previous = signature === null ? undefined : lastCoalescibleDiagnostics.get(message)
+  if (previous && previous.signature === signature && diagnosticEvents.includes(previous.event)) {
+    const merged = previous.event
+    const repeatCount = typeof merged.details.repeatCount === 'number' ? merged.details.repeatCount : 1
+    const firstAtLocalMs = typeof merged.details.firstAtLocalMs === 'number' ? merged.details.firstAtLocalMs : merged.atLocalMs
+    merged.atLocalMs = atLocalMs
     if (critical)
-      previous.critical = true
-    previous.details = { ...sanitizedDetails, repeatCount: repeatCount + 1 }
+      merged.critical = true
+    merged.details = { ...sanitizedDetails, firstAtLocalMs, repeatCount: repeatCount + 1 }
+    diagnosticEvents.splice(diagnosticEvents.indexOf(merged), 1)
+    diagnosticEvents.push(merged)
     diagnosticEventsCoalesced += 1
     if (options.reason)
       lastDiagnosticReason = options.reason
     return
   }
 
-  diagnosticEvents.push({
+  const event: DiagnosticEvent = {
     atLocalMs,
     category: category.slice(0, 40),
     message: message.slice(0, 100),
     details: sanitizedDetails,
     ...(critical ? { critical: true } : {}),
-  })
-  lastDiagnosticStatusSignature = statusSignature
+  }
+  diagnosticEvents.push(event)
+  if (DIAGNOSTIC_RUN_BOUNDARIES.has(message))
+    lastCoalescibleDiagnostics.clear()
+  if (signature !== null)
+    lastCoalescibleDiagnostics.set(message, { event, signature })
   if (options.reason)
     lastDiagnosticReason = options.reason
   if (diagnosticEvents.length > DIAGNOSTIC_EVENT_LIMIT) {
-    const firstNonCritical = diagnosticEvents.findIndex(event => event.critical !== true)
+    const firstNonCritical = diagnosticEvents.findIndex(candidate => candidate.critical !== true)
     const removeIndex = firstNonCritical === -1 ? 0 : firstNonCritical
     diagnosticEvents.splice(removeIndex, 1)
     diagnosticEventsDropped += 1
@@ -1375,6 +1402,15 @@ function buildDiagnosticsReport(): DiagnosticsReport {
     playerNetworkState: state.playerDiagnostics?.networkState ?? null,
     playerCurrentSrcKind: state.playerDiagnostics?.currentSrcKind ?? null,
     playerHasSourceObject: state.playerDiagnostics?.hasSourceObject ?? null,
+    playerSeeking: typeof state.playerDiagnostics?.seeking === 'boolean' ? state.playerDiagnostics.seeking : null,
+    playerErrorCode: sanitizeMediaErrorCode(state.playerDiagnostics?.errorCode),
+    playerBufferedRangeCount: sanitizeRangeCount(state.playerDiagnostics?.bufferedRangeCount),
+    playerBufferedRanges: sanitizeRangePairs(state.playerDiagnostics?.bufferedRanges, MAX_BUFFERED_PAIRS),
+    playerSeekableRangeCount: sanitizeRangeCount(state.playerDiagnostics?.seekableRangeCount),
+    playerSeekableRanges: sanitizeRangePairs(state.playerDiagnostics?.seekableRanges, MAX_SEEKABLE_PAIRS),
+    playerBufferedAheadSeconds: sanitizeRangeSeconds(state.playerDiagnostics?.bufferedAheadSeconds),
+    playerPendingSeekAgeMs: sanitizeElapsedMs(state.playerDiagnostics?.pendingSeekAgeMs),
+    playerHasMediaKeys: typeof state.playerDiagnostics?.hasMediaKeys === 'boolean' ? state.playerDiagnostics.hasMediaKeys : null,
     sample: sample ? { ...sample } : null,
     events: diagnosticEvents.map(event => ({ ...event, details: { ...event.details } })),
     mediaEpoch: state.snapshot?.contract?.mediaEpoch ?? operation?.mediaEpoch ?? null,
@@ -1390,8 +1426,8 @@ function buildDiagnosticsReport(): DiagnosticsReport {
     observationAgeMs: sample ? Math.max(0, nowMs - sample.sampledAtLocalMs) : state.playerLastSeenAtMs > 0 ? Math.max(0, nowMs - state.playerLastSeenAtMs) : null,
     correctionCount: sample?.correctionCount ?? state.playerDiagnostics?.health?.correctionCount ?? 0,
     reason: operation?.reason ?? lastDiagnosticReason,
-    eventsDropped: diagnosticEventsDropped,
-    eventsCoalesced: diagnosticEventsCoalesced,
+    eventsDropped: Math.min(diagnosticEventsDropped, MAX_REPORTED_DIAGNOSTIC_COUNT),
+    eventsCoalesced: Math.min(diagnosticEventsCoalesced, MAX_REPORTED_DIAGNOSTIC_COUNT),
     payloadTruncated: false,
   }
 }

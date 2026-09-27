@@ -17,6 +17,22 @@ export interface PlayerDiagnostics {
   networkState: number
   currentSrcKind: 'none' | 'http' | 'https' | 'blob' | 'data' | 'other'
   hasSourceObject: boolean
+  /**
+   * Media-element evidence that separates a player that never fetched data
+   * from one that was refused it. Plain numbers and booleans only: never a
+   * URL, a key or the provider's error text. Optional because state restored
+   * from an older build lacks it.
+   */
+  seeking?: boolean
+  /** `MediaError.code` (1 aborted, 2 network, 3 decode, 4 unsupported), never its message. */
+  errorCode?: number | null
+  bufferedRangeCount?: number
+  bufferedRanges?: number[]
+  seekableRangeCount?: number
+  seekableRanges?: number[]
+  bufferedAheadSeconds?: number | null
+  pendingSeekAgeMs?: number | null
+  hasMediaKeys?: boolean
   health?: PlayerHealthDiagnostics
   locked?: boolean
 }

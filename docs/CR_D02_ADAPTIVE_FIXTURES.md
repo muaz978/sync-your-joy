@@ -68,6 +68,7 @@ Segment controls are deliberately narrow:
 
 - `delayMs` delays only the selected segment response. The server accepts a finite allowlist of deterministic values from 50 ms through 2,000 ms, including the 80 ms and 120 ms values used by the tests; every other value becomes zero delay.
 - `missing=1` returns a controlled 404 JSON response for the selected segment.
+- An absent `missingSegment` page parameter means no segment is missing. It used to read as segment 0, which withheld the first segment and left the default fixture at `readyState` 1.
 - Every segment response identifies the fixture and effective delay with response headers.
 - No route exposes provider URLs, credentials, cookies, signed URLs or protected stream data.
 

@@ -53,7 +53,7 @@ The room coordinator may receive the room code, participant display names, parti
 
 ## Detailed diagnostic reports
 
-The **Download detailed report** feature is for beta testing. The controller's device asks connected participants for their bounded in-memory diagnostic logs and downloads one JSON file. The report can include extension versions, browser user-agent text, room revisions, sanitized page URLs, provider labels, media identifiers, player health, positions, pause/buffering status, connection events, and collection status.
+The **Download detailed report** feature is for beta testing. The controller's device asks connected participants for their bounded in-memory diagnostic logs and downloads one JSON file. The report can include extension versions, browser user-agent text, room revisions, sanitized page URLs, provider labels, media identifiers, player health, positions, pause/buffering status, whether the video element was seeking, its media error code, buffered and seekable time ranges, buffered-ahead time, pending-seek age and whether media keys are attached, all as plain numbers or booleans, connection events, and collection status.
 
 The report does not intentionally include video, audio, screenshots, cookies, passwords, authentication data, payment data, session capabilities, or URL query parameters. Media identity messages retain only reviewed provider or generic identifier query keys when required for matching. Participants should review a report before sharing it outside the test group.
 
