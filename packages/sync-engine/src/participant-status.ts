@@ -5,6 +5,8 @@ export interface ParticipantPlaybackStatusInput {
   connected: boolean
   ready: boolean
   mediaMatches: boolean
+  /** The room's durable record that this browser refused to start playback. */
+  playbackBlocked: boolean
   playback: PlaybackState
   operation: RoomOperation | null
   pendingSeek: boolean
@@ -25,7 +27,7 @@ export function participantPlaybackStatus(input: ParticipantPlaybackStatusInput)
     return 'unknown'
   if (!input.mediaMatches)
     return 'wrong-media'
-  if (input.sample?.playbackStartFailed === true)
+  if (input.playbackBlocked || input.sample?.playbackStartFailed === true)
     return 'blocked'
 
   const operation = input.operation && input.operation.phase !== 'cancelled' && input.operation.phase !== 'failed'

@@ -16,7 +16,7 @@ The scenario covers:
 4. Paired drift, presented-frame progress and hard current-time write limits.
 5. Exact forward seek destination acknowledgement, followed by convergence.
 6. Source replacement and readiness re-detection on participant C.
-7. One-shot local `NotAllowedError`, visible playback-blocked state, local gesture, in-panel Sync and explicit readiness recovery.
+7. One-shot local `NotAllowedError`, a playback-blocked state that stays visible across routine reports until the local gesture, in-panel Sync and explicit readiness recovery.
 8. Controller transfer from A to B, B playback, and transfer back to A.
 9. A real server-side disconnect of C, service-worker reconnect, room-code preservation, readiness preservation and explicit post-reconnect resume.
 10. Native controller scrubbing at a paused room boundary and remote convergence.
@@ -180,6 +180,8 @@ The rarer `toBeVisible()` failure is the `Playback blocked` assertion on profile
 Across 42 traced runs that reached this step, the `blocked` status lasted 16–155 ms (median 85 ms) before it was overwritten. Passing runs won a race between Playwright polling and that window. The window was similar with and without the fix: 44–155 ms (median 94 ms, 12 traced baseline runs) against 16–131 ms (median 84 ms, 30 traced runs with the fix). In all 30 runs with the fix, the report that erased the state was accepted at the exact current revision, so the fix's stale-report path is not involved. The failure appears more often with the fix: 8 of 60 fixed runs (13%) against 1 of 29 runs that reached this step on baseline (3%), a roughly fourfold difference that reach-adjustment alone does not explain. The cause of that difference is not established; a timing change from the fix is possible but unconfirmed. Until it is, the matrix should be expected to fail on `Playback blocked` more often with the fix than without it. A real participant would see the state flash and disappear while the room stays paused and they are no longer ready.
 
 Deciding what should end the blocked state (the local gesture, **Sync me now** or re-readiness) is a product decision. It is recorded as a separate follow-up and is not changed here.
+
+**Update (checkpoint 104):** the self-erasure this finding describes is fixed. The coordinator now keeps a room-owned `playbackBlocked` record that a routine report, a controller command or a health check cannot clear; only that participant's own report of accepted playback clears it. The heading above and "not fixed here" describe the state as of checkpoint 103, before that fix landed.
 
 ### Observations
 

@@ -59,6 +59,11 @@ export function createPlayerHealthState(input: PlayerHealthBaselineInput): Playe
  * Rebase the observation cursors without pretending that a video advanced.
  * Visibility restoration preserves already-known health signals, while a
  * source or command reset clears them for the new playback operation.
+ *
+ * A permission rejection is not a progress signal and survives both: the
+ * room's own pause after a rejected play() is a command reset, and clearing
+ * the fault there erased the blocked state before anyone could act on it
+ * (#68). Only `clearPlaybackStartFailed` removes it.
  */
 export function resetPlayerHealthBaseline(
   previous: PlayerHealthState,
@@ -84,7 +89,6 @@ export function resetPlayerHealthBaseline(
     lastProgressPositionSeconds: baseline.positionSeconds,
     lastProgressFrames: baseline.frames,
     hasRealPlaybackProgress: false,
-    playbackStartFailed: false,
   }
 }
 
