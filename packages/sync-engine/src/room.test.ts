@@ -1034,6 +1034,63 @@ describe('RoomCoordinator', () => {
       })
       expect(room.exportState().participants.find(participant => participant.id === 'participant_friend')?.playbackBlocked).toBe(true)
     })
+
+    it('does not let a tolerated stale report set or clear the block while the room stays playing', () => {
+      // The revision tolerance in updatePlayerStatus (from the CR-D03
+      // heartbeat-race fix) exists so a report that only missed a start
+      // acknowledgement can still prove progress. It must not be a side
+      // door for setting this persisted record: only an exact-revision
+      // report may pause the room, so only an exact-revision report may
+      // record why.
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+      const startAtMs = committed.snapshot.contract.operation.effectiveAtServerMs
+
+      nowMs = startAtMs + 500
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+      const hostRevision = room.snapshot().revision
+      nowMs = startAtMs + 1_500
+      expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 41.5, 2)))
+        .toMatchObject({ reason: 'operation_started' })
+
+      nowMs += 4
+      const stale = room.updatePlayerStatus('participant_host', hostRevision, {
+        positionSeconds: 41.5,
+        durationSeconds: 600,
+        paused: true,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: false,
+        playbackStarted: false,
+        playbackStartFailed: true,
+      })
+
+      expect(stale).not.toMatchObject({ reason: 'participant_playback_blocked' })
+      expect(room.snapshot()).toMatchObject({ playback: { status: 'playing' } })
+      expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.playbackBlocked).not.toBe(true)
+
+      // The same participant's next EXACT-revision report can still record
+      // the block normally.
+      const currentRevision = room.snapshot().revision
+      nowMs += 1
+      const exact = room.updatePlayerStatus('participant_host', currentRevision, {
+        positionSeconds: 41.5,
+        durationSeconds: 600,
+        paused: true,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: false,
+        playbackStarted: false,
+        playbackStartFailed: true,
+      })
+      expect(exact).toMatchObject({ reason: 'participant_playback_blocked' })
+      expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.playbackBlocked).toBe(true)
+    })
   })
 
   it('stops the room clock when a ready participant reports no real progress', () => {

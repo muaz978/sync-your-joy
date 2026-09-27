@@ -928,9 +928,14 @@ export class RoomCoordinator {
     // The extension keeps reporting a permission rejection until its browser
     // accepts a play request again, so the participant's own accepted report
     // is what sets or clears the block. Command resets and room-wide status
-    // updates leave it alone.
+    // updates leave it alone. A report that only missed a start
+    // acknowledgement can still prove progress (above), but it must not
+    // write this persisted record: the revision tolerance exists so a
+    // report cannot pause the room, and writing an unpause-relevant record
+    // from one would defeat that by a side door.
     const wasPlaybackBlocked = participant.playbackBlocked === true
-    participant.playbackBlocked = sample.playbackStartFailed === true
+    if (basedOnRevision === this.revision)
+      participant.playbackBlocked = sample.playbackStartFailed === true
     participant.playbackStatus = this.participantPlaybackStatus(participant, nowMs)
     const stallWatchdogActive = !waitingForTransactionalStart
       || isPlaybackPastStartupGrace(this.playback, nowMs)

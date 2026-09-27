@@ -181,6 +181,8 @@ Across 42 traced runs that reached this step, the `blocked` status lasted 16–1
 
 Deciding what should end the blocked state (the local gesture, **Sync me now** or re-readiness) is a product decision. It is recorded as a separate follow-up and is not changed here.
 
+**Update (checkpoint 104):** the self-erasure this finding describes is fixed. The coordinator now keeps a room-owned `playbackBlocked` record that a routine report, a controller command or a health check cannot clear; only that participant's own report of accepted playback clears it. The heading above and "not fixed here" describe the state as of checkpoint 103, before that fix landed.
+
 ### Observations
 
 - `Connected · Offline` appeared in all 44 failure panels on disk, whatever the failure mode. It is a constant of this harness, not a signal of any of the failures above, and it was not root-caused here.
