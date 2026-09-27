@@ -109,6 +109,10 @@ export class RoomCoordinator {
   private readonly actionIds = new Set<string>()
   private navigation: SharedNavigation | null = null
   private controlRevisionFloor = 0
+  // Start acknowledgements advance the revision without changing the play
+  // command. This records the latest unbroken run of such revisions so a
+  // heartbeat stamped just before one of them still proves progress.
+  private startAcknowledgementRun: { fromRevision: number, toRevision: number } | null = null
   private pendingSeek: SharedSeek | null = null
   private contract: RoomContractSnapshot
 
@@ -543,6 +547,11 @@ export class RoomCoordinator {
     participant.lastProgressAtServerMs = nowMs
     if (operation.startedParticipantIds.length === operation.requiredParticipantIds.length)
       operation.phase = 'started'
+    const run = this.startAcknowledgementRun
+    this.startAcknowledgementRun = {
+      fromRevision: run?.toRevision === this.revision ? run.fromRevision : this.revision,
+      toRevision: this.revision + 1,
+    }
     this.revision += 1
     return this.success(operation.phase === 'started' ? 'operation_started' : 'operation_participant_started')
   }
@@ -749,6 +758,24 @@ export class RoomCoordinator {
       : null
   }
 
+  /**
+   * Decide whether a player report stamped with `basedOnRevision` still
+   * describes the current play command. Reports from before any new command,
+   * seek, readiness or media change must stay rejected; reports that only
+   * missed start acknowledgements (`startAcknowledgementRun`) are still valid
+   * progress evidence. Failure classification separately keeps requiring an
+   * exact revision match in `updatePlayerStatus`.
+   */
+  private isSampleRevisionCurrent(basedOnRevision: number): boolean {
+    if (basedOnRevision === this.revision)
+      return true
+    const run = this.startAcknowledgementRun
+    return run !== null
+      && run.toRevision === this.revision
+      && basedOnRevision >= run.fromRevision
+      && basedOnRevision < this.revision
+  }
+
   private isAwaitingTransactionalStart(participantId: string): boolean {
     const operation = this.contract.operation
     return this.contract.mode === 'transactional'
@@ -853,7 +880,7 @@ export class RoomCoordinator {
     const participant = this.participants.get(participantId)
     // A queued report from a superseded command must not overwrite the
     // current sample or reset the progress deadline before it is rejected.
-    if (!participant || basedOnRevision !== this.revision)
+    if (!participant || !this.isSampleRevisionCurrent(basedOnRevision))
       return null
 
     const priorSample = participant.lastSample
