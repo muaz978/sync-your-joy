@@ -8899,12 +8899,12 @@
 - Checkpoint number: 103.
 - Date and time: 2026-09-24, Europe/Istanbul.
 - Coverage period: Since checkpoint 102.
-- Current context status: The investigation is complete. The coordinator fix, the test fix and the report are on `claude/issue-68-matrix-flake` for review. Issue #68 remains open.
+- Current context status: The investigation is complete. The coordinator fix, the test fix and the report are on the issue-68 matrix branch for review. Issue #68 remains open.
 
 ## User Objective and Requirements
 - Reproduce the intermittent `tests/e2e/three-profile-browser-matrix.spec.ts` failures with repeated runs. Identify the unstable assertion or timing window and explain why. Propose a minimal fix or a documented, justified tolerance.
 - Record every run count honestly; failed runs are not passes.
-- Do not install packages from the network. Do not add AI attribution. Reference the issue with `Refs #68`, never a closing keyword.
+- Do not install packages from the network. Do not add tool attribution. Reference the issue with `Refs #68`, never a closing keyword.
 
 ## Current State
 - `packages/sync-engine/src/room.ts` accepts a player report stamped with a revision inside the latest unbroken run of start-acknowledgement revisions, while that run still ends at the current revision. Failure classification still requires an exact revision match.
