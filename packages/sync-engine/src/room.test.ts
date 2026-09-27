@@ -1001,6 +1001,39 @@ describe('RoomCoordinator', () => {
       expect(friendState(room)).toMatchObject({ playbackStatus: 'wrong-media' })
       expect(room.exportState().participants.find(participant => participant.id === 'participant_friend')?.playbackBlocked).toBe(false)
     })
+
+    it('shows the block again immediately on a reconnect, before any new report', () => {
+      let nowMs = 10_000
+      const room = readyPair(() => nowMs)
+      hostControl(room, 'play')
+      nowMs += 100
+      friendReport(room, nowMs, true)
+      expect(friendState(room)).toMatchObject({ playbackStatus: 'blocked' })
+
+      const disconnected = room.disconnect('participant_friend')
+      expect(disconnected).toMatchObject({ ok: true })
+
+      const reconnected = room.join({ id: 'participant_friend', name: 'Rana', media })
+      expect(reconnected).toMatchObject({
+        ok: true,
+        snapshot: { participants: expect.arrayContaining([
+          expect.objectContaining({ id: 'participant_friend', connected: true, mediaMatches: true, playbackStatus: 'blocked' }),
+        ]) },
+      })
+      // A reconnect on genuinely different media must still classify by
+      // media identity first: the record survives, but the visible status
+      // does not claim a block on a page the block was never observed on.
+      const otherMedia = { ...media, canonicalId: 'youtube:different999' }
+      room.disconnect('participant_friend')
+      const rejoinedElsewhere = room.join({ id: 'participant_friend', name: 'Rana', media: otherMedia })
+      expect(rejoinedElsewhere).toMatchObject({
+        ok: true,
+        snapshot: { participants: expect.arrayContaining([
+          expect.objectContaining({ id: 'participant_friend', mediaMatches: false, playbackStatus: 'wrong-media' }),
+        ]) },
+      })
+      expect(room.exportState().participants.find(participant => participant.id === 'participant_friend')?.playbackBlocked).toBe(true)
+    })
   })
 
   it('stops the room clock when a ready participant reports no real progress', () => {
