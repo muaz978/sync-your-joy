@@ -115,18 +115,22 @@ describe('player health evidence', () => {
     expect(state.progressed).toBe(true)
   })
 
-  it('clears signals on a new source and keeps permission failure until a successful start or reset', () => {
+  it('clears progress signals on a reset but keeps a permission failure until it is explicitly cleared', () => {
     let state = createPlayerHealthState(baseline)
     state = markPlayerHealthBuffering(state)
     state = markPlaybackStartFailed(state)
     expect(state.buffering).toBe(true)
     expect(state.playbackStartFailed).toBe(true)
 
+    // A command reset, such as the room's own pause after the rejection,
+    // must not erase the fault that caused it (#68).
     state = resetPlayerHealthBaseline(state, { nowMs: 1_000, positionSeconds: 0, frames: null })
     expect(state.buffering).toBe(false)
-    expect(state.playbackStartFailed).toBe(false)
+    expect(state.playbackStartFailed).toBe(true)
 
-    state = markPlaybackStartFailed(state)
+    state = resetPlayerHealthBaseline(state, { nowMs: 2_000, positionSeconds: 0, frames: null }, true)
+    expect(state.playbackStartFailed).toBe(true)
+
     expect(clearPlaybackStartFailed(state).playbackStartFailed).toBe(false)
   })
 
