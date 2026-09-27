@@ -137,7 +137,9 @@
 
       const delaySegment = Number(params.get('delaySegment'))
       const delayMs = Math.min(2000, Math.max(0, Number(params.get('delayMs')) || 0))
-      const missingSegment = Number(params.get('missingSegment'))
+      // An absent parameter must mean "none missing": Number(null) is 0, which
+      // silently withheld segment 0 and left the element stuck at readyState 1.
+      const missingSegment = params.has('missingSegment') ? Number(params.get('missingSegment')) : -1
       const disjoint = params.get('disjoint') === '1'
       const rateReset = params.get('rateReset') === '1'
       for (let index = 0; index < manifest.segmentCount; index++) {
