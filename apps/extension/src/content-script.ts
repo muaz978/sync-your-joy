@@ -328,6 +328,12 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
       // through handleSeeking() and is still propagated normally.
       invalidateRoomOperations()
     }
+    if (roomDetached)
+      playerHealth = clearPlaybackStartFailed(playerHealth)
+    // A permission rejection deliberately survives command changes. The
+    // room answers a rejected play() by pausing, and that pause is itself a
+    // command change; clearing the fault here made the next routine report
+    // erase the blocked state within one sample interval (#68).
     if (commandChanged) {
       invalidatePlayRequest()
       restorePlaybackRate()
@@ -627,7 +633,6 @@ function invalidatePlayRequest(): void {
   clearPlayAttemptTimer()
   playerOperations.retirePlay()
   expectedPlayUntil = 0
-  playerHealth = clearPlaybackStartFailed(playerHealth)
 }
 
 function invalidateRoomOperations(sourceChanged = false): void {
@@ -655,6 +660,9 @@ function invalidateRoomOperations(sourceChanged = false): void {
 
 function resetPlayerOperations(): void {
   invalidateRoomOperations(true)
+  // A new source, element or page is a new player binding. Its next play
+  // attempt decides whether the browser still refuses playback.
+  playerHealth = clearPlaybackStartFailed(playerHealth)
   clearScheduledPlay()
   if (bufferingTimer)
     clearTimeout(bufferingTimer)
@@ -1170,12 +1178,14 @@ function activateSynchronizedPlayback(): void {
     return
   const shouldRemainPaused = activeState?.snapshot?.playback.status !== 'playing'
   requestVideoPlay(() => {
+    playerHealth = clearPlaybackStartFailed(playerHealth)
     if (shouldRemainPaused && video) {
       expectPauseEvent()
       video.pause()
     }
     renderPill()
     applyAuthoritativeState()
+    void reportPlayerStatus(false)
   }, 'Click the video player once, then press Sync again.')
 }
 
@@ -1497,7 +1507,10 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
       expectPauseEvent()
       video.pause()
     }
-    if (fromUserGesture)
+    // Only an accepted play request clears a permission rejection. The panel
+    // Sync button retries that check, so a gesture already given to the page
+    // counts; a browser that still refuses keeps the participant blocked.
+    if (fromUserGesture || playerHealth.playbackStartFailed)
       activateSynchronizedPlayback()
     showNotice('Aligned with the room. Waiting for the host to play.')
     return
