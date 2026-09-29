@@ -1,0 +1,3660 @@
+{
+  "repo_path": "/Users/muazsabbagh/Codex/Projects/SyncYourJoy/.claude/worktrees/eloquent-gagarin-7b4ab2",
+  "repo_label": "sync-your-joy",
+  "generated_at": "2026-09-29T19:09:46Z",
+  "duration": "1.280447959s",
+  "extractors": [
+    "manifests",
+    "mdintent",
+    "python",
+    "typescript"
+  ],
+  "explainers": [
+    "cycles",
+    "layers",
+    "crossrepo",
+    "coverage",
+    "unused-routes",
+    "domain",
+    "query-loops",
+    "dead-methods",
+    "entry-points",
+    "messaging-coverage",
+    "god-class",
+    "hotspots",
+    "dependency-depth",
+    "exported-surface",
+    "complexity-outliers",
+    "intent",
+    "constraints",
+    "vendored-candidates",
+    "import-closure",
+    "package-metrics",
+    "dead-code",
+    "performance"
+  ],
+  "renderers": [
+    "llm_context"
+  ],
+  "file_hashes": [
+    {
+      "path": "test-results/adaptive-after/extension/manifest.json",
+      "hash": "43ed1f2266134e186b04d0402664518710e3ce0bea8725b733b1864f3b28dbf5",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:02:26Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "apps/extension/src/panel-scroll.ts",
+      "hash": "048da3010dfa6e5b185b296cff5e5fe571a8a82790aa63d2b81139e12e37bd2d",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CR_B04_HEALTH_DEADLINES_REPORT.md",
+      "hash": "7db60f960d3bf0b495252ccf4249c967ebc0f9770d304548e62a37ed6794e8b8",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/b.events.json",
+      "hash": "d21bc8b6e3129f477509e694ada04b21f6756787745679e74bcee56120b3dcbb",
+      "mod_time": "2026-09-26T19:59:40Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/manifest.json",
+      "hash": "1b63630679a43911c09be7e0507505d350c718e4d9831493979ce7c3f93a04e6",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "apps/extension/src/player-tab.ts",
+      "hash": "636d612a0f16b22f8a70d31f1a4b93e3dfe781ea84809fd46f70220bc957b295",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/a.events.json",
+      "hash": "f4e93c6339be5b6f353a36a975fa3878a8c59454df7553f53b8df260a7206233",
+      "mod_time": "2026-09-26T19:58:17Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/content-script.js",
+      "hash": "aa454e9a6241712271f99f4143ed1318fac5adae4bb3ddc76a88114ba812e4a5",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/provenance.json",
+      "hash": "89f5907e065d9f164f8cde8da3a5d2263c17a320791d3f61ea48e32f976c6b5f",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT_TEMPLATE.md",
+      "hash": "a4919c521ac900492c3c3991472f32b9289a6b7e3ff5d5fe50cdac2fcaf1af2e",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/provenance.json",
+      "hash": "780e7e90ce0f7e8b5ede07e946537423968bc76e36cd19d0db65324dc5fec1cd",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/storage-state-b.events.json",
+      "hash": "6e959f279dd1c9d9a24012e9ca5ddc6d99577778461551447bc543d03accd94d",
+      "mod_time": "2026-09-26T20:17:48Z"
+    },
+    {
+      "path": "apps/room-service/package.json",
+      "hash": "56eb6bd579b9dbf389fe4ca3eaf79a48032ff66e3507868dc963bdf3bc5e5098",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "apps/extension/static/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:01:46Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/service-worker.js",
+      "hash": "7dcefa0099ea033e01ae5a27c894c148998e340c34b5820248cf711818af8aec",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "apps/extension/src/mini-controller-state.ts",
+      "hash": "69125eb9fb3693e90f0d27785fc195f353416439a69cd7ce2ec99b7e715058c4",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "apps/extension/src/readiness-state.ts",
+      "hash": "1eb797d41b1c58c2f418e861a448927d002bab73615c300a9f6d0b1a9b094f6b",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/content-script.js",
+      "hash": "7105e09223f0d465513aca0a1b04c84bd34a9cd0a1841e740f4b021f375044f9",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "scripts/generate-adaptive-fixture.mjs",
+      "hash": "a056cb041d3fd5b3bcd6f7229b01ab9ad2b576724a82406d2a34f7b6e9982ed6",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/b.events.json",
+      "hash": "d40ddf3edca9b6d268dc266759b0689933133b22031af75dd51a302cff4a2601",
+      "mod_time": "2026-09-26T19:58:59Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:01:46Z"
+    },
+    {
+      "path": "docs/SYJ_TWO_DEVICE_NETWORK_CHAOS_REPORT_TEMPLATE.md",
+      "hash": "7347da5fb05360fc13436813dc966353ea8dfa54059539c6086699598b8ca94d",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:50:42Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/sidepanel.js.map",
+      "hash": "fc4ea10097f9f43e8b24467115ea8f517797d66fdfab36961c4c381be1e177ec",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/b.events.json",
+      "hash": "3f67b5df4b04b90c5364eeced16f207299c7994d27f272d2ff4fbe56188bd5d7",
+      "mod_time": "2026-09-26T19:55:23Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/service-worker.js.map",
+      "hash": "b18b9b00e16696968c2266db1a7d788b9c256867e5e2f9f511da11145bd49c42",
+      "mod_time": "2026-09-26T20:15:42Z"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "hash": "5470aeed257c1acf4935802d849401606aaf5aba61883c32c64d594825a4eb10",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "apps/extension/src/playback-status.ts",
+      "hash": "610885872f21f0add10df33a74bc079fb3fd0a9d37c69e7b9e6fc7456dbc8718",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "scripts/smoke-room-service.mjs",
+      "hash": "259d8c507c58de8d797e8f52f7e56a8164da3742b369abee8778d7845fe456d4",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "apps/extension/static/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/a.events.json",
+      "hash": "a23a035d487b197b460e80b08e92fe8231ac22225fb07d08ced1f6a594c05dd8",
+      "mod_time": "2026-09-26T19:55:23Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/two-profile-sync-two-profi-e55c9-real-playback-stays-in-sync/error-context.md",
+      "hash": "8f10095f00f823184efec5c1c1747b15ef0e25d226d9a4453eeb3d253f318859",
+      "mod_time": "2026-09-26T19:43:15Z"
+    },
+    {
+      "path": "tests/e2e/extension-profile.ts",
+      "hash": "fa601df097c00e2d3426d55c9aca70ee686cc91727ebff6773b824bf1147a379",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "docs/IMPLEMENTATION.md",
+      "hash": "d6cc641959cbc0918dec5f7b1e3a4efdb26e40bd97feddfdfcd48d3fbf76a1f3",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:01:44Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/content-script.js",
+      "hash": "4b88519238bcd6c79348571d117cb9a619f1962bac3d4ef59e6089e462ef1de6",
+      "mod_time": "2026-09-26T20:01:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/log.txt",
+      "hash": "22f23dd4344a198026419c1461347b874bd393eb390df5b7934307b1220d31f5",
+      "mod_time": "2026-09-26T20:23:15Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:50:42Z"
+    },
+    {
+      "path": "SECURITY.md",
+      "hash": "93d79b3be55d50bc7abf029716f844f1a656f89bf0ce43bc210cc424df5fe5c9",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/content-script.js",
+      "hash": "6f6e016f5e2bd58f373ad3ded7a4dc32c4aa79d95888d6bf447faf1c36cdf7ee",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/b.events.json",
+      "hash": "a9a24b1bb07b0475907868256939b0aeb1ff86114f689a4e30e96044a9dadd46",
+      "mod_time": "2026-09-26T20:19:21Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/c.events.json",
+      "hash": "cb3fc7d792611cef27885b3fcdd637f726fd850198292a08c4cc0766fa5d50ee",
+      "mod_time": "2026-09-26T20:22:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/a.events.json",
+      "hash": "321de5f74455eaf454da252ee77715d7d4ffcc5df9d9d0a616261e90daf54337",
+      "mod_time": "2026-09-26T20:23:15Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/a.events.json",
+      "hash": "75842bd7d591687b239fab861e1c7bc978128248b33d28bfbc7bc088fd3a2e2e",
+      "mod_time": "2026-09-26T20:18:40Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/c.events.json",
+      "hash": "3cb7699f403a9b46d7e634020a7cea2c90a6bdd08ab5e0e26554e01825d1e8ab",
+      "mod_time": "2026-09-26T19:58:17Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/content-script.js",
+      "hash": "b1389b3c9e309637ee64f985d51fb0d0d816293350af14001e7645ed91bef1a4",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/content-script.js",
+      "hash": "38db1b53566bdb6ef98cfc9cde995cf247b5b0d3e1fdda089a03039cbcf50486",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/provenance.json",
+      "hash": "ede4201ec904549ff85a07120de3f85ab7c2ff1bac63f3911623600191b73154",
+      "mod_time": "2026-09-26T20:22:36Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/sidepanel.js.map",
+      "hash": "fc4ea10097f9f43e8b24467115ea8f517797d66fdfab36961c4c381be1e177ec",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "vitest.config.ts",
+      "hash": "b583c2bbe8e60612484fac0bef15f37124948969ba4eb003423fdd905bdf7c3b",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/service-worker.js",
+      "hash": "80785d4f2910beeb5e25c982e5e1a7cfe75076b06bd9304b7f580ba27b7f4991",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/log.txt",
+      "hash": "950f40b18d528228c47c3a96d08d5674d9039ebd362b844d494e0645f7f9bda0",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": ".github/release.yml",
+      "hash": "ba50f01ca9faa1109d80fdabc19b0da0e64d2c387d7dcf529f38aed3bd32ecf7",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "release/sync-your-joy-extension.zip",
+      "hash": "eb17fa1affe802b5252b656b27657edd8911da7e1b5fcd71e8665a060b848cb4",
+      "mod_time": "2026-09-29T19:07:52Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/.last-run.json",
+      "hash": "85e2dd43a111e50f6ba9cbe26979452aaefa822f93f1be504eab22994846f527",
+      "mod_time": "2026-09-26T19:56:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T19:57:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:23:57Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/adaptive-fixture-extension.events.json",
+      "hash": "d6420803682360c8c6839c37c0de2bf00b18472ac5113ebdfc7b730d9b03e9dc",
+      "mod_time": "2026-09-26T20:17:46Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/service-worker.js",
+      "hash": "d93449bcd305d5ed4060adf7037d06feabf9b0256d915304d0891ce6aaa8203c",
+      "mod_time": "2026-09-26T20:15:42Z"
+    },
+    {
+      "path": "scripts/capture-cdp.mjs",
+      "hash": "f07f86b226bfd318ee07b67342d07cc85fb280e95a2b0b3340058a5127acad07",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/matrix-batch-stall-change.log",
+      "hash": "5045a0c57599f9207e4302d11e8449f1b56d9298e926420e439dd4f1f7539583",
+      "mod_time": "2026-09-26T20:02:26Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/log.txt",
+      "hash": "70d2b2b42d879b807e85423aafa03b64c02edd167094ed2ed6da50a920ea4f8f",
+      "mod_time": "2026-09-26T19:58:59Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:01:03Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+      "hash": "1932b39932afdf103d92ea797e239b2052ebbd2fcf25c4dccfc5e2a98d16dc72",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/manifest.json",
+      "hash": "298ad8c11c76c424e89904d5f36c2e8ed873047cbe48a8d195879c1bf89b5932",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/service-worker.js",
+      "hash": "5d2f123062f0b58ed5dcf31440932f02ace5c6e1a619c14714968aaa2e249d16",
+      "mod_time": "2026-09-26T19:50:41Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/provenance.json",
+      "hash": "c8095c24b6b10534fa5a897943570056d2d3d54a992cb84b0a7610dfe14a9abb",
+      "mod_time": "2026-09-26T19:50:42Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/a.events.json",
+      "hash": "1b2c067b1286435272fb6c2c4abb5c4421080dae14be30bb749fd3b43c63a083",
+      "mod_time": "2026-09-26T19:42:38Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": ".github/workflows/e2e-crunchyroll.yml",
+      "hash": "0062a6dc9e04b8f5176538bc9d557057a07dacd289a96dbed744ab45b1d00471",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/provenance.json",
+      "hash": "81879f771fe8491bd282460b2335b21b08e3eec7d610d3415d968e1755ff4a47",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:20:56Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/b.events.json",
+      "hash": "f09bc00c69a800ac387ae1ad2682cbd3025b5b50454ca53fa2e9fb3679f2eb07",
+      "mod_time": "2026-09-26T20:24:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:19:21Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/c.events.json",
+      "hash": "a1701772209a25564a5efdb130c424c80ab12a6f15d3ca1120eecc8deaaf48a3",
+      "mod_time": "2026-09-26T20:21:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/full-e2e-1.log",
+      "hash": "ba81ce2a8d29c8ddbe5efdc52ca1f86218748c7204508b97c07f09958186b905",
+      "mod_time": "2026-09-26T19:55:23Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/.last-run.json",
+      "hash": "06567cad461fd2cf44429882a3b7775df143da21f5923390e49d25e737d7d68e",
+      "mod_time": "2026-09-26T19:43:15Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/content-script.js",
+      "hash": "d8373fe5fdcdc442e235c417adec003e9c0e1751a04e2e212fc75be31c18e8f0",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "apps/extension/src/diagnostics-budget.ts",
+      "hash": "fffe7283f7591f3597706b500dc89a0172a3a3f75d6866b273c97eeaa5047b4a",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/service-worker.js",
+      "hash": "a9dafe4fdebfc3af13f29561c5f62d70384cd67f36905983815a91043a5f6060",
+      "mod_time": "2026-09-26T20:01:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/service-worker.js",
+      "hash": "d0845436314af2078e28a0902f4840387ba5d469894262e50b60abc695353c00",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/a.events.json",
+      "hash": "b4056e61f190d8027ffe46abfe4a27ccae98449211a4dd3fa629c94c81e4988c",
+      "mod_time": "2026-09-26T20:15:52Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/b.events.json",
+      "hash": "013f418a439a0cf1cd68c0d6fc485fe7f5a4f3e8a75f21efdf3bd7a70f423f9a",
+      "mod_time": "2026-09-26T19:58:17Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/b.events.json",
+      "hash": "974f9911981eb894a45787d2436ac0945e5f6ee2b6f8a465d29716eb87167a8e",
+      "mod_time": "2026-09-26T20:21:35Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/.last-run.json",
+      "hash": "85e2dd43a111e50f6ba9cbe26979452aaefa822f93f1be504eab22994846f527",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/three-profile-browser-matr-c7723-very-transfer-and-reconnect/error-context.md",
+      "hash": "e08d2d20997c4eb706c30202fd0ea3bb35575aec0a5e85aefb8c4729e4ddbe91",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/.last-run.json",
+      "hash": "06567cad461fd2cf44429882a3b7775df143da21f5923390e49d25e737d7d68e",
+      "mod_time": "2026-09-26T20:15:52Z"
+    },
+    {
+      "path": "tests/e2e/adaptive-fixture-server.ts",
+      "hash": "d48da918846fa5419d51f42691dc6c17db391455ab18e114bf4b24e1f39ec3e3",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "apps/extension/static/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/a.events.json",
+      "hash": "62263cf2f8c33dd6dcf9aac9eee7c0e861e045e815cd614e040d966a665092c3",
+      "mod_time": "2026-09-26T19:59:40Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:00:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/service-worker.js",
+      "hash": "0f620973a25d28dd06430fedd10a6627e92b640b6b9cd5967f5835b3ef3f2dad",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "docs/CR_B03_EXTENSION_ACK_REPORT.md",
+      "hash": "4395f9ce0370efbc9e85f4fe2ed496851a431077575ab296d895c80f91bef02a",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/service-worker.js",
+      "hash": "9eb4c783143b93c2173b8c65358a5075b9eecffaa5fab6dac57f8e5cdb5c55ea",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/service-worker.js.map",
+      "hash": "b18b9b00e16696968c2266db1a7d788b9c256867e5e2f9f511da11145bd49c42",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "apps/extension/src/browser-api.ts",
+      "hash": "427bf595b87f13ca473639e918a5d2545531df37464504e74a669d3aa659441c",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/log.txt",
+      "hash": "720574614e00b971d4f9c838265253d7e2c778be2b071e5e9d497ae225f0d7e2",
+      "mod_time": "2026-09-26T19:58:17Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/a.events.json",
+      "hash": "40f420b08fc97d0c0b810ab2cd7c976fca12b6b7f0b561aed41d47e7e593e4e8",
+      "mod_time": "2026-09-26T19:58:59Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/content-script.js",
+      "hash": "4b4ded9c900876b2a28ebda32238d30c8055b7f5d6b8ba62fd0729b18df006ef",
+      "mod_time": "2026-09-26T20:15:42Z"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "hash": "c907d55377ddb66512ad07d94ecc2b3e0fbea92eb1656585dba5d3f3fa6a9060",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/provenance.json",
+      "hash": "0ebc3bd133344f6409b694465298975f9328a7eb3971a0c83753819e4c9bbc21",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/b.events.json",
+      "hash": "98ec8c6567e8f28439acc0f48a8585226c6a485efb6eaef1305b00726bec4434",
+      "mod_time": "2026-09-26T20:18:40Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/content-script.js.map",
+      "hash": "9a1c9862db84ed0f64e878565c5391e8a2cb9fac8ad13ce74687c7ec24087647",
+      "mod_time": "2026-09-26T19:50:41Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/b.events.json",
+      "hash": "266fff34894f2df956ce25f0bce36fed88e7f1f602bafedac9ce6b0ac0d95aed",
+      "mod_time": "2026-09-26T20:15:52Z"
+    },
+    {
+      "path": "apps/extension/src/player-health.ts",
+      "hash": "eb9442073494f728bb00c913ff11ab422f5dc3d3ae642390c7e2869cbad4b872",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/service-worker.js",
+      "hash": "4c775a09f76e6be4a04318bc1b79b9f292aef08b0ed3d37a381b3730f159e442",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/summary.csv",
+      "hash": "e2995b0f57cd5771eae49e55a81e7f85339f59c2e8ab0fc5f9c2a0fbddeccc4f",
+      "mod_time": "2026-09-26T20:02:26Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/sidepanel.js.map",
+      "hash": "fc4ea10097f9f43e8b24467115ea8f517797d66fdfab36961c4c381be1e177ec",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "apps/extension/src/content-script.ts",
+      "hash": "d3aa8e93cd87732729f3ffb130a687472cbd44b4c1bf22dd0f1e66a1281c7b55",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/service-worker.js.map",
+      "hash": "f322edb363d33a962b4dbc688937ba7a9d56a58452b9af4db99a17dc2488fb3f",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/three-profile-browser-matr-c7723-very-transfer-and-reconnect/error-context.md",
+      "hash": "6ea6cfede46db6cacfe1cc0219ca54cdaa576c6610ea60177f7ed505921ad72f",
+      "mod_time": "2026-09-26T19:56:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/log.txt",
+      "hash": "1e8465f5dac7dc12fdbdb80d960c10b0c4b745784d6e0a06e1e284f546c2370f",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/provenance.json",
+      "hash": "d33e7b1ae88a1cd80d5944c5f15f0f1640e909520f9c52c1764bb77fa09e055a",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "README.md",
+      "hash": "bf07088d84ed3215a5c47ceeff4fa4792bcff83bea381cc660cf25bbb2acdca1",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md",
+      "hash": "c84a8a7581900ef179a96197d4efc227fdf42a2c29922ed6ba3f6bfe06a69ae7",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/content-script.js",
+      "hash": "c5a0147b1d862d4637783750a2b6e7dcfe42e19c289d77296f7c3e01563f20c9",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/adaptive-before/.last-run.json",
+      "hash": "e177b223ef66a398b44533443052368e70afc3703c47eef16c7f2119c2608d9f",
+      "mod_time": "2026-09-26T19:44:11Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/log.txt",
+      "hash": "82e28433c93849bd39d8b43962acebc5e9035e1659b3bdb63b1a4c98691c31b0",
+      "mod_time": "2026-09-26T20:00:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "docs/CR_B01_OPERATION_CONTRACT.md",
+      "hash": "1ed71f9a36eb30f156be595bf96c6f67385121d5c2b3c075d00f9df5891e3d9e",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/log.txt",
+      "hash": "558bed3d519f6adfedabd99554926b578a130c15072f8432d47d8780ed375096",
+      "mod_time": "2026-09-26T20:01:03Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/content-script.js",
+      "hash": "5cf4267ab9b1ee39089f12bfe6c6a92ab4551635926530d6c85990bf4038fff5",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/a.events.json",
+      "hash": "7fcd8e30356d5f8e6cda1b355ac86dd3e047ea4fb0bbf82261bd5552143ee3b8",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/content-script.js",
+      "hash": "0accae57425223121a522d4e79ee7d486baaee796b35d327cb393cab609d6176",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/content-script.js.map",
+      "hash": "9a1c9862db84ed0f64e878565c5391e8a2cb9fac8ad13ce74687c7ec24087647",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/sidepanel.js.map",
+      "hash": "60fe3e1128e61e0ea8a88d786576f61799e080d372f6c9ed388ed997a5271874",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/manifest.json",
+      "hash": "c469acfb4b4cc59e74e0a0d7ed997f0ca1c66b14fc0361c3fc688b9d1db02e68",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug_report.yml",
+      "hash": "01ba31fdb7bcd9a3825871c61bddfd930b90079d8bd46f4203d90dceeac2589a",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/service-worker.js",
+      "hash": "b2e4c4780167ad3712aceff6feaa3e3d0a49060ff6de8be0910e0e52f70758e9",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/manifest.json",
+      "hash": "7c541d6f218d982fe44a18c34ce7c4466cac4d8446e11ab2f9d65aa21ba78e0a",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "docs/SYJ_HEADED_CROSS_PLATFORM_REPORT_TEMPLATE.md",
+      "hash": "ebda9796244672ea4bd177b5885eaa43ce0dc7bb91698337b2162424acb20147",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:15:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:15:26Z"
+    },
+    {
+      "path": ".github/CODEOWNERS",
+      "hash": "7581317876b021b9c05bc282f9655736f8995b30a0b118eaa1fcf435ecc839f7",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": ".github/dependabot.yml",
+      "hash": "93ac5179354ca8adccad06d4f3e12164529bb94c6d2117859116b6bed46f74b1",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/PRODUCT_PLAN.md",
+      "hash": "f6277e1c6bd17b088f106103a733ff411aa2eeeaf25314fe18381f8ab66fbac7",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/provenance.json",
+      "hash": "e33b28e3524d82bc42124a7f395e6a3ecb4e1a887ea94c52d5c415929514a6ae",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/a.events.json",
+      "hash": "c0bac43ec0c7092b97d4316d3f7ffc72e9260de0e968b9c9524c0f470a8ac64a",
+      "mod_time": "2026-09-26T20:25:17Z"
+    },
+    {
+      "path": "docs/CR_D03_BROWSER_MATRIX.md",
+      "hash": "1be7dd9aa522603871ea115dc95ae1258b76eca9347ac15684f5a89fc45d8adf",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "apps/extension/static/manifest.json",
+      "hash": "b37dbdaef10184a07d5ef53ea67d68c28e09d7fa8c217c2b11c3ef324875a59d",
+      "mod_time": "2026-09-29T18:54:07Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/a.events.json",
+      "hash": "09bfc99af3ce67632c4d26ce4502ad3f6168e3cf56db5e0db4fe5c8f9c819bf0",
+      "mod_time": "2026-09-26T19:56:33Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/a.events.json",
+      "hash": "c7a1980c2ff0a27326d749dd9f1a0339e7c9b6dc9641a041e488771380d8c3b4",
+      "mod_time": "2026-09-26T20:00:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/log.txt",
+      "hash": "79f468b600a4022bc6f42aadf7b0135d12cf09e506af7ab7992fad2be97fb31e",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/c.events.json",
+      "hash": "63e376832a9ade7b76c49bf435ba523a82ea345883df30bfb22437a9c33ce224",
+      "mod_time": "2026-09-26T19:56:33Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/c.events.json",
+      "hash": "da4dea0d3a891add5d30834526acd53063cea79c96b049faf90dec63edf54a50",
+      "mod_time": "2026-09-26T20:00:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:23:57Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:15:43Z"
+    },
+    {
+      "path": ".github/workflows/devskim.yml",
+      "hash": "607872eab4e08b451e401af1510279f85d0c0e18b1dbc11f9835f95372fea029",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/service-worker.js",
+      "hash": "a9f3fcb67b43e8a71b9f86502f96938de179d2c52131967a21bcf38350a5c684",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/service-worker.js",
+      "hash": "d040d22e027020c49de405072b90ceb7bd076c69f79ea823bf3ce1479680d175",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:23:57Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/log.txt",
+      "hash": "b071c57b72efcc43e0d16cdb02a7e17626ff784bc3b5166714788ef832d9ce64",
+      "mod_time": "2026-09-26T20:02:26Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/c.events.json",
+      "hash": "344ddab629b0e65aa04cfe834821214a010a7ab9faaecc17402e6fb7d38193d3",
+      "mod_time": "2026-09-26T20:19:21Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/a.events.json",
+      "hash": "acac7c25c5569b8c626086a65a323176ceba6cc07d3fc3908fa4744514001d43",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/b.events.json",
+      "hash": "c29e04e6f2df9d93d935f6683f34ad97daf22c79be14f50bae3f07d9dcda2970",
+      "mod_time": "2026-09-26T20:22:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:23:57Z"
+    },
+    {
+      "path": "apps/extension/src/sidepanel.ts",
+      "hash": "344aec01cf6fc929817099a1728037ba27c557c5fad05161b332af7a8fed8f96",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "apps/extension/static/icon.svg",
+      "hash": "d3be6fa00e98fec2dc725098f0e3dd504ed11571da7dab75dfa553fb20d40523",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/e2e-1790447712581-11890-0f944566-f55f-4607-94ae-a23807361d78/run-summary.json",
+      "hash": "2c882e7e0e78d6f0a1f0cfd1957f417631d0369156908c63371837f4c5da94ca",
+      "mod_time": "2026-09-26T18:35:12Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/provenance.json",
+      "hash": "cafadd48fde95b8eac5b6c8f88d632d7241344a095eda4b7416b1ecc29835a5b",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/c.events.json",
+      "hash": "16ad813b686fb516bf8d8c7ca7bae1723516b5b3219f9bde7d6d2ffe8acddc2f",
+      "mod_time": "2026-09-26T20:18:31Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/content-script.js",
+      "hash": "5339e05ce017ed82799cfd1596f9b183b19b77f35ed67851fcf2e7fdd868bbab",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "docs/CR_C02_DIAGNOSTIC_REPORTS.md",
+      "hash": "5ebbcfaaa1ee1b6283adbc5bd78978ef4c44cb053f404a8c71b6ac380e86829c",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "tsconfig.json",
+      "hash": "98d23a92427a48126c0b8f314990b0983d5c356a42c4d59e0b127b1c95b3a642",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CR_A06_HEALTH_EVIDENCE_ACCEPTANCE_REPORT_TEMPLATE.md",
+      "hash": "54bbc677ec2f0c48aff466ac8afd357aac85df80869aaeca8d7586b76402bb3c",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "apps/extension/src/internal.ts",
+      "hash": "649e9ec0768d48ead314a6589eb29b711fc960dd24eec62022449d7ff295bd7c",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "scripts/check-release-version.mjs",
+      "hash": "77b1a1ee3ffb722bf317af1903137e2c722f6638b2f06e164c659e361c146901",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/manifest.json",
+      "hash": "bd7f5a0c7282d3a37f3a672e432ed9de52240eaa5757d23ccf7b01d87fc7d172",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:15:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:15:43Z"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/config.yml",
+      "hash": "2a752c86b858a6978d9e5a22595f233c9edfae4c78ac0032e55f9e67d661d3d3",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/manifest.json",
+      "hash": "161cd00144ac6b6bf6cce1a1fc72da58ee711c8b86f184d393b42843cac1110f",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/log.txt",
+      "hash": "09f03c52051819027a32e033fbfd878828534ed2acfdcd29fd30c4d41174811c",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/c.events.json",
+      "hash": "3c58ea0205cad2252e2aed30418b0a2632d0ab6abdd144dd6ccb2f56abadf1bb",
+      "mod_time": "2026-09-26T20:24:36Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/a.events.json",
+      "hash": "03cb4ea09c852f49690e3ca9b8a5939a27ad1f3f749b1194601264deabcce09e",
+      "mod_time": "2026-09-26T20:15:26Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/content-script.js",
+      "hash": "3f041188273eaad12c353ac93cebdd2eed277476f1c811dd0135968f261e8ddc",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T20:01:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/manifest.json",
+      "hash": "6bffb5a236d25d7636c9e42772ededfd8aa7bee380aaf4503c3ee0ab55b50105",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/b.events.json",
+      "hash": "d35ba369bdab6917135a4f9d4fa9842e9233d65e55b87f18f70199ae80ad9fad",
+      "mod_time": "2026-09-26T20:21:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/c.events.json",
+      "hash": "9290c07160865aec7e8b3c2e9d4d687dd10ba4d4aeb6d24d65430e2cef9bb6b2",
+      "mod_time": "2026-09-26T19:58:59Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/service-worker.js",
+      "hash": "7b1db9861b71af66cf85284d984f4b526844289e7fdcb158533bee8fe9c65bb5",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/provenance.json",
+      "hash": "3048adbe495b5c6e4ca757643414b1140160253489b82be974b876a1d19836e9",
+      "mod_time": "2026-09-26T20:15:43Z"
+    },
+    {
+      "path": "apps/extension/src/media-fingerprint.ts",
+      "hash": "1c01aed75481428e2260ad40e053162f6ac239192e706994e37bb446d33d5b12",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CR_A05_DRIFT_CONVERGENCE_ACCEPTANCE_REPORT_TEMPLATE.md",
+      "hash": "b7364d37477e722dfa2abc62456cbfb914251f840724590e6ec9d153d75f1016",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "docs/CR_B07_MIXED_VERSION_MIGRATION_REPORT.md",
+      "hash": "8f4f39be934f867a3eeb2c857cbbd901c31c74cf12b33cd51a111eb7807a0984",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "docs/CR_C03_PLAYER_RECOVERY_REPORT.md",
+      "hash": "e9b456c4b65ac425f096d2351004448cdee4ebf6930dbf823e63004a4a9c4b4e",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/service-worker.js",
+      "hash": "b370fa704db04b3a38396ab1b97c1c15436c70a7bfa022d54bd40a44668c6b1c",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/adaptive-before/adaptive-fixture-owned-ada-b8ad7-yer-rather-than-a-stuck-one/error-context.md",
+      "hash": "b4fd22fbf126bf548e5d269db90100bcdf83aee9a0f70eabcbf1664aa5bae18b",
+      "mod_time": "2026-09-26T19:44:10Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/c.events.json",
+      "hash": "e875813c38f68eee54ffdf12344a858af63240da9a4057a15a32476be0b1a9af",
+      "mod_time": "2026-09-26T19:59:40Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/content-script.js",
+      "hash": "55b2bb3fc018a9dd748a2811112d6e769e80f1caa39fb32ff8712c21ed5ca505",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/sidepanel.js.map",
+      "hash": "fc4ea10097f9f43e8b24467115ea8f517797d66fdfab36961c4c381be1e177ec",
+      "mod_time": "2026-09-26T19:50:41Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": ".github/pull_request_template.md",
+      "hash": "d6d0d1ae09f5775466cb6fbf06192533e415a271e3275be3f6d6d1fe1c88d7c7",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/log.txt",
+      "hash": "8b963f43f8a082e1c1ce3dede3c62c25ebc59ddad43c4cedcfdcaf1c6316bf00",
+      "mod_time": "2026-09-26T20:19:21Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "test-results/verify-packages.log",
+      "hash": "6eb6d587188228db7095acb865b665c2443fd9c622f14122a67930e22b4c9461",
+      "mod_time": "2026-09-26T20:17:12Z"
+    },
+    {
+      "path": "packages/sync-engine/src/seek-barrier.ts",
+      "hash": "90cf06f14805d9fe604affc0d6c80f31c82369d933a3d729c3dfa34f6557a5ee",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/provenance.json",
+      "hash": "598040481a6ef0a3c7be79f0111edbbb674055e42ad85b66b19cffaf554929c0",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/provenance.json",
+      "hash": "4521488b1d67ce6a54eaaa0492a99d8e2189a60b4d96541c456ebffbf9a1634e",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/service-worker.js",
+      "hash": "551c959349fe893f7ac3df040a46f954aea7ea60f530643c98ee75e9805fe381",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:18:40Z"
+    },
+    {
+      "path": "docs/CR_C01_STALLED_PLAY_RECOVERY_REPORT.md",
+      "hash": "9f7d14dd2133f45d254cae2b7aaffc3e95b34fc28457901344c4f7f5316e5b43",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "scripts/build-extension.mjs",
+      "hash": "a614bbeb7a2f39227a659b3229804daf666b751806068b13d2cafcd51db3273d",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/provenance.json",
+      "hash": "3fb5e725534380fd5a25e4cde8cedf66fba86ecec0d41207561f75a4cc33813d",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/content-script.js",
+      "hash": "b0a9d631d0a234f373ec93003dd82f1240bbbba07aa1c8240489100d788f7065",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": ".github/workflows/deploy-edge.yml",
+      "hash": "fb442231d54b7a26b1cfed5490bdcb53a210b1bc40e558b9f91eca69b883284c",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "apps/room-service/static/test-player.html",
+      "hash": "a0bf36ed75e59b69b08ea4c483023cbf475cd7036b075c1a492f3fdd32a8126c",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/manifest.json",
+      "hash": "67727301f453d71f77b3cf4a12ed3a4aae302399ceb20d6ec82032f6c20e0a7b",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/b.events.json",
+      "hash": "9ff34ee51bf0e5632fae3659e7a739734c1bfd0e9737d600ba52b28b5c4615b2",
+      "mod_time": "2026-09-26T19:57:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/manifest.json",
+      "hash": "7cee42bf2305470cc33876c54204e9fb7e2d7cd1cb7aeede9009dc808fb440ed",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/service-worker.js",
+      "hash": "bb46ac658140cb57c3c7a24890c2e8b5843c28fde66e3dd16153cebd4ddc9ff3",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/content-script.js",
+      "hash": "edd8b6c49ab0670dcf24a3b9fc0b87ba5ce4707e06f99869c29e06c6a950bf17",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/content-script.js",
+      "hash": "7069e729cb45665f3ed7bbb463f938e0de1d506cf8004f0715f9ca10da8fe307",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "apps/edge-service/wrangler.jsonc",
+      "hash": "b9104698f9134de0bb5cb88f888c89df0cbd684e79782d489acc8c54cfd6ed6e",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "apps/extension/src/control-position.ts",
+      "hash": "87ec04ea411f653e99a3815a8d444e41c80a4a683bac02e784443033aecf5947",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CRUNCHYROLL_HANDOFF.md",
+      "hash": "96c772214e09e5a3f2a62aec361a3ca936917b500f8028c2bd041c12fdfd98c1",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CR_C04_NAVIGATION_TRANSACTION_REPORT.md",
+      "hash": "4ccebbed0f76d9f49aab34fc58d29f48ef443ce8b0ac6cc5104bd7ad3752777a",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/service-worker.js",
+      "hash": "3b9ab86539ef2ed232dd8dec4165b17396baab084b9f213430e4e568c2793fe7",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/service-worker.js",
+      "hash": "d096c07813b6f26cf32845e61beaf9d85a804cac0f429576b44fbbee07af02da",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/content-script.js",
+      "hash": "b4ba06ee07fa70a48405c61a7efe6267436246dfc83de07519a9ccea60033f42",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/service-worker.js",
+      "hash": "4375b53aee2ea8154b57d0c340b343dba102d54516fda413885a69110ce0bfdf",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "docs/TEST_FIXTURE.md",
+      "hash": "b0e9063931aceeb88dcedfb0897777a46d0a3c9b5eb79b1d20e3853e55f87566",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/manifest.json",
+      "hash": "d393f0708a62cf3a5d1553149eb8d4f643c00ce93b52cc344a74f30da0c3d4b1",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/a.events.json",
+      "hash": "acf18f2b30af42acf8018e426d55572eedc688e65c1e90400d847b4b0895d055",
+      "mod_time": "2026-09-26T20:24:36Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/manifest.json",
+      "hash": "370712b85d730fe66f8d95d6457cad45e4dcc2dfeffebc61f30a16c19a7563f8",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/a.events.json",
+      "hash": "e3960a38ba2219e40025053c24c169cca7312473361d26644fde639d315e6a47",
+      "mod_time": "2026-09-26T20:01:03Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/matrix-batch-stall-final.log",
+      "hash": "b287817fc4b3da846abeea09c82283e3ce82ea7f8f6d31523aaed126dd2a7c5c",
+      "mod_time": "2026-09-26T20:25:18Z"
+    },
+    {
+      "path": ".gitignore",
+      "hash": "7ce19dc125b9b4771b04f76245bf9fd39216420c0ca834e8134e5c4490464328",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T19:58:59Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/three-profile-browser-matr-c7723-very-transfer-and-reconnect/error-context.md",
+      "hash": "344feacd58f20f303d1cf234821829169ab0c14cc071f38683516220e8795904",
+      "mod_time": "2026-09-26T20:20:13Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/log.txt",
+      "hash": "a4fb47d23650feea09fccc8ecf31e2da6bdc10ec59b480521133922f802240df",
+      "mod_time": "2026-09-26T20:25:17Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/provenance.json",
+      "hash": "b05d82806c9c3fde26bdfb6423aa1ade9a1ddd77a982daa501499de60524e956",
+      "mod_time": "2026-09-26T20:24:38Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/provenance.json",
+      "hash": "b1432040e279690b034d3a4c265685a8bc878b3286fe3a99963a726bb076841c",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "apps/edge-service/src/worker.ts",
+      "hash": "b897b85a7c99d757978947e2f1fdbbee8f9fb35e04d61a3c8d993584e960b5dc",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/provenance.json",
+      "hash": "53cbf85a5eb8cb45479480730498e600be29d8fffe6f1b0138de5f22b7a768ca",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "docs/CR_B06_EDGE_HEALTH_REHYDRATION_REPORT.md",
+      "hash": "3cf90d4d4158c028bcd4761ce5e71f040f88f90b048656c86aea7fb83a427197",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "fixtures/sync-test-clip.mp4",
+      "hash": "c33c9cca062ae51a402e15559902804758cd47f41c5ac03b2b41994a082d4dba",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/service-worker.js",
+      "hash": "6bf4ab35d6c1570f598ce3a02bc20f2eb015dfcc265f680b7aa65cac50417c05",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/b.events.json",
+      "hash": "ee65855d4d88d9e6dfd0fc38e27ed38b0241614e56d12bf2d4dfe50a18300b4a",
+      "mod_time": "2026-09-26T19:56:52Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T19:59:40Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/storage-state-a.events.json",
+      "hash": "929f51ba80d5428f5916b4dd36e881ccd2f7900c52e3f1f2d2f41f17da91b9da",
+      "mod_time": "2026-09-26T20:17:48Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "docs/RESEARCH.md",
+      "hash": "7a39a8d39868adf75b806e3725ba2e84084426d7f426733777dfb3cd94651b5c",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/a.events.json",
+      "hash": "8fe0eb65b28cf3ccfff2ebae63af6e6a5603a932761d5c94622d18e8ba1afad8",
+      "mod_time": "2026-09-26T20:02:26Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/provenance.json",
+      "hash": "c6365fb16c0e90143a3a6c88b70e3b381f1896b0f8fb6428409ab5ae1d3466f6",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:25:17Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:15:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/manifest.json",
+      "hash": "06087d11bf26045c31d5c33118c15e2957767b243bd6d37cdd63a1af54b20fb6",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T20:01:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/a.events.json",
+      "hash": "c2bb76cd9edb1af974f1ce09fd9bed473a2e3fe5b37dbf3ef66085e765580a86",
+      "mod_time": "2026-09-26T20:19:21Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/c.events.json",
+      "hash": "f02a4c3b72940a24a9cbb2aef7d8d7d7a3c7b78c4c38a94648ca56764342c4be",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/b.events.json",
+      "hash": "53004a15ba47969a1afc158dc406a5f4d0a73cdbd39f44dc3aacae6df75c8d04",
+      "mod_time": "2026-09-26T20:23:15Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/service-worker.js.map",
+      "hash": "f322edb363d33a962b4dbc688937ba7a9d56a58452b9af4db99a17dc2488fb3f",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/manifest.json",
+      "hash": "17b4981da7c3ba2ec8fc71195c264d9c62badcea256e0a29fec28405e9adb6d9",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/content-script.js",
+      "hash": "c3e7c105851e8c1704c7485d65f0fd33420799270a0401990f1221088c6d49d3",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/manifest.json",
+      "hash": "8069acb9e96cd267ceaf5ffc12874ea10f0b70631628fabe7cbfcef8bc8189c8",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/sidepanel.js.map",
+      "hash": "fc4ea10097f9f43e8b24467115ea8f517797d66fdfab36961c4c381be1e177ec",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/service-worker.js",
+      "hash": "a11f729b132558952670438dc3149dd65674ce0baa111fc5aebc8eba30a9765a",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:50:42Z"
+    },
+    {
+      "path": "docs/CODE_AUDIT.md",
+      "hash": "f24c1cd292610c93c4e3b1fb1a7289b011e8aae83e86307613dc9087488e96ca",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CR_A03_OPERATION_OWNERSHIP_ACCEPTANCE_REPORT_TEMPLATE.md",
+      "hash": "af8c0c89fcced613824c1c0f771e85b9d978f1553a9a17655cba2ca7bef413da",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.pdf",
+      "hash": "43749e6c89f16352e0754805ace8d10650eb1dcee19fd6755c4c9af2a27e06b2",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/c.events.json",
+      "hash": "40ab2baf816f0ef9a2ae2db6b1dee3a9d9d504f08c5b845156f9868d5fae216a",
+      "mod_time": "2026-09-26T19:55:12Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/a.events.json",
+      "hash": "f500af8cdde0376f387f8983007b0a705fd4d35d7a6a06c7628b0925e43e77a7",
+      "mod_time": "2026-09-26T19:43:15Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/b.events.json",
+      "hash": "8a4cd87d4cdb87fbef40d6585c016f903cd871b11765048a82605412807f06e1",
+      "mod_time": "2026-09-26T20:01:44Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/provenance.json",
+      "hash": "c05e5d9a71639a9ece3861b5be2683117e14023450f43497838d4a17f2993af5",
+      "mod_time": "2026-09-26T20:01:46Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/a.events.json",
+      "hash": "8830c90c16418a794ae6b1c3188dc1a30eedc1dcfbfbdb4220993ed8a32cfae4",
+      "mod_time": "2026-09-26T19:50:53Z"
+    },
+    {
+      "path": "docs/CRUNCHYROLL_A01_BASELINE.md",
+      "hash": "92c94d95626905b6ceb1b0d817c6c8d998d031680c6958c9f1395e4d40161897",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/TEST_GUIDE.md",
+      "hash": "dcb6d426987dcb0d024f08127020faa6ab721c07ec581e00a68b0ad485e2ef3e",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/manifest.json",
+      "hash": "1383dd41ed0702ff9059f8fa73277d64f229943d401dea57d21662b57405513d",
+      "mod_time": "2026-09-26T20:01:46Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "packages/sync-engine/src/clock.ts",
+      "hash": "01afeaa7a03d6cf2c4cfef8498d12c89076d91d421afcba76e19957123306c46",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/provenance.json",
+      "hash": "a0d8a9b5bdec5a7db34a0912526c8460cd05477a041522676d26c280230aed2a",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/b.events.json",
+      "hash": "970c00ad319f70ba0aacc81baf527eaaa8831413dbe81052da809dd83115e58e",
+      "mod_time": "2026-09-26T20:15:26Z"
+    },
+    {
+      "path": "apps/edge-service/tsconfig.json",
+      "hash": "1e2d4cbf9f9e924757b4aa6e4006f3b79ed630b6994aa9ea9e75c6ade66440b3",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "apps/extension/src/site-adapter.ts",
+      "hash": "443e47338ee4a83d094bb802eafa0dfb16a06a5a106c80d6c90cbefd57cd0480",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-after/provenance.json",
+      "hash": "f0f7af0ddce6d564e5fb5d652ec9e07cbd637bc2af5c00b73a96e9086bb36cee",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/manifest.json",
+      "hash": "c5cb7c060c3caf978713845052392d61d6257cb1fb64789e0c5e122ef5c0e1a8",
+      "mod_time": "2026-09-26T20:23:57Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/service-worker.js.map",
+      "hash": "f322edb363d33a962b4dbc688937ba7a9d56a58452b9af4db99a17dc2488fb3f",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "tests/e2e/storage-state.ts",
+      "hash": "68a090548ea18f8b10a93e5be6fdbe9783125ea170557dceda22513038128662",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "apps/extension/src/video-discovery.ts",
+      "hash": "9b7e3f9ffefc30e0aa91b1c5d3a914ba52f1c082b7a3b8a222894fd230f90f28",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "packages/sync-engine/package.json",
+      "hash": "2a508e334521fbba72ba2026a911c19143802edb41359b06cf02d82f91bd0f81",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "docs/V0_2_5_CONTROLLED_TEST_SESSION.md",
+      "hash": "58b12836f958d45b69f75a4d1f398aeed24e772b196e2a67ac704c1dcf986c1d",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/log.txt",
+      "hash": "7c3dbe2943cef693f1b3aeb7f94540748341b17edfe78ef3d92e4d86042892f9",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/c.events.json",
+      "hash": "acae030eced4dc93c2f51c10635a34a817d2d53748cb36d51e17a5fc4a9e4acc",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/service-worker.js.map",
+      "hash": "f322edb363d33a962b4dbc688937ba7a9d56a58452b9af4db99a17dc2488fb3f",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "docs/PRIVACY_POLICY.md",
+      "hash": "940658b946a7d22110574111f6204acda5d679fcda17ed15755e326ad8e346bd",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/b.events.json",
+      "hash": "10008153bdfe638fd42cdbced0b8a12dd952cda2ccf2bbb6c6964ca4ca1ef43d",
+      "mod_time": "2026-09-26T19:43:15Z"
+    },
+    {
+      "path": "tests/e2e/provider-playback.ts",
+      "hash": "d2ba8d4eaca6d6d40da9edb80a3770220b322798f33f7a0c74db5ae1406594bf",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:15:43Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/summary.csv",
+      "hash": "f884b2a35600633b400e560dce4780a59f1371878db9306ae07be5f1c2e48e0b",
+      "mod_time": "2026-09-26T20:25:18Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:50:41Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/service-worker.js.map",
+      "hash": "b18b9b00e16696968c2266db1a7d788b9c256867e5e2f9f511da11145bd49c42",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/feature_request.yml",
+      "hash": "15cb3c6dcd93dbcb4531d06913141d09a9872cc0b0120d539aa4c67f7f98406b",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "apps/extension/src/connection-quality.ts",
+      "hash": "c716a4d1875ca593916702a57796fa4ebfb2f63363f9ac97e78c4e38614e8e24",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/PRIVATE_BETA.md",
+      "hash": "863bd30dab6e605e5176f986b58d07cffca08e5145b8b8a0a43b50d7281a3760",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/c.events.json",
+      "hash": "207c34196717f324212af651e466e2da14cd9a5483b5792d6e2b2c0b46df54dc",
+      "mod_time": "2026-09-26T20:02:26Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/c.events.json",
+      "hash": "788dca563c00620c638443a60c25da5c5c9403bfacdbb209cd517cd0590d72e8",
+      "mod_time": "2026-09-26T20:25:17Z"
+    },
+    {
+      "path": "apps/edge-service/package.json",
+      "hash": "45fdd08307ddafa86fc32c6c6f6dacc22a9a9331b2b7be65b8af4a4a825c8bcd",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "uno.config.mjs",
+      "hash": "a801fa94331e6a5c1008642a8052ff85049762655e54beb0ca131e311141ae47",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CR_A02_IDENTITY_ACCEPTANCE_REPORT.md",
+      "hash": "43717980e44d6589419e55e909b85d1ebe3914a72d1c7409e5750ad2fa48d609",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/content-script.js.map",
+      "hash": "de35e723ab8c0406a756ccf08bb2792bb54f364689bb0ba563bd6db8bc0752da",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/content-script.js",
+      "hash": "eb977ee68baf59a08db5d362d0099225899e2252df748bd9f42401ebfb76efd9",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/manifest.json",
+      "hash": "4571cee70dd4f46b74f1c05b1d59a90819282613799578e5fa331230dc55f58f",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/content-script.js",
+      "hash": "f0a27f3fce85d722c437036b094b02f4965a3ffe58bf9512c42cd4d97e9db14c",
+      "mod_time": "2026-09-26T19:50:41Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/b.events.json",
+      "hash": "5e79ed4890af500383ce886bfbd893754b518fd75c91bb8238e234e47bf6bbed",
+      "mod_time": "2026-09-26T20:20:13Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:20:56Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "docs/RELEASING.md",
+      "hash": "5ed608539bc0d93d5d3a18fde1bf34db5d4d30169dffe9d1c8c779d512be06fa",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/service-worker.js.map",
+      "hash": "f322edb363d33a962b4dbc688937ba7a9d56a58452b9af4db99a17dc2488fb3f",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T19:56:33Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/c.events.json",
+      "hash": "370d73709742418d68a4db82e6e6b1547c67f8fa1e258b4707e423e55628204e",
+      "mod_time": "2026-09-26T20:01:03Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/provenance.json",
+      "hash": "2fd50e97466769d1f84bae662e355be39043bd5d85decb068236ce7ad6369dde",
+      "mod_time": "2026-09-26T20:23:57Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:50:42Z"
+    },
+    {
+      "path": "apps/extension/src/navigation-transaction.ts",
+      "hash": "5984ddf0244c704652d30b17a9890d47c77ca8996301d1ac0925502d38d459bb",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:23:57Z"
+    },
+    {
+      "path": "apps/extension/src/media-seek.ts",
+      "hash": "f07a713f6bc76b5aec083f4af327f10a768be523128f1f158b077721e167742f",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "apps/room-service/src/server.ts",
+      "hash": "6555ea0049b7ce0ad15a8608f80641c01000b635e59c4ebf05946fe8fe5a96cf",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/adaptive-before/provenance.json",
+      "hash": "5f1e1508bdcee9e97157d5303f047367a483cfd81404cdebaeda66b658a8696f",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/provenance.json",
+      "hash": "ce50c4b63721173cfc9fc33cb50d77fe1bb79efe820217114253d5b14456063d",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "apps/extension/src/player-intent.ts",
+      "hash": "2b897a0020fc4194fd582488088c9cd236a9dc990325c2e5a4578a1492476212",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:15:42Z"
+    },
+    {
+      "path": "docs/STORE_SUBMISSION.md",
+      "hash": "14f5e7df187bf65f7173ba3efc5a9f1dfa03009ad2ed8d4bbe2989a01a04b6ab",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/content-script.js",
+      "hash": "fb97f6c940aa16d60c15939b0af49611f895b34839e1c2195d55c9a3d551ba35",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/content-script.js.map",
+      "hash": "7295ce4a8bfcd1432aec6a6cddb6ffbe8a77dfd4b500a47b72ce0f11919cfb0c",
+      "mod_time": "2026-09-26T20:15:42Z"
+    },
+    {
+      "path": "fixtures/generic-player.html",
+      "hash": "2ecf1b19d61f92a9145f9e5b24de5a3d6e5fd24a8ab2a7d88a67c96a140f173e",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/manifest.json",
+      "hash": "6a7cb2e7cc3edf49baef2637e2778428a35a0ce9cfd3521162ace52f67f18648",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/content-script.js.map",
+      "hash": "de35e723ab8c0406a756ccf08bb2792bb54f364689bb0ba563bd6db8bc0752da",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "scripts/serve-fixture.mjs",
+      "hash": "c1bd2e178d5d38eedf09099127da6df1c8e86b8b5f64748cbabd5ea0790018b7",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/sidepanel.js.map",
+      "hash": "fc4ea10097f9f43e8b24467115ea8f517797d66fdfab36961c4c381be1e177ec",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/manifest.json",
+      "hash": "0af5bc353206726d7a92edc6227e7c56d5acfed2c428e7189fa03c88e72be8b1",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/b.events.json",
+      "hash": "9b3084a1e9e701ae33cedea4df8925218eff7ad33b03843f536a460c2548a5c6",
+      "mod_time": "2026-09-26T20:02:26Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "docs/CRUNCHYROLL_ISSUE_MAP.md",
+      "hash": "fa35578db47ac0c92a595d2b6377eb3cd5a728e22473fd3cd2cb94fdff61231b",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "scripts/generate-test-guide.mjs",
+      "hash": "bbcd794207a9a9dd6f06d86f25a44df52b646c157555024a205111d9e60df64e",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "apps/extension/static/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CR_B05_LOCAL_HEALTH_DEADLINES_REPORT.md",
+      "hash": "036b23ffe7b0de0d31bd9f134a6acabf2f4ec9d309aae4baa1b3abd998cfaafd",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/a.events.json",
+      "hash": "286558655dee6217ee12978ce9e625823991a475dbdfbb08c15be551c92401e0",
+      "mod_time": "2026-09-26T20:01:44Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:20:56Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/a.events.json",
+      "hash": "1219ae12b0cb59905be7dec1dd88b7c77e1f664972eece5fd0e369a7e86d4c19",
+      "mod_time": "2026-09-26T20:21:53Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/content-script.js.map",
+      "hash": "de35e723ab8c0406a756ccf08bb2792bb54f364689bb0ba563bd6db8bc0752da",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "tests/e2e/artifact-utils.ts",
+      "hash": "9726b56633472b8de024ffc996512294feea5616081f822ed8d25a636d1c8371",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "apps/extension/src/panel-interaction.ts",
+      "hash": "770735ba305786152121eec36fad2336b91b2cc000f99743496b9627531d5d0c",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "context-checkpoint.md",
+      "hash": "2f1db0f92b1e372b443a0abe6f326d56c0ac102d75b701ee91c6e1f8c00f333c",
+      "mod_time": "2026-09-29T19:08:29Z"
+    },
+    {
+      "path": "docs/CRUNCHYROLL_CRD04_ACCEPTANCE_REPORT_TEMPLATE.md",
+      "hash": "a4663a0ea8eed2f1c82f05cdfa992b7f34d5917910c165385a46969e5d8db6c0",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "tasks/plan.md",
+      "hash": "3b0efc6c524f2e1ec0c2e099d17f4a4af34093b0d7d6caf7a8c476ce93201066",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/provenance.json",
+      "hash": "0f39e9ad4b141a769638242e02783fdb1ff2223e23c18ba73c5bb17a5529acf5",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "docs/CR_A04_PLAYER_BINDING_ACCEPTANCE_REPORT_TEMPLATE.md",
+      "hash": "d41124270b28d97cbf7ea41f91ebcfc09d6475eed31f6c6c3e722204fd67600e",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "release/sync-your-joy-extension.zip.sha256",
+      "hash": "4541cca208e8d13c09ea465af6ed10bdc561846401ad4a6e18cf09f16ab2c8e8",
+      "mod_time": "2026-09-29T19:07:52Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/b.events.json",
+      "hash": "7c92e687e52e93b9af8327cfc56665493b9d0e0752c20884e34e700435fa1cf7",
+      "mod_time": "2026-09-26T19:42:38Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/service-worker.js",
+      "hash": "49a8659bf74035a7915cba024d5e6592cde36977eb2e7b6ecd3c6950d033fa72",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/b.events.json",
+      "hash": "c356f58617d9f9148a8ed5126df2033a196f539cdfaf21b663ee6082d82ba15e",
+      "mod_time": "2026-09-26T20:01:03Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:20:56Z"
+    },
+    {
+      "path": "tests/e2e/playwright.config.ts",
+      "hash": "ebff6811f99f62d7bfbe8633db401a09c213daa03330fe63af16804357e49d60",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "apps/edge-service/src/alarm.ts",
+      "hash": "fdc695ee7c625f6113a5b223b3dc3a22c8619f1bc5a94bc43aa733e20b138447",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "apps/extension/src/player-identity.ts",
+      "hash": "50b6a8f221d0570dcb4fe2f28bf0bf50b6451d14c21819993583815a3e751507",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "package.json",
+      "hash": "38e9d4c82ab54794e8b4f548fc9d18da52dd4974aa7df3448acbee100ed8f97a",
+      "mod_time": "2026-09-29T18:54:07Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/storage-state-a.events.json",
+      "hash": "5d1a3e58fe7c8fae9ccdc55f09e95fbec18121465734a3d323d09fdd0d3da256",
+      "mod_time": "2026-09-26T19:54:27Z"
+    },
+    {
+      "path": "apps/extension/static/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "scripts/verify-browser-packages.mjs",
+      "hash": "9bf6fdb3f5a266ee5b1c20f09344a739ce3f0909044c4e87d644869ff51c88da",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/log.txt",
+      "hash": "0d971a2410808674dbefe642c94289ff66afb7a1dc0b7b5dd318fc96e74258c8",
+      "mod_time": "2026-09-26T20:20:13Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/manifest.json",
+      "hash": "41779ac60c2c381b268555900d3f2cb8dc2e13b81779d153f2c6a1b57eb4885b",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "packages/sync-engine/src/room.ts",
+      "hash": "a507c2c8bee89de5688ced5771c7fa57c0c7fd5944286e3598d18d668994d13b",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/a.events.json",
+      "hash": "72d13f4af12a3d65171ec840677e64b071fd49ff26a37700a5d2dafd3a67832c",
+      "mod_time": "2026-09-26T19:57:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/manifest.json",
+      "hash": "24e8603694dc14188c38b372d009a94e5694cff91c8c69d1709e3e7d4d67aa47",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/service-worker.js",
+      "hash": "43307bd05c545284107cce00f734e5b43b1d1bcf3cfb73850a1bf89618151971",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/b.events.json",
+      "hash": "c5308e6a52d7add4078b300d30efb41c2fda19a5f3f25317cf6e30bd5bba6d8d",
+      "mod_time": "2026-09-26T19:50:53Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/content-script.js",
+      "hash": "2527fdc4824b9b8c5dfe84a82559900a6751c4f9459a94142fdf176542405666",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "apps/extension/preview/sidepanel-preview.html",
+      "hash": "83629e59819c6e8ed9b31b3d8b5bc25105a0ed2ba85c9b3ff9fd66ff4d4a7977",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/service-worker.js",
+      "hash": "02e7b76196939ea73c584b55c867cef9946184eec7baf0251be85e4cb71677f6",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/a.events.json",
+      "hash": "8906bdf05cd4ff3ddd033449034d1e7c92239ec4f6a6ce7ad8d88f739d985960",
+      "mod_time": "2026-09-26T19:56:52Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "tests/e2e/artifact-reporter.ts",
+      "hash": "f22e0b2e03422f30a509a20a7b6cb7d7f837e0f757e71db81bc2fad03e7875a6",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "packages/sync-engine/src/operation-state.ts",
+      "hash": "f1b38d63891d3d98896f0d17ac197186d0c58141eb37c66986696a4c75f8abf7",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/manifest.json",
+      "hash": "a34de48f2a32fa41f8c756b45064f1f2baf158d8147654cf14e3fd986c603beb",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T19:42:38Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/log.txt",
+      "hash": "0e39bfa74b6c6e306109dec4a97f21ddf27fe269794af8ab12bbdc86223d7f64",
+      "mod_time": "2026-09-26T19:56:33Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/manifest.json",
+      "hash": "23de5acbcc6613e3481d20b351279930183c07c2b90c89003ede9dda98ef8cb2",
+      "mod_time": "2026-09-26T20:15:43Z"
+    },
+    {
+      "path": "docs/CR_D02_ADAPTIVE_FIXTURES.md",
+      "hash": "2ea2933396be846530fa5d3772dff6e45a450320ef43d2cf4c8b966692a596f6",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "scripts/package-extension.sh",
+      "hash": "9194090b8dd3428f2e1c3f4fc875ddb987ac00082ecca50e5d605674f292967a",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/provenance.json",
+      "hash": "c0f3e4c4223fe7db8ad2e4c8148f4fb5641bd91f841c195c323f27bb7833e3c3",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:01:46Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/b.events.json",
+      "hash": "e920f2be884d7133e512bf2cb369250b6b2596f801c034e6a4b755f2f9d6d0be",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/a.events.json",
+      "hash": "925535c5433853314ce664f3081ba450c4b6ca4341de3f465516895975cf74d6",
+      "mod_time": "2026-09-26T20:22:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/c.events.json",
+      "hash": "c2e8cfe26c36ae1489bbd7e2d8b7023b990cc348a697110056e905bed36cbdc1",
+      "mod_time": "2026-09-26T20:23:15Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T19:50:54Z"
+    },
+    {
+      "path": "docs/CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md",
+      "hash": "88f89f37a6d1f3db09c2591964b64454969c58d12ba529d6b7407e6e2f0c32b5",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/log.txt",
+      "hash": "245b3ea72918e4986e84494465887b84ff858717ebca8c100458fcd517f688cd",
+      "mod_time": "2026-09-26T19:57:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/content-script.js",
+      "hash": "08b15085abf2a89fece7df30e055b83c158e9f9496eda7e433e3f04af3c8f768",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/storage-state-b.events.json",
+      "hash": "9caec0393ebf9badeca855bb4e48e5bcb0a80cab2206f7423e632df8c05472ac",
+      "mod_time": "2026-09-26T19:54:27Z"
+    },
+    {
+      "path": "docs/research/crunchyroll-source-notes.md",
+      "hash": "690ca9443e9f45fb60af2f368ef81598de47f0e0849550af5a328b25eba08b01",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "packages/protocol/package.json",
+      "hash": "07b1edee9a81116a7fddc58d1424ebd71e4113959a70d5256283d85c429d9938",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "packages/protocol/src/index.ts",
+      "hash": "54fa8c66dc38de5de0a9ac5179bb9ade34a7d18253f10faf483ac70249138f7e",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "scripts/verify-sidepanel-interaction.mjs",
+      "hash": "8bd094aefc99ca5c5480cd0a83a23e2a520d077fa7db08f06997e07da505dee7",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/log.txt",
+      "hash": "b306e3d8d3199a04367886aa3fafe17889ee358575e307166016d381d6b26230",
+      "mod_time": "2026-09-26T19:59:40Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/service-worker.js",
+      "hash": "f737665f2c974f9fc2a7052d5d49a7ed63dcb09bec349ba58dee5dd4caf5e42d",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/content-script.js.map",
+      "hash": "312fbc530fd4eb9906a3efe00370d1e3e7598d176007339fea024a5f27d699fc",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-08/out/extension/content-script.js",
+      "hash": "5867e4355cbab766f17df702453ca0f5e9b6a521ca617fbe2939f22dfe85bb96",
+      "mod_time": "2026-09-26T20:00:23Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:01:46Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/manifest.json",
+      "hash": "1c2c18e57b8f70720edbca3264b705b39caf5ac60ffce62a3b76eae2013b628a",
+      "mod_time": "2026-09-26T20:20:56Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/sidepanel.js",
+      "hash": "d8e49738f241a411c6b9c56ec6163deee890d87214d565c2fee59d701f37cdbe",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/b.events.json",
+      "hash": "86b9dc91e00ee84359b867f31e344ddb7d68f623b7b0923941acc6c74bc344f0",
+      "mod_time": "2026-09-26T20:25:17Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/manifest.json",
+      "hash": "5ab8ca7f5d7e668c855098b14c0df6d16e7955a8d002d5ac117d7e452cd6a162",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/c.events.json",
+      "hash": "6585425ec9eb5c06a3d066d0d4318f5d853772d15d90831c5b2ff1a2e6434e22",
+      "mod_time": "2026-09-26T19:56:52Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/sidepanel.js.map",
+      "hash": "3a41fd23990a72090b4804a5814ab24d278cdee5829ff9b4a6709d7fda23be92",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:20:56Z"
+    },
+    {
+      "path": "test-results/full-e2e-final.log",
+      "hash": "17df5d7aea543b26460d8fb6d70022c1615d0a915a429671a417847359d558d7",
+      "mod_time": "2026-09-26T20:18:40Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/content-script.js.map",
+      "hash": "7295ce4a8bfcd1432aec6a6cddb6ffbe8a77dfd4b500a47b72ce0f11919cfb0c",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/c.events.json",
+      "hash": "28d18e215bc63fde880127388585a92ea35fa20700d82a85e4bde7f9fa282c35",
+      "mod_time": "2026-09-26T19:57:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T19:58:17Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-05/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:21:36Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/service-worker.js",
+      "hash": "46672305aa871ac61e03817481acadf91f971eb9eadf900043b95a2ea4ff4392",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "docs/CRUNCHYROLL_PREPARE_STALL_ANALYSIS.md",
+      "hash": "bd8ad189cf2878dfd4c36791b9da177c08e0a9d2d01a9790cb4af55d79943310",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/content-script.js",
+      "hash": "3da1889d3a59ee6dfec9f1e3884fa75353fe97231696b048ceb94401c81e7a46",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/log.txt",
+      "hash": "f6daf918f2d43a47a028792c3cd7eb85a9cf83ad8c5286c3a8e4e03d48a8da55",
+      "mod_time": "2026-09-26T20:01:44Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/b.events.json",
+      "hash": "40689ac34b528a240388853c459eb5507ebbac40a70d7a581af99aa9fcec71c5",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T20:23:57Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/provenance.json",
+      "hash": "fadf7c9bb317d571805fce5fe5c2bb01def97c09f500b0014b4eddac92d088be",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:50:42Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/service-worker.js",
+      "hash": "a03261484817e8b76c6e82c4c130beb052d3162821e5abac6816b249de2c527d",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/content-script.js.map",
+      "hash": "d227969217a6b6b8a5d55bc974d7929129cdf3cf90c04759ae5fbea7cc51f8b0",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/manifest.json",
+      "hash": "079517e81451cee829260e4f14e0673482e2446af927f99ad190e068047991b3",
+      "mod_time": "2026-09-26T19:50:42Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/service-worker.js",
+      "hash": "de4d3cf3c78a9a911c8fd1a1e69cb8849131bb6f5729f2798f16950ae272b3bd",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T20:01:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:20:56Z"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "hash": "29d72187cc470af4978a6487995b933f298ada901a5fdb81caae0d3e85ae190a",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "docs/CR_B02_COORDINATOR_TRANSACTION_REPORT.md",
+      "hash": "f42075170b24b64b673ca38f69beb4acaa3d0f6b5bcf7c7d7b15b34d77ae6260",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "docs/RELIABILITY_REVIEW.md",
+      "hash": "2b6000eff3a36f12fd77d0f23367b7fd6288bfaf7aaf70d24f7acd9912f94b85",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/provenance.json",
+      "hash": "4ddffb77698bdfed733b94695e4518b4c5eef1b1fbab38df42c9ef194902ef9b",
+      "mod_time": "2026-09-26T20:20:56Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-06/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:21:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:24:37Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:54:22Z"
+    },
+    {
+      "path": "test-results/twoprofile-retire/extension/sidepanel.js.map",
+      "hash": "60fe3e1128e61e0ea8a88d786576f61799e080d372f6c9ed388ed997a5271874",
+      "mod_time": "2026-09-26T20:15:16Z"
+    },
+    {
+      "path": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+      "hash": "9cad4aa36a36aa678464f8e20eb0a1d4659429e5c07a1b6539c85166147242aa",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "fixtures/adaptive-player.html",
+      "hash": "9d480ef991cf2c0cd3361f2699f7d49c9a4935dac0453c5b14b27fb8c81a00e9",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "packages/sync-engine/src/participant-status.ts",
+      "hash": "1c675fc3600b9c50feffb06f38586cd2137b7aeb96bdeb5978fb3b84bb09389d",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/c.events.json",
+      "hash": "8baefae3b9ec0c1e9d93cb3bcac2af4912b11fa1d2c94848578efcfb60447578",
+      "mod_time": "2026-09-26T20:01:44Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/extension/sidepanel.html",
+      "hash": "91e13a28dfdab915084105009a95a5dbd64c4d9a6421701ad1cbaa7a4a61eb91",
+      "mod_time": "2026-09-26T20:19:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:20:55Z"
+    },
+    {
+      "path": "tests/e2e/global-setup.ts",
+      "hash": "536ae3bda16dbaff5048196851d4f6872b09e77690b1144ca4920c5b58219c60",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": ".github/workflows/codeql.yml",
+      "hash": "f14c8246a3f056db0fde96df859b18f50f21f61b65e14f268f3d13ed762fe275",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/adaptive-fixture-extension.events.json",
+      "hash": "37d707e93bb5d86884e6fa9aff8568ba0b0e1a6e1687574d3a7ab8b70ca0b5e1",
+      "mod_time": "2026-09-26T19:54:24Z"
+    },
+    {
+      "path": "apps/extension/package.json",
+      "hash": "d1b71e1c595f81b8cc8044b0ed2aee97595acf9a710869afd25db0f9d922f81f",
+      "mod_time": "2026-09-29T18:54:07Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/manifest.json",
+      "hash": "30ac7178ee4710709a3b7c39e579289d0233ca6ad6764101f8d667c08bea12b8",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/c.events.json",
+      "hash": "d640028082a4eb72b371900901e2f227785cf93f4fed898a036c0cfcb06c6643",
+      "mod_time": "2026-09-26T20:20:13Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:21:35Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-09/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:23:56Z"
+    },
+    {
+      "path": "docs/CR_D01_E2E_ARTIFACTS.md",
+      "hash": "397fe9244ceb25c03fb8eee180f1d52cc741ccbefe8126f1ddb7eb3693d13fde",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "docs/GATE_1_3_CLOSEOUT.md",
+      "hash": "a74ecee9da56c68d71db5666e8517383ca0382fff300decfd7f69468ca311e37",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/content-script.js.map",
+      "hash": "de35e723ab8c0406a756ccf08bb2792bb54f364689bb0ba563bd6db8bc0752da",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-01/out/provenance.json",
+      "hash": "889cab7647250ecb6e36503b41daa424f03db1747ab54f05cd0513d050c8da1f",
+      "mod_time": "2026-09-26T20:18:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/extension/sidepanel.js.map",
+      "hash": "60fe3e1128e61e0ea8a88d786576f61799e080d372f6c9ed388ed997a5271874",
+      "mod_time": "2026-09-26T20:15:42Z"
+    },
+    {
+      "path": "apps/extension/src/media-ranges.ts",
+      "hash": "d17f4c8a3299478fd0ff3ff40ce207665b70e715572212d50ea0213aae743b4f",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "fixtures/adaptive-test-clip.mp4",
+      "hash": "192dd3af9e42432562ade346af83316321ae61b8f07c92e3a89b76125f13cc88",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T19:59:41Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/a.events.json",
+      "hash": "2ec68f8f395cc78f701bfbfa6bf2fc9fd55a99d4a90d116941edbece0cec9163",
+      "mod_time": "2026-09-26T20:21:35Z"
+    },
+    {
+      "path": "test-results/twoprofile-unfixed/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T19:43:05Z"
+    },
+    {
+      "path": "apps/extension/src/service-worker.ts",
+      "hash": "e3f81feffc9a3a4a6785766bde118ea88c4b16f0069790c5a8a4a2623b3c7a6e",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "apps/extension/src/styles.css",
+      "hash": "973f77fb76af891f26c8f02b19373bc794c8a5b88d92cec7ebb1a0a9b09aeff7",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "package-lock.json",
+      "hash": "8a69238a4d279d1ade5d25f6ae2d68891879362ddb220077c771f26d2c5efbea",
+      "mod_time": "2026-09-29T18:54:07Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/service-worker.js",
+      "hash": "0e17f86e37c667bfe099dfc4e43fc80bf395cffd7d15d1c9b67f90be01123e1b",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/icons/icon-16.png",
+      "hash": "9efecb34734ab17c6aa491f513541bd4bb0ee542fa1461de98900ce6d2ea1781",
+      "mod_time": "2026-09-26T19:50:42Z"
+    },
+    {
+      "path": "scripts/generate-icons.py",
+      "hash": "bee871c3104c52494726726d2112f22ef9397ca78ccb077037951bfbbe27a0ff",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-before/extension/content-script.js",
+      "hash": "7c21577337cf193efb6d14aeb876a43893bafa9be5d2b047b537e2d00309d76d",
+      "mod_time": "2026-09-26T19:44:09Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-03/out/extension/content-script.js",
+      "hash": "ca0f47b94efd2fd90dd30b4de05f1686d4db8d3a4a1d5b760d401ea4dbc9e2d0",
+      "mod_time": "2026-09-26T19:56:54Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-04/out/extension/content-script.js",
+      "hash": "aa94d331a6e3b7f5701eb1b3e0cc9087c0e9e8f7b754de0fde2f0cb46b41563b",
+      "mod_time": "2026-09-26T19:57:36Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-09/out/extension/sidepanel.js.map",
+      "hash": "828f33c437715e62dc4f7b620a762497bb609bb7f97264670c7981b8c5494c4d",
+      "mod_time": "2026-09-26T20:01:04Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T20:01:46Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/log.txt",
+      "hash": "ff45ae4ffad25d9e2a1d6872bcf552461fdd2d43c30e4505d33a0018be5d6ec4",
+      "mod_time": "2026-09-26T20:21:35Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/extension/icons/icon-32.png",
+      "hash": "fb3f733a8918000f377e678cca36999c5edaa2317e8326ba6b6dfb02729bb584",
+      "mod_time": "2026-09-26T20:22:35Z"
+    },
+    {
+      "path": "apps/extension/src/player-operations.ts",
+      "hash": "f4a68275f0c25c2c038629709af75b6ecdf5bfe406c9e22241f96da1af9b2986",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "packages/sync-engine/src/playback-health.ts",
+      "hash": "87f4741fc475ea4c60eee844b99ed25dc84c90ef3bb04127b60a9ebc501cc038",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/adaptive-after/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T19:44:27Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/full-e2e-1/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T19:55:23Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed/provenance.json",
+      "hash": "be40f0cab1eb48beb739bb436a1f472fed37030b64f2daee935b5132d93fefef",
+      "mod_time": "2026-09-26T19:42:27Z"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "hash": "1313fd123db3765d8a8099d9975491c357a1d3849576249cabd2c5e6eb60d728",
+      "mod_time": "2026-09-29T18:54:45Z"
+    },
+    {
+      "path": "test-results/adaptive-after/adaptive-fixture-extension.events.json",
+      "hash": "2083b6b8b13323a3c3dfcb7093df69eb1f2c2d6c6eccdb09e66796f466523db3",
+      "mod_time": "2026-09-26T19:44:26Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/.last-run.json",
+      "hash": "85e2dd43a111e50f6ba9cbe26979452aaefa822f93f1be504eab22994846f527",
+      "mod_time": "2026-09-26T20:20:13Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/twoprofile-main/two-profile-sync-two-profi-e55c9-real-playback-stays-in-sync/error-context.md",
+      "hash": "b513367bc2b222dfe45f619140f1e1eccf4ad8bb68707ecf65261ac13c0f449e",
+      "mod_time": "2026-09-26T20:15:52Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-08/out/extension/manifest.json",
+      "hash": "916a94988221bda7d923c961ec3ef7e5b99199bc4cdfe37c54a3ec1f79bc50b5",
+      "mod_time": "2026-09-26T20:23:16Z"
+    },
+    {
+      "path": "test-results/twoprofile-fixed2/extension/service-worker.js.map",
+      "hash": "f322edb363d33a962b4dbc688937ba7a9d56a58452b9af4db99a17dc2488fb3f",
+      "mod_time": "2026-09-26T19:50:41Z"
+    },
+    {
+      "path": "docs/ACCEPTANCE_EVIDENCE_AUDIT_2026-09-23.md",
+      "hash": "53e710a7f64292a410609572b29287d1d7b0d214d2a07d4ed58d3d21ca7194c2",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "hash": "180783892822cce254d60aff4b74249e8d292a6ea113b17431c9ee049340e116",
+      "mod_time": "2026-09-26T17:40:47Z"
+    },
+    {
+      "path": "test-results/adaptive-after/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:44:24Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/b.events.json",
+      "hash": "23ab79f5134280fe9ae94894c10e378d204f76cc39c36c03c32ee37755d3a0c9",
+      "mod_time": "2026-09-26T19:56:33Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-07/out/b.events.json",
+      "hash": "f9961f6bba6aa5d56ad7f245482d0cd363995c1bd74c0dc23d7711cad6074a2c",
+      "mod_time": "2026-09-26T20:00:22Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-03/out/extension/icons/icon-128.png",
+      "hash": "9768aff3b37600708857693d9c69913a787c5800324642127c241f097c72be7a",
+      "mod_time": "2026-09-26T20:20:14Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-04/out/c.events.json",
+      "hash": "b58d9b8748a553258943396be105f5153237080946eee7f3e0653233f7c17ba5",
+      "mod_time": "2026-09-26T20:21:35Z"
+    },
+    {
+      "path": "packages/sync-engine/src/index.ts",
+      "hash": "5b50a5a84c789c7557c89159022831d1d984ad187905616bca9325dac1c0d763",
+      "mod_time": "2026-09-27T11:44:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-01/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T19:55:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-05/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:58:18Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-06/out/extension/sidepanel.js",
+      "hash": "cf8b7e6b93b96e995f522bdfd29e080a4fffc1c7e34fa832e3fb8fc24398d9c2",
+      "mod_time": "2026-09-26T19:59:00Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/service-worker.js.map",
+      "hash": "e85b1071e32cdf31b07a681ac50d3f9e1700a0670adfa9f60a50ebf940d2241d",
+      "mod_time": "2026-09-26T20:01:45Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-07/out/.last-run.json",
+      "hash": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "mod_time": "2026-09-26T20:23:15Z"
+    },
+    {
+      "path": "test-results/full-e2e-final/extension/content-script.js.map",
+      "hash": "7295ce4a8bfcd1432aec6a6cddb6ffbe8a77dfd4b500a47b72ce0f11919cfb0c",
+      "mod_time": "2026-09-26T20:17:43Z"
+    },
+    {
+      "path": "docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx",
+      "hash": "bccddc14c1e0cca5d6786eeb4cc1979a934938c3ce196918853653c3349a2425",
+      "mod_time": "2026-09-26T19:51:17Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/log.txt",
+      "hash": "172ca9390bd060508c78987a0bf4b5405a37c5d59092b8f3a93cdd5ccf4431f6",
+      "mod_time": "2026-09-26T19:56:53Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-02/out/extension/icons/icon-48.png",
+      "hash": "47de7691022091d703347e9f7afe9f13184a3bdfd02823083e70ba0d4e2383f4",
+      "mod_time": "2026-09-26T19:56:34Z"
+    },
+    {
+      "path": "test-results/batch-stall-change/run-10/out/extension/styles.css",
+      "hash": "1a5462cc8f46fd264ccf6ce76f93f33ada543c34582558dfe6be16784959cf21",
+      "mod_time": "2026-09-26T20:01:46Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-02/out/a.events.json",
+      "hash": "0c185f718d12ff82652d273fa52a109dc1fe24e4f934349220dcf247b8fddf3e",
+      "mod_time": "2026-09-26T20:20:13Z"
+    },
+    {
+      "path": "test-results/batch-stall-final/run-10/out/extension/service-worker.js.map",
+      "hash": "a4e7a285628bc32937c07852e4f26e6e44c471aaa4718acc3aa16b0ca6ff058a",
+      "mod_time": "2026-09-26T20:24:37Z"
+    }
+  ],
+  "fact_count": 3428,
+  "insight_count": 56,
+  "enola_version": "0.4.21",
+  "snapshot_id": "sha256:82dd7ae28b64e7bb57d02d0ed3f3a6430ad4b5282da1ed866977408fbb844b4d",
+  "git": {
+    "ref": "release/0.2.6",
+    "commit": "4ac56a1fab349980fa2f82461a4f94fff3f13339",
+    "dirty": true,
+    "remote": "github.com/muaz978/sync-your-joy"
+  },
+  "config_hash": "sha256:73d78ea79f51e19979d4c7d00bd9463ae684ebcb909116abad86675323c32c05",
+  "extractor_version": "v270",
+  "files_seen": 703,
+  "files_parsed": 176,
+  "source_bytes": 6649036,
+  "files_skipped": 45,
+  "dirs_skipped": 3,
+  "skipped_sample": [
+    ".git (glob: **/.git/**)",
+    "apps/edge-service/src/alarm.test.ts (glob: **/*.test.ts)",
+    "apps/extension/dist/ (glob: **/dist/**)",
+    "apps/extension/src/connection-quality.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/content-script.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/control-position.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/diagnostics-budget.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/internal.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/media-fingerprint.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/media-ranges.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/media-seek.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/mini-controller-state.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/navigation-transaction.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/panel-interaction.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/panel-scroll.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/playback-status.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/player-health.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/player-identity.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/player-intent.test.ts (glob: **/*.test.ts)",
+    "apps/extension/src/player-operations.test.ts (glob: **/*.test.ts)"
+  ],
+  "ignore_glob_hash": "sha256:7523cc6397a498e151125a682d28fbf6df20c6f51f6dfaf18fd8f5239a20d2d8",
+  "heuristic_insights": 56,
+  "coverage": {
+    "services_total": 0,
+    "coverage_gaps": 0,
+    "unresolved_edges": 0,
+    "extractors_reporting": 1,
+    "extraction_unresolved": 1435
+  },
+  "census": {
+    "files_walked": 748,
+    "parsed": 176,
+    "excluded_by_ignore": 45,
+    "excluded_by_kind": 460,
+    "excluded_kinds": {
+      "(no extension)": 1,
+      ".css": 30,
+      ".csv": 2,
+      ".docx": 1,
+      ".gitignore": 1,
+      ".json": 174,
+      ".jsonc": 1,
+      ".log": 5,
+      ".map": 87,
+      ".mp4": 2,
+      ".pdf": 1,
+      ".png": 120,
+      ".sh": 1,
+      ".sha256": 1,
+      ".svg": 1,
+      ".txt": 20,
+      ".yml": 11,
+      ".zip": 1
+    },
+    "skipped_with_cause": 67,
+    "top_skip_causes": [
+      {
+        "cause": "claimed by typescript, no facts emitted",
+        "count": 63
+      },
+      {
+        "cause": "claimed by manifests, no facts emitted",
+        "count": 4
+      }
+    ]
+  },
+  "output_hashes": {
+    "facts.jsonl": "sha256:80dc448ff51285189a8cdb962188f5a408af4951c5e73b024792c96c2acd0989",
+    "insights.json": "sha256:dca17fd0c6418ce3447933b24000e7e223aba386b813fbdfdd2c905715470fdc",
+    "llm_context.md": "sha256:0e9d7810d2753c785e83a9e114757a2653470c9baea3c3f0b42c58b293c6e824"
+  },
+  "unseen": {
+    "files_excluded_by_ignore": 45,
+    "dirs_excluded_by_ignore": 3,
+    "outside_graph": {
+      "imports": 100
+    },
+    "outside_graph_prefixes": {
+      "@playwright/test": 1,
+      "node:fs": 12,
+      "vitest": 1
+    },
+    "dead_exemptions": 0,
+    "dynamic_feature_classes": 0
+  }
+}

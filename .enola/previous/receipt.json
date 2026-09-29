@@ -1,0 +1,131 @@
+{
+  "snapshot_id": "sha256:82dd7ae28b64e7bb57d02d0ed3f3a6430ad4b5282da1ed866977408fbb844b4d",
+  "format_version": 1,
+  "enola_version": "0.4.21",
+  "extractor_version": "v270",
+  "generated_at": "2026-09-29T19:09:46Z",
+  "duration": "1.280447959s",
+  "repo_path": "/Users/muazsabbagh/Codex/Projects/SyncYourJoy/.claude/worktrees/eloquent-gagarin-7b4ab2",
+  "git": {
+    "ref": "release/0.2.6",
+    "commit": "4ac56a1fab349980fa2f82461a4f94fff3f13339",
+    "dirty": true,
+    "remote": "github.com/muaz978/sync-your-joy"
+  },
+  "extractors": [
+    "manifests",
+    "mdintent",
+    "python",
+    "typescript"
+  ],
+  "explainers": [
+    "cycles",
+    "layers",
+    "crossrepo",
+    "coverage",
+    "unused-routes",
+    "domain",
+    "query-loops",
+    "dead-methods",
+    "entry-points",
+    "messaging-coverage",
+    "god-class",
+    "hotspots",
+    "dependency-depth",
+    "exported-surface",
+    "complexity-outliers",
+    "intent",
+    "constraints",
+    "vendored-candidates",
+    "import-closure",
+    "package-metrics",
+    "dead-code",
+    "performance"
+  ],
+  "renderers": [
+    "llm_context"
+  ],
+  "config_hash": "sha256:73d78ea79f51e19979d4c7d00bd9463ae684ebcb909116abad86675323c32c05",
+  "ignore_glob_hash": "sha256:7523cc6397a498e151125a682d28fbf6df20c6f51f6dfaf18fd8f5239a20d2d8",
+  "output_hashes": {
+    "facts.jsonl": "sha256:80dc448ff51285189a8cdb962188f5a408af4951c5e73b024792c96c2acd0989",
+    "insights.json": "sha256:dca17fd0c6418ce3447933b24000e7e223aba386b813fbdfdd2c905715470fdc",
+    "llm_context.md": "sha256:0e9d7810d2753c785e83a9e114757a2653470c9baea3c3f0b42c58b293c6e824"
+  },
+  "fact_count": 3428,
+  "insight_count": 56,
+  "quality": {
+    "files_seen": 703,
+    "files_parsed": 176,
+    "files_skipped": 45,
+    "dirs_skipped": 3,
+    "skipped_sample": [
+      ".git (glob: **/.git/**)",
+      "apps/edge-service/src/alarm.test.ts (glob: **/*.test.ts)",
+      "apps/extension/dist/ (glob: **/dist/**)",
+      "apps/extension/src/connection-quality.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/content-script.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/control-position.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/diagnostics-budget.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/internal.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/media-fingerprint.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/media-ranges.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/media-seek.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/mini-controller-state.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/navigation-transaction.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/panel-interaction.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/panel-scroll.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/playback-status.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/player-health.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/player-identity.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/player-intent.test.ts (glob: **/*.test.ts)",
+      "apps/extension/src/player-operations.test.ts (glob: **/*.test.ts)"
+    ],
+    "parse_errors": 0,
+    "heuristic_insights": 56,
+    "coverage": {
+      "services_total": 0,
+      "coverage_gaps": 0,
+      "unresolved_edges": 0,
+      "extractors_reporting": 1,
+      "extraction_unresolved": 1435
+    },
+    "census": {
+      "files_walked": 748,
+      "parsed": 176,
+      "excluded_by_ignore": 45,
+      "excluded_by_kind": 460,
+      "excluded_kinds": {
+        "(no extension)": 1,
+        ".css": 30,
+        ".csv": 2,
+        ".docx": 1,
+        ".gitignore": 1,
+        ".json": 174,
+        ".jsonc": 1,
+        ".log": 5,
+        ".map": 87,
+        ".mp4": 2,
+        ".pdf": 1,
+        ".png": 120,
+        ".sh": 1,
+        ".sha256": 1,
+        ".svg": 1,
+        ".txt": 20,
+        ".yml": 11,
+        ".zip": 1
+      },
+      "skipped_with_cause": 67,
+      "top_skip_causes": [
+        {
+          "cause": "claimed by typescript, no facts emitted",
+          "count": 63
+        },
+        {
+          "cause": "claimed by manifests, no facts emitted",
+          "count": 4
+        }
+      ]
+    }
+  }
+}

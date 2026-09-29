@@ -1,0 +1,2485 @@
+[
+  {
+    "title": "scripts calls 2 outbound endpoint(s)",
+    "source": "domain",
+    "description": "scripts issues HTTP calls to 2 distinct endpoint(s) that no route in this repository serves, so they go to a third party or a sibling service. This is the dependency that breaks when the other side changes, and it is not visible from this repository's own routes.",
+    "confidence": 0.9,
+    "evidence": [
+      {
+        "file": "scripts/verify-sidepanel-interaction.mjs",
+        "fact": "/json/list",
+        "detail": "GET called from here",
+        "line": 4,
+        "fact_id": "06ca1d0a948b636584a2db23063838c6"
+      },
+      {
+        "file": "scripts/capture-cdp.mjs",
+        "fact": "/json/new",
+        "detail": "PUT called from here",
+        "line": 8,
+        "fact_id": "13138f2eb8dc53de760ad8458e1f11be"
+      }
+    ]
+  },
+  {
+    "title": "High fan-in symbol: docs/TEST_GUIDE.md (41 dependents)",
+    "source": "god-class",
+    "description": "\"docs/TEST_GUIDE.md\" is depended upon by 41 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "docs/TEST_GUIDE.md",
+        "symbol": "docs/TEST_GUIDE.md",
+        "detail": "41 symbols depend on this",
+        "line": 1,
+        "fact_id": "813cc350ac159749344e3417c6453320"
+      },
+      {
+        "symbol": "README.md#project-documentation",
+        "detail": "depends on docs/TEST_GUIDE.md",
+        "fact_id": "d244cd582b7bf813ed5f7f67256bf67e"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20---updated-test-guide",
+        "detail": "depends on docs/TEST_GUIDE.md",
+        "fact_id": "6fdb27200b1babb791237a0c42dfd6cd"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-1649-03---working-tree-inspection",
+        "detail": "depends on docs/TEST_GUIDE.md",
+        "fact_id": "526cf5e4b1e79d1f15aa8dc76dd0ecc3"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-1800-1808-03---cr-a05-implementation",
+        "detail": "depends on docs/TEST_GUIDE.md",
+        "fact_id": "0563c586304e8ff56a22c6600d315ec0"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-1914-1917-03---documentation-and-full-local-verification",
+        "detail": "depends on docs/TEST_GUIDE.md",
+        "fact_id": "b34baa6aea1e9c54cd29911fddbeb0bb"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-1932-1945-03---cr-b01-contract-implementation-and-deterministic-tests",
+        "detail": "depends on docs/TEST_GUIDE.md",
+        "fact_id": "ba9d356859ca40c98c2964fc5d332dc5"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-21-1552-1554---permanent-documentation",
+        "detail": "depends on docs/TEST_GUIDE.md",
+        "fact_id": "503982429cca4c96ecedc5b27f818b2c"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-21-1637-03---permanent-documentation",
+        "detail": "depends on docs/TEST_GUIDE.md",
+        "fact_id": "e2d42d701621118fcd5beb045dfde8f0"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/sync-engine/src.RoomCoordinator.participants (25 dependents)",
+    "source": "god-class",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.participants\" is depended upon by 25 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.participants",
+        "detail": "25 symbols depend on this",
+        "line": 116,
+        "fact_id": "afd0e35ea4d3642e773e01d1d9c69983"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.participants",
+        "fact_id": "d08d93f3710547667a1de70f4fa2d0fb"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeOperation",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.participants",
+        "fact_id": "4237c844f83013a01e11a579158518b9"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeSeek",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.participants",
+        "fact_id": "f17cac8e050be31dd8050f37a268df9f"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.commandLeadMs",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.participants",
+        "fact_id": "981f0cbd3fe9250862b745dcb5047b9d"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.constructor",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.participants",
+        "fact_id": "34932dcef521af77dfdb4adab0365156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.disconnect",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.participants",
+        "fact_id": "c87421f1989279a43ad0d9e37f652e77"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.participants",
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.everyoneReady",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.participants",
+        "fact_id": "ba62513b0f046a72d0523e0f0e220be0"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/sync-engine/src.RoomCoordinator.revision (23 dependents)",
+    "source": "god-class",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.revision\" is depended upon by 23 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.revision",
+        "detail": "23 symbols depend on this",
+        "line": 111,
+        "fact_id": "7a00b936c72cd8b6aa390a9e78b707fa"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.revision",
+        "fact_id": "d08d93f3710547667a1de70f4fa2d0fb"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeOperation",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.revision",
+        "fact_id": "4237c844f83013a01e11a579158518b9"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeSeek",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.revision",
+        "fact_id": "f17cac8e050be31dd8050f37a268df9f"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.constructor",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.revision",
+        "fact_id": "34932dcef521af77dfdb4adab0365156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.control",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.revision",
+        "fact_id": "2883f85329cdaba32c0b12b6709cd7a0"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.controlTransactional",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.revision",
+        "fact_id": "726be58fd5e68bf226fd64ec8a85235a"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.disconnect",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.revision",
+        "fact_id": "c87421f1989279a43ad0d9e37f652e77"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.revision",
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/sync-engine/src.RoomCoordinator.playback (22 dependents)",
+    "source": "god-class",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.playback\" is depended upon by 22 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.playback",
+        "detail": "22 symbols depend on this",
+        "line": 115,
+        "fact_id": "6c1dbe752659ffb65b1820fe59ff6171"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.playback",
+        "fact_id": "d08d93f3710547667a1de70f4fa2d0fb"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeOperation",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.playback",
+        "fact_id": "4237c844f83013a01e11a579158518b9"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeSeek",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.playback",
+        "fact_id": "f17cac8e050be31dd8050f37a268df9f"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.constructor",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.playback",
+        "fact_id": "34932dcef521af77dfdb4adab0365156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.control",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.playback",
+        "fact_id": "2883f85329cdaba32c0b12b6709cd7a0"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.controlTransactional",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.playback",
+        "fact_id": "726be58fd5e68bf226fd64ec8a85235a"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.playback",
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.expectedOperationPosition",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.playback",
+        "fact_id": "39edf1214c81f61edc67a814e38baaa8"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: tasks/plan.md (21 dependents)",
+    "source": "god-class",
+    "description": "\"tasks/plan.md\" is depended upon by 21 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "tasks/plan.md",
+        "symbol": "tasks/plan.md",
+        "detail": "21 symbols depend on this",
+        "line": 1,
+        "fact_id": "d10d026d35a3a86e7d7bb099d4c97ce6"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-22---created-the-documentation-reconciliation-branch-and-commit",
+        "detail": "depends on tasks/plan.md",
+        "fact_id": "1740d05cacee5da6e0bd5c1c8e49793d"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-22---reconciled-repository-planning-documentation",
+        "detail": "depends on tasks/plan.md",
+        "fact_id": "17879fa0df47f1e66b58c36ae84e8d79"
+      },
+      {
+        "symbol": "context-checkpoint.md#automated-tests-and-browser-packaging",
+        "detail": "depends on tasks/plan.md",
+        "fact_id": "07693b3d02c6b2afb1a9279d4654a989"
+      },
+      {
+        "symbol": "context-checkpoint.md#compatibility-plan-and-source-research",
+        "detail": "depends on tasks/plan.md",
+        "fact_id": "4b570bcc185c63671d23c50ce50ebd82"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-31",
+        "detail": "depends on tasks/plan.md",
+        "fact_id": "c603061c0f820e3dda57a70531dc726d"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-33",
+        "detail": "depends on tasks/plan.md",
+        "fact_id": "3afa4e2063ca4eea9732e40bbce9e072"
+      },
+      {
+        "symbol": "context-checkpoint.md#confirmed-successful-results-31",
+        "detail": "depends on tasks/plan.md",
+        "fact_id": "3b98ccd324b1c87573b1f019ef0ac9bb"
+      },
+      {
+        "symbol": "context-checkpoint.md#documentation-and-ci",
+        "detail": "depends on tasks/plan.md",
+        "fact_id": "c5703e1b22401ca4352e46668121ca1b"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/sync-engine/src.RoomCoordinator.contract (19 dependents)",
+    "source": "god-class",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.contract\" is depended upon by 19 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.contract",
+        "detail": "19 symbols depend on this",
+        "line": 126,
+        "fact_id": "b5b3561ba67e7eee449209d48c4b90af"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.contract",
+        "fact_id": "d08d93f3710547667a1de70f4fa2d0fb"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeOperation",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.contract",
+        "fact_id": "4237c844f83013a01e11a579158518b9"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.cancelOperation",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.contract",
+        "fact_id": "e88fccbe9d59cae8107ddea69da34f15"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.constructor",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.contract",
+        "fact_id": "34932dcef521af77dfdb4adab0365156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.control",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.contract",
+        "fact_id": "2883f85329cdaba32c0b12b6709cd7a0"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.controlTransactional",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.contract",
+        "fact_id": "726be58fd5e68bf226fd64ec8a85235a"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.contract",
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.exportState",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.contract",
+        "fact_id": "762bf4ed895a401572dd433c0db1ffb2"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: apps/extension/src.svg (18 dependents)",
+    "source": "god-class",
+    "description": "\"apps/extension/src.svg\" is depended upon by 18 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "apps/extension/src/sidepanel.ts",
+        "symbol": "apps/extension/src.svg",
+        "detail": "18 symbols depend on this",
+        "line": 1041,
+        "fact_id": "e0bc8a6aa046a090dc132a975d1c1a34"
+      },
+      {
+        "symbol": "apps/extension/src.backIcon",
+        "detail": "depends on apps/extension/src.svg",
+        "fact_id": "9ec854f705d7226afa0a17ce49b1e1ed"
+      },
+      {
+        "symbol": "apps/extension/src.checkIcon",
+        "detail": "depends on apps/extension/src.svg",
+        "fact_id": "bbe94c3805b0b046b00a09eef9f3c1b1"
+      },
+      {
+        "symbol": "apps/extension/src.copyIcon",
+        "detail": "depends on apps/extension/src.svg",
+        "fact_id": "16608a6537888edbaeee3a4739964a18"
+      },
+      {
+        "symbol": "apps/extension/src.downloadIcon",
+        "detail": "depends on apps/extension/src.svg",
+        "fact_id": "19c5594195dc119b3bbaabbd6c5d458f"
+      },
+      {
+        "symbol": "apps/extension/src.enterIcon",
+        "detail": "depends on apps/extension/src.svg",
+        "fact_id": "4e301c8a44eb47abbbffe7039a0e87f9"
+      },
+      {
+        "symbol": "apps/extension/src.forwardIcon",
+        "detail": "depends on apps/extension/src.svg",
+        "fact_id": "23c52119911b283c13de13c26a4de0f0"
+      },
+      {
+        "symbol": "apps/extension/src.leaveIcon",
+        "detail": "depends on apps/extension/src.svg",
+        "fact_id": "d36be71e5c89ea4b5b83e4dbc7d586f1"
+      },
+      {
+        "symbol": "apps/extension/src.linkIcon",
+        "detail": "depends on apps/extension/src.svg",
+        "fact_id": "16304119bca648674b893b860a9b27f7"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/sync-engine/src.RoomCoordinator.success (16 dependents)",
+    "source": "god-class",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.success\" is depended upon by 16 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.success",
+        "detail": "16 symbols depend on this",
+        "line": 1361,
+        "fact_id": "228b921677c63ecbf987d8d47c5aff0d"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.success",
+        "fact_id": "d08d93f3710547667a1de70f4fa2d0fb"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeOperation",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.success",
+        "fact_id": "4237c844f83013a01e11a579158518b9"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeSeek",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.success",
+        "fact_id": "f17cac8e050be31dd8050f37a268df9f"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.control",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.success",
+        "fact_id": "2883f85329cdaba32c0b12b6709cd7a0"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.controlTransactional",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.success",
+        "fact_id": "726be58fd5e68bf226fd64ec8a85235a"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.disconnect",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.success",
+        "fact_id": "c87421f1989279a43ad0d9e37f652e77"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.success",
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.join",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.success",
+        "fact_id": "e921a7acc177f71215bec86282b21db7"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: docs/CODE_AUDIT.md (15 dependents)",
+    "source": "god-class",
+    "description": "\"docs/CODE_AUDIT.md\" is depended upon by 15 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "docs/CODE_AUDIT.md",
+        "symbol": "docs/CODE_AUDIT.md",
+        "detail": "15 symbols depend on this",
+        "line": 1,
+        "fact_id": "24e16f359e825bb2e286b3cfea278caa"
+      },
+      {
+        "symbol": "CHANGELOG.md#added-2",
+        "detail": "depends on docs/CODE_AUDIT.md",
+        "fact_id": "3b5112cbec19b59854ecef911592b299"
+      },
+      {
+        "symbol": "SECURITY.md#scope",
+        "detail": "depends on docs/CODE_AUDIT.md",
+        "fact_id": "387a1a132c68ffe732e988d783b046d7"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-18",
+        "detail": "depends on docs/CODE_AUDIT.md",
+        "fact_id": "a244156510cb93df5c964b1c96c973fd"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-20",
+        "detail": "depends on docs/CODE_AUDIT.md",
+        "fact_id": "167b5053bb532e02e2544b553399b3bf"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-41",
+        "detail": "depends on docs/CODE_AUDIT.md",
+        "fact_id": "cc9089f4b2b864c686a773d0b32a933c"
+      },
+      {
+        "symbol": "context-checkpoint.md#confirmed-successful-results-18",
+        "detail": "depends on docs/CODE_AUDIT.md",
+        "fact_id": "6b76fdf95584f27930becca2ef235936"
+      },
+      {
+        "symbol": "context-checkpoint.md#current-state-17",
+        "detail": "depends on docs/CODE_AUDIT.md",
+        "fact_id": "447602365779af63e6422413de34d8ae"
+      },
+      {
+        "symbol": "context-checkpoint.md#files-and-artifacts-12",
+        "detail": "depends on docs/CODE_AUDIT.md",
+        "fact_id": "2d17dd022f3eacdde044e1fe5106efd4"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: docs/RELEASING.md (15 dependents)",
+    "source": "god-class",
+    "description": "\"docs/RELEASING.md\" is depended upon by 15 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "docs/RELEASING.md",
+        "symbol": "docs/RELEASING.md",
+        "detail": "15 symbols depend on this",
+        "line": 1,
+        "fact_id": "c82b24d206fcddd93a00626e257f035d"
+      },
+      {
+        "symbol": "CONTRIBUTING.md#releases",
+        "detail": "depends on docs/RELEASING.md",
+        "fact_id": "13766abbcb9ce6592487bc09b84672b9"
+      },
+      {
+        "symbol": "README.md#download-and-install",
+        "detail": "depends on docs/RELEASING.md",
+        "fact_id": "9410626656cf0786285463afd4238a3c"
+      },
+      {
+        "symbol": "README.md#releasing",
+        "detail": "depends on docs/RELEASING.md",
+        "fact_id": "b809af6b7e192f78d42459646c88697a"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-22---inspected-version-and-release-contracts",
+        "detail": "depends on docs/RELEASING.md",
+        "fact_id": "5de7b63c6434276802e15bf5251f1da2"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-68",
+        "detail": "depends on docs/RELEASING.md",
+        "fact_id": "d312688fa01cb3fa5e80b027093da029"
+      },
+      {
+        "symbol": "context-checkpoint.md#current-state-8",
+        "detail": "depends on docs/RELEASING.md",
+        "fact_id": "981a21e140d7223c1b516e09f2964bbd"
+      },
+      {
+        "symbol": "context-checkpoint.md#decisions-and-rationale-70",
+        "detail": "depends on docs/RELEASING.md",
+        "fact_id": "b161407f1ecaa388d05f337f2ce5807a"
+      },
+      {
+        "symbol": "context-checkpoint.md#documentation-and-task-tracking",
+        "detail": "depends on docs/RELEASING.md",
+        "fact_id": "97bf876a735699235930f30ec0494d78"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/sync-engine/src.RoomCoordinator.markStateBarrier (15 dependents)",
+    "source": "god-class",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.markStateBarrier\" is depended upon by 15 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.markStateBarrier",
+        "detail": "15 symbols depend on this",
+        "line": 1348,
+        "fact_id": "0ab409bfdc52856121a730e08fd92e55"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.markStateBarrier",
+        "fact_id": "d08d93f3710547667a1de70f4fa2d0fb"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeOperation",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.markStateBarrier",
+        "fact_id": "4237c844f83013a01e11a579158518b9"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.disconnect",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.markStateBarrier",
+        "fact_id": "c87421f1989279a43ad0d9e37f652e77"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.markStateBarrier",
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.join",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.markStateBarrier",
+        "fact_id": "e921a7acc177f71215bec86282b21db7"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.migratePreContractState",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.markStateBarrier",
+        "fact_id": "52ba577eaebcc54c3a134565867f9fc6"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.openLink",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.markStateBarrier",
+        "fact_id": "ddee41dc76230c9fc124172726a8b821"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.refreshNegotiation",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.markStateBarrier",
+        "fact_id": "59a472a13ff6c41fb6c64a2970ae8b61"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/sync-engine/src.RoomCoordinator.now (15 dependents)",
+    "source": "god-class",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.now\" is depended upon by 15 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.now",
+        "detail": "15 symbols depend on this",
+        "line": 110,
+        "fact_id": "bc362d25902ecc58295fa7ec27393c30"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.now",
+        "fact_id": "d08d93f3710547667a1de70f4fa2d0fb"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeOperation",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.now",
+        "fact_id": "4237c844f83013a01e11a579158518b9"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeSeek",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.now",
+        "fact_id": "f17cac8e050be31dd8050f37a268df9f"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.constructor",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.now",
+        "fact_id": "34932dcef521af77dfdb4adab0365156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.control",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.now",
+        "fact_id": "2883f85329cdaba32c0b12b6709cd7a0"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.now",
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.join",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.now",
+        "fact_id": "e921a7acc177f71215bec86282b21db7"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.migratePreContractState",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.now",
+        "fact_id": "52ba577eaebcc54c3a134565867f9fc6"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: apps/extension/src.reportPlayerStatus (14 dependents)",
+    "source": "god-class",
+    "description": "\"apps/extension/src.reportPlayerStatus\" is depended upon by 14 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "apps/extension/src/content-script.ts",
+        "symbol": "apps/extension/src.reportPlayerStatus",
+        "detail": "14 symbols depend on this",
+        "line": 894,
+        "fact_id": "c7cd23490635b00a0f5ddfc59117a6f4"
+      },
+      {
+        "symbol": "apps/extension/src.activateSynchronizedPlayback",
+        "detail": "depends on apps/extension/src.reportPlayerStatus",
+        "fact_id": "3c0dde6966826b5fbcd08f81ff104e84"
+      },
+      {
+        "symbol": "apps/extension/src.forceSyncToRoom",
+        "detail": "depends on apps/extension/src.reportPlayerStatus",
+        "fact_id": "67c930cfcb4cfd6a87bce0c91ccb0fe5"
+      },
+      {
+        "symbol": "apps/extension/src.handleBuffering",
+        "detail": "depends on apps/extension/src.reportPlayerStatus",
+        "fact_id": "e828010be95f53cb2cc27b87e006657c"
+      },
+      {
+        "symbol": "apps/extension/src.handleCanPlay",
+        "detail": "depends on apps/extension/src.reportPlayerStatus",
+        "fact_id": "9fa6e2003a07cc6be1b682aff7768a80"
+      },
+      {
+        "symbol": "apps/extension/src.handlePause",
+        "detail": "depends on apps/extension/src.reportPlayerStatus",
+        "fact_id": "ab2b8bbf4c9dd89d63ea93587e7bfbf0"
+      },
+      {
+        "symbol": "apps/extension/src.handlePlay",
+        "detail": "depends on apps/extension/src.reportPlayerStatus",
+        "fact_id": "0756ed0e810b23a2960983ea7ab383d6"
+      },
+      {
+        "symbol": "apps/extension/src.handleSeeked",
+        "detail": "depends on apps/extension/src.reportPlayerStatus",
+        "fact_id": "2885d751c7a933b263735289492ea8f0"
+      },
+      {
+        "symbol": "apps/extension/src.observePageIdentity",
+        "detail": "depends on apps/extension/src.reportPlayerStatus",
+        "fact_id": "b4ea4d223eff7f03b167e8d9c153ab43"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/sync-engine/src.RoomCoordinator.media (14 dependents)",
+    "source": "god-class",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.media\" is depended upon by 14 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.media",
+        "detail": "14 symbols depend on this",
+        "line": 114,
+        "fact_id": "36688f3ed7505692ffca1086cdfa9a3b"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.media",
+        "fact_id": "d08d93f3710547667a1de70f4fa2d0fb"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.clampToMediaDuration",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.media",
+        "fact_id": "42f5173f197432c7f9e271b3d8f8f00e"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.constructor",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.media",
+        "fact_id": "34932dcef521af77dfdb4adab0365156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.media",
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.expectedOperationPosition",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.media",
+        "fact_id": "39edf1214c81f61edc67a814e38baaa8"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.exportState",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.media",
+        "fact_id": "762bf4ed895a401572dd433c0db1ffb2"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.join",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.media",
+        "fact_id": "e921a7acc177f71215bec86282b21db7"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.openLink",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.media",
+        "fact_id": "ddee41dc76230c9fc124172726a8b821"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/sync-engine/src.RoomCoordinator.pendingSeek (14 dependents)",
+    "source": "god-class",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.pendingSeek\" is depended upon by 14 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.pendingSeek",
+        "detail": "14 symbols depend on this",
+        "line": 125,
+        "fact_id": "af923cf3522f9dee517365827a7c9836"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.pendingSeek",
+        "fact_id": "d08d93f3710547667a1de70f4fa2d0fb"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeSeek",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.pendingSeek",
+        "fact_id": "f17cac8e050be31dd8050f37a268df9f"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.constructor",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.pendingSeek",
+        "fact_id": "34932dcef521af77dfdb4adab0365156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.control",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.pendingSeek",
+        "fact_id": "2883f85329cdaba32c0b12b6709cd7a0"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.controlTransactional",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.pendingSeek",
+        "fact_id": "726be58fd5e68bf226fd64ec8a85235a"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.exportState",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.pendingSeek",
+        "fact_id": "762bf4ed895a401572dd433c0db1ffb2"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.migratePreContractState",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.pendingSeek",
+        "fact_id": "52ba577eaebcc54c3a134565867f9fc6"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.participantPlaybackStatus",
+        "detail": "depends on packages/sync-engine/src.RoomCoordinator.pendingSeek",
+        "fact_id": "de0c9b76fd41f69b61dd826b858b0172"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: docs/CRUNCHYROLL_REMEDIATION_PLAN.md (13 dependents)",
+    "source": "god-class",
+    "description": "\"docs/CRUNCHYROLL_REMEDIATION_PLAN.md\" is depended upon by 13 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "symbol": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "detail": "13 symbols depend on this",
+        "line": 1,
+        "fact_id": "c3e5640ce81970cbb4dbdba5d74df8ad"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-1800-1808-03---cr-a05-implementation",
+        "detail": "depends on docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "0563c586304e8ff56a22c6600d315ec0"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-2355-0005-03---source-and-dependency-inspection",
+        "detail": "depends on docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "3c9be49a651ea638febd74960d221204"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-24---decision-on-the-recovery-signal",
+        "detail": "depends on docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "2e156889e76f2c1d4bfd53041710a0a6"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-33",
+        "detail": "depends on docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "3afa4e2063ca4eea9732e40bbce9e072"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-41",
+        "detail": "depends on docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "cc9089f4b2b864c686a773d0b32a933c"
+      },
+      {
+        "symbol": "context-checkpoint.md#confirmed-successful-results-33",
+        "detail": "depends on docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "86dfd1a46cf113debae680d3ed0c5da1"
+      },
+      {
+        "symbol": "context-checkpoint.md#files-and-artifacts-27",
+        "detail": "depends on docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "5395b51e853be5781c85cf82c801e536"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_HANDOFF.md#1-read-this-first",
+        "detail": "depends on docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "f66d3023b698500ed895547303f2cbca"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/protocol/src.isRecord (13 dependents)",
+    "source": "god-class",
+    "description": "\"packages/protocol/src.isRecord\" is depended upon by 13 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/protocol/src/index.ts",
+        "symbol": "packages/protocol/src.isRecord",
+        "detail": "13 symbols depend on this",
+        "line": 965,
+        "fact_id": "6f01c7653d2dacf4bc23529f0e4c51fa"
+      },
+      {
+        "symbol": "packages/protocol/src.isOperationIdentity",
+        "detail": "depends on packages/protocol/src.isRecord",
+        "fact_id": "740f573016547f5bede9ad7f990a485e"
+      },
+      {
+        "symbol": "packages/protocol/src.isOperationObservationIdentity",
+        "detail": "depends on packages/protocol/src.isRecord",
+        "fact_id": "279d897ed480601c1a1666b9df31aa9a"
+      },
+      {
+        "symbol": "packages/protocol/src.isRoomContractSnapshot",
+        "detail": "depends on packages/protocol/src.isRecord",
+        "fact_id": "bb50283352bf615e49ab37f9d0d4969b"
+      },
+      {
+        "symbol": "packages/protocol/src.isRoomOperation",
+        "detail": "depends on packages/protocol/src.isRecord",
+        "fact_id": "ac0b8fefb381ce1d11874d5e0ee3965c"
+      },
+      {
+        "symbol": "packages/protocol/src.normalizeClientCapabilities",
+        "detail": "depends on packages/protocol/src.isRecord",
+        "fact_id": "3b68eb2ec1223fde80a86a7c6a5742bd"
+      },
+      {
+        "symbol": "packages/protocol/src.normalizeRoomContractSnapshot",
+        "detail": "depends on packages/protocol/src.isRecord",
+        "fact_id": "ba9c16509a534387c5826af764799b00"
+      },
+      {
+        "symbol": "packages/protocol/src.parseClientMessage",
+        "detail": "depends on packages/protocol/src.isRecord",
+        "fact_id": "1386d71932a965dad0042f90c865c01a"
+      },
+      {
+        "symbol": "packages/protocol/src.parseOperationAcknowledgement",
+        "detail": "depends on packages/protocol/src.isRecord",
+        "fact_id": "9b0f771972b9129286483198d8490125"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: apps/extension/src.sendRuntime (12 dependents)",
+    "source": "god-class",
+    "description": "\"apps/extension/src.sendRuntime\" is depended upon by 12 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "apps/extension/src/content-script.ts",
+        "symbol": "apps/extension/src.sendRuntime",
+        "detail": "12 symbols depend on this",
+        "line": 2001,
+        "fact_id": "fd08e926e19b9f2af29b26c23833cca7"
+      },
+      {
+        "symbol": "apps/extension/src.handleEnded",
+        "detail": "depends on apps/extension/src.sendRuntime",
+        "fact_id": "1826613956f12e56de7a5dac62a794af"
+      },
+      {
+        "symbol": "apps/extension/src.handlePause",
+        "detail": "depends on apps/extension/src.sendRuntime",
+        "fact_id": "ab2b8bbf4c9dd89d63ea93587e7bfbf0"
+      },
+      {
+        "symbol": "apps/extension/src.handlePlay",
+        "detail": "depends on apps/extension/src.sendRuntime",
+        "fact_id": "0756ed0e810b23a2960983ea7ab383d6"
+      },
+      {
+        "symbol": "apps/extension/src.maybeAcknowledgeRoomSeek",
+        "detail": "depends on apps/extension/src.sendRuntime",
+        "fact_id": "934493252475a6dd732cea10d3b0f1e5"
+      },
+      {
+        "symbol": "apps/extension/src.perform",
+        "detail": "depends on apps/extension/src.sendRuntime",
+        "fact_id": "a7eef13ab7df9ec87f1eb5b428c05c27"
+      },
+      {
+        "symbol": "apps/extension/src.refreshState",
+        "detail": "depends on apps/extension/src.sendRuntime",
+        "fact_id": "b090688fc977b13078214d3c6c0efb5c"
+      },
+      {
+        "symbol": "apps/extension/src.reportMedia",
+        "detail": "depends on apps/extension/src.sendRuntime",
+        "fact_id": "3bc256852e5e9d9827dbbe0c0ba0288d"
+      },
+      {
+        "symbol": "apps/extension/src.reportPlayerStatus",
+        "detail": "depends on apps/extension/src.sendRuntime",
+        "fact_id": "c7cd23490635b00a0f5ddfc59117a6f4"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: docs/CRUNCHYROLL_HANDOFF.md (12 dependents)",
+    "source": "god-class",
+    "description": "\"docs/CRUNCHYROLL_HANDOFF.md\" is depended upon by 12 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "docs/CRUNCHYROLL_HANDOFF.md",
+        "symbol": "docs/CRUNCHYROLL_HANDOFF.md",
+        "detail": "12 symbols depend on this",
+        "line": 1,
+        "fact_id": "84218654735f76165ac3313d7a996ebd"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-31",
+        "detail": "depends on docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "c603061c0f820e3dda57a70531dc726d"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-33",
+        "detail": "depends on docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "3afa4e2063ca4eea9732e40bbce9e072"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-41",
+        "detail": "depends on docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "cc9089f4b2b864c686a773d0b32a933c"
+      },
+      {
+        "symbol": "context-checkpoint.md#confirmed-successful-results-31",
+        "detail": "depends on docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "3b98ccd324b1c87573b1f019ef0ac9bb"
+      },
+      {
+        "symbol": "context-checkpoint.md#confirmed-successful-results-33",
+        "detail": "depends on docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "86dfd1a46cf113debae680d3ed0c5da1"
+      },
+      {
+        "symbol": "context-checkpoint.md#current-state-17",
+        "detail": "depends on docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "447602365779af63e6422413de34d8ae"
+      },
+      {
+        "symbol": "context-checkpoint.md#files-and-artifacts-27",
+        "detail": "depends on docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "5395b51e853be5781c85cf82c801e536"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_ISSUE_MAP.md#canonical-tracker",
+        "detail": "depends on docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "798f5ae073c6ce97f7b71ae83c4068ed"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: apps/extension/src.currentEpisodeMatchesRoom (11 dependents)",
+    "source": "god-class",
+    "description": "\"apps/extension/src.currentEpisodeMatchesRoom\" is depended upon by 11 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "apps/extension/src/content-script.ts",
+        "symbol": "apps/extension/src.currentEpisodeMatchesRoom",
+        "detail": "11 symbols depend on this",
+        "line": 1282,
+        "fact_id": "456f39c62c3550ceb37c1d15a949af5d"
+      },
+      {
+        "symbol": "apps/extension/src.applyAuthoritativeState",
+        "detail": "depends on apps/extension/src.currentEpisodeMatchesRoom",
+        "fact_id": "78453be9266afc53e71f47f2e7ec6a19"
+      },
+      {
+        "symbol": "apps/extension/src.applyTransactionalOperation",
+        "detail": "depends on apps/extension/src.currentEpisodeMatchesRoom",
+        "fact_id": "52b854df0ca7def920ea05ce6da5fa2d"
+      },
+      {
+        "symbol": "apps/extension/src.forceSyncToRoom",
+        "detail": "depends on apps/extension/src.currentEpisodeMatchesRoom",
+        "fact_id": "67c930cfcb4cfd6a87bce0c91ccb0fe5"
+      },
+      {
+        "symbol": "apps/extension/src.handleEnded",
+        "detail": "depends on apps/extension/src.currentEpisodeMatchesRoom",
+        "fact_id": "1826613956f12e56de7a5dac62a794af"
+      },
+      {
+        "symbol": "apps/extension/src.handlePause",
+        "detail": "depends on apps/extension/src.currentEpisodeMatchesRoom",
+        "fact_id": "ab2b8bbf4c9dd89d63ea93587e7bfbf0"
+      },
+      {
+        "symbol": "apps/extension/src.handlePlay",
+        "detail": "depends on apps/extension/src.currentEpisodeMatchesRoom",
+        "fact_id": "0756ed0e810b23a2960983ea7ab383d6"
+      },
+      {
+        "symbol": "apps/extension/src.handleSeeked",
+        "detail": "depends on apps/extension/src.currentEpisodeMatchesRoom",
+        "fact_id": "2885d751c7a933b263735289492ea8f0"
+      },
+      {
+        "symbol": "apps/extension/src.handleSeeking",
+        "detail": "depends on apps/extension/src.currentEpisodeMatchesRoom",
+        "fact_id": "cf04abf371221e82ba445445c52c9c1a"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: apps/extension/src.escapeHtml (11 dependents)",
+    "source": "god-class",
+    "description": "\"apps/extension/src.escapeHtml\" is depended upon by 11 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "apps/extension/src/sidepanel.ts",
+        "symbol": "apps/extension/src.escapeHtml",
+        "detail": "11 symbols depend on this",
+        "line": 1023,
+        "fact_id": "2c051366ffa92b5d132f6261c6e9a69d"
+      },
+      {
+        "symbol": "apps/extension/src.errorPanel",
+        "detail": "depends on apps/extension/src.escapeHtml",
+        "fact_id": "0066c4a4d8d0b572a5fcabebf4a03607"
+      },
+      {
+        "symbol": "apps/extension/src.escapeAttribute",
+        "detail": "depends on apps/extension/src.escapeHtml",
+        "fact_id": "dd1c3907114cf5cf10aa6b94c7b19ac9"
+      },
+      {
+        "symbol": "apps/extension/src.participantRow",
+        "detail": "depends on apps/extension/src.escapeHtml",
+        "fact_id": "49a10cfdc4e527c10408022855f3e8c0"
+      },
+      {
+        "symbol": "apps/extension/src.pendingApprovalView",
+        "detail": "depends on apps/extension/src.escapeHtml",
+        "fact_id": "57febb27e30f2757a8fcc4eedf11e01f"
+      },
+      {
+        "symbol": "apps/extension/src.pendingJoinRequestsCard",
+        "detail": "depends on apps/extension/src.escapeHtml",
+        "fact_id": "9ea7b69e4da7d76d2c8fbe5f344491d1"
+      },
+      {
+        "symbol": "apps/extension/src.playbackStatusCard",
+        "detail": "depends on apps/extension/src.escapeHtml",
+        "fact_id": "8dbac8025be05a5c9cc31e953189a46a"
+      },
+      {
+        "symbol": "apps/extension/src.playerDiagnosticsCard",
+        "detail": "depends on apps/extension/src.escapeHtml",
+        "fact_id": "4e5d552d122b46ef3ab7e86145f850b1"
+      },
+      {
+        "symbol": "apps/extension/src.readinessControls",
+        "detail": "depends on apps/extension/src.escapeHtml",
+        "fact_id": "47ce74920117865d7a66b28960f1bf2d"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: docs/CRUNCHYROLL_SYNC_ANALYSIS.md (11 dependents)",
+    "source": "god-class",
+    "description": "\"docs/CRUNCHYROLL_SYNC_ANALYSIS.md\" is depended upon by 11 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "symbol": "docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "detail": "11 symbols depend on this",
+        "line": 1,
+        "fact_id": "c42e6619e165cae311ede22252c36bdc"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-29",
+        "detail": "depends on docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "fact_id": "6308c9193190da838a9180072d5be848"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-30",
+        "detail": "depends on docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "fact_id": "ae474d47da0d4dc1607cab13acf5f330"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-33",
+        "detail": "depends on docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "fact_id": "3afa4e2063ca4eea9732e40bbce9e072"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-41",
+        "detail": "depends on docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "fact_id": "cc9089f4b2b864c686a773d0b32a933c"
+      },
+      {
+        "symbol": "context-checkpoint.md#confirmed-successful-results-29",
+        "detail": "depends on docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "fact_id": "662c2a2cd0942c5f0e1fbf9721608017"
+      },
+      {
+        "symbol": "context-checkpoint.md#confirmed-successful-results-33",
+        "detail": "depends on docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "fact_id": "86dfd1a46cf113debae680d3ed0c5da1"
+      },
+      {
+        "symbol": "context-checkpoint.md#files-and-artifacts-23",
+        "detail": "depends on docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "fact_id": "3b903a0a3cded5424e3679efe52c1d6d"
+      },
+      {
+        "symbol": "context-checkpoint.md#files-and-artifacts-24",
+        "detail": "depends on docs/CRUNCHYROLL_SYNC_ANALYSIS.md",
+        "fact_id": "38fd02e89c83834d6b6df30609dbc850"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: packages/protocol/src.isFiniteNonNegative (11 dependents)",
+    "source": "god-class",
+    "description": "\"packages/protocol/src.isFiniteNonNegative\" is depended upon by 11 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "packages/protocol/src/index.ts",
+        "symbol": "packages/protocol/src.isFiniteNonNegative",
+        "detail": "11 symbols depend on this",
+        "line": 1219,
+        "fact_id": "609dd5fc646bf869a301c45570044c0d"
+      },
+      {
+        "symbol": "packages/protocol/src.isBoundedRangeSeconds",
+        "detail": "depends on packages/protocol/src.isFiniteNonNegative",
+        "fact_id": "66364661a5c53722a2d7def1a40c0516"
+      },
+      {
+        "symbol": "packages/protocol/src.isNonNegativeInteger",
+        "detail": "depends on packages/protocol/src.isFiniteNonNegative",
+        "fact_id": "d09ac64af75ea1f0f43a1536e0a518c4"
+      },
+      {
+        "symbol": "packages/protocol/src.isPositionOrNull",
+        "detail": "depends on packages/protocol/src.isFiniteNonNegative",
+        "fact_id": "d442203f78e80d185765ee604fbc2a53"
+      },
+      {
+        "symbol": "packages/protocol/src.isRoomOperation",
+        "detail": "depends on packages/protocol/src.isFiniteNonNegative",
+        "fact_id": "ac0b8fefb381ce1d11874d5e0ee3965c"
+      },
+      {
+        "symbol": "packages/protocol/src.isTimestampOrNull",
+        "detail": "depends on packages/protocol/src.isFiniteNonNegative",
+        "fact_id": "66090bfe75d3fbd292cecf3a275a1e55"
+      },
+      {
+        "symbol": "packages/protocol/src.parseClientMessage",
+        "detail": "depends on packages/protocol/src.isFiniteNonNegative",
+        "fact_id": "1386d71932a965dad0042f90c865c01a"
+      },
+      {
+        "symbol": "packages/protocol/src.parseOperationAcknowledgement",
+        "detail": "depends on packages/protocol/src.isFiniteNonNegative",
+        "fact_id": "9b0f771972b9129286483198d8490125"
+      },
+      {
+        "symbol": "packages/protocol/src.validDiagnosticEvent",
+        "detail": "depends on packages/protocol/src.isFiniteNonNegative",
+        "fact_id": "c441a0a48e2f9a2eddf9e30abfde393c"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: apps/extension/src.applyAuthoritativeState (10 dependents)",
+    "source": "god-class",
+    "description": "\"apps/extension/src.applyAuthoritativeState\" is depended upon by 10 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "apps/extension/src/content-script.ts",
+        "symbol": "apps/extension/src.applyAuthoritativeState",
+        "detail": "10 symbols depend on this",
+        "line": 995,
+        "fact_id": "78453be9266afc53e71f47f2e7ec6a19"
+      },
+      {
+        "symbol": "apps/extension/src.activateSynchronizedPlayback",
+        "detail": "depends on apps/extension/src.applyAuthoritativeState",
+        "fact_id": "3c0dde6966826b5fbcd08f81ff104e84"
+      },
+      {
+        "symbol": "apps/extension/src.handleCanPlay",
+        "detail": "depends on apps/extension/src.applyAuthoritativeState",
+        "fact_id": "9fa6e2003a07cc6be1b682aff7768a80"
+      },
+      {
+        "symbol": "apps/extension/src.handleMediaReady",
+        "detail": "depends on apps/extension/src.applyAuthoritativeState",
+        "fact_id": "924c8a73a33689cd503ea52b2959a63e"
+      },
+      {
+        "symbol": "apps/extension/src.handleSeeked",
+        "detail": "depends on apps/extension/src.applyAuthoritativeState",
+        "fact_id": "2885d751c7a933b263735289492ea8f0"
+      },
+      {
+        "symbol": "apps/extension/src.maybeCompletePendingSeek",
+        "detail": "depends on apps/extension/src.applyAuthoritativeState",
+        "fact_id": "7144972686ef51448b16a67f9b2b8593"
+      },
+      {
+        "symbol": "apps/extension/src.recoverAfterPageVisibilityChange",
+        "detail": "depends on apps/extension/src.applyAuthoritativeState",
+        "fact_id": "b13943fa168d1dbb9e7c5e3f38baf919"
+      },
+      {
+        "symbol": "apps/extension/src.requestTransactionalPlay",
+        "detail": "depends on apps/extension/src.applyAuthoritativeState",
+        "fact_id": "fea26f986604d55b7dc914291ae1c659"
+      },
+      {
+        "symbol": "apps/extension/src.schedulePlay",
+        "detail": "depends on apps/extension/src.applyAuthoritativeState",
+        "fact_id": "979d197259d467e0f019ee01765aa8cb"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "High fan-in symbol: apps/extension/src.renderPill (10 dependents)",
+    "source": "god-class",
+    "description": "\"apps/extension/src.renderPill\" is depended upon by 10 other symbols — well above the repo average. High fan-in concentrates change risk: edits here ripple across many call sites, and it often indicates a missing or overly broad abstraction.",
+    "confidence": 0.95,
+    "evidence": [
+      {
+        "file": "apps/extension/src/content-script.ts",
+        "symbol": "apps/extension/src.renderPill",
+        "detail": "10 symbols depend on this",
+        "line": 1567,
+        "fact_id": "0c0f23efde8b60cc3ff73a6e8ce67e2c"
+      },
+      {
+        "symbol": "apps/extension/src.activateSynchronizedPlayback",
+        "detail": "depends on apps/extension/src.renderPill",
+        "fact_id": "3c0dde6966826b5fbcd08f81ff104e84"
+      },
+      {
+        "symbol": "apps/extension/src.attachPlayer",
+        "detail": "depends on apps/extension/src.renderPill",
+        "fact_id": "d0aa1560045dc6223b360aac43559d35"
+      },
+      {
+        "symbol": "apps/extension/src.forceSyncToRoom",
+        "detail": "depends on apps/extension/src.renderPill",
+        "fact_id": "67c930cfcb4cfd6a87bce0c91ccb0fe5"
+      },
+      {
+        "symbol": "apps/extension/src.handlePause",
+        "detail": "depends on apps/extension/src.renderPill",
+        "fact_id": "ab2b8bbf4c9dd89d63ea93587e7bfbf0"
+      },
+      {
+        "symbol": "apps/extension/src.handlePlay",
+        "detail": "depends on apps/extension/src.renderPill",
+        "fact_id": "0756ed0e810b23a2960983ea7ab383d6"
+      },
+      {
+        "symbol": "apps/extension/src.playVideo",
+        "detail": "depends on apps/extension/src.renderPill",
+        "fact_id": "93885bd5eb55b1a0aab514adecadfcdb"
+      },
+      {
+        "symbol": "apps/extension/src.reportPlayerStatus",
+        "detail": "depends on apps/extension/src.renderPill",
+        "fact_id": "c7cd23490635b00a0f5ddfc59117a6f4"
+      },
+      {
+        "symbol": "apps/extension/src.requestVideoPlay",
+        "detail": "depends on apps/extension/src.renderPill",
+        "fact_id": "22d05271c3d734a966f87009c349b263"
+      }
+    ],
+    "suggested_actions": [
+      "Split the symbol along distinct responsibilities its callers use",
+      "Introduce narrower interfaces so callers depend only on what they need",
+      "Stabilize its public contract to limit churn for dependents"
+    ]
+  },
+  {
+    "title": "Call-graph hotspot: context-checkpoint.md (fan-in 4, fan-out 1334)",
+    "source": "hotspots",
+    "description": "\"context-checkpoint.md\" is a pinch point: 4 symbols call into it and it calls out to 1334 others, so a large share of call chains pass through it (degree-centrality proxy for betweenness). Such chokepoints are high-risk to change and high-value to test.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "context-checkpoint.md",
+        "symbol": "context-checkpoint.md",
+        "detail": "fan-in 4 × fan-out 1334 = score 5336",
+        "line": 1,
+        "fact_id": "38e6929d2b12b6153dc8f28e714a2e30"
+      },
+      {
+        "symbol": "context-checkpoint.md#files-and-artifacts-24",
+        "detail": "calls into context-checkpoint.md",
+        "fact_id": "38fd02e89c83834d6b6df30609dbc850"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_A01_IMPLEMENTATION_RECORD.md#files-and-artifacts",
+        "detail": "calls into context-checkpoint.md",
+        "fact_id": "e1a2f7bf8b282dc2c4ec144b863a2071"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_HANDOFF.md#12-work-record-and-superseded-conclusions",
+        "detail": "calls into context-checkpoint.md",
+        "fact_id": "28e1a41d7f3505d90f9069e3776eaec7"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md#crunchyroll-synchronization-remediation-plan",
+        "detail": "calls into context-checkpoint.md",
+        "fact_id": "a056207b868ae9e1e0ed2780abd7b91d"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20---added-headed-cross-platform-report-template",
+        "detail": "called by context-checkpoint.md",
+        "fact_id": "ca1f777d3fab7c076796d888b09b2044"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20---classified-issue-35-in-the-public-project",
+        "detail": "called by context-checkpoint.md",
+        "fact_id": "71c9f306546694c114c94220958f4c9d"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20---documentation-skill-and-report-structure",
+        "detail": "called by context-checkpoint.md",
+        "fact_id": "4e58eff2ae46292f3e0948998d24c2de"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20---issue-35-inspection-and-evidence-decision",
+        "detail": "called by context-checkpoint.md",
+        "fact_id": "0ca5ae18db8f239ffd9b9512f1e15b5f"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20---local-validation-before-pr-creation",
+        "detail": "called by context-checkpoint.md",
+        "fact_id": "4939f777929f058582699f9c6a15ac1c"
+      }
+    ],
+    "suggested_actions": [
+      "Add focused tests around this chokepoint before refactoring",
+      "Consider decomposing it so call paths don't all funnel through one symbol",
+      "Verify it isn't doing orchestration that belongs in callers"
+    ]
+  },
+  {
+    "title": "Call-graph hotspot: docs/TEST_GUIDE.md (fan-in 41, fan-out 29)",
+    "source": "hotspots",
+    "description": "\"docs/TEST_GUIDE.md\" is a pinch point: 41 symbols call into it and it calls out to 29 others, so a large share of call chains pass through it (degree-centrality proxy for betweenness). Such chokepoints are high-risk to change and high-value to test.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "docs/TEST_GUIDE.md",
+        "symbol": "docs/TEST_GUIDE.md",
+        "detail": "fan-in 41 × fan-out 29 = score 1189",
+        "line": 1,
+        "fact_id": "813cc350ac159749344e3417c6453320"
+      },
+      {
+        "symbol": "README.md#project-documentation",
+        "detail": "calls into docs/TEST_GUIDE.md",
+        "fact_id": "d244cd582b7bf813ed5f7f67256bf67e"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20---updated-test-guide",
+        "detail": "calls into docs/TEST_GUIDE.md",
+        "fact_id": "6fdb27200b1babb791237a0c42dfd6cd"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-1649-03---working-tree-inspection",
+        "detail": "calls into docs/TEST_GUIDE.md",
+        "fact_id": "526cf5e4b1e79d1f15aa8dc76dd0ecc3"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-1800-1808-03---cr-a05-implementation",
+        "detail": "calls into docs/TEST_GUIDE.md",
+        "fact_id": "0563c586304e8ff56a22c6600d315ec0"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-1914-1917-03---documentation-and-full-local-verification",
+        "detail": "calls into docs/TEST_GUIDE.md",
+        "fact_id": "b34baa6aea1e9c54cd29911fddbeb0bb"
+      },
+      {
+        "symbol": "docs",
+        "detail": "called by docs/TEST_GUIDE.md"
+      },
+      {
+        "symbol": "docs/TEST_GUIDE.md#authenticated-crunchyroll-two-profile-e2e",
+        "detail": "called by docs/TEST_GUIDE.md",
+        "fact_id": "314a6bb6ad84a549ffb8dc9e984ea118"
+      },
+      {
+        "symbol": "docs/TEST_GUIDE.md#automated-three-profile-cr-d03-browser-matrix",
+        "detail": "called by docs/TEST_GUIDE.md",
+        "fact_id": "286010a28ef3ba515ee4818722cdf51f"
+      },
+      {
+        "symbol": "docs/TEST_GUIDE.md#automated-two-profile-e2e-test-for-contributors",
+        "detail": "called by docs/TEST_GUIDE.md",
+        "fact_id": "90bd29efa94b6282345f0fca74e3927a"
+      },
+      {
+        "symbol": "docs/TEST_GUIDE.md#before-the-session",
+        "detail": "called by docs/TEST_GUIDE.md",
+        "fact_id": "35012aa072ab23eadd846c27e5bebe0f"
+      }
+    ],
+    "suggested_actions": [
+      "Add focused tests around this chokepoint before refactoring",
+      "Consider decomposing it so call paths don't all funnel through one symbol",
+      "Verify it isn't doing orchestration that belongs in callers"
+    ]
+  },
+  {
+    "title": "Call-graph hotspot: tasks/plan.md (fan-in 21, fan-out 32)",
+    "source": "hotspots",
+    "description": "\"tasks/plan.md\" is a pinch point: 21 symbols call into it and it calls out to 32 others, so a large share of call chains pass through it (degree-centrality proxy for betweenness). Such chokepoints are high-risk to change and high-value to test.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "tasks/plan.md",
+        "symbol": "tasks/plan.md",
+        "detail": "fan-in 21 × fan-out 32 = score 672",
+        "line": 1,
+        "fact_id": "d10d026d35a3a86e7d7bb099d4c97ce6"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-22---created-the-documentation-reconciliation-branch-and-commit",
+        "detail": "calls into tasks/plan.md",
+        "fact_id": "1740d05cacee5da6e0bd5c1c8e49793d"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-22---reconciled-repository-planning-documentation",
+        "detail": "calls into tasks/plan.md",
+        "fact_id": "17879fa0df47f1e66b58c36ae84e8d79"
+      },
+      {
+        "symbol": "context-checkpoint.md#automated-tests-and-browser-packaging",
+        "detail": "calls into tasks/plan.md",
+        "fact_id": "07693b3d02c6b2afb1a9279d4654a989"
+      },
+      {
+        "symbol": "context-checkpoint.md#compatibility-plan-and-source-research",
+        "detail": "calls into tasks/plan.md",
+        "fact_id": "4b570bcc185c63671d23c50ce50ebd82"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-31",
+        "detail": "calls into tasks/plan.md",
+        "fact_id": "c603061c0f820e3dda57a70531dc726d"
+      },
+      {
+        "symbol": "tasks",
+        "detail": "called by tasks/plan.md"
+      },
+      {
+        "symbol": "tasks/plan.md#architecture-decisions",
+        "detail": "called by tasks/plan.md",
+        "fact_id": "61022c055126a8bf903e461ac372977e"
+      },
+      {
+        "symbol": "tasks/plan.md#architecture-decisions-1",
+        "detail": "called by tasks/plan.md",
+        "fact_id": "4c68f96e17d9963b7395daeff4d73715"
+      },
+      {
+        "symbol": "tasks/plan.md#architecture-decisions-2",
+        "detail": "called by tasks/plan.md",
+        "fact_id": "d8925fae2daa539dac7210077eb281c9"
+      },
+      {
+        "symbol": "tasks/plan.md#checkpoint-deterministic-artifact-behavior",
+        "detail": "called by tasks/plan.md",
+        "fact_id": "5d9461215ae7ed8375210cffdda4b083"
+      }
+    ],
+    "suggested_actions": [
+      "Add focused tests around this chokepoint before refactoring",
+      "Consider decomposing it so call paths don't all funnel through one symbol",
+      "Verify it isn't doing orchestration that belongs in callers"
+    ]
+  },
+  {
+    "title": "Call-graph hotspot: docs/CODE_AUDIT.md (fan-in 15, fan-out 26)",
+    "source": "hotspots",
+    "description": "\"docs/CODE_AUDIT.md\" is a pinch point: 15 symbols call into it and it calls out to 26 others, so a large share of call chains pass through it (degree-centrality proxy for betweenness). Such chokepoints are high-risk to change and high-value to test.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "docs/CODE_AUDIT.md",
+        "symbol": "docs/CODE_AUDIT.md",
+        "detail": "fan-in 15 × fan-out 26 = score 390",
+        "line": 1,
+        "fact_id": "24e16f359e825bb2e286b3cfea278caa"
+      },
+      {
+        "symbol": "CHANGELOG.md#added-2",
+        "detail": "calls into docs/CODE_AUDIT.md",
+        "fact_id": "3b5112cbec19b59854ecef911592b299"
+      },
+      {
+        "symbol": "SECURITY.md#scope",
+        "detail": "calls into docs/CODE_AUDIT.md",
+        "fact_id": "387a1a132c68ffe732e988d783b046d7"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-18",
+        "detail": "calls into docs/CODE_AUDIT.md",
+        "fact_id": "a244156510cb93df5c964b1c96c973fd"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-20",
+        "detail": "calls into docs/CODE_AUDIT.md",
+        "fact_id": "167b5053bb532e02e2544b553399b3bf"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-41",
+        "detail": "calls into docs/CODE_AUDIT.md",
+        "fact_id": "cc9089f4b2b864c686a773d0b32a933c"
+      },
+      {
+        "symbol": "docs",
+        "detail": "called by docs/CODE_AUDIT.md"
+      },
+      {
+        "symbol": "docs/CODE_AUDIT.md#correctness-and-reliability-review",
+        "detail": "called by docs/CODE_AUDIT.md",
+        "fact_id": "1c81918a68e072fae9adea0e6dc736a4"
+      },
+      {
+        "symbol": "docs/CODE_AUDIT.md#executive-summary",
+        "detail": "called by docs/CODE_AUDIT.md",
+        "fact_id": "690f7cef55199223c201e4872da66db9"
+      },
+      {
+        "symbol": "docs/CODE_AUDIT.md#gate-4-verdict",
+        "detail": "called by docs/CODE_AUDIT.md",
+        "fact_id": "abeef8ba0ec6fe329675c86fb49acd47"
+      },
+      {
+        "symbol": "docs/CODE_AUDIT.md#p1-findings",
+        "detail": "called by docs/CODE_AUDIT.md",
+        "fact_id": "37388f6225a8e95f3e13cfa9a5b1e062"
+      }
+    ],
+    "suggested_actions": [
+      "Add focused tests around this chokepoint before refactoring",
+      "Consider decomposing it so call paths don't all funnel through one symbol",
+      "Verify it isn't doing orchestration that belongs in callers"
+    ]
+  },
+  {
+    "title": "Call-graph hotspot: docs/CRUNCHYROLL_REMEDIATION_PLAN.md (fan-in 13, fan-out 25)",
+    "source": "hotspots",
+    "description": "\"docs/CRUNCHYROLL_REMEDIATION_PLAN.md\" is a pinch point: 13 symbols call into it and it calls out to 25 others, so a large share of call chains pass through it (degree-centrality proxy for betweenness). Such chokepoints are high-risk to change and high-value to test.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "symbol": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "detail": "fan-in 13 × fan-out 25 = score 325",
+        "line": 1,
+        "fact_id": "c3e5640ce81970cbb4dbdba5d74df8ad"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-1800-1808-03---cr-a05-implementation",
+        "detail": "calls into docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "0563c586304e8ff56a22c6600d315ec0"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-20-2355-0005-03---source-and-dependency-inspection",
+        "detail": "calls into docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "3c9be49a651ea638febd74960d221204"
+      },
+      {
+        "symbol": "context-checkpoint.md#2026-09-24---decision-on-the-recovery-signal",
+        "detail": "calls into docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "2e156889e76f2c1d4bfd53041710a0a6"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-33",
+        "detail": "calls into docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "3afa4e2063ca4eea9732e40bbce9e072"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-41",
+        "detail": "calls into docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "cc9089f4b2b864c686a773d0b32a933c"
+      },
+      {
+        "symbol": "docs",
+        "detail": "called by docs/CRUNCHYROLL_REMEDIATION_PLAN.md"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md#1-objective-and-boundaries",
+        "detail": "called by docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "10a12ee7293f8c9ef44fd144712dd6d9"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md#2-verified-starting-point",
+        "detail": "called by docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "5303fcaac003cd9700a44fc1d5f3f374"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md#3-deeper-review-findings-and-priorities",
+        "detail": "called by docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "b82602e8db3a4243a161f330bf3d9986"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_REMEDIATION_PLAN.md#4-architecture-decisions",
+        "detail": "called by docs/CRUNCHYROLL_REMEDIATION_PLAN.md",
+        "fact_id": "82c90fde92400c451a7b9a10002e21f0"
+      }
+    ],
+    "suggested_actions": [
+      "Add focused tests around this chokepoint before refactoring",
+      "Consider decomposing it so call paths don't all funnel through one symbol",
+      "Verify it isn't doing orchestration that belongs in callers"
+    ]
+  },
+  {
+    "title": "Call-graph hotspot: docs/CRUNCHYROLL_HANDOFF.md (fan-in 12, fan-out 21)",
+    "source": "hotspots",
+    "description": "\"docs/CRUNCHYROLL_HANDOFF.md\" is a pinch point: 12 symbols call into it and it calls out to 21 others, so a large share of call chains pass through it (degree-centrality proxy for betweenness). Such chokepoints are high-risk to change and high-value to test.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "docs/CRUNCHYROLL_HANDOFF.md",
+        "symbol": "docs/CRUNCHYROLL_HANDOFF.md",
+        "detail": "fan-in 12 × fan-out 21 = score 252",
+        "line": 1,
+        "fact_id": "84218654735f76165ac3313d7a996ebd"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-31",
+        "detail": "calls into docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "c603061c0f820e3dda57a70531dc726d"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-33",
+        "detail": "calls into docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "3afa4e2063ca4eea9732e40bbce9e072"
+      },
+      {
+        "symbol": "context-checkpoint.md#complete-chronological-activity-log-41",
+        "detail": "calls into docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "cc9089f4b2b864c686a773d0b32a933c"
+      },
+      {
+        "symbol": "context-checkpoint.md#confirmed-successful-results-31",
+        "detail": "calls into docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "3b98ccd324b1c87573b1f019ef0ac9bb"
+      },
+      {
+        "symbol": "context-checkpoint.md#confirmed-successful-results-33",
+        "detail": "calls into docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "86dfd1a46cf113debae680d3ed0c5da1"
+      },
+      {
+        "symbol": "docs",
+        "detail": "called by docs/CRUNCHYROLL_HANDOFF.md"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_HANDOFF.md#1-read-this-first",
+        "detail": "called by docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "f66d3023b698500ed895547303f2cbca"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_HANDOFF.md#10-decisions-already-made-proposals-not-yet-executed",
+        "detail": "called by docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "aeef13d523c5e55f476e6a114405ce1f"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_HANDOFF.md#11-exact-continuation-procedure",
+        "detail": "called by docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "ab87800746fbbbfa53beff3f423bd41d"
+      },
+      {
+        "symbol": "docs/CRUNCHYROLL_HANDOFF.md#12-work-record-and-superseded-conclusions",
+        "detail": "called by docs/CRUNCHYROLL_HANDOFF.md",
+        "fact_id": "28e1a41d7f3505d90f9069e3776eaec7"
+      }
+    ],
+    "suggested_actions": [
+      "Add focused tests around this chokepoint before refactoring",
+      "Consider decomposing it so call paths don't all funnel through one symbol",
+      "Verify it isn't doing orchestration that belongs in callers"
+    ]
+  },
+  {
+    "title": "Call-graph hotspot: apps/extension/src.applyAuthoritativeState (fan-in 10, fan-out 21)",
+    "source": "hotspots",
+    "description": "\"apps/extension/src.applyAuthoritativeState\" is a pinch point: 10 symbols call into it and it calls out to 21 others, so a large share of call chains pass through it (degree-centrality proxy for betweenness). Such chokepoints are high-risk to change and high-value to test.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "apps/extension/src/content-script.ts",
+        "symbol": "apps/extension/src.applyAuthoritativeState",
+        "detail": "fan-in 10 × fan-out 21 = score 210",
+        "line": 995,
+        "fact_id": "78453be9266afc53e71f47f2e7ec6a19"
+      },
+      {
+        "symbol": "apps/extension/src.activateSynchronizedPlayback",
+        "detail": "calls into apps/extension/src.applyAuthoritativeState",
+        "fact_id": "3c0dde6966826b5fbcd08f81ff104e84"
+      },
+      {
+        "symbol": "apps/extension/src.handleCanPlay",
+        "detail": "calls into apps/extension/src.applyAuthoritativeState",
+        "fact_id": "9fa6e2003a07cc6be1b682aff7768a80"
+      },
+      {
+        "symbol": "apps/extension/src.handleMediaReady",
+        "detail": "calls into apps/extension/src.applyAuthoritativeState",
+        "fact_id": "924c8a73a33689cd503ea52b2959a63e"
+      },
+      {
+        "symbol": "apps/extension/src.handleSeeked",
+        "detail": "calls into apps/extension/src.applyAuthoritativeState",
+        "fact_id": "2885d751c7a933b263735289492ea8f0"
+      },
+      {
+        "symbol": "apps/extension/src.maybeCompletePendingSeek",
+        "detail": "calls into apps/extension/src.applyAuthoritativeState",
+        "fact_id": "7144972686ef51448b16a67f9b2b8593"
+      },
+      {
+        "symbol": "apps/extension/src",
+        "detail": "called by apps/extension/src.applyAuthoritativeState",
+        "fact_id": "21b3f8751ceadf8aa27192a723417d3c"
+      },
+      {
+        "symbol": "apps/extension/src.applyTransactionalOperation",
+        "detail": "called by apps/extension/src.applyAuthoritativeState",
+        "fact_id": "52b854df0ca7def920ea05ce6da5fa2d"
+      },
+      {
+        "symbol": "apps/extension/src.canApplySoftDriftCorrection",
+        "detail": "called by apps/extension/src.applyAuthoritativeState"
+      },
+      {
+        "symbol": "apps/extension/src.chooseDriftCorrection",
+        "detail": "called by apps/extension/src.applyAuthoritativeState"
+      },
+      {
+        "symbol": "apps/extension/src.clearScheduledPlay",
+        "detail": "called by apps/extension/src.applyAuthoritativeState",
+        "fact_id": "9c4acfc9c265656dc0dd8e0c75255c94"
+      }
+    ],
+    "suggested_actions": [
+      "Add focused tests around this chokepoint before refactoring",
+      "Consider decomposing it so call paths don't all funnel through one symbol",
+      "Verify it isn't doing orchestration that belongs in callers"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: packages/protocol/src.validDiagnosticsReport (119)",
+    "source": "complexity-outliers",
+    "description": "\"packages/protocol/src.validDiagnosticsReport\" has a cyclomatic complexity of 119 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "packages/protocol/src/index.ts",
+        "symbol": "packages/protocol/src.validDiagnosticsReport",
+        "detail": "cyclomatic complexity 119 at line 1030",
+        "line": 1030,
+        "fact_id": "d3ad5e5aa11cdcd8f55568e260e30698"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: apps/extension/src.handleRuntimeRequest (116)",
+    "source": "complexity-outliers",
+    "description": "\"apps/extension/src.handleRuntimeRequest\" has a cyclomatic complexity of 116 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "apps/extension/src/service-worker.ts",
+        "symbol": "apps/extension/src.handleRuntimeRequest",
+        "detail": "cyclomatic complexity 116 at line 232",
+        "line": 232,
+        "fact_id": "50585713cf17fa1f46cd15904ceefeb3"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: apps/room-service/src.createRoomService (111)",
+    "source": "complexity-outliers",
+    "description": "\"apps/room-service/src.createRoomService\" has a cyclomatic complexity of 111 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "apps/room-service/src/server.ts",
+        "symbol": "apps/room-service/src.createRoomService",
+        "detail": "cyclomatic complexity 111 at line 57",
+        "line": 57,
+        "fact_id": "b52cf7cef7957dd268ef6e050ec19d6b"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: packages/protocol/src.parseClientMessage (63)",
+    "source": "complexity-outliers",
+    "description": "\"packages/protocol/src.parseClientMessage\" has a cyclomatic complexity of 63 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "packages/protocol/src/index.ts",
+        "symbol": "packages/protocol/src.parseClientMessage",
+        "detail": "cyclomatic complexity 63 at line 876",
+        "line": 876,
+        "fact_id": "1386d71932a965dad0042f90c865c01a"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: apps/extension/src.applyAuthoritativeState (58)",
+    "source": "complexity-outliers",
+    "description": "\"apps/extension/src.applyAuthoritativeState\" has a cyclomatic complexity of 58 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "apps/extension/src/content-script.ts",
+        "symbol": "apps/extension/src.applyAuthoritativeState",
+        "detail": "cyclomatic complexity 58 at line 995",
+        "line": 995,
+        "fact_id": "78453be9266afc53e71f47f2e7ec6a19"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: packages/sync-engine/src.RoomCoordinator.updatePlayerStatus (52)",
+    "source": "complexity-outliers",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.updatePlayerStatus\" has a cyclomatic complexity of 52 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.updatePlayerStatus",
+        "detail": "cyclomatic complexity 52 at line 912",
+        "line": 912,
+        "fact_id": "8709774a47f6c0608e940b44216e572b"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: apps/edge-service/src.RoomDurableObject.handleMessage (47)",
+    "source": "complexity-outliers",
+    "description": "\"apps/edge-service/src.RoomDurableObject.handleMessage\" has a cyclomatic complexity of 47 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "apps/edge-service/src/worker.ts",
+        "symbol": "apps/edge-service/src.RoomDurableObject.handleMessage",
+        "detail": "cyclomatic complexity 47 at line 274",
+        "line": 274,
+        "fact_id": "3dddce6e0e522491857616ba5805041c"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: packages/sync-engine/src.RoomCoordinator.acknowledgeOperation (46)",
+    "source": "complexity-outliers",
+    "description": "\"packages/sync-engine/src.RoomCoordinator.acknowledgeOperation\" has a cyclomatic complexity of 46 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.acknowledgeOperation",
+        "detail": "cyclomatic complexity 46 at line 453",
+        "line": 453,
+        "fact_id": "4237c844f83013a01e11a579158518b9"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: apps/extension/src.renderPill (40)",
+    "source": "complexity-outliers",
+    "description": "\"apps/extension/src.renderPill\" has a cyclomatic complexity of 40 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "apps/extension/src/content-script.ts",
+        "symbol": "apps/extension/src.renderPill",
+        "detail": "cyclomatic complexity 40 at line 1567",
+        "line": 1567,
+        "fact_id": "0c0f23efde8b60cc3ff73a6e8ce67e2c"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: packages/protocol/src.isRoomOperation (37)",
+    "source": "complexity-outliers",
+    "description": "\"packages/protocol/src.isRoomOperation\" has a cyclomatic complexity of 37 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "packages/protocol/src/index.ts",
+        "symbol": "packages/protocol/src.isRoomOperation",
+        "detail": "cyclomatic complexity 37 at line 624",
+        "line": 624,
+        "fact_id": "ac0b8fefb381ce1d11874d5e0ee3965c"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: apps/extension/src.playerDiagnosticsCard (34)",
+    "source": "complexity-outliers",
+    "description": "\"apps/extension/src.playerDiagnosticsCard\" has a cyclomatic complexity of 34 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "apps/extension/src/sidepanel.ts",
+        "symbol": "apps/extension/src.playerDiagnosticsCard",
+        "detail": "cyclomatic complexity 34 at line 550",
+        "line": 550,
+        "fact_id": "4e5d552d122b46ef3ab7e86145f850b1"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "High cyclomatic complexity: apps/extension/src.buildDiagnosticsReport (31)",
+    "source": "complexity-outliers",
+    "description": "\"apps/extension/src.buildDiagnosticsReport\" has a cyclomatic complexity of 31 — well above the repo average. Highly branched functions are hard to test fully and are frequent defect sites.",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "file": "apps/extension/src/service-worker.ts",
+        "symbol": "apps/extension/src.buildDiagnosticsReport",
+        "detail": "cyclomatic complexity 31 at line 1381",
+        "line": 1381,
+        "fact_id": "c69b6b8715193501b71cf3b10e12f851"
+      }
+    ],
+    "suggested_actions": [
+      "Extract guard clauses and nested branches into helper functions",
+      "Replace deep conditionals with table/strategy dispatch where possible",
+      "Add tests covering the distinct branches before refactoring"
+    ]
+  },
+  {
+    "title": "Dead code candidate: function ..VitestConfig",
+    "source": "dead-code",
+    "description": "function \"..VitestConfig\" is unreferenced — nothing in the snapshot graph references it (medium confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.",
+    "confidence": 0.6,
+    "evidence": [
+      {
+        "file": "vitest.config.ts",
+        "symbol": "..VitestConfig",
+        "detail": "function · unreferenced · vitest.config.ts:3",
+        "line": 3,
+        "fact_id": "4e743510864045d13de3ffc4884d57c9"
+      },
+      {
+        "symbol": "..VitestConfig",
+        "detail": "exported — may be used outside this snapshot; verify before removal",
+        "fact_id": "4e743510864045d13de3ffc4884d57c9"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol"
+    ]
+  },
+  {
+    "title": "Dead code candidate: function packages/protocol/src.isSnapshotRevisionAtLeast",
+    "source": "dead-code",
+    "description": "function \"packages/protocol/src.isSnapshotRevisionAtLeast\" is unreferenced — nothing in the snapshot graph references it (medium confidence). References are matched by short name and biased conservative, so verify against dynamic/reflective dispatch and consumers outside the snapshot before removing.",
+    "confidence": 0.6,
+    "evidence": [
+      {
+        "file": "packages/protocol/src/index.ts",
+        "symbol": "packages/protocol/src.isSnapshotRevisionAtLeast",
+        "detail": "function · unreferenced · packages/protocol/src/index.ts:531",
+        "line": 531,
+        "fact_id": "f1c750853d3a5c8df31f26c293833437"
+      },
+      {
+        "symbol": "packages/protocol/src.isSnapshotRevisionAtLeast",
+        "detail": "exported — may be used outside this snapshot; verify before removal",
+        "fact_id": "f1c750853d3a5c8df31f26c293833437"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm no dynamic/reflective or out-of-snapshot callers, then remove the symbol"
+    ]
+  },
+  {
+    "title": "Additional dead-code candidates: 2242 more (see find_orphans)",
+    "source": "dead-code",
+    "description": "0 further high/medium-confidence orphan(s) were omitted from individual insights and 2242 low-confidence orphan(s) (methods/types/consts/vars — usage not edge-tracked) were not surfaced individually. Use the find_orphans tool (output_mode=full) for the complete list.",
+    "confidence": 0.4,
+    "evidence": null,
+    "suggested_actions": [
+      "Run find_orphans with confidence=high and visibility=unexported for the safest cleanup set"
+    ]
+  },
+  {
+    "title": "Performance risk (compounded, O(n³)): apps/room-service/src.createRoomService",
+    "source": "performance",
+    "description": "Loops here call other looping functions; worst-case nesting compounds across the call graph to about O(n³). Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+    "confidence": 0.55,
+    "evidence": [
+      {
+        "file": "apps/room-service/src/server.ts",
+        "symbol": "apps/room-service/src.createRoomService",
+        "detail": "Loops here call other looping functions; worst-case nesting compounds across the call graph to about O(n³).",
+        "line": 57,
+        "fact_id": "b52cf7cef7957dd268ef6e050ec19d6b"
+      },
+      {
+        "symbol": "apps/room-service/src.createRoomService",
+        "detail": "apps/room-service/src.broadcast (loop_depth=1)",
+        "fact_id": "b52cf7cef7957dd268ef6e050ec19d6b"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm the hot path with a profiler or benchmark before optimizing",
+      "Batch or hoist per-iteration I/O out of loops; add memoization or an iterative rewrite for recursion"
+    ]
+  },
+  {
+    "title": "Performance risk (compounded, O(n³)): packages/protocol/src.negotiateRoomMode",
+    "source": "performance",
+    "description": "Loops here call other looping functions; worst-case nesting compounds across the call graph to about O(n³). Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+    "confidence": 0.55,
+    "evidence": [
+      {
+        "file": "packages/protocol/src/index.ts",
+        "symbol": "packages/protocol/src.negotiateRoomMode",
+        "detail": "Loops here call other looping functions; worst-case nesting compounds across the call graph to about O(n³).",
+        "line": 568,
+        "fact_id": "0bcae20b5ce2ae878a22f4dc2c37a398"
+      },
+      {
+        "symbol": "packages/protocol/src.negotiateRoomMode",
+        "detail": "packages/protocol/src.supportsTransactionalOperations (loop_depth=1)",
+        "fact_id": "0bcae20b5ce2ae878a22f4dc2c37a398"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm the hot path with a profiler or benchmark before optimizing",
+      "Batch or hoist per-iteration I/O out of loops; add memoization or an iterative rewrite for recursion"
+    ]
+  },
+  {
+    "title": "Performance risk (nested-loop, O(n²)): apps/extension/src.fitDiagnosticsReport",
+    "source": "performance",
+    "description": "Loops nest 2 deep, so the body runs about O(n²) in the loop bounds. Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+    "confidence": 0.8,
+    "evidence": [
+      {
+        "file": "apps/extension/src/diagnostics-budget.ts",
+        "symbol": "apps/extension/src.fitDiagnosticsReport",
+        "detail": "Loops nest 2 deep, so the body runs about O(n²) in the loop bounds.",
+        "line": 5,
+        "fact_id": "f83925374c969b9e0dbfe52a139e40bd"
+      },
+      {
+        "symbol": "apps/extension/src.fitDiagnosticsReport",
+        "detail": "loop_depth=2, loop_count=3, cyclomatic=13",
+        "fact_id": "f83925374c969b9e0dbfe52a139e40bd"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm the hot path with a profiler or benchmark before optimizing",
+      "Batch or hoist per-iteration I/O out of loops; add memoization or an iterative rewrite for recursion"
+    ]
+  },
+  {
+    "title": "Performance risk (nested-loop, O(n²)): apps/room-service/src.createRoomService",
+    "source": "performance",
+    "description": "Loops nest 2 deep, so the body runs about O(n²) in the loop bounds. Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+    "confidence": 0.8,
+    "evidence": [
+      {
+        "file": "apps/room-service/src/server.ts",
+        "symbol": "apps/room-service/src.createRoomService",
+        "detail": "Loops nest 2 deep, so the body runs about O(n²) in the loop bounds.",
+        "line": 57,
+        "fact_id": "b52cf7cef7957dd268ef6e050ec19d6b"
+      },
+      {
+        "symbol": "apps/room-service/src.createRoomService",
+        "detail": "loop_depth=2, loop_count=14, cyclomatic=111",
+        "fact_id": "b52cf7cef7957dd268ef6e050ec19d6b"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm the hot path with a profiler or benchmark before optimizing",
+      "Batch or hoist per-iteration I/O out of loops; add memoization or an iterative rewrite for recursion"
+    ]
+  },
+  {
+    "title": "Performance risk (nested-loop, O(n²)): packages/protocol/src.negotiateRoomMode",
+    "source": "performance",
+    "description": "Loops nest 2 deep, so the body runs about O(n²) in the loop bounds. Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+    "confidence": 0.8,
+    "evidence": [
+      {
+        "file": "packages/protocol/src/index.ts",
+        "symbol": "packages/protocol/src.negotiateRoomMode",
+        "detail": "Loops nest 2 deep, so the body runs about O(n²) in the loop bounds.",
+        "line": 568,
+        "fact_id": "0bcae20b5ce2ae878a22f4dc2c37a398"
+      },
+      {
+        "symbol": "packages/protocol/src.negotiateRoomMode",
+        "detail": "loop_depth=2, loop_count=3, cyclomatic=12",
+        "fact_id": "0bcae20b5ce2ae878a22f4dc2c37a398"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm the hot path with a profiler or benchmark before optimizing",
+      "Batch or hoist per-iteration I/O out of loops; add memoization or an iterative rewrite for recursion"
+    ]
+  },
+  {
+    "title": "Performance risk (nested-loop, O(n²)): packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+    "source": "performance",
+    "description": "Loops nest 2 deep, so the body runs about O(n²) in the loop bounds. Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+    "confidence": 0.8,
+    "evidence": [
+      {
+        "file": "packages/sync-engine/src/room.ts",
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "Loops nest 2 deep, so the body runs about O(n²) in the loop bounds.",
+        "line": 698,
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      },
+      {
+        "symbol": "packages/sync-engine/src.RoomCoordinator.evaluateHealth",
+        "detail": "loop_depth=2, loop_count=2, cyclomatic=23",
+        "fact_id": "2df01b46ce148f6f16519e5e517e3156"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm the hot path with a profiler or benchmark before optimizing",
+      "Batch or hoist per-iteration I/O out of loops; add memoization or an iterative rewrite for recursion"
+    ]
+  },
+  {
+    "title": "Performance risk (recursion, O(?) — recursive): apps/extension/src.scheduleSeekCompletionProbe",
+    "source": "performance",
+    "description": "Directly recursive (calls itself); depth is bounded by input shape — verify a base case and stack-depth limits. Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+    "confidence": 0.5,
+    "evidence": [
+      {
+        "file": "apps/extension/src/content-script.ts",
+        "symbol": "apps/extension/src.scheduleSeekCompletionProbe",
+        "detail": "Directly recursive (calls itself); depth is bounded by input shape — verify a base case and stack-depth limits.",
+        "line": 1889,
+        "fact_id": "768e31471063f13cd2b43bfaa79c60ff"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm the hot path with a profiler or benchmark before optimizing",
+      "Batch or hoist per-iteration I/O out of loops; add memoization or an iterative rewrite for recursion"
+    ]
+  },
+  {
+    "title": "Performance risk (compounded, O(n²)): apps/edge-service/src.RoomDurableObject.alarm",
+    "source": "performance",
+    "description": "Loops here call other looping functions; worst-case nesting compounds across the call graph to about O(n²). Big-O is a deterministic estimate of structural worst case from parser facts, not a proof — treat as a lead to verify.",
+    "confidence": 0.55,
+    "evidence": [
+      {
+        "file": "apps/edge-service/src/worker.ts",
+        "symbol": "apps/edge-service/src.RoomDurableObject.alarm",
+        "detail": "Loops here call other looping functions; worst-case nesting compounds across the call graph to about O(n²).",
+        "line": 229,
+        "fact_id": "4c34204044024bb67b2a0c7fe2068ce4"
+      },
+      {
+        "symbol": "apps/edge-service/src.RoomDurableObject.alarm",
+        "detail": "apps/edge-service/src.RoomDurableObject.broadcast (loop_depth=1)",
+        "fact_id": "4c34204044024bb67b2a0c7fe2068ce4"
+      }
+    ],
+    "suggested_actions": [
+      "Confirm the hot path with a profiler or benchmark before optimizing",
+      "Batch or hoist per-iteration I/O out of loops; add memoization or an iterative rewrite for recursion"
+    ]
+  }
+]
