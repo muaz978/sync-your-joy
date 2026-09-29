@@ -2,6 +2,32 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [0.2.6] - 2026-09-29
+
+This is a compatible test release containing the coordinator and extension fixes merged after `v0.2.5`. The coordinator fixes take effect only after the room coordinator is redeployed. The extension changes take effect when each participant loads this package. The paused-seek fix is a coordinator change, so update participants' extensions together with, or before, the coordinator.
+
+### Fixed
+
+- A seek made while the room is paused no longer makes the room fail about three seconds later with a start timeout that puts every participant into recovery. The seek is reported as committed for its window and is then cleared.
+- Repeated presses of Play while a Play is already preparing no longer restart the preparation window and discard the acknowledgements already received.
+- A participant's progress report that raced another participant's start acknowledgement is no longer discarded. Discarding it could pause the whole room as stalled a couple of seconds into playback.
+- The `Playback blocked` state stays visible to everyone until that participant's browser accepts playback again, including across reconnects, instead of appearing for a fraction of a second.
+- The controller's next scrub while the room is paused is no longer pulled back to the previous target while the coordinator still holds the settled seek.
+
+### Added
+
+- Detailed reports include whether the video element was seeking, its media error code, buffered and seekable ranges, buffered-ahead time, the age of a pending seek and whether media keys are attached. They are plain numbers and booleans, never provider text, addresses or keys, and every field is optional so older coordinators relay them unchanged. The side panel's player diagnostics show three of them.
+- Repeated heartbeat and status events in a report are merged, so a long stall no longer pushes the start of a failure out of the report.
+- A written analysis of the Crunchyroll prepare stall, with a manual validation procedure for two profiles.
+
+### Known limits for this test release
+
+- The stall in the live Crunchyroll report, where both players stayed at metadata, is not fixed and its cause is not established. This release adds the evidence needed to tell what the provider was doing. No option that changes when a player is asked to play was built.
+- A 0.2.5 extension talking to a redeployed coordinator can, for about three seconds after a paused seek, have the controller's next scrub pulled back to the old position. This was reproduced only in a unit test.
+- The local three-profile browser matrix still fails intermittently on two known causes recorded in `docs/CR_D03_BROWSER_MATRIX.md`.
+- This release does not claim authenticated Crunchyroll playback acceptance, two-account acceptance, real two-device acceptance, production deployment acceptance, or final user acceptance.
+- The extension remains within its state-only boundary. It does not capture, transmit, or proxy video, audio, credentials, cookies, DRM material, or signed media URLs.
+
 ## [0.2.5] - 2026-09-22
 
 This is a compatible test release containing the verified synchronization, recovery, browser-matrix, and diagnostics work merged after `v0.2.4`. The preparation baseline is main commit `da42aa14398dcd2a3c3fd4e2963ca55475408f4d`; the final release commit and tag are recorded in the release PR and GitHub Release provenance.
