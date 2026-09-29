@@ -9137,3 +9137,85 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. The room code in the report is intentionally not repeated.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review and merge of the open pull requests, and preparation of the 0.2.6 test release.
+- Checkpoint number: 106.
+- Date and time: 2026-09-29, Europe/Istanbul.
+- Coverage period: Since checkpoint 105.
+- Current context status: All open pull requests are merged or closed and `main` is `4ac56a1`. The 0.2.6 version and changelog change is on branch `release/0.2.6`. The tag, GitHub Release and coordinator deployment have not happened yet.
+
+## User Objective and Requirements
+- Fix all open pull requests, review them, merge them, and check that nothing is broken. Then update the touched issues, update the plan, and decide what can safely be closed.
+- After the important matrix batch finishes, publish a new release so the user and a friend can test the changes on 2026-09-30.
+- The user approved, in this session, the Playwright Chromium download and the coordinator deployment from the release tag. Neither approval carries beyond this release.
+- No attribution anywhere. Reference issues only with `Refs`. Do not merge or deploy without the recorded approvals. Do not close any issue on this evidence.
+
+## Current State
+- `origin/main` is `4ac56a1`. `v0.2.5` is `423b6f7c77dad2b4a14db6932711be025aac8163`.
+- The deployed coordinator is still the `v0.2.5` build (active Worker version `6a927c6f-93ea-47dc-b264-a0bc14c9fe1d`, the rollback target for the next deployment). The paused-seek and revision-tolerance fixes reach a room only after the coordinator is redeployed from `v0.2.6`.
+
+## Complete Chronological Activity Log
+
+### 2026-09-26 to 2026-09-27 - Review and merge
+- Action taken: Reviewed #105, #106, #111 and #108 with independent lenses (correctness, tests and claims, interaction with the other pull requests) and a second pass that tried to refute each finding. A first run stopped when the usage limit was reached and was resumed; 50 of 50 agents finished.
+- Result: Confirmed and fixed on the branches before merging: the exact-revision guard on failure classification and the run window in #105 were untested (three regressions, each shown to fail against its mutation) and its Playback blocked statement was not supported by its own counts (reworded). #106 had no test for the reconnect branch (added). #111 named the wrong snapshot reason in the manual runbook, quoted 376 bytes where 375 is measured, and stated the checkpoint numbering as settled when it was not (all corrected).
+- Result: One defect exists only with #105 and #106 together. #105's revision tolerance lets a report that only missed a start acknowledgement reach #106's `playbackBlocked` write, which has no pause attached, so it could set or clear the record without the room pausing. The write is now gated on the exact revision, with a regression that fails without the gate.
+- Action taken: Merged in the order #107 and #109 (CodeQL action bumps), #105, #106, #111, #108. #107 first needed its `init` step moved to the same pinned action commit as `analyze`, because a split bump stopped the analysis with a version mismatch. #110 was closed as superseded. All merges used the authorized administrative path after an exact-head review comment and five passing standard checks.
+- Result: Checkpoints 103 and 104 collided (#105 and #106 both numbered theirs 103); #106's entry was renumbered to 104 and #111's is 105.
+
+### 2026-09-27 - A mistake caught by a test
+- Action taken: While resolving the #106 merge I re-ran a leftover mutation script by mistake. It removed #106's reconnect branch from `join()`.
+- Result: The reconnect test added for that branch failed on the next run, the cause was traced to the script, the branch was restored, and the merge was redone from a clean state so the merge commit contains only the conflict resolution. No history was published with the mistake.
+
+### 2026-09-27 - Verification of `main`
+- Action taken: `npm run check` on `4ac56a1`: 38 files, 406 tests, both typechecks, server and extension builds. `npm run test:e2e` on the same commit: 12 passed, 1 skipped (the opt-in authenticated Crunchyroll test).
+- Result: Passed. The local `node_modules` predate #108's dependency bump, so the hosted `npm ci` run on that lockfile is the authoritative install.
+
+### 2026-09-29 - Matrix batch on `main`
+- Action taken: Playwright's Chromium 1243 had been removed from the shared cache by another Playwright install, so the harness could not launch. With the user's approval, Chrome for Testing 153.0.8010.12 and its headless shell were downloaded again. One attempt failed in 2 seconds before any browser launched; it is not a matrix run and is not counted.
+- Action taken: Ran `tests/e2e/three-profile-browser-matrix.spec.ts` 20 times in sequence, untraced, one output directory per run, on a clean detached checkout of `4ac56a1` with worktree-local package links (macOS arm64, Playwright 1.63.0, Chromium 153.0.8010.12).
+- Result: 20 passed, 0 failed (43 to 48 s per run). This is consistent with the three fixes but does not show that the matrix is stable: the earlier baseline failure rate was about 5 to 20 percent, and 20 clean runs would occur with roughly 36 percent probability at a 5 percent failure rate. It is local Chromium evidence only.
+
+### 2026-09-29 - Release preparation
+- Action taken: Chose `0.2.6` (a compatible patch group). Updated `package.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json` and the three version lines in `package-lock.json`. Added the `0.2.6` changelog entry, limited to behavior confirmed by the merged pull requests, with the known limits stated.
+- Action taken: `npm run release:check-version` (0.2.6), `npm run check` (38 files, 406 tests, builds), `npm run verify:browser-packages` (all three browsers ok), `npm audit --omit=dev --audit-level=high` (0 vulnerabilities), `git diff --check` (clean).
+- Action taken: Built the package with the workflow's command and coordinator URL. The archive tests clean, its SHA-256 checks, `manifest.json` reports `0.2.6`, the service worker contains the production endpoint and no local endpoint, and no source maps are included.
+- Result: Ready for the release pull request. Checks on the exact head, the tag, the workflow run, the asset and checksum verification and the coordinator deployment are recorded on issue #69 after they happen, not here.
+
+## Confirmed Successful Results
+- Six pull requests merged, one closed as superseded, no open pull request remains.
+- `main` at `4ac56a1`: 406 unit tests, both typechecks, both builds, full E2E (12 passed, 1 skipped), 20 of 20 matrix runs.
+- Release package for `0.2.6` builds, verifies and contains the production endpoint.
+
+## Failed, Incomplete, or Unresolved Work
+- The Crunchyroll stall in the live report is not fixed and its cause is not established.
+- The 0.2.6 tag, GitHub Release and coordinator deployment are pending. A 0.2.5 extension against the redeployed coordinator can, for about three seconds after a paused seek, have the controller's next scrub pulled back; reproduced only in a unit test.
+- No issue is closable on this evidence. Every open acceptance issue still needs live-provider, two-account, two-device or deployment evidence.
+- Follow-ups recorded, not done: the 10 s startup timeout is unreachable behind the 4,300 ms operation deadline; a committed operation with a partial start fails snapshot validation on an edge restore; a seek issued during a preparing Play drops the Play's resume intent.
+
+## Decisions and Rationale
+- Deploy the coordinator from the release tag rather than from a moving branch, so the deployed identity is the tagged commit, as for `0.2.5`.
+- Do not change the README's per-version paragraphs, matching `0.2.5`, which did not add one.
+- State the matrix result with its limits instead of calling the matrix stable.
+
+## Files and Artifacts
+- `package.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json`, `package-lock.json`, `CHANGELOG.md`, `context-checkpoint.md`.
+- Local, not in the repository: the per-run matrix summary and the note about the uncounted attempt, kept outside the checkout.
+
+## Assumptions and Uncertainties
+- The residual matrix failure rate is unknown; only 20 runs at one commit exist.
+- A friend on a browser or operating system that was not tested may behave differently.
+
+## Open Questions, Blockers, and Dependencies
+- The friend's extension must be updated to 0.2.6 as well; the user needs to install it before the test.
+
+## Next Steps
+1. Merge the release pull request after its five checks pass, tag `v0.2.6` on the merge commit and let the release workflow publish.
+2. Verify the release assets, checksum and manifest, then deploy the coordinator from the tag and smoke-test a real room against production.
+3. Post the matrix counts and their limits on #68, the diagnostics evidence on #63, and the release record on #69. Close nothing.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
