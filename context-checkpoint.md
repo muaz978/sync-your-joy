@@ -9817,6 +9817,7 @@
 
 ### Verification (local)
 - On the reviewed branch (`fbe3279` base): `npm run check` 41 files, 500 tests; the edge-service and room-service test files five times in a row with no flake. Red first for each behaviour change; the reviewer tests were mutation-checked (51 mutants in one round, 24 in another; survivors listed as equivalent).
+- After the rebase onto `fcf6049` (#128 and #129 merged): `npm run check` 44 files, 611 tests; the edge-service and room-service test files five times in a row, 97 tests each, no flake; `npm run test:e2e` 14 passed, 1 skipped.
 - Independent reviews: one round found two S2 test gaps (the restore alarm not anchored to creation time, and the re-armed plan's alarm and full grace period not pinned), both fixed; two further rounds rated it sound with S3 findings only.
 
 ## Confirmed Successful Results
