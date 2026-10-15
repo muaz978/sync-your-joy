@@ -840,8 +840,9 @@ function handleServerMessage(raw: string): void {
   if (message.type === 'error') {
     // While this client believes it is in a room, room_not_found can only
     // mean the room is gone (a reconnect found nothing to rejoin), and
-    // room_expired is what the local coordinator answers a socket that
-    // survived the room's removal. A first join to a wrong code has no
+    // room_expired is what a coordinator may answer for a room it has
+    // already removed (the current local service closes every socket first,
+    // so this is defence in depth). A first join to a wrong code has no
     // snapshot yet and keeps the plain error.
     if ((message.code === 'room_not_found' || message.code === 'room_expired') && state.snapshot) {
       recordDiagnostic('error', 'room_gone', { code: safeDiagnosticCode(message.code) }, { reason: 'server-error' })
