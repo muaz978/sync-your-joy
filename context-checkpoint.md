@@ -9299,3 +9299,63 @@
 ## Historical Checkpoint Notes
 - Checkpoint 106 recorded the 0.2.6 release preparation. This checkpoint supersedes nothing.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R1 (dependency batch and CodeQL), tracking issue #119.
+- Checkpoint number: 108.
+- Date and time: 2026-10-15, Europe/Istanbul.
+- Coverage period: Since checkpoint 107 (PR #120 merged as `88f2d89`).
+- Current context status: The dependency batch is built and verified locally on branch `chore/deps-batch-codeql-v4.38.3`, based on `88f2d89`. It is not merged, released or deployed.
+
+## User Objective and Requirements
+- Close the gaps found by the review of the five open Dependabot pull requests, in ordered, tracked phases that survive a session limit. Every change follows the repository rules: no attribution, no closing keywords, exact-head review, required checks, evidence classes kept separate.
+
+## Complete Chronological Activity Log
+
+### Review (basis for this change)
+- Action taken: twelve independent reviewers with candidate builds on top of `main`, a local workerd run of the edge object, and a skeptic on each blocking finding.
+- Result: #116 and #117 cannot land separately (init and analyze must run the same release; each fails the required `Analyze (javascript-typescript)` check alone). #113 is safe alone but stale. #115 and #118 are clean on top of `main`. v4.38.2 was already superseded by v4.38.3 (2026-10-08) and v4.39.0 (2026-10-15).
+
+### Change
+- Applied the verified combination of #115 (`ws` ^8.22.0) and #118 (dev-dependency group) as one patch on `main`; its merged lockfile is exactly the union of the two (5 leaf changes from #115, 100 from #118, no overlap).
+- `github/codeql-action` init, analyze and upload-sarif pinned to v4.38.3 `24c54180a607b1449ed407dd24f251e4e9147c8d` (resolved from `refs/tags/v4.38.3^{}`): default bundle 2.27.2, action.yml files unchanged since v4.38.1, same node24 runtime, past the project's 7-day cooldown.
+- `.github/dependabot.yml`: github-actions group `codeql-action` (`github/codeql-action/*`) so the family moves in one pull request.
+- `.github/workflows/devskim.yml`: `output-filename: devskim-results.sarif` set explicitly (the action's default, which the upload step reads).
+- Not done on purpose: `actions/setup-node` 7.0.0 -> 7.1.0 stays with Dependabot; release.yml and deploy-edge.yml cannot be exercised by this pull request's CI, so a hand edit there would be unverified.
+
+### Verification (local, synthetic fixtures)
+- `npm ci --ignore-scripts`: 159 packages; `npm run check`: 39 files and 441 tests, strict typecheck, server and extension builds; `npm run verify:browser-packages`: Chrome, Firefox and Safari ok; `npm audit --omit=dev --audit-level=high`: 0 vulnerabilities; `npm run test:e2e`: 12 passed, 1 skipped; all 11 `.github` YAML files parse.
+- Reviewed upstream: the Worker bundle from `wrangler deploy --dry-run`, the extension dist and the local service bundle are byte-identical between wrangler 4.135.0 and 4.147.0 on this tree.
+
+## Confirmed Successful Results
+- The combined change builds and passes every local gate on top of `88f2d89`.
+
+## Failed, Incomplete, or Unresolved Work
+- The real-runner result is not yet known: `Analyze (javascript-typescript)` with Action 4.38.3 and bundle 2.27.2, the code-scanning gate (no bypass) and the DevSkim upload at v4.38.3 have never run.
+- wrangler 4.147.0 defaults every Durable Object deploy and rollback to a deferred, 300-second code update. Merging this change deploys nothing (`deploy-edge.yml` is `workflow_dispatch` only), but no coordinator deploy or rollback may happen before the `immediate` pin (phase R2) lands.
+- Dev-only `npm audit` highs remain (sharp through miniflare and wrangler, `source-map-js`); wrangler 4.149.x clears the first (phase R6).
+
+## Decisions and Rationale
+- One maintainer pull request instead of five Dependabot rebases: every merge forces the others to rebase and re-run under the strict policy, and #116 and #117 cannot merge separately at all. The superseded pull requests are closed by hand after this lands.
+- v4.38.3 rather than v4.38.2 (stale) or v4.39.0 (hours old, inside the cooldown, carries a breaking minimum-bundle change that does not affect this repository).
+
+## Files and Artifacts
+- `.github/dependabot.yml`, `.github/workflows/codeql.yml`, `.github/workflows/devskim.yml`, `package.json`, `apps/room-service/package.json`, `package-lock.json`, `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- The Dependabot `groups` pattern syntax is validated as YAML only; its behaviour is confirmed on the first Dependabot run after merge.
+- Local runs used Node 26.9 on macOS with `--ignore-scripts`; CI uses Node 22 on Linux (phase R7 covers this).
+
+## Open Questions, Blockers, and Dependencies
+- Phase R2 (`immediate` pin) must follow before any coordinator deploy or rollback.
+
+## Next Steps
+1. Exact-head review, both required checks green on the head, merge pinned to the full SHA; close #113, #115, #116, #117 and #118 as superseded.
+2. Phase R2, then R3, R4, R5 as listed on #119.
+
+## Historical Checkpoint Notes
+- Checkpoint 107 recorded the pending-join fix. This checkpoint supersedes nothing.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
