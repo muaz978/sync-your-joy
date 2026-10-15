@@ -16,6 +16,12 @@ import { launchExtensionProfiles, type ExtensionProfile } from './extension-prof
 const here = dirname(fileURLToPath(import.meta.url))
 const extensionDistDir = resolve(here, '..', '..', 'apps/extension/dist')
 const fixtureVideoPath = resolve(here, '..', '..', 'fixtures/sync-test-clip.mp4')
+// The requester's own video is moved this far into the 20 s clip before it
+// asks to join. A seek back to 0:00 is then far from where playback would be
+// anyway, and the looping clip cannot wrap around inside this spec.
+const WATCHING_FROM_SECONDS = 6
+// Sampling jitter only; a rewind is whole seconds.
+const POSITION_TOLERANCE_SECONDS = 0.25
 
 test.describe('a join request that has not been approved', () => {
   let host: ExtensionProfile
@@ -66,6 +72,23 @@ test.describe('a join request that has not been approved', () => {
       return { paused: video.paused, seconds: video.currentTime }
     })
     await expect.poll(async () => (await position()).seconds, { timeout: 10_000 }).toBeGreaterThan(0.5)
+    await ownVideo.evaluate((seconds) => {
+      document.querySelector('video')!.currentTime = seconds
+    }, WATCHING_FROM_SECONDS)
+    await expect.poll(async () => (await position()).seconds, { timeout: 10_000 }).toBeGreaterThan(WATCHING_FROM_SECONDS + 0.5)
+
+    // From here until the wait is over the element itself is watched: a sample
+    // of the position can miss a seek that is undone, and an assertion on the
+    // final position alone passes when a rewound video simply played on.
+    await ownVideo.evaluate(() => {
+      const video = document.querySelector('video')!
+      const watch = { seekedTo: [] as number[], minimumSeconds: video.currentTime }
+      ;(window as unknown as { __ownVideoWatch: typeof watch }).__ownVideoWatch = watch
+      video.addEventListener('seeking', () => watch.seekedTo.push(video.currentTime))
+      video.addEventListener('timeupdate', () => {
+        watch.minimumSeconds = Math.min(watch.minimumSeconds, video.currentTime)
+      })
+    })
 
     const request = async () => {
       await requester.panel.fill('#display-name', 'Requester')
@@ -74,17 +97,26 @@ test.describe('a join request that has not been approved', () => {
     }
 
     // --- 1. It asks to join: waiting view, and its video is left alone -------
+    const beforeWaiting = await position()
+    expect(beforeWaiting.seconds).toBeGreaterThan(WATCHING_FROM_SECONDS)
     await request()
     await host.panel.waitForSelector('[data-approve-join]', { timeout: 15_000 })
     await expect(requester.panel.getByText('Waiting for the host to let you in')).toBeVisible()
 
     const pagesWhileWaiting = requester.context.pages().length
-    const beforeWaiting = await position()
     await ownVideo.waitForTimeout(3_000)
     const afterWaiting = await position()
-    // Not paused, and not rewound to 0:00 by whatever the coordinator sent.
+    const watched = await ownVideo.evaluate(
+      () => (window as unknown as { __ownVideoWatch: { seekedTo: number[], minimumSeconds: number } }).__ownVideoWatch,
+    )
+    // Not paused, and it kept playing from where it was.
     expect(afterWaiting.paused).toBe(false)
-    expect(afterWaiting.seconds).toBeGreaterThan(Math.min(beforeWaiting.seconds, 1))
+    expect(afterWaiting.seconds).toBeGreaterThan(beforeWaiting.seconds + 1)
+    // Never moved backwards at any point since the request was sent: not
+    // rewound to 0:00 (or anywhere earlier) by whatever the coordinator sent,
+    // even if it then played on past where it had been.
+    expect(watched.minimumSeconds).toBeGreaterThanOrEqual(beforeWaiting.seconds - POSITION_TOLERANCE_SECONDS)
+    expect(watched.seekedTo.filter(seconds => seconds < beforeWaiting.seconds - POSITION_TOLERANCE_SECONDS)).toEqual([])
     expect(requester.context.pages().length).toBe(pagesWhileWaiting)
 
     // --- 2. It withdraws the request: the host's list empties ----------------
