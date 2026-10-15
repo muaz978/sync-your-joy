@@ -2208,6 +2208,40 @@ describe('RoomCoordinator', () => {
       expect(secondOverflow).toMatchObject({ ok: false, code: 'room_full' })
     })
 
+    it('re-checks the cap when a request is approved, so members who return while requests wait cannot push the room past 10', () => {
+      const room = createRoom()
+      const members = Array.from({ length: 8 }, (_, index) => `participant_member_${index}`)
+      for (const id of members)
+        joinApproved(room, { id, name: id, media })
+      const connected = () => room.snapshot().participants.filter(participant => participant.connected).length
+      expect(connected()).toBe(9)
+
+      // Three members drop, so three new requests fit under the cap...
+      for (const id of members.slice(0, 3))
+        room.disconnect(id)
+      for (let index = 0; index < 3; index += 1)
+        expect(room.join({ id: `participant_late_${index}`, name: `Late ${index}`, media })).toMatchObject({ ok: true, reason: 'join_pending' })
+
+      // ...and the same three come back while the requests are still waiting.
+      for (const id of members.slice(0, 3))
+        expect(room.join({ id, name: id, media })).toMatchObject({ ok: true })
+      expect(connected()).toBe(9)
+
+      const approve = (id: string, value = true) => room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, id, value)
+      // One place is left: the first approval fits, the next one does not.
+      expect(approve('participant_late_0')).toMatchObject({ ok: true, reason: 'join_approved' })
+      const refused = approve('participant_late_1')
+      expect(refused).toMatchObject({ ok: false, code: 'room_full' })
+      expect(connected()).toBe(10)
+
+      // The refused request stays pending and can still be decided.
+      expect(room.snapshot().pendingJoinRequests.map(request => request.id)).toEqual(['participant_late_1', 'participant_late_2'])
+      expect(approve('participant_late_1', false)).toMatchObject({ ok: true, reason: 'join_denied' })
+      room.disconnect(members[0]!)
+      expect(approve('participant_late_2')).toMatchObject({ ok: true, reason: 'join_approved' })
+      expect(connected()).toBe(10)
+    })
+
     it('leaves reconnecting an existing participant identity completely unaffected -- still instant, still the untouched reconnect branch', () => {
       const room = createRoom()
       joinApproved(room, { id: 'participant_friend', name: 'Rana', media })

@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { generateRoomCode, isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
-import { RoomCoordinator } from '@syncyourjoy/sync-engine'
+import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator } from '@syncyourjoy/sync-engine'
 import { WebSocket, WebSocketServer } from 'ws'
 
 const MAX_MESSAGE_BYTES = 16_384
@@ -57,9 +57,30 @@ export interface RoomService {
   httpServer: HttpServer
   url: string
   close: () => Promise<void>
+  /**
+   * Read-only view of one room's lifecycle state, or null if there is no such
+   * room. For tests that need to observe expiry deterministically instead of
+   * sleeping; it exposes no participant data.
+   */
+  inspectRoom: (code: string) => { connectedParticipants: boolean; pendingRequests: number; sockets: number; emptySinceMs: number | null } | null
 }
 
-export async function createRoomService(options: { port?: number; host?: string; testControlToken?: string } = {}): Promise<RoomService> {
+export interface RoomServiceOptions {
+  port?: number
+  host?: string
+  testControlToken?: string
+  /**
+   * Clock for room lifetime and empty-room expiry, in milliseconds. Tests
+   * supply one so expiry can be exercised without waiting in real time or
+   * faking the global Date.
+   */
+  now?: () => number
+  /** How often rooms are checked for deadlines and expiry. Defaults to 100 ms. */
+  cleanupIntervalMs?: number
+}
+
+export async function createRoomService(options: RoomServiceOptions = {}): Promise<RoomService> {
+  const now = options.now ?? (() => Date.now())
   const rooms = new Map<string, RoomEntry>()
   const clients = new Map<WebSocket, ConnectedClient>()
   const recoveryTimers = new Map<string, NodeJS.Timeout>()
@@ -246,10 +267,10 @@ export async function createRoomService(options: { port?: number; host?: string;
         // The empty-room clock starts once, when the last member leaves. A
         // withdrawn request is not a member, so it must not restart the
         // clock: anyone who knows the code could otherwise keep an empty room
-        // alive indefinitely by opening and closing requests less than the
-        // TTL apart.
+        // alive until its lifetime limit by opening and closing requests less
+        // than the TTL apart.
         if (room.emptySinceMs === null && !room.coordinator.hasConnectedParticipants())
-          room.emptySinceMs = Date.now()
+          room.emptySinceMs = now()
         return
       }
       const result = room.coordinator.disconnect(client.participantId)
@@ -272,7 +293,7 @@ export async function createRoomService(options: { port?: number; host?: string;
       }
 
       if (room.emptySinceMs === null && !room.coordinator.hasConnectedParticipants())
-        room.emptySinceMs = Date.now()
+        room.emptySinceMs = now()
     })
   })
 
@@ -309,7 +330,7 @@ export async function createRoomService(options: { port?: number; host?: string;
           ...(message.capabilities ? { capabilities: message.capabilities } : {}),
         },
       )
-      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), pending: new Set(), emptySinceMs: null, createdAtMs: Date.now(), creatorIp: remoteAddress, pendingDiagnosticsRequests: new Map() }
+      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), pending: new Set(), emptySinceMs: null, createdAtMs: now(), creatorIp: remoteAddress, pendingDiagnosticsRequests: new Map() }
       rooms.set(code, entry)
       roomCountByIp.set(remoteAddress, (roomCountByIp.get(remoteAddress) ?? 0) + 1)
       clients.set(socket, { socket, participantId: message.participantId, roomCode: code })
@@ -537,8 +558,22 @@ export async function createRoomService(options: { port?: number; host?: string;
     broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
   }
 
+  // A socket that is already closing can make close() throw. One failing
+  // close must not stop the room from being removed or the other sockets from
+  // being told, so every close here is best effort.
+  function closeAll(sockets: Iterable<WebSocket>, reason: string): void {
+    for (const socket of sockets) {
+      try {
+        socket.close(1000, reason)
+      }
+      catch {
+        // Already closing or closed; the 'close' handler cleans up either way.
+      }
+    }
+  }
+
   const cleanupTimer = setInterval(() => {
-    const nowMs = Date.now()
+    const nowMs = now()
     for (const [code, room] of rooms) {
       // Deadline methods are ordered by the state transition they may cause.
       // Once one expires, the resulting snapshot is authoritative for this
@@ -549,23 +584,33 @@ export async function createRoomService(options: { port?: number; host?: string;
         ?? room.coordinator.evaluateHealth(nowMs)
       if (deadlineResult?.ok)
         broadcast(room, { type: 'room_snapshot', reason: deadlineResult.reason, snapshot: deadlineResult.snapshot })
-      if (room.emptySinceMs !== null && nowMs - room.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
+
+      // The empty-room clock is derived from membership, so enforce that here
+      // instead of trusting every code path to keep it in step: someone is
+      // connected -> no clock; nobody is connected -> a clock must be running.
+      // A stale clock would otherwise expire a room under active members, and
+      // a missing one would keep an empty room alive.
+      room.emptySinceMs = reconcileEmptyClock({
+        emptySinceMs: room.emptySinceMs,
+        hasConnectedParticipants: room.coordinator.hasConnectedParticipants(),
+        nowMs,
+      })
+
+      if (isEmptyRoomExpired(room.emptySinceMs, nowMs, EMPTY_ROOM_TTL_MS)) {
         // A request still waiting in an empty room no longer holds the room
         // open, so tell it the room is gone. Without this its waiting view
         // stays up for a room that no longer exists.
-        for (const socket of room.sockets)
-          socket.close(1000, 'room_expired')
+        closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
         releaseRoomIpSlot(room.creatorIp)
       }
       else if (nowMs - room.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
-        for (const socket of room.sockets)
-          socket.close(1000, 'room_expired')
+        closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
         releaseRoomIpSlot(room.creatorIp)
       }
     }
-  }, 100)
+  }, options.cleanupIntervalMs ?? 100)
   cleanupTimer.unref()
 
   await new Promise<void>((resolve, reject) => {
@@ -582,6 +627,17 @@ export async function createRoomService(options: { port?: number; host?: string;
   return {
     httpServer,
     url,
+    inspectRoom: (code) => {
+      const room = rooms.get(code)
+      if (!room)
+        return null
+      return {
+        connectedParticipants: room.coordinator.hasConnectedParticipants(),
+        pendingRequests: room.pending.size,
+        sockets: room.sockets.size,
+        emptySinceMs: room.emptySinceMs,
+      }
+    },
     close: async () => {
       clearInterval(cleanupTimer)
       for (const timer of recoveryTimers.values())

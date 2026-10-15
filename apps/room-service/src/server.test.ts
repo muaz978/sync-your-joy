@@ -1,6 +1,6 @@
 import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import type { ServerMessage } from '@syncyourjoy/protocol'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { createRoomService, type RoomService } from './server.ts'
 
@@ -868,17 +868,23 @@ describe('empty room expiry with unapproved requests', () => {
   const startMs = 1_900_000_000_000
   const hostMedia = { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A private title', durationSeconds: 600 }
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
+  // Room lifetime runs on an injected clock and a short cleanup tick, so
+  // nothing here waits in real time or fakes the global Date: the test moves
+  // the clock and polls the service's own view of the room.
+  let clockMs = startMs
 
-  // Only Date is faked: the sockets and the service's own 100 ms cleanup
-  // interval keep running on real timers and simply observe the moved clock.
-  const settle = (ms = 60) => new Promise<void>(resolve => setTimeout(resolve, ms))
+  async function until(condition: () => boolean, what: string, timeoutMs = 3_000): Promise<void> {
+    const deadline = AbortSignal.timeout(timeoutMs)
+    while (!condition()) {
+      if (deadline.aborted)
+        throw new Error(`Timed out waiting for ${what}.`)
+      await new Promise<void>(resolve => setTimeout(resolve, 5))
+    }
+  }
 
-  async function emptiedRoom() {
-    vi.useFakeTimers({ toFake: ['Date'], now: startMs })
-    service = await createRoomService({ port: 0 })
+  async function startedRoom() {
+    clockMs = startMs
+    service = await createRoomService({ port: 0, now: () => clockMs, cleanupIntervalMs: 10 })
     const host = await connect(service.url)
     host.send(JSON.stringify({
       type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'EXPR1234', media: hostMedia,
@@ -888,7 +894,7 @@ describe('empty room expiry with unapproved requests', () => {
       throw new Error('Expected room_joined')
     // The service assigns the room code; the one a client proposes is only a
     // hint, so every later join must use the code it was given.
-    return { host, code: created.snapshot.code }
+    return { host, code: created.snapshot.code, hostToken: created.sessionToken }
   }
 
   async function request(code: string, participantId: string): Promise<WebSocket> {
@@ -903,46 +909,63 @@ describe('empty room expiry with unapproved requests', () => {
   }
 
   it('does not let a withdrawn request restart the clock of an empty room', async () => {
-    const { host, code } = await emptiedRoom()
+    const { host, code } = await startedRoom()
     host.close()
-    await settle()
+    await until(() => service!.inspectRoom(code)?.emptySinceMs === startMs, 'the empty-room clock to start')
 
     // 29 minutes into the 30 minute window a stranger who only knows the
     // code opens a request and walks away again.
-    vi.setSystemTime(startMs + 29 * 60_000)
+    clockMs = startMs + 29 * 60_000
     const stranger = await request(code, 'participant_stranger')
+    await until(() => service!.inspectRoom(code)?.pendingRequests === 1, 'the request to be pending')
     stranger.close()
-    await settle()
+    await until(() => service!.inspectRoom(code)?.pendingRequests === 0, 'the request to be withdrawn')
+    expect(service!.inspectRoom(code)?.emptySinceMs).toBe(startMs)
 
-    vi.setSystemTime(startMs + EMPTY_ROOM_TTL_MS + 60_000)
-    await settle(300)
-
-    const probe = await connect(service!.url)
-    probe.send(JSON.stringify({
-      type: 'join_room', protocolVersion: 1, participantId: 'participant_probe', name: 'Probe', code, media: null,
-    }))
-    await expect(nextMessage(probe)).resolves.toMatchObject({ type: 'error', code: 'room_not_found' })
-    probe.close()
+    clockMs = startMs + EMPTY_ROOM_TTL_MS + 60_000
+    await until(() => service!.inspectRoom(code) === null, 'the room to expire on its original clock')
   })
 
   it('tells a request that is still waiting when the empty room expires', async () => {
-    const { host, code } = await emptiedRoom()
+    const { host, code } = await startedRoom()
     const waiting = await request(code, 'participant_waiting')
     host.close()
-    await settle()
+    await until(() => service!.inspectRoom(code)?.connectedParticipants === false, 'the host to be gone')
 
     const closed = new Promise<{ code: number, reason: string }>((resolve, reject) => {
       const timeout = AbortSignal.timeout(3_000)
       const onAbort = () => reject(new Error('The waiting request was left connected to an expired room.'))
       timeout.addEventListener('abort', onAbort, { once: true })
-      waiting.once('close', (code, reason) => {
+      waiting.once('close', (closeCode, reason) => {
         timeout.removeEventListener('abort', onAbort)
-        resolve({ code, reason: reason.toString() })
+        resolve({ code: closeCode, reason: reason.toString() })
       })
     })
-    vi.setSystemTime(startMs + EMPTY_ROOM_TTL_MS + 60_000)
+    clockMs = startMs + EMPTY_ROOM_TTL_MS + 60_000
 
     await expect(closed).resolves.toEqual({ code: 1000, reason: 'room_expired' })
+    expect(service!.inspectRoom(code)).toBeNull()
+  })
+
+  it('keeps a room alive when a member comes back before the clock runs out', async () => {
+    const { host, code, hostToken } = await startedRoom()
+    host.close()
+    await until(() => service!.inspectRoom(code)?.emptySinceMs === startMs, 'the empty-room clock to start')
+
+    clockMs = startMs + 20 * 60_000
+    const returning = await connect(service!.url)
+    returning.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code, media: hostMedia, sessionToken: hostToken,
+    }))
+    await expect(nextMessage(returning)).resolves.toMatchObject({ type: 'room_joined' })
+    expect(service!.inspectRoom(code)).toMatchObject({ connectedParticipants: true, emptySinceMs: null })
+
+    // Well past the time the original clock would have expired, several
+    // cleanup ticks later: the room is still there.
+    clockMs = startMs + EMPTY_ROOM_TTL_MS + 5 * 60_000
+    await new Promise<void>(resolve => setTimeout(resolve, 80))
+    expect(service!.inspectRoom(code)).toMatchObject({ connectedParticipants: true, emptySinceMs: null })
+    returning.close()
   })
 })
 

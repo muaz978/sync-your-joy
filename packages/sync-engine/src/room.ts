@@ -33,10 +33,16 @@ import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 /**
  * Value pendingSnapshot() puts in every field that would otherwise reveal room
  * state. It contains a colon, which the participant-id grammar
- * (`[a-zA-Z0-9_-]`) cannot produce, and it is not a media service, so it can
- * never equal a real participant id or match a real fingerprint.
+ * (`[a-zA-Z0-9_-]`) cannot produce, so it can never equal a real participant
+ * id. As a media service it is not one the extension ever produces; the
+ * protocol itself accepts any service string, so a custom client could create
+ * a room whose media equals it. That only affects the pending requesters of
+ * that client's own room, which receive this placeholder anyway.
  */
 const PENDING_PLACEHOLDER = 'pending:approval'
+
+/** Most participants a room holds at once (connected members, plus pending requests when admitting a new one). */
+const MAX_PARTICIPANTS = 10
 
 export interface InternalParticipant extends ParticipantState {
   joinedAtMs: number
@@ -254,8 +260,8 @@ export class RoomCoordinator {
       // reconnecting someone who still holds a valid session token.
       if (!existing.connected) {
         const connectedCount = [...this.participants.values()].filter(item => item.connected).length
-        if (connectedCount >= 10)
-          return this.failure('room_full', 'This room already has 10 participants.')
+        if (connectedCount >= MAX_PARTICIPANTS)
+          return this.failure('room_full', `This room already has ${MAX_PARTICIPANTS} participants.`)
       }
       const wasReady = existing.ready
       existing.connected = true
@@ -305,8 +311,8 @@ export class RoomCoordinator {
     // pending approval against the same cap of 10, so a flood of brand-new
     // join requests can't bypass it by staying "merely pending" forever.
     const connectedCount = [...this.participants.values()].filter(item => item.connected).length
-    if (connectedCount + this.pendingJoinRequests.size >= 10)
-      return this.failure('room_full', 'This room already has 10 participants.')
+    if (connectedCount + this.pendingJoinRequests.size >= MAX_PARTICIPANTS)
+      return this.failure('room_full', `This room already has ${MAX_PARTICIPANTS} participants.`)
 
     // A brand-new participant identity no longer joins immediately (see
     // docs/CODE_AUDIT.md SYJ-AUD-003): it becomes a pending request the
@@ -333,6 +339,17 @@ export class RoomCoordinator {
     const pending = this.pendingJoinRequests.get(participantId)
     if (!pending)
       return this.failure('not_found', 'That join request is no longer pending.')
+
+    // The cap is checked when a request is admitted and again when a member
+    // reconnects, but members can drop and return while requests wait, so the
+    // approval must re-check it too or a busy room passes the cap. The request
+    // stays pending: the controller can deny it, or approve it once someone
+    // has left.
+    if (approve) {
+      const connectedCount = [...this.participants.values()].filter(item => item.connected).length
+      if (connectedCount >= MAX_PARTICIPANTS)
+        return this.failure('room_full', `This room already has ${MAX_PARTICIPANTS} participants. Deny the request or approve it after someone leaves.`)
+    }
 
     this.pendingJoinRequests.delete(participantId)
 

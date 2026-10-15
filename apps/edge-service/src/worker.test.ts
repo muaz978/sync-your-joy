@@ -299,3 +299,154 @@ describe('RoomDurableObject: empty room expiry with unapproved requests', () => 
     expect(waiting.closed).toEqual({ code: 1000, reason: 'room_expired' })
   })
 })
+
+describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
+  const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
+  const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
+  const startMs = 1_900_000_000_000
+  type Inspect = { emptySinceMs: number | null, coordinator: { snapshot: () => { participants: Array<{ id: string, connected: boolean }>, pendingJoinRequests: Array<{ id: string }> } } | null, pendingController: { participantId: string } | null }
+  const inspect = (room: InstanceType<typeof RoomDurableObject>) => room as unknown as Inspect
+  // The restore step runs inside the object's constructor; waiting for it
+  // lets a test look at what restoring alone did, before any alarm or message.
+  const restored = async (room: InstanceType<typeof RoomDurableObject>) => {
+    await (room as unknown as { initialized: Promise<void> }).initialized
+    return room
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // A Durable Object over a shared store, so a "restart" is a second object
+  // built over the same storage with whichever sockets are still attached.
+  function objectOver(store: Map<string, unknown>, sockets: FakeSocket[], alarms: number[] = []) {
+    const ctx = {
+      storage: {
+        get: async (key: string) => store.get(key),
+        put: async (key: string, value: unknown) => { store.set(key, structuredClone(value)) },
+        delete: async (key: string) => store.delete(key),
+        deleteAll: async () => { store.clear() },
+        setAlarm: async (at: number) => { alarms.push(at) },
+        getAlarm: async () => null,
+        deleteAlarm: async () => {},
+      },
+      blockConcurrencyWhile: async <T>(fn: () => Promise<T>) => fn(),
+      getWebSockets: () => sockets,
+      acceptWebSocket: () => {},
+    }
+    return new RoomDurableObject(ctx as never, {} as never)
+  }
+
+  async function roomWithHostAndRequest() {
+    vi.useFakeTimers({ toFake: ['Date'], now: startMs })
+    const store = new Map<string, unknown>()
+    const host = new FakeSocket()
+    const friend = new FakeSocket()
+    const first = objectOver(store, [host, friend])
+    await say(first, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA })
+    await say(first, friend, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null })
+    return { store, host, friend, first }
+  }
+
+  it('withdraws a stored request whose socket is gone, so it cannot be approved into a member with no connection', async () => {
+    const { store, host } = await roomWithHostAndRequest()
+
+    // The object is rebuilt and only the host's socket is still attached.
+    const restarted = objectOver(store, [host])
+    await say(restarted, host, approve)
+
+    expect(host.last()).toMatchObject({ type: 'command_rejected', code: 'not_found' })
+    expect(inspect(restarted).coordinator?.snapshot().pendingJoinRequests).toEqual([])
+    // The cleanup was persisted, not just applied in memory.
+    const again = objectOver(store, [host])
+    await say(again, host, { type: 'request_diagnostics', reportId: 'report_after_restart' })
+    expect(inspect(again).coordinator?.snapshot().pendingJoinRequests).toEqual([])
+  })
+
+  it('keeps a stored request whose socket is still attached', async () => {
+    const { store, host, friend } = await roomWithHostAndRequest()
+
+    const restarted = objectOver(store, [host, friend])
+    await say(restarted, host, approve)
+
+    expect(friend.last()).toMatchObject({ type: 'room_snapshot', reason: 'join_approved' })
+  })
+
+  it('marks a stored member with no socket disconnected, starts the empty clock and schedules controller recovery', async () => {
+    const { store } = await roomWithHostAndRequest()
+
+    const restarted = await restored(objectOver(store, []))
+
+    const participants = inspect(restarted).coordinator?.snapshot().participants ?? []
+    expect(participants.find(participant => participant.id === 'participant_host')?.connected).toBe(false)
+    expect(inspect(restarted).emptySinceMs).toBe(startMs)
+    expect(inspect(restarted).pendingController?.participantId).toBe('participant_host')
+  })
+
+  it('clears a stale empty-room clock on restore when a member is still attached', async () => {
+    const { store, host } = await roomWithHostAndRequest()
+    ;(store.get('room') as { emptySinceMs: number | null }).emptySinceMs = startMs - EMPTY_ROOM_TTL_MS * 2
+
+    const restarted = await restored(objectOver(store, [host]))
+
+    expect(inspect(restarted).emptySinceMs).toBeNull()
+    expect((store.get('room') as { emptySinceMs: number | null }).emptySinceMs).toBeNull()
+  })
+
+  it('does not expire a room under connected members even if the clock was left running', async () => {
+    const { host, first } = await roomWithHostAndRequest()
+    // A path that forgot to clear the clock: the alarm must not trust it.
+    inspect(first).emptySinceMs = startMs
+
+    vi.setSystemTime(startMs + EMPTY_ROOM_TTL_MS + 60_000)
+    await first.alarm()
+
+    expect(inspect(first).coordinator).not.toBeNull()
+    expect(inspect(first).emptySinceMs).toBeNull()
+    expect(host.closed).toBeNull()
+  })
+
+  it('starts a missing clock for an empty room so it still expires', async () => {
+    const { store } = await roomWithHostAndRequest()
+    const restarted = await restored(objectOver(store, []))
+    // Whatever the stored clock said, an empty room has one running.
+    inspect(restarted).emptySinceMs = null
+
+    await restarted.alarm()
+    expect(inspect(restarted).emptySinceMs).toBe(startMs)
+
+    vi.setSystemTime(startMs + EMPTY_ROOM_TTL_MS + 1_000)
+    await restarted.alarm()
+
+    expect(inspect(restarted).coordinator).toBeNull()
+    expect(store.has('room')).toBe(false)
+  })
+
+  it('finishes expiring a room even when closing one socket throws', async () => {
+    const { store, friend } = await roomWithHostAndRequest()
+    // Nobody is a member any more: only the request's socket and a socket that
+    // throws when closed remain, and the throwing one is listed first.
+    const stubborn = new FakeSocket()
+    stubborn.close = () => { throw new Error('socket is already closing') }
+    const emptied = await restored(objectOver(store, [stubborn, friend]))
+    expect(inspect(emptied).emptySinceMs).toBe(startMs)
+
+    vi.setSystemTime(startMs + EMPTY_ROOM_TTL_MS + 1_000)
+    await emptied.alarm()
+
+    expect(inspect(emptied).coordinator).toBeNull()
+    expect(store.has('room')).toBe(false)
+    expect(friend.closed).toEqual({ code: 1000, reason: 'room_expired' })
+  })
+
+  it('schedules the six-hour lifetime limit instead of relying on another alarm to fire', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: startMs })
+    const alarms: number[] = []
+    const host = new FakeSocket()
+    const room = objectOver(new Map(), [host], alarms)
+
+    await say(room, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA })
+
+    expect(alarms.at(-1)).toBe(startMs + MAX_ROOM_LIFETIME_MS)
+  })
+})
