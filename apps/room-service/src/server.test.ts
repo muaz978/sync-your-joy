@@ -1209,6 +1209,30 @@ describe('controller recovery', () => {
         timers.release()
       }
     })
+
+    it('plans no recovery when a member returns while the controller is connected', async () => {
+      const timers = captureRecoveryTimers([CAPTURED_GRACE_MS])
+      try {
+        const { host, friend, code, friendToken } = await roomWithApprovedFriend({ controllerGraceMs: CAPTURED_GRACE_MS })
+        friend.close()
+        await until(() => service!.inspectRoom(code)?.sockets === 1, 'the member to be gone')
+
+        const again = await connect(service!.url)
+        again.send(JSON.stringify({
+          type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null, sessionToken: friendToken,
+        }))
+        await expect(nextMessage(again)).resolves.toMatchObject({ type: 'room_joined' })
+
+        // The host is there, so the member's return starts no timer that
+        // would only wake the room to find nothing to do.
+        expect(timers.planned).toHaveLength(0)
+        host.close()
+        again.close()
+      }
+      finally {
+        timers.release()
+      }
+    })
   })
 })
 

@@ -1,3 +1,4 @@
+import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import type { ServerMessage } from '@syncyourjoy/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -310,7 +311,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
   // apps/extension/src/service-worker.ts).
   const LONGEST_RECONNECT_BACKOFF_MS = 15_000 + 250
   const startMs = 1_900_000_000_000
-  type Inspect = { emptySinceMs: number | null, coordinator: { snapshot: () => { participants: Array<{ id: string, connected: boolean }>, pendingJoinRequests: Array<{ id: string }>, controller: { participantId: string } } } | null, pendingController: { participantId: string } | null }
+  type Inspect = { emptySinceMs: number | null, coordinator: { snapshot: () => { revision: number, participants: Array<{ id: string, connected: boolean }>, pendingJoinRequests: Array<{ id: string }>, controller: { participantId: string } }, nextHealthDeadlineMs: () => number | null } | null, pendingController: { participantId: string } | null }
   const inspect = (room: InstanceType<typeof RoomDurableObject>) => room as unknown as Inspect
   // The restore step runs inside the object's constructor; waiting for it
   // lets a test look at what restoring alone did, before any alarm or message.
@@ -324,12 +325,17 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
   })
 
   // A Durable Object over a shared store, so a "restart" is a second object
-  // built over the same storage with whichever sockets are still attached.
-  function objectOver(store: Map<string, unknown>, sockets: FakeSocket[], alarms: number[] = [], existingAlarmAtMs: number | null = null) {
+  // built over the same storage with whichever sockets are still attached. A
+  // `putGate` holds every write until it resolves.
+  function objectOver(store: Map<string, unknown>, sockets: FakeSocket[], alarms: number[] = [], existingAlarmAtMs: number | null = null, putGate: Promise<void> | null = null) {
     const ctx = {
       storage: {
         get: async (key: string) => store.get(key),
-        put: async (key: string, value: unknown) => { store.set(key, structuredClone(value)) },
+        put: async (key: string, value: unknown) => {
+          if (putGate)
+            await putGate
+          store.set(key, structuredClone(value))
+        },
         delete: async (key: string) => store.delete(key),
         deleteAll: async () => { store.clear() },
         setAlarm: async (at: number) => { alarms.push(at) },
@@ -351,6 +357,12 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     const first = objectOver(store, [host, friend], alarms)
     await say(first, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA })
     await say(first, friend, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null })
+    return { store, host, friend, first }
+  }
+
+  async function hostAndApprovedFriend(alarms: number[] = []) {
+    const { store, host, friend, first } = await roomWithHostAndRequest(alarms)
+    await say(first, host, approve)
     return { store, host, friend, first }
   }
 
@@ -646,6 +658,89 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     expect(order).toEqual(['put', 'send'])
   })
 
+  it('does not tell the members about a repair before its write has completed', async () => {
+    const { store, host } = await roomWithHostAndRequest()
+    let completeWrite!: () => void
+    const writeGate = new Promise<void>((resolve) => { completeWrite = resolve })
+    const before = host.sent.length
+
+    // The requester's socket did not survive, so there is a repair to save,
+    // and the save is held back.
+    const restarted = objectOver(store, [host], [], null, writeGate)
+    await new Promise<void>(resolve => setTimeout(resolve, 0))
+    expect(host.sent).toHaveLength(before)
+
+    completeWrite()
+    await restored(restarted)
+    expect(host.sent).toHaveLength(before + 1)
+    expect(host.last()).toMatchObject({ type: 'room_snapshot', reason: 'join_cancelled' })
+  })
+
+  it('clears and saves a stale empty-room clock when every stored connection still has its socket', async () => {
+    const { store, host, friend } = await roomWithHostAndRequest()
+    ;(store.get('room') as { emptySinceMs: number | null }).emptySinceMs = startMs - EMPTY_ROOM_TTL_MS * 2
+
+    // The clock is the only thing wrong, so it is not covered by a request
+    // being withdrawn or a member being marked disconnected.
+    const restarted = await restored(objectOver(store, [host, friend]))
+
+    expect(inspect(restarted).emptySinceMs).toBeNull()
+    expect((store.get('room') as { emptySinceMs: number | null }).emptySinceMs).toBeNull()
+  })
+
+  describe('deadlines a restored room is scheduled for', () => {
+    const SEEK_BARRIER_MAX_WAIT_MS = 3_000
+    const revisionOf = (room: InstanceType<typeof RoomDurableObject>) => inspect(room).coordinator!.snapshot().revision
+
+    it('schedules the deadline of a pending seek', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      await say(first, host, { type: 'control', actionId: 'action_seek', basedOnRevision: revisionOf(first), leaseEpoch: 1, kind: 'seek', positionSeconds: 30 })
+      expect(host.last()).toMatchObject({ type: 'room_snapshot', reason: 'control_seek_pending' })
+      const alarms: number[] = []
+
+      await restored(objectOver(store, [host, friend], alarms))
+
+      expect(alarms).toEqual([startMs + SEEK_BARRIER_MAX_WAIT_MS])
+    })
+
+    it('schedules the deadline of an operation that is preparing', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: startMs })
+      const store = new Map<string, unknown>()
+      const host = new FakeSocket()
+      const friend = new FakeSocket()
+      const first = objectOver(store, [host, friend])
+      // Both clients advertise what a transactional room needs.
+      const capabilities = CURRENT_CLIENT_CAPABILITIES
+      await say(first, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA, capabilities })
+      await say(first, friend, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, capabilities })
+      await say(first, host, approve)
+      await say(first, host, { type: 'set_ready', ready: true, media: MEDIA })
+      await say(first, friend, { type: 'set_ready', ready: true, media: MEDIA })
+      await say(first, host, { type: 'control', actionId: 'action_play', basedOnRevision: revisionOf(first), leaseEpoch: 1, kind: 'play', positionSeconds: 0 })
+      expect(host.last()).toMatchObject({ type: 'room_snapshot', reason: 'control_play_pending' })
+      const alarms: number[] = []
+
+      await restored(objectOver(store, [host, friend], alarms))
+
+      expect(alarms).toEqual([startMs + SEEK_BARRIER_MAX_WAIT_MS])
+    })
+
+    it('schedules the health check of a room that is playing', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      await say(first, host, { type: 'set_ready', ready: true, media: MEDIA })
+      await say(first, friend, { type: 'set_ready', ready: true, media: MEDIA })
+      await say(first, host, { type: 'control', actionId: 'action_play', basedOnRevision: revisionOf(first), leaseEpoch: 1, kind: 'play', positionSeconds: 0 })
+      expect(host.last()).toMatchObject({ type: 'room_snapshot', reason: 'control_play' })
+      const healthDeadlineMs = inspect(first).coordinator!.nextHealthDeadlineMs()
+      expect(healthDeadlineMs).toBeLessThan(startMs + MAX_ROOM_LIFETIME_MS)
+      const alarms: number[] = []
+
+      await restored(objectOver(store, [host, friend], alarms))
+
+      expect(alarms).toEqual([healthDeadlineMs])
+    })
+  })
+
   describe('controller recovery', () => {
     const controllerOf = (room: InstanceType<typeof RoomDurableObject>) => inspect(room).coordinator?.snapshot().controller.participantId
     const sessionTokenOf = (socket: FakeSocket) => {
@@ -656,12 +751,6 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     }
     const attach = (room: InstanceType<typeof RoomDurableObject>, sockets: FakeSocket[]) => {
       ;(room as unknown as { ctx: { getWebSockets: () => FakeSocket[] } }).ctx.getWebSockets = () => sockets
-    }
-
-    async function hostAndApprovedFriend(alarms: number[] = []) {
-      const { store, host, friend, first } = await roomWithHostAndRequest(alarms)
-      await say(first, host, approve)
-      return { store, host, friend, first }
     }
 
     it('hands control to a connected member when the controller does not return in time', async () => {
@@ -818,6 +907,78 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       const restarted = await restored(objectOver(store, [host, friend]))
 
       expect(inspect(restarted).pendingController).toBeNull()
+    })
+
+    it('plans no recovery when a member returns while the controller still has its socket', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      const friendToken = sessionTokenOf(friend)
+      await first.webSocketClose(host as never)
+      // The host's join was not saved: the room says it is disconnected while
+      // its socket is attached, and no plan is pending.
+      ;(store.get('room') as { pendingController: unknown }).pendingController = null
+      const alarms: number[] = []
+      const restarted = await restored(objectOver(store, [host, friend], alarms))
+
+      // The member's connection drops and comes back; the host's never did.
+      attach(restarted, [host])
+      await restarted.webSocketClose(friend as never)
+      const back = new FakeSocket()
+      attach(restarted, [host, back])
+      await say(restarted, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      expect(back.last()).toMatchObject({ type: 'room_joined' })
+
+      expect(inspect(restarted).pendingController).toBeNull()
+      expect(alarms.at(-1)).toBe(startMs + MAX_ROOM_LIFETIME_MS)
+      vi.setSystemTime(startMs + CONTROLLER_REARM_GRACE_MS + 1_000)
+      await restarted.alarm()
+      expect(controllerOf(restarted)).toBe('participant_host')
+    })
+
+    it('plans no recovery when a member returns while the controller is connected', async () => {
+      const alarms: number[] = []
+      const { host, friend, first } = await hostAndApprovedFriend(alarms)
+      const friendToken = sessionTokenOf(friend)
+
+      await first.webSocketClose(friend as never)
+      const back = new FakeSocket()
+      attach(first, [host, back])
+      await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      expect(back.last()).toMatchObject({ type: 'room_joined' })
+
+      // Nothing is planned and nothing is scheduled besides the lifetime
+      // limit, so no alarm wakes the room for a controller that is there.
+      expect(inspect(first).pendingController).toBeNull()
+      expect(alarms.at(-1)).toBe(startMs + MAX_ROOM_LIFETIME_MS)
+    })
+
+    it('drops a stored recovery plan on restore when its controller still has its socket', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      await first.webSocketClose(host as never)
+      // The host's join was not saved: the room says it is disconnected and
+      // holds the plan made when it left, while its socket is attached.
+      const alarms: number[] = []
+
+      const restarted = await restored(objectOver(store, [host, friend], alarms))
+
+      expect(inspect(restarted).pendingController).toBeNull()
+      expect((store.get('room') as { pendingController: unknown }).pendingController).toBeNull()
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await restarted.alarm()
+      expect(controllerOf(restarted)).toBe('participant_host')
+    })
+
+    it('keeps a stored recovery plan on restore when its controller has no socket', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      await first.webSocketClose(host as never)
+
+      const restarted = await restored(objectOver(store, [friend]))
+
+      // The plan keeps the deadline it was made with.
+      expect(inspect(restarted).pendingController).toEqual({ participantId: 'participant_host', recoverAtMs: startMs + CONTROLLER_GRACE_MS })
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await restarted.alarm()
+      expect(controllerOf(restarted)).toBe('participant_friend')
     })
 
     it('does not postpone a recovery that is already pending when a member reconnects', async () => {

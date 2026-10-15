@@ -12,6 +12,13 @@ const CONTROLLER_GRACE_MS = 10_000
 // A re-armed recovery (a member returned, or the room was restored) waits on a
 // host that has been backing off since an outage: the extension's reconnect
 // delay reaches 15 s plus up to 250 ms of jitter, so it gets more than that.
+// The extension also registers that reconnect as a chrome.alarms alarm for a
+// service worker that was suspended (scheduleReconnect in
+// apps/extension/src/service-worker.ts), and Chrome limits an installed
+// extension's alarms to one every 30 s (an unpacked one is exempt). A host
+// whose service worker was suspended can therefore still come back after this
+// period and find control moved. That is accepted, and the value stays: it is
+// still a member and can be given control back.
 const CONTROLLER_REARM_GRACE_MS = 20_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
 const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
@@ -188,12 +195,14 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!coordinator)
       return null
 
-    const attached = new Set<string>()
-    for (const socket of this.ctx.getWebSockets()) {
-      const attachment = socket.deserializeAttachment() as SocketAttachment | null
-      if (attachment?.participantId)
-        attached.add(attachment.participantId)
-    }
+    const attached = this.attachedParticipantIds()
+
+    // A plan that is stored for a participant that has its socket is stale:
+    // it was made when the host left, and the join that followed was not saved.
+    // alarm() reads the stored connected flag, so it would carry the plan out
+    // against a host that is there.
+    if (this.pendingController && attached.has(this.pendingController.participantId))
+      this.pendingController = null
 
     let reason: string | null = null
     const snapshot = coordinator.snapshot()
@@ -222,7 +231,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // controller gone, a member attached and no recovery pending (a lapsed
     // plan, saved by code that did not re-arm it) would otherwise leave the
     // absent controller in control until a member joined.
-    this.armControllerRecovery(attached)
+    this.armControllerRecovery()
 
     const clock = reconcileEmptyClock({
       emptySinceMs: this.emptySinceMs,
@@ -242,7 +251,7 @@ export class RoomDurableObject extends DurableObject<Env> {
    * otherwise a host that is no longer there would keep control of the room
    * for as long as the members stay.
    */
-  private armControllerRecovery(attached?: ReadonlySet<string>): void {
+  private armControllerRecovery(): void {
     const coordinator = this.coordinator
     if (!coordinator || this.pendingController)
       return
@@ -253,14 +262,25 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     // A controller that still has its socket is not gone, whatever the stored
     // flag says (a join whose write was lost): handing its control away would
-    // take it from a host that is there.
-    if (attached?.has(controller.id))
+    // take it from a host that is there. Asked on every call, so a member that
+    // returns is held to it as well as a restore.
+    if (this.attachedParticipantIds().has(controller.id))
       return
 
     this.pendingController = {
       participantId: controller.id,
       recoverAtMs: Date.now() + CONTROLLER_REARM_GRACE_MS,
     }
+  }
+
+  private attachedParticipantIds(): Set<string> {
+    const attached = new Set<string>()
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null
+      if (attachment?.participantId)
+        attached.add(attachment.participantId)
+    }
+    return attached
   }
 
   /**
