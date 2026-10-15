@@ -9472,11 +9472,77 @@
 # Context Checkpoint
 
 ## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R4 (coordinator lifecycle hardening), tracking issue #119.
+- Checkpoint number: 111.
+- Date and time: 2026-10-15, Europe/Istanbul.
+- Coverage period: Since checkpoint 110 (phases R1, R2 and R3 merged as #121, #126 and #122).
+- Current context status: Implemented and verified locally on branch `fix/coordinator-lifecycle-hardening`, built on `88f2d89` and brought up to date with `61a38f7` (the merge of #126). Not merged, released or deployed.
+
+## User Objective and Requirements
+- Close the S3 follow-ups of the review of #120 and of the residual-evidence audit, before any coordinator deploy. Rules unchanged.
+
+## Complete Chronological Activity Log
+
+### Findings (review of #120 and the audit)
+- The empty-room clock was kept right by guards on individual paths; a path that forgot left it stale (a room expiring under members) or missing (an empty room kept alive).
+- A stored pending request whose requester never returned could be approved into a connected member with no socket (scratch probe P4); a room the previous coordinator pinned open was not healed (P9).
+- Approvals did not re-check the 10-place cap, so reconnects plus approvals reached 13 connected (P8). This predates #120.
+- The edge `alarm()` close loop was unguarded (P6); the six-hour lifetime limit was never scheduled as an alarm candidate.
+- No test pinned `decidePlayerIdentity` against the real placeholder; the content-script tests pass through the newer guard.
+- The local expiry tests depended on real-time sleeps.
+
+### Fix
+- `packages/sync-engine/src/empty-room-clock.ts`: `reconcileEmptyClock` and `isEmptyRoomExpired`, one rule used by both services and unit-tested: no clock while anyone is connected, a running clock never moves, a missing clock starts when the room is empty.
+- `apps/edge-service/src/worker.ts`: `healRestoredState()` on restore (withdraw pending requests and disconnect members with no attached socket, schedule controller recovery, start or clear the clock, persist); `closeSockets()` best effort in both expiry branches; the clock is reconciled in `alarm()`; `createdAtMs + MAX_ROOM_LIFETIME_MS` is an alarm candidate.
+- `apps/room-service/src/server.ts`: the cleanup tick reconciles the clock and closes sockets best effort; options `now` and `cleanupIntervalMs`; read-only `inspectRoom(code)` for tests.
+- After the independent review of this change (approve with comments, no blocking finding): `healRestoredState()` returns what changed and the restore broadcasts one `room_snapshot` (`join_cancelled` or `participant_disconnected`) to the members that kept a socket, so they no longer keep the pre-restart picture; the heal call is isolated, so a failure there serves the stored state instead of making the constructor throw and the room unreachable; the local service hands its injected clock to `RoomCoordinator`, so deadlines and participant timestamps cannot disagree under a test clock.
+- `packages/sync-engine/src/room.ts`: `MAX_PARTICIPANTS`; `respondToJoin` refuses an approval at the cap with `room_full` and leaves the request pending; the placeholder comment says what the protocol does and does not guarantee.
+- `CHANGELOG.md`: a scope line for each kind of entry (coordinator, local service, extension), answering the review comment that the section header implied a coordinator redeploy activates the local-service fix.
+
+### Verification (local)
+- New: 5 clock-rule tests, 1 coordinator cap test, 8 edge lifecycle tests, 1 local test (a member returns before the clock runs out), 1 `decidePlayerIdentity` matrix test; the two local expiry tests rewritten on the injected clock and polling. `npm run check`: 40 files, 460 tests.
+- Red with `room.ts`, `server.ts` and `worker.ts` reverted to the previous main: 11 tests fail (the edge ones at their intended assertions, the local ones for lack of the new options); the matrix test fails at its guard when the placeholder media is null.
+- After the review: 4 more edge tests (a withdrawn request and a disconnected member are announced to a member that kept its socket, nothing is sent when nothing changed, a throwing reconcile still leaves the room served). With `worker.ts` reverted to the reviewed head, 3 of the 4 fail at their assertions and the negative control passes. `npm run check` on the merged tree: 41 files, 467 tests, strict typecheck, extension and server builds.
+- Independent review: one reviewer read the diff against `c68aca8`, ran five test files (148 tests) and mutation-tested the new guarantees in a copy: heal off, reconcile off, `closeSockets` without its try/catch, lifetime candidate removed and the cap check removed each fail a test.
+
+## Confirmed Successful Results
+- The edge lifecycle behaviors above are pinned in the fake Durable Object harness, the clock rule is unit-tested, and the local service's expiry is observed deterministically.
+
+## Failed, Incomplete, or Unresolved Work
+- Not evidenced: that the Workers runtime keeps hibernating sockets attached across a code update (the restore step assumes sockets that are not attached are gone), what it does with `close()` on a closing socket, and alarm retry behavior on the real platform. Phase R8 owns those.
+- An unmasked frame and a frame over the fragment limit remain pinned only by reasoning (checkpoint 110).
+- The local service's cleanup-tick reconcile is a defense in depth that no reachable path needs: stubbing it leaves every local test green (the reviewer's mutation), so its wiring is not pinned by a behavioural test; the rule itself is unit-tested in `sync-engine`. The `closeAll` try/catch cannot be driven with `ws`, whose `close()` does not throw on a closing socket.
+- Raised by the independent review and deliberately not changed here (S3): every persist now calls `setAlarm` because the lifetime limit is always a candidate (one extra storage write for an idle paused room, correctness-neutral); a member flagged connected whose socket never delivers a close is bounded only by the six-hour lifetime.
+- Pre-existing gap found by the same review, to be fixed in its own change (phase R4b): controller recovery is not derived from membership. If a deploy drops every socket, the host's recovery grace lapses with nobody connected and a non-controller reconnects after it, the disconnected host stays controller with no recovery scheduled; the local service has the same shape.
+
+## Decisions and Rationale
+- One shared function for the clock instead of more per-path guards: the earlier fix needed three separate guards and still left paths untested.
+- Healing at restore also disconnects members with no socket: it is the same stale state, and without it such a member holds the room open forever. A participant that still has an attached socket is never touched, so a hibernation wake is unaffected.
+
+## Files and Artifacts
+- `packages/sync-engine/src/empty-room-clock.ts` and test, `room.ts`, `room.test.ts`, `index.ts`; `apps/edge-service/src/worker.ts`, `worker.test.ts`; `apps/room-service/src/server.ts`, `server.test.ts`; `apps/extension/src/player-identity.test.ts`; `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- Healing relies on `ctx.getWebSockets()` and the stored attachments being accurate inside the constructor's `blockConcurrencyWhile`; verified in the fake harness and for hibernation wake in local workerd, not across a real code update.
+
+## Open Questions, Blockers, and Dependencies
+- The first real deploy of this coordinator needs the owner's approval, the `immediate` pin (#126) and a recorded rollback target (phase R8).
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA; then phase R5 (extension), then R4b (controller recovery derived from membership).
+
+## Historical Checkpoint Notes
+- Checkpoint 110 recorded the local-service socket error handler. This checkpoint supersedes nothing.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
 - Task or project: SyncYourJoy review coverage remediation, phase R5 (extension: waiting view ends with the room, pending flow pinned in a real browser), tracking issue #119.
 - Checkpoint number: 112.
 - Date and time: 2026-10-15, Europe/Istanbul.
-- Coverage period: Since checkpoint 111 (R4 is #127, in review).
-- Current context status: Implemented and verified locally on branch `fix/extension-pending-room-expiry`, built on `61a38f7`. Not merged, released or deployed.
+- Coverage period: Since checkpoint 111 (R4 merged as #127, `fbe3279`).
+- Current context status: Implemented and verified locally on branch `fix/extension-pending-room-expiry`, built on `61a38f7` and brought up to date with `fbe3279` (the merge of #127). Not merged, released or deployed.
 
 ## User Objective and Requirements
 - Close the extension-side gaps found by the residual-evidence audit of #120 and prove, in a real browser, that installed extensions need no update. Rules unchanged.

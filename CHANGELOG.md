@@ -4,11 +4,15 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
-These changes take effect when the room coordinator is redeployed, and deployed extensions need no update: the coordinator now answers an unapproved request with a placeholder that already-installed content scripts leave alone. The extension itself also stops driving a page's video for a pending request, which ships with the next extension release as a second line of defence. They close gaps found while reviewing the host-approval join (tracking issue #119).
+Where an entry applies: unmarked entries are coordinator changes and take effect when the room coordinator is redeployed. Deployed extensions need no update for them, because the coordinator now answers an unapproved request with a placeholder that already-installed content scripts leave alone. Entries marked *(local service)* apply to the local room service and local test runs only, and entries marked *(extension)* ship with the next extension release as a second line of defence. They close gaps found while reviewing the host-approval join (tracking issue #119).
 
 ### Fixed
 
-- The local room service no longer exits when a client sends a frame that the WebSocket library rejects (a frame over 16 KiB, invalid UTF-8 in a text frame, a protocol violation). Before, one such frame from any client with an allowed Origin ended the process and every in-memory room; the sender is now closed with 1009, 1007 or 1002 and other clients are unaffected. This affects the local service and the local test runs, not the Cloudflare coordinator.
+- After a restart, eviction or code update the edge coordinator no longer keeps join requests whose connection is gone (they could be approved into a member with no connection) or members shown as connected with no connection, and it starts the expiry clock for a room nobody is in. Before, such a room kept stale requests and members, and an empty room whose clock was never started stayed in storage. Members that kept their connection through the restart are told which request was withdrawn or which participant was marked disconnected, instead of keeping a stale view until the next unrelated message, and a failure while reconciling no longer stops the room from being served.
+- A room can no longer pass its ten-participant cap through approvals: members who return while requests wait used to let the host approve past ten (13 connected were reached). The approval is refused with `room_full` and the request stays pending.
+- The six-hour room lifetime limit on the edge is now scheduled as an alarm, so it is enforced; before, it only applied if an unrelated alarm happened to fire after the limit.
+- The empty-room expiry clock is now derived from membership in both coordinators, so a missed clear can no longer expire a room under connected members and a missed start can no longer keep an empty room alive, and one socket that throws on close can no longer stop an expiring room from being removed.
+- *(local service)* The local room service no longer exits when a client sends a frame that the WebSocket library rejects (a frame over 16 KiB, invalid UTF-8 in a text frame, a protocol violation). Before, one such frame from any client with an allowed Origin ended the process and every in-memory room; the sender is now closed with 1009, 1007 or 1002 and other clients are unaffected. This affects the local service and the local test runs, not the Cloudflare coordinator.
 - *(extension)* A join request that is still waiting now ends when the room is gone. A `room_expired` close, or `room_not_found` after a reconnect, leaves the room with a message instead of keeping the waiting view up and reconnecting into a room that no longer exists. The same applies to a member of a room that expires.
 - *(extension)* The on-page pill says "Waiting for the host" for a pending request instead of member wording ("Member, 0 connected") and hides the playback controls.
 
@@ -21,7 +25,7 @@ These changes take effect when the room coordinator is redeployed, and deployed 
 - A rejected command or rejected join no longer carries the room snapshot to a client that is not a member. Before, a wrong session token or a full room handed the sender the whole room state inside the rejection.
 - An unapproved request no longer cancels the empty-room expiry on either coordinator, and a request that is withdrawn no longer restarts it. Before, anyone who only knew a room code could keep an empty room alive by opening and closing requests less than thirty minutes apart.
 - A request that is still waiting when an empty room expires is now closed with `room_expired` instead of being left connected to a room that no longer exists.
-- The extension's content script no longer pauses, seeks or starts the page's video while the participant's own join request is pending, whatever snapshot an older coordinator sends it.
+- *(extension)* The extension's content script no longer pauses, seeks or starts the page's video while the participant's own join request is pending, whatever snapshot an older coordinator sends it.
 
 ### Changed
 
