@@ -9404,3 +9404,64 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R4 (coordinator lifecycle hardening), tracking issue #119.
+- Checkpoint number: 111.
+- Date and time: 2026-10-15, Europe/Istanbul.
+- Coverage period: Since checkpoint 110 (phases R1 and R3 merged as #121 and #122; R2 is #126).
+- Current context status: Implemented and verified locally on branch `fix/coordinator-lifecycle-hardening`, built on `88f2d89` and brought up to date with `d04338a`. Not merged, released or deployed.
+
+## User Objective and Requirements
+- Close the S3 follow-ups of the review of #120 and of the residual-evidence audit, before any coordinator deploy. Rules unchanged.
+
+## Complete Chronological Activity Log
+
+### Findings (review of #120 and the audit)
+- The empty-room clock was kept right by guards on individual paths; a path that forgot left it stale (a room expiring under members) or missing (an empty room kept alive).
+- A stored pending request whose requester never returned could be approved into a connected member with no socket (scratch probe P4); a room the previous coordinator pinned open was not healed (P9).
+- Approvals did not re-check the 10-place cap, so reconnects plus approvals reached 13 connected (P8). This predates #120.
+- The edge `alarm()` close loop was unguarded (P6); the six-hour lifetime limit was never scheduled as an alarm candidate.
+- No test pinned `decidePlayerIdentity` against the real placeholder; the content-script tests pass through the newer guard.
+- The local expiry tests depended on real-time sleeps.
+
+### Fix
+- `packages/sync-engine/src/empty-room-clock.ts`: `reconcileEmptyClock` and `isEmptyRoomExpired`, one rule used by both services and unit-tested: no clock while anyone is connected, a running clock never moves, a missing clock starts when the room is empty.
+- `apps/edge-service/src/worker.ts`: `healRestoredState()` on restore (withdraw pending requests and disconnect members with no attached socket, schedule controller recovery, start or clear the clock, persist); `closeSockets()` best effort in both expiry branches; the clock is reconciled in `alarm()`; `createdAtMs + MAX_ROOM_LIFETIME_MS` is an alarm candidate.
+- `apps/room-service/src/server.ts`: the cleanup tick reconciles the clock and closes sockets best effort; options `now` and `cleanupIntervalMs`; read-only `inspectRoom(code)` for tests.
+- `packages/sync-engine/src/room.ts`: `MAX_PARTICIPANTS`; `respondToJoin` refuses an approval at the cap with `room_full` and leaves the request pending; the placeholder comment says what the protocol does and does not guarantee.
+- `CHANGELOG.md`: a scope line for each kind of entry (coordinator, local service, extension), answering the review comment that the section header implied a coordinator redeploy activates the local-service fix.
+
+### Verification (local)
+- New: 5 clock-rule tests, 1 coordinator cap test, 8 edge lifecycle tests, 1 local test (a member returns before the clock runs out), 1 `decidePlayerIdentity` matrix test; the two local expiry tests rewritten on the injected clock and polling. `npm run check`: 40 files, 460 tests.
+- Red with `room.ts`, `server.ts` and `worker.ts` reverted to the previous main: 11 tests fail (the edge ones at their intended assertions, the local ones for lack of the new options); the matrix test fails at its guard when the placeholder media is null.
+
+## Confirmed Successful Results
+- The edge lifecycle behaviors above are pinned in the fake Durable Object harness, the clock rule is unit-tested, and the local service's expiry is observed deterministically.
+
+## Failed, Incomplete, or Unresolved Work
+- Not evidenced: that the Workers runtime keeps hibernating sockets attached across a code update (the restore step assumes sockets that are not attached are gone), what it does with `close()` on a closing socket, and alarm retry behavior on the real platform. Phase R8 owns those.
+- An unmasked frame and a frame over the fragment limit remain pinned only by reasoning (checkpoint 110).
+
+## Decisions and Rationale
+- One shared function for the clock instead of more per-path guards: the earlier fix needed three separate guards and still left paths untested.
+- Healing at restore also disconnects members with no socket: it is the same stale state, and without it such a member holds the room open forever. A participant that still has an attached socket is never touched, so a hibernation wake is unaffected.
+
+## Files and Artifacts
+- `packages/sync-engine/src/empty-room-clock.ts` and test, `room.ts`, `room.test.ts`, `index.ts`; `apps/edge-service/src/worker.ts`, `worker.test.ts`; `apps/room-service/src/server.ts`, `server.test.ts`; `apps/extension/src/player-identity.test.ts`; `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- Healing relies on `ctx.getWebSockets()` and the stored attachments being accurate inside the constructor's `blockConcurrencyWhile`; verified in the fake harness and for hibernation wake in local workerd, not across a real code update.
+
+## Open Questions, Blockers, and Dependencies
+- The first real deploy of this coordinator needs the owner's approval, the `immediate` pin (#126) and a recorded rollback target (phase R8).
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA; then phase R5 (extension).
+
+## Historical Checkpoint Notes
+- Checkpoint 110 recorded the local-service socket error handler. This checkpoint supersedes nothing.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
