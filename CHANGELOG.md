@@ -2,6 +2,18 @@
 
 All notable user-facing changes are recorded here. This project follows semantic versioning for tagged extension releases.
 
+## [Unreleased]
+
+These are coordinator-side changes: they take effect when the room coordinator is redeployed, and no extension update is needed. They close gaps found while reviewing the host-approval join (tracking issue #119).
+
+### Security
+
+- A client whose join request has not been approved no longer receives any room state. Before, it received the full snapshot (shared link, playback state, participant names, transaction contract) and every later broadcast, and the extension acted on it, for example by opening the shared page. It now receives a snapshot that carries only its own pending entry and is excluded from broadcasts until the controller approves it.
+- On the edge coordinator, a connection that never sent a join request no longer receives room broadcasts. Before, it could listen to a room for as long as it stayed connected.
+- A pending join request is bound to the session issued for it. Sending the same participant id again without that session is refused instead of replacing the request and its approval.
+- A pending join request is withdrawn when its connection closes, so it can no longer be approved into a member that has no connection and blocks the room.
+- An unapproved request no longer cancels the edge coordinator's empty-room expiry.
+
 ## [0.2.6] - 2026-09-29
 
 This is a compatible test release containing the coordinator and extension fixes merged after `v0.2.5`. The coordinator fixes take effect only after the room coordinator is redeployed. The extension changes take effect when each participant loads this package. The paused-seek fix is a coordinator change, so update participants' extensions together with, or before, the coordinator.

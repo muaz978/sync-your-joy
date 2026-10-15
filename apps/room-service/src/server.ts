@@ -37,6 +37,11 @@ interface ConnectedClient {
 interface RoomEntry {
   coordinator: RoomCoordinator
   sockets: Set<WebSocket>
+  // Sockets whose join request has not been approved. They stay in `sockets`
+  // so their lifetime is tracked, but they are never a broadcast target: an
+  // unapproved requester must learn nothing about the room until the
+  // controller approves it.
+  pending: Set<WebSocket>
   emptySinceMs: number | null
   createdAtMs: number
   // The IP that created this room, so its slot in roomCountByIp can be
@@ -225,12 +230,23 @@ export async function createRoomService(options: { port?: number; host?: string;
         return
 
       room.sockets.delete(socket)
+      room.pending.delete(socket)
       const stillConnected = [...room.sockets].some((candidate) => {
         const candidateClient = clients.get(candidate)
         return candidateClient?.participantId === client.participantId
       })
       if (stillConnected)
         return
+      // A requester that disappears before the controller decides must not
+      // stay approvable: approving it would create a connected member that
+      // has no socket. Withdraw the request instead of disconnecting.
+      const withdrawn = room.coordinator.cancelPendingJoin(client.participantId)
+      if (withdrawn?.ok) {
+        broadcast(room, { type: 'room_snapshot', reason: withdrawn.reason, snapshot: withdrawn.snapshot })
+        if (!room.coordinator.hasConnectedParticipants())
+          room.emptySinceMs = Date.now()
+        return
+      }
       const result = room.coordinator.disconnect(client.participantId)
       if (result?.ok)
         broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
@@ -288,7 +304,7 @@ export async function createRoomService(options: { port?: number; host?: string;
           ...(message.capabilities ? { capabilities: message.capabilities } : {}),
         },
       )
-      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), emptySinceMs: null, createdAtMs: Date.now(), creatorIp: remoteAddress, pendingDiagnosticsRequests: new Map() }
+      const entry: RoomEntry = { coordinator, sockets: new Set([socket]), pending: new Set(), emptySinceMs: null, createdAtMs: Date.now(), creatorIp: remoteAddress, pendingDiagnosticsRequests: new Map() }
       rooms.set(code, entry)
       roomCountByIp.set(remoteAddress, (roomCountByIp.get(remoteAddress) ?? 0) + 1)
       clients.set(socket, { socket, participantId: message.participantId, roomCode: code })
@@ -315,9 +331,14 @@ export async function createRoomService(options: { port?: number; host?: string;
       }
 
       const existing = entry.coordinator.exportState().participants.find(item => item.id === message.participantId)
+      // A request that is already pending is bound to the token issued for
+      // it: only the client holding that token may re-attach. Everyone else
+      // who merely knows the participant id is rejected below (fail closed).
       const sessionToken = existing
         ? existing.sessionToken ? message.sessionToken : randomBytes(16).toString('base64url')
-        : randomBytes(16).toString('base64url')
+        : entry.coordinator.hasPendingJoin(message.participantId)
+          ? entry.coordinator.pendingJoinSessionToken(message.participantId) === message.sessionToken ? message.sessionToken : undefined
+          : randomBytes(16).toString('base64url')
       if (!sessionToken) {
         send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: entry.coordinator.snapshot() })
         return
@@ -341,8 +362,12 @@ export async function createRoomService(options: { port?: number; host?: string;
         recoveryTimers.delete(timerKey)
       }
 
+      const pendingRequest = result.reason === 'join_pending'
       entry.sockets.add(socket)
-      entry.emptySinceMs = null
+      if (pendingRequest)
+        entry.pending.add(socket)
+      else
+        entry.emptySinceMs = null
       clients.set(socket, { socket, participantId: message.participantId, roomCode: message.code })
       for (const priorSocket of entry.sockets) {
         if (priorSocket === socket)
@@ -354,7 +379,9 @@ export async function createRoomService(options: { port?: number; host?: string;
         type: 'room_joined',
         participantId: message.participantId,
         sessionToken,
-        snapshot: result.snapshot,
+        // An unapproved requester gets a snapshot that carries nothing about
+        // the room, only its own pending entry.
+        snapshot: pendingRequest ? entry.coordinator.pendingSnapshot(message.participantId) : result.snapshot,
       })
       broadcast(entry, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot }, socket)
       return
@@ -467,8 +494,18 @@ export async function createRoomService(options: { port?: number; host?: string;
             snapshot: null,
           })
           room.sockets.delete(deniedSocket)
+          room.pending.delete(deniedSocket)
           clients.delete(deniedSocket)
           deniedSocket.close(1000, 'join_denied')
+        }
+      }
+
+      if (message.approve) {
+        // The requester is a member now: from here on it receives every
+        // broadcast, starting with the snapshot that announces its approval.
+        for (const approvedSocket of [...room.pending]) {
+          if (clients.get(approvedSocket)?.participantId === message.participantId)
+            room.pending.delete(approvedSocket)
         }
       }
 
@@ -566,7 +603,7 @@ function send(socket: WebSocket, message: ServerMessage): void {
 
 function broadcast(room: RoomEntry, message: ServerMessage, except?: WebSocket): void {
   for (const socket of room.sockets) {
-    if (socket !== except)
+    if (socket !== except && !room.pending.has(socket))
       send(socket, message)
   }
 }

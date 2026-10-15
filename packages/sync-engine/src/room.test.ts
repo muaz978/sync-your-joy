@@ -2221,5 +2221,72 @@ describe('RoomCoordinator', () => {
       expect(reconnected).toMatchObject({ ok: true, reason: 'participant_reconnected' })
       expect(reconnected.snapshot.pendingJoinRequests.map(request => request.id)).toEqual(['participant_stranger'])
     })
+
+    it('shows an unapproved requester only its own pending entry and nothing about the room', () => {
+      const room = createRoom()
+      room.join({ id: 'participant_friend', name: 'Rana', media, sessionToken: 'friend-session-token-000000' })
+      room.join({ id: 'participant_other', name: 'Other', media, sessionToken: 'other-session-token-0000000' })
+
+      const view = room.pendingSnapshot('participant_friend')
+
+      expect(view).toMatchObject({
+        media: null,
+        navigation: null,
+        seek: null,
+        participants: [],
+        playback: { status: 'paused', positionSeconds: 0 },
+        pendingJoinRequests: [{ id: 'participant_friend', name: 'Rana' }],
+      })
+      expect(view.contract).toBeUndefined()
+      expect(JSON.stringify(view)).not.toContain('Other')
+      expect(JSON.stringify(view)).not.toContain('session-token')
+    })
+
+    it('does not let another session take over a pending request by reusing its participant id', () => {
+      const room = createRoom()
+      room.join({ id: 'participant_friend', name: 'Rana', media, sessionToken: 'friend-session-token-000000' })
+
+      const withoutToken = room.join({ id: 'participant_friend', name: 'Attacker', media })
+      const wrongToken = room.join({ id: 'participant_friend', name: 'Attacker', media, sessionToken: 'someone-elses-token-0000000' })
+
+      expect(withoutToken).toMatchObject({ ok: false, code: 'session_invalid' })
+      expect(wrongToken).toMatchObject({ ok: false, code: 'session_invalid' })
+      expect(room.snapshot().pendingJoinRequests).toEqual([
+        { id: 'participant_friend', name: 'Rana', requestedAtMs: expect.any(Number) },
+      ])
+    })
+
+    it('lets the same session re-attach to its pending request without losing its place', () => {
+      let nowMs = 10_000
+      const room = createRoom(() => nowMs)
+      room.join({ id: 'participant_friend', name: 'Rana', media, sessionToken: 'friend-session-token-000000' })
+      const requestedAtMs = room.snapshot().pendingJoinRequests[0]!.requestedAtMs
+      nowMs += 5_000
+
+      const again = room.join({ id: 'participant_friend', name: 'Rana', media, sessionToken: 'friend-session-token-000000' })
+
+      expect(again).toMatchObject({ ok: true, reason: 'join_pending' })
+      expect(again.snapshot.pendingJoinRequests).toEqual([
+        { id: 'participant_friend', name: 'Rana', requestedAtMs },
+      ])
+    })
+
+    it('withdraws a pending request so it can no longer be approved into a member with no connection', () => {
+      const room = createRoom()
+      room.join({ id: 'participant_friend', name: 'Rana', media, sessionToken: 'friend-session-token-000000' })
+      // The old behavior: disconnect() ignores a requester that is not a participant.
+      expect(room.disconnect('participant_friend')).toBeNull()
+      expect(room.hasPendingJoin('participant_friend')).toBe(true)
+
+      const withdrawn = room.cancelPendingJoin('participant_friend')
+
+      expect(withdrawn).toMatchObject({ ok: true, reason: 'join_cancelled', snapshot: { pendingJoinRequests: [] } })
+      expect(room.hasPendingJoin('participant_friend')).toBe(false)
+      const snapshot = room.snapshot()
+      const approval = room.respondToJoin('participant_host', snapshot.controller.leaseEpoch, 'participant_friend', true)
+      expect(approval).toMatchObject({ ok: false, code: 'not_found' })
+      expect(room.hasParticipant('participant_friend')).toBe(false)
+      expect(room.cancelPendingJoin('participant_friend')).toBeNull()
+    })
   })
 })

@@ -47,7 +47,10 @@ describe('room service', () => {
     const joined = await nextMessage(friend)
     expect(joined.type).toBe('room_joined')
     if (joined.type === 'room_joined') {
-      expect(joined.snapshot.participants).toHaveLength(1)
+      // An unapproved requester must not see who is in the room. It only
+      // sees its own pending entry (the signal clients use to show a
+      // waiting view).
+      expect(joined.snapshot.participants).toEqual([])
       expect(joined.snapshot.pendingJoinRequests).toEqual([
         expect.objectContaining({ id: 'participant_friend', name: 'Rana' }),
       ])
@@ -603,6 +606,137 @@ describe('room service', () => {
       type: 'create_room', protocolVersion: 1, participantId: 'participant_host_20', name: 'Muaz', code: 'JOY7K2MX', media: null,
     }))
     await expect(nextMessage(limitedSocket)).resolves.toMatchObject({ type: 'error', code: 'rate_limited' })
+  })
+})
+
+describe('unapproved join requests receive nothing', () => {
+  const hostMedia = { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A private title', durationSeconds: 600 }
+
+  async function roomWithPendingFriend() {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const friend = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'PEND1234', media: hostMedia,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    const hostNotice = nextMessage(host)
+    friend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: created.snapshot.code, media: null,
+    }))
+    const joined = await nextMessage(friend)
+    if (joined.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    await hostNotice
+    return { host, friend, code: created.snapshot.code, friendToken: joined.sessionToken, joined }
+  }
+
+  const approve = (host: WebSocket, id = 'participant_friend') => host.send(JSON.stringify({
+    type: 'respond_to_join', participantId: id, approve: true, actionId: `action_approve_${id}`, basedOnRevision: 0, leaseEpoch: 1,
+  }))
+
+  it('gives a pending requester a snapshot that carries nothing about the room', async () => {
+    const { host, friend, joined } = await roomWithPendingFriend()
+    expect(joined.snapshot).toMatchObject({
+      media: null,
+      navigation: null,
+      seek: null,
+      participants: [],
+      playback: { status: 'paused', positionSeconds: 0 },
+      pendingJoinRequests: [expect.objectContaining({ id: 'participant_friend', name: 'Rana' })],
+    })
+    expect(joined.snapshot.contract).toBeUndefined()
+    expect(JSON.stringify(joined)).not.toContain('private title')
+    expect(JSON.stringify(joined)).not.toContain('Muaz')
+    host.close()
+    friend.close()
+  })
+
+  it('sends a pending requester none of the room broadcasts', async () => {
+    const { host, friend } = await roomWithPendingFriend()
+    const hostReady = nextMessage(host)
+    host.send(JSON.stringify({ type: 'set_ready', ready: true, media: hostMedia }))
+    await hostReady
+    const hostDiagnostics = nextMessage(host)
+    host.send(JSON.stringify({ type: 'request_diagnostics', reportId: 'report_pending_isolation' }))
+    await hostDiagnostics
+    await expectNoMessage(friend)
+    host.close()
+    friend.close()
+  })
+
+  it('withdraws the request when the requester disconnects, so it cannot be approved later', async () => {
+    const { host, friend } = await roomWithPendingFriend()
+    const hostNotice = nextMessage(host)
+    friend.close()
+    const withdrawn = await hostNotice
+    expect(withdrawn).toMatchObject({ type: 'room_snapshot', reason: 'join_cancelled', snapshot: { pendingJoinRequests: [], participants: [expect.objectContaining({ id: 'participant_host' })] } })
+
+    const rejection = nextMessage(host)
+    approve(host)
+    await expect(rejection).resolves.toMatchObject({ type: 'command_rejected', code: 'not_found' })
+    host.close()
+  })
+
+  it('refuses a client that only knows the pending participant id and leaves the request untouched', async () => {
+    const { host, friend, code } = await roomWithPendingFriend()
+    const intruder = await connect(service!.url)
+    const rejection = nextMessage(intruder)
+    intruder.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Attacker', code, media: null,
+    }))
+    await expect(rejection).resolves.toMatchObject({ type: 'command_rejected', code: 'session_invalid' })
+
+    const hostApproved = nextMessage(host)
+    const friendApproved = nextMessage(friend)
+    approve(host)
+    await expect(friendApproved).resolves.toMatchObject({
+      type: 'room_snapshot',
+      reason: 'join_approved',
+      snapshot: { participants: expect.arrayContaining([expect.objectContaining({ id: 'participant_friend', name: 'Rana' })]) },
+    })
+    await hostApproved
+    intruder.close()
+    host.close()
+    friend.close()
+  })
+
+  it('lets the same client re-attach to its pending request with the token it was issued', async () => {
+    const { host, friend, code, friendToken } = await roomWithPendingFriend()
+    const replaced = new Promise<number>(resolve => friend.once('close', resolve))
+    const reattached = await connect(service!.url)
+    const rejoined = nextMessage(reattached)
+    reattached.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null, sessionToken: friendToken,
+    }))
+    await expect(rejoined).resolves.toMatchObject({
+      type: 'room_joined',
+      sessionToken: friendToken,
+      snapshot: { participants: [], pendingJoinRequests: [expect.objectContaining({ id: 'participant_friend' })] },
+    })
+    await expect(replaced).resolves.toBe(1000)
+
+    const approved = nextMessage(reattached)
+    approve(host)
+    await expect(approved).resolves.toMatchObject({ type: 'room_snapshot', reason: 'join_approved' })
+    reattached.close()
+    host.close()
+  })
+
+  it('starts delivering the full room state once the request is approved', async () => {
+    const { host, friend } = await roomWithPendingFriend()
+    const approved = nextMessage(friend)
+    approve(host)
+    const message = await approved
+    expect(message).toMatchObject({ type: 'room_snapshot', reason: 'join_approved' })
+    if (message.type === 'room_snapshot') {
+      expect(message.snapshot.participants).toHaveLength(2)
+      expect(message.snapshot.media).toMatchObject({ canonicalId: 'youtube:private-id' })
+    }
+    host.close()
+    friend.close()
   })
 })
 

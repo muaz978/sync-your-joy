@@ -270,6 +270,29 @@ export class RoomCoordinator {
       return this.success('participant_reconnected')
     }
 
+    // A request that is already pending is bound to the session token the
+    // server issued for it. Sending join_room again with the same
+    // participantId is how the same client re-attaches after a dropped
+    // socket and it presents that token. Anyone else who merely knows the
+    // id must not be able to overwrite the request or take over its
+    // approval. Fail closed: a missing or different token is rejected and
+    // the original request is left untouched.
+    const alreadyPending = this.pendingJoinRequests.get(participant.id)
+    if (alreadyPending) {
+      if (alreadyPending.sessionToken !== participant.sessionToken)
+        return this.failure('session_invalid', 'This join request belongs to another session. Request to join again with a new room identity.')
+      const changed = alreadyPending.name !== participant.name
+        || JSON.stringify(alreadyPending.media) !== JSON.stringify(participant.media)
+      alreadyPending.name = participant.name
+      alreadyPending.media = participant.media
+      alreadyPending.capabilities = capabilities
+      if (changed) {
+        this.revision += 1
+        this.markStateBarrier()
+      }
+      return this.success('join_pending')
+    }
+
     // Count both currently-connected participants and requests already
     // pending approval against the same cap of 10, so a flood of brand-new
     // join requests can't bypass it by staying "merely pending" forever.
@@ -334,6 +357,69 @@ export class RoomCoordinator {
     this.revision += 1
     this.markStateBarrier()
     return this.success('join_approved')
+  }
+
+  /** True once the participant is an approved member of the room. */
+  hasParticipant(participantId: string): boolean {
+    return this.participants.has(participantId)
+  }
+
+  /** True while the participant's join request awaits the controller's decision. */
+  hasPendingJoin(participantId: string): boolean {
+    return this.pendingJoinRequests.has(participantId)
+  }
+
+  /**
+   * The session token issued for a pending request. A service uses it to let
+   * the same client re-attach after a dropped socket and to refuse everyone
+   * else who only knows the participant id.
+   */
+  pendingJoinSessionToken(participantId: string): string | undefined {
+    return this.pendingJoinRequests.get(participantId)?.sessionToken
+  }
+
+  /**
+   * Withdraws a pending request, for example because the requester's socket
+   * closed. Without this the request stays approvable and approving it
+   * creates a connected member that has no socket, which blocks readiness
+   * and holds one of the ten places.
+   */
+  cancelPendingJoin(participantId: string): RoomResult | null {
+    if (!this.pendingJoinRequests.delete(participantId))
+      return null
+    this.revision += 1
+    this.markStateBarrier()
+    return this.success('join_cancelled')
+  }
+
+  /**
+   * What a requester that has not been approved may see. It keeps the shape
+   * the clients already parse, so deployed extensions still show their
+   * waiting view, but it carries nothing about the room: no media, shared
+   * link, playback, seek, participants, other requests or transaction
+   * contract. The requester's own pending entry is the signal clients use.
+   */
+  pendingSnapshot(participantId: string): RoomSnapshot {
+    const full = this.snapshot()
+    const own = full.pendingJoinRequests.find(request => request.id === participantId)
+    return {
+      roomId: full.roomId,
+      code: full.code,
+      revision: full.revision,
+      controller: full.controller,
+      media: null,
+      playback: {
+        status: 'paused',
+        positionSeconds: 0,
+        effectiveAtServerMs: full.playback.effectiveAtServerMs,
+        playbackRate: 1,
+      },
+      seek: null,
+      navigation: null,
+      participants: [],
+      pendingJoinRequests: own ? [own] : [],
+      policy: full.policy,
+    }
   }
 
   setReady(participantId: string, ready: boolean, media: MediaFingerprint | null): RoomResult {
