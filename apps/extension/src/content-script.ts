@@ -1,4 +1,4 @@
-import type { MediaFingerprint, OperationAcknowledgement, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
+import type { MediaFingerprint, OperationAcknowledgement, ParticipantPlaybackStatus, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { canApplySoftDriftCorrection, canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isPlaybackRateAccepted, isSeekAligned, isSettledPausedSeek, LOCAL_SEEK_MAX_WAIT_MS, PLAYBACK_STARTUP_TIMEOUT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
@@ -9,10 +9,11 @@ import { PlayerOperations, type OperationToken } from './player-operations.ts'
 import { clearPlaybackStartFailed, createPlayerHealthState, markPlaybackStartFailed, markPlayerHealthBuffering, observePlayerHealth, resetPlayerHealthBaseline, type PlayerHealthState } from './player-health.ts'
 import { decidePlayerIdentity } from './player-identity.ts'
 import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
-import { localPlaybackStatus, playbackStatusCopy } from './playback-status.ts'
+import { localPlaybackStatus } from './playback-status.ts'
+import { pillView, roomlessNoticeView } from './pill-view.ts'
 import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
-import { isAwaitingApproval, pendingPillCopy } from './room-membership.ts'
+import { isAwaitingApproval } from './room-membership.ts'
 import { discoverOpenShadowRoots, discoverVideoElements } from './video-discovery.ts'
 
 declare const __SYNCYOURJOY_TEST_MODE__: boolean
@@ -1599,42 +1600,43 @@ function renderPill(): void {
   if (actionsElement)
     actionsElement.hidden = noticeWithoutRoom !== null
   if (noticeWithoutRoom !== null) {
+    const notice = roomlessNoticeView(noticeWithoutRoom)
     if (statusElement)
-      statusElement.textContent = 'SyncYourJoy'
+      statusElement.textContent = notice.status
     if (metaElement)
-      metaElement.textContent = noticeWithoutRoom
+      metaElement.textContent = notice.meta
     return
   }
   if (!snapshot || !activeState)
     return
 
-  // A pending request is not a member: the placeholder snapshot has no
-  // participants, so the member copy below ("Member, 0 connected", a
-  // different-episode hint) would be wrong. Say what is actually happening.
-  if (isAwaitingApproval(activeState)) {
-    const pendingCopy = pendingPillCopy(activeState.connection)
-    if (statusElement)
-      statusElement.textContent = pendingCopy.status
-    if (metaElement)
-      metaElement.textContent = pendingCopy.detail
-    if (playbackButton)
-      playbackButton.hidden = true
-    if (syncButton)
-      syncButton.disabled = true
-    if (noticeElement && activeState.lastError)
-      noticeElement.textContent = activeState.lastError
-    return
+  const pill = pillView({
+    state: { connection: activeState.connection, participantId: activeState.participantId, lastError: activeState.lastError, snapshot },
+    hasVideo: video !== null,
+    localStatus: currentLocalPlaybackStatus(snapshot, activeState),
+  })
+  if (statusElement)
+    statusElement.textContent = pill.status
+  if (metaElement)
+    metaElement.textContent = pill.meta
+  if (playbackButton) {
+    playbackButton.hidden = pill.playbackHidden
+    playbackButton.disabled = pill.playbackDisabled
+    playbackButton.textContent = pill.playbackLabel
   }
+  if (syncButton)
+    syncButton.disabled = pill.syncDisabled
+  if (noticeElement && pill.notice)
+    noticeElement.textContent = pill.notice
+}
 
-  const participant = snapshot.participants.find(item => item.id === activeState?.participantId)
-  const connected = snapshot.participants.filter(item => item.connected)
-  const allReady = connected.every(item => item.ready && item.mediaMatches)
-  const isController = snapshot.controller.participantId === activeState.participantId
-  const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
+function currentLocalPlaybackStatus(snapshot: NonNullable<ExtensionState['snapshot']>, current: ExtensionState): ParticipantPlaybackStatus {
+  const participant = snapshot.participants.find(item => item.id === current.participantId)
+  const estimatedServerNowMs = Date.now() + current.serverOffsetMs
   const catchingUp = snapshot.playback.status === 'playing' && video !== null
     && Math.abs(video.currentTime - expectedPosition(snapshot.playback, estimatedServerNowMs)) > 0.6
-  const localStatus = localPlaybackStatus({
-    connected: activeState.connection === 'connected',
+  return localPlaybackStatus({
+    connected: current.connection === 'connected',
     hasVideo: video !== null,
     mediaMatches: participant?.mediaMatches ?? false,
     ready: participant?.ready ?? false,
@@ -1651,27 +1653,6 @@ function renderPill(): void {
     statusAgeMs: video ? Math.max(0, performance.now() - playerHealth.observedAtMs) : null,
     nowMs: performance.now(),
   })
-  const localStatusCopy = playbackStatusCopy(localStatus, isController)
-
-  if (statusElement)
-    statusElement.textContent = activeState.connection === 'reconnecting'
-      ? 'Reconnecting'
-      : snapshot.seek
-        ? `Seeking ${snapshot.seek.acknowledgedParticipantIds.length}/${connected.length}`
-        : localStatusCopy.label
-  if (metaElement)
-    metaElement.textContent = snapshot.seek
-      ? `Moving everyone to ${formatPillTime(snapshot.seek.positionSeconds)}`
-      : `${localStatusCopy.detail} ${isController ? 'Controller' : 'Member'}, ${connected.length} connected.`
-  if (playbackButton) {
-    playbackButton.hidden = !isController || !video
-    playbackButton.disabled = snapshot.seek !== null || (snapshot.playback.status === 'paused' && !allReady)
-    playbackButton.textContent = snapshot.seek ? 'Aligning' : snapshot.playback.status === 'playing' ? 'Pause' : 'Play'
-  }
-  if (syncButton)
-    syncButton.disabled = !video || localStatus === 'wrong-media'
-  if (noticeElement && activeState.lastError)
-    noticeElement.textContent = activeState.lastError
 }
 
 function setMiniControllerHidden(hidden: boolean): void {
@@ -2055,12 +2036,6 @@ function containerPageUrl(playerUrl: URL): URL {
 
 function finiteOrZero(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0
-}
-
-function formatPillTime(value: number): string {
-  const seconds = Math.max(0, Math.floor(value))
-  const minutes = Math.floor(seconds / 60)
-  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
 }
 
 async function sendRuntime(request: RuntimeRequest): Promise<RuntimeResponse> {

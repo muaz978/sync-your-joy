@@ -15,10 +15,33 @@ class FakeElement extends EventTarget {
   localName = 'div'
   shadowRoot = null
   append() {}
-  attachShadow() { return new FakeElement() }
-  querySelector() { return null }
+  // The only element the content script gives a shadow root is the pill's
+  // host, so this is where the test gets hold of the pill.
+  attachShadow() {
+    pillHost = this
+    pillShadow = new FakePillShadowRoot()
+    return pillShadow
+  }
+  querySelector(_selector?: string): FakeElement | null { return null }
   querySelectorAll() { return [] }
 }
+
+// Stand-ins for the elements of the pill, which lives in a closed shadow root
+// and so cannot be read from a real browser test.
+class FakePillElement extends FakeElement {
+  disabled = false
+}
+
+const PILL_SELECTORS = ['.pill', '#syj-status', '#syj-meta', '#syj-notice', '#syj-actions', '#syj-playback', '#syj-sync', '#syj-room', '#syj-hide', '#syj-restore']
+
+class FakePillShadowRoot extends FakeElement {
+  readonly elements = new Map<string, FakePillElement>(PILL_SELECTORS.map(selector => [selector, new FakePillElement()]))
+  querySelector(selector?: string) { return (selector ? this.elements.get(selector) : undefined) ?? null }
+}
+
+let pillHost: FakeElement
+let pillShadow: FakePillShadowRoot
+const pill = (selector: typeof PILL_SELECTORS[number]) => pillShadow.elements.get(selector)!
 
 class FakeVideo extends FakeElement {
   static HAVE_NOTHING = 0
@@ -1229,5 +1252,125 @@ describe('an unapproved join request', () => {
 
     expect(video.pause).toHaveBeenCalled()
     expect(video.writes).toEqual([0])
+  })
+
+  describe('as the pill on the page shows it', () => {
+    const pendingSnapshot = () => roomWithPendingFriend(otherEpisode).pendingSnapshot('participant_friend')
+
+    it('says it is waiting for the host and puts the playback controls out of reach', () => {
+      // Whatever the previous room state left on the pill.
+      pill('#syj-playback').hidden = false
+      pill('#syj-sync').disabled = false
+
+      applyAsFriend(pendingSnapshot())
+
+      expect(pill('#syj-status').textContent).toBe('Waiting for the host')
+      expect(pill('#syj-meta').textContent).toMatch(/request to join is pending/i)
+      expect(`${pill('#syj-status').textContent} ${pill('#syj-meta').textContent}`).not.toMatch(/member|0 connected/i)
+      expect(pill('#syj-playback').hidden).toBe(true)
+      expect(pill('#syj-sync').disabled).toBe(true)
+      expect(pill('.pill').hidden).toBe(false)
+    })
+
+    it('shows the requester\'s own connection, not the host, while it is reconnecting', () => {
+      state = { ...structuredClone(state), participantId: 'participant_friend', connection: 'reconnecting', snapshot: pendingSnapshot() }
+      listener({ type: 'APPLY_ROOM_STATE', state })
+
+      expect(pill('#syj-status').textContent).toBe('Reconnecting')
+      expect(pill('#syj-status').textContent).not.toMatch(/waiting for the host/i)
+      expect(pill('#syj-meta').textContent).toMatch(/pending/i)
+      expect(pill('#syj-playback').hidden).toBe(true)
+      expect(pill('#syj-sync').disabled).toBe(true)
+    })
+
+    it('shows the same request as waiting for the host again once it reconnects', () => {
+      state = { ...structuredClone(state), participantId: 'participant_friend', connection: 'reconnecting', snapshot: pendingSnapshot() }
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      state = { ...structuredClone(state), connection: 'connected' }
+      listener({ type: 'APPLY_ROOM_STATE', state })
+
+      expect(pill('#syj-status').textContent).toBe('Waiting for the host')
+    })
+
+    it('shows a member the room\'s state with member wording once the request is approved', () => {
+      const room = roomWithPendingFriend(localEpisode)
+      room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_friend', true)
+      pill('#syj-sync').disabled = true
+
+      applyAsFriend(room.snapshot())
+
+      expect(pill('#syj-status').textContent).not.toMatch(/waiting for the host/i)
+      expect(pill('#syj-meta').textContent).toMatch(/Member, 2 connected\.$/)
+      expect(pill('#syj-playback').hidden).toBe(true)
+      expect(pill('#syj-sync').disabled).toBe(false)
+    })
+
+    it('shows the host its playback button', () => {
+      const room = roomWithPendingFriend(localEpisode)
+      room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_friend', true)
+      state = { ...structuredClone(state), participantId: 'participant_host', snapshot: room.snapshot() }
+      listener({ type: 'APPLY_ROOM_STATE', state })
+
+      expect(pill('#syj-meta').textContent).toMatch(/Controller, 2 connected\.$/)
+      expect(pill('#syj-playback').hidden).toBe(false)
+      expect(pill('#syj-playback').textContent).toBe('Play')
+    })
+  })
+})
+
+describe('a notice about a room that has ended', () => {
+  const ended = () => {
+    state = { ...structuredClone(state), connection: 'disconnected', snapshot: null, lastError: 'This room has expired.' }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+  }
+
+  it('is shown on the page, although there is no room to show, and then goes away', async () => {
+    // The page was showing the room first.
+    listener({ type: 'APPLY_ROOM_STATE', state })
+    expect(pillHost.style.display).toBe('block')
+
+    ended()
+    expect(pillHost.style.display).toBe('none')
+    listener({ type: 'SHOW_NOTICE', message: 'This room has expired. Create or join another room to keep watching together.' })
+
+    expect(pillHost.style.display).toBe('block')
+    expect(pill('.pill').hidden).toBe(false)
+    expect(pill('#syj-restore').hidden).toBe(true)
+    expect(pill('#syj-status').textContent).toBe('SyncYourJoy')
+    expect(pill('#syj-meta').textContent).toBe('This room has expired. Create or join another room to keep watching together.')
+    // Nothing to press for a room that is gone.
+    expect(pill('#syj-actions').hidden).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(pillHost.style.display).toBe('none')
+  })
+
+  it('does not take over the pill while there is a room', () => {
+    listener({ type: 'APPLY_ROOM_STATE', state })
+    listener({ type: 'SHOW_NOTICE', message: 'The room controller owns playback.' })
+
+    expect(pill('#syj-notice').textContent).toBe('The room controller owns playback.')
+    expect(pill('#syj-actions').hidden).toBe(false)
+    expect(pill('#syj-status').textContent).not.toBe('SyncYourJoy')
+  })
+
+  it('gives the actions back when a room is joined while the notice is up', () => {
+    ended()
+    listener({ type: 'SHOW_NOTICE', message: 'This room has expired.' })
+    expect(pill('#syj-actions').hidden).toBe(true)
+
+    state = { ...structuredClone(state), connection: 'connected', lastError: null, snapshot: structuredClone(state.snapshot) ?? null }
+    state.snapshot = {
+      roomId: 'room', code: 'NEWCODE1', revision: 1,
+      controller: { participantId: 'host', leaseEpoch: 1 },
+      media: null, playback: { status: 'paused', positionSeconds: 0, effectiveAtServerMs: Date.now(), playbackRate: 1 },
+      navigation: null, seek: null,
+      participants: [{ id: 'guest', name: 'Guest', role: 'member', ready: false, mediaMatches: false, connected: true, latencyMs: 0 }],
+      pendingJoinRequests: [], policy: { buffering: 'pause-all' },
+    }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+
+    expect(pill('#syj-actions').hidden).toBe(false)
+    expect(pill('#syj-status').textContent).not.toBe('SyncYourJoy')
   })
 })
