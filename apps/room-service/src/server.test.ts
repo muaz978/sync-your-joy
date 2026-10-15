@@ -863,6 +863,69 @@ async function joinAndApprove(
   await Promise.all([hostApproved, friendApproved])
 }
 
+describe('frames the websocket library rejects', () => {
+  // ws closes the connection with the matching status code and then emits
+  // 'error' on the socket. The service used to have no listener for it, so one
+  // frame from any client with an allowed Origin ended the whole process and
+  // every in-memory room with it.
+  const nextClose = (socket: WebSocket) => new Promise<number>((resolve, reject) => {
+    const timeout = AbortSignal.timeout(4_000)
+    const onAbort = () => reject(new Error('The socket was not closed.'))
+    timeout.addEventListener('abort', onAbort, { once: true })
+    socket.once('close', (code) => {
+      timeout.removeEventListener('abort', onAbort)
+      resolve(code)
+    })
+  })
+
+  async function bystanderStillServed(bystander: WebSocket): Promise<void> {
+    const reply = nextMessage(bystander)
+    bystander.send(JSON.stringify({ type: 'ping', id: 'ping_bystander', sentAtLocalMs: 1 }))
+    await expect(reply).resolves.toMatchObject({ type: 'pong' })
+  }
+
+  it('closes a client that sends a frame over the size limit with 1009 and keeps serving others', async () => {
+    service = await createRoomService({ port: 0 })
+    const bystander = await connect(service.url)
+    const offender = await connect(service.url)
+    const closed = nextClose(offender)
+
+    offender.send('x'.repeat(16_385))
+
+    await expect(closed).resolves.toBe(1009)
+    await bystanderStillServed(bystander)
+    bystander.close()
+  })
+
+  it('closes a client that sends invalid UTF-8 in a text frame with 1007 and keeps serving others', async () => {
+    service = await createRoomService({ port: 0 })
+    const bystander = await connect(service.url)
+    const offender = await connect(service.url)
+    const closed = nextClose(offender)
+
+    offender.send(Buffer.from([0xff, 0xfe, 0xfd, 0xfc]), { binary: false })
+
+    await expect(closed).resolves.toBe(1007)
+    await bystanderStillServed(bystander)
+    bystander.close()
+  })
+
+  it('closes a client whose binary frame decodes past the size limit and keeps serving others', async () => {
+    service = await createRoomService({ port: 0 })
+    const bystander = await connect(service.url)
+    const offender = await connect(service.url)
+    const closed = nextClose(offender)
+
+    // 16,384 bytes pass maxPayload, but invalid UTF-8 decodes to three bytes
+    // per replacement character, which the service's own check catches.
+    offender.send(Buffer.alloc(16_384, 0xff))
+
+    await expect(closed).resolves.toBe(1009)
+    await bystanderStillServed(bystander)
+    bystander.close()
+  })
+})
+
 describe('empty room expiry with unapproved requests', () => {
   const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
   const startMs = 1_900_000_000_000

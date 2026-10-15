@@ -209,6 +209,13 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
 
   webSocketServer.on('connection', (socket, request) => {
     socketRemoteAddresses.set(socket, request.socket.remoteAddress ?? 'unknown')
+    // ws starts the close handshake with the status code that matches the
+    // failure (1009 for a frame over maxPayload, 1007 for invalid UTF-8, 1002
+    // for a protocol violation) and only then emits 'error'. Without a
+    // listener that emit is thrown, which takes down the whole process and
+    // every room it holds, on one frame from any client that passes the
+    // Origin check. The 'close' handler below does the cleanup.
+    socket.on('error', () => {})
     let messageWindowStartedAt = Date.now()
     let messageCount = 0
 
@@ -226,6 +233,9 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       }
 
       const rawText = rawData.toString()
+      // ws already enforces maxPayload on the raw frame, so this only fires
+      // when decoding grows the payload: a binary frame of invalid UTF-8
+      // becomes three bytes per replacement character.
       if (Buffer.byteLength(rawText) > MAX_MESSAGE_BYTES) {
         socket.close(1009, 'message_too_large')
         return

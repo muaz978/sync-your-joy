@@ -6,6 +6,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 These changes take effect when the room coordinator is redeployed, and deployed extensions need no update: the coordinator now answers an unapproved request with a placeholder that already-installed content scripts leave alone. The extension itself also stops driving a page's video for a pending request, which ships with the next extension release as a second line of defence. They close gaps found while reviewing the host-approval join (tracking issue #119).
 
+### Fixed
+
+- The local room service no longer exits when a client sends a frame that the WebSocket library rejects (a frame over 16 KiB, invalid UTF-8 in a text frame, a protocol violation). Before, one such frame from any client with an allowed Origin ended the process and every in-memory room; the sender is now closed with 1009, 1007 or 1002 and other clients are unaffected. This affects the local service and the local test runs, not the Cloudflare coordinator.
+
 ### Security
 
 - A client whose join request has not been approved no longer receives any room state. Before, it received the full snapshot (shared link, playback state, participant names, transaction contract) and every later broadcast, and the extension acted on it, for example by opening the shared page. It now receives a snapshot that carries only its own pending entry and is excluded from broadcasts until the controller approves it. That snapshot is also inert for a player: it carries a fingerprint that matches no real media, no revision, controller identity or playback time, so an installed extension no longer pauses and rewinds the video a requester is watching while it waits.
