@@ -303,6 +303,7 @@ describe('RoomDurableObject: empty room expiry with unapproved requests', () => 
 describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
   const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
   const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
+  const CONTROLLER_GRACE_MS = 10_000
   const startMs = 1_900_000_000_000
   type Inspect = { emptySinceMs: number | null, coordinator: { snapshot: () => { participants: Array<{ id: string, connected: boolean }>, pendingJoinRequests: Array<{ id: string }>, controller: { participantId: string } } } | null, pendingController: { participantId: string } | null }
   const inspect = (room: InstanceType<typeof RoomDurableObject>) => room as unknown as Inspect
@@ -337,12 +338,12 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     return new RoomDurableObject(ctx as never, {} as never)
   }
 
-  async function roomWithHostAndRequest() {
+  async function roomWithHostAndRequest(alarms: number[] = []) {
     vi.useFakeTimers({ toFake: ['Date'], now: startMs })
     const store = new Map<string, unknown>()
     const host = new FakeSocket()
     const friend = new FakeSocket()
-    const first = objectOver(store, [host, friend])
+    const first = objectOver(store, [host, friend], alarms)
     await say(first, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA })
     await say(first, friend, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null })
     return { store, host, friend, first }
@@ -423,7 +424,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     expect(friend.sent).toHaveLength(friendBefore)
   })
 
-  it('still serves the restored room when reconciling it throws', async () => {
+  it('still serves the restored room and schedules its alarm when reconciling it throws', async () => {
     const { store, host } = await roomWithHostAndRequest()
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     // Reading one socket's attachment fails once, which is what the
@@ -436,8 +437,11 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
         throw new Error('attachment storage hiccup')
       return read()
     }
+    const alarms: number[] = []
 
-    const restarted = await restored(objectOver(store, [flaky, host]))
+    const restarted = await restored(objectOver(store, [flaky, host], alarms))
+    // The deadlines are still derived from the state that was restored.
+    expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
     await say(restarted, host, approve)
 
     expect(logged).toHaveBeenCalledTimes(1)
@@ -537,8 +541,79 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
   })
 
+  it('anchors the lifetime limit of a restored room to when the room was created', async () => {
+    const { store, host, friend } = await roomWithHostAndRequest()
+    const alarms: number[] = []
+
+    // Woken an hour after the room was created: the limit is still six hours
+    // after creation, not six hours after this wake.
+    vi.setSystemTime(startMs + 60 * 60_000)
+    await restored(objectOver(store, [host, friend], alarms))
+
+    expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+  })
+
+  it('gives a stored room with no creation time one on its first restore and keeps it after that', async () => {
+    const { store, host, friend } = await roomWithHostAndRequest()
+    delete (store.get('room') as { createdAtMs?: number }).createdAtMs
+    const alarms: number[] = []
+    const firstWakeMs = startMs + 60 * 60_000
+
+    // Without the stamp the limit would move to six hours after every wake and
+    // a room that is woken often would never reach it.
+    vi.setSystemTime(firstWakeMs)
+    await restored(objectOver(store, [host, friend], alarms))
+    vi.setSystemTime(firstWakeMs + 60 * 60_000)
+    await restored(objectOver(store, [host, friend], alarms))
+
+    expect(alarms).toEqual([firstWakeMs + MAX_ROOM_LIFETIME_MS, firstWakeMs + MAX_ROOM_LIFETIME_MS])
+  })
+
+  it('schedules the empty-room expiry when restoring a room nobody is connected to', async () => {
+    const { store } = await roomWithHostAndRequest()
+    // Nobody is a member and no controller recovery is planned any more, so the
+    // expiry is the only deadline besides the lifetime limit.
+    const stored = store.get('room') as { coordinator: { participants: Array<{ connected: boolean }> }, pendingController: unknown, emptySinceMs: number | null }
+    for (const participant of stored.coordinator.participants)
+      participant.connected = false
+    stored.pendingController = null
+    stored.emptySinceMs = startMs
+    const alarms: number[] = []
+
+    await restored(objectOver(store, [], alarms))
+
+    expect(alarms).toEqual([startMs + EMPTY_ROOM_TTL_MS])
+  })
+
+  it('schedules the controller recovery that restoring plans', async () => {
+    const { store } = await roomWithHostAndRequest()
+    const alarms: number[] = []
+
+    await restored(objectOver(store, [], alarms))
+
+    expect(alarms).toEqual([startMs + CONTROLLER_GRACE_MS])
+  })
+
+  it('makes a repair durable before telling the members that kept their socket', async () => {
+    const { store, host } = await roomWithHostAndRequest()
+    const order: string[] = []
+    const set = store.set.bind(store)
+    store.set = (key, value) => {
+      order.push('put')
+      return set(key, value)
+    }
+    const send = host.send.bind(host)
+    host.send = (data: string) => {
+      order.push('send')
+      send(data)
+    }
+
+    await restored(objectOver(store, [host]))
+
+    expect(order).toEqual(['put', 'send'])
+  })
+
   describe('controller recovery', () => {
-    const CONTROLLER_GRACE_MS = 10_000
     const controllerOf = (room: InstanceType<typeof RoomDurableObject>) => inspect(room).coordinator?.snapshot().controller.participantId
     const sessionTokenOf = (socket: FakeSocket) => {
       const joined = socket.sent.find(message => message.type === 'room_joined')
@@ -550,8 +625,8 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       ;(room as unknown as { ctx: { getWebSockets: () => FakeSocket[] } }).ctx.getWebSockets = () => sockets
     }
 
-    async function hostAndApprovedFriend() {
-      const { host, friend, first } = await roomWithHostAndRequest()
+    async function hostAndApprovedFriend(alarms: number[] = []) {
+      const { host, friend, first } = await roomWithHostAndRequest(alarms)
       await say(first, host, approve)
       return { host, friend, first }
     }
@@ -604,6 +679,48 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
 
       expect(controllerOf(first)).toBe('participant_friend')
       expect(back.last()).toMatchObject({ type: 'room_snapshot', reason: 'controller_recovered' })
+    })
+
+    it('schedules an alarm for the recovery it re-arms and gives the host a full grace period', async () => {
+      const alarms: number[] = []
+      const { host, friend, first } = await hostAndApprovedFriend(alarms)
+      const friendToken = sessionTokenOf(friend)
+
+      await first.webSocketClose(host as never)
+      expect(alarms.at(-1)).toBe(startMs + CONTROLLER_GRACE_MS)
+      await first.webSocketClose(friend as never)
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+
+      const returnedAtMs = startMs + CONTROLLER_GRACE_MS + 1_000
+      const back = new FakeSocket()
+      attach(first, [back])
+      await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      expect(alarms.at(-1)).toBe(returnedAtMs + CONTROLLER_GRACE_MS)
+
+      // An alarm that is delivered before the grace period is over changes nothing.
+      vi.setSystemTime(returnedAtMs + CONTROLLER_GRACE_MS - 1_000)
+      await first.alarm()
+      expect(controllerOf(first)).toBe('participant_host')
+
+      vi.setSystemTime(returnedAtMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+      expect(controllerOf(first)).toBe('participant_friend')
+    })
+
+    it('does not postpone a recovery that is already pending when a member reconnects', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const friendToken = sessionTokenOf(friend)
+
+      await first.webSocketClose(host as never)
+      const again = new FakeSocket()
+      attach(first, [again])
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS - 1_000)
+      await say(first, again, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+
+      expect(controllerOf(first)).toBe('participant_friend')
     })
   })
 })
