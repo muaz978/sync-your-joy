@@ -554,6 +554,90 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       logged.mockRestore()
     })
 
+    it('tells the members of the repair when a save that is not followed by a broadcast of its own settles it', async () => {
+      const { host, restarted, alarms, logged } = await failedRestore()
+      const before = host.sent.length
+
+      // The extension pings every few seconds and reports its metrics after
+      // each pong. The metrics report saves and broadcasts nothing, and it
+      // can come before the retry delay has passed.
+      vi.setSystemTime(startMs + 2_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_early', sentAtLocalMs: 1 })
+      await say(restarted, host, { type: 'client_metrics', roundTripMs: 20 })
+
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+      const repairs = host.sent.slice(before).filter(message => message.type === 'room_snapshot')
+      expect(repairs).toEqual([expect.objectContaining({ reason: 'join_cancelled', snapshot: expect.objectContaining({ pendingJoinRequests: [] }) })])
+      logged.mockRestore()
+    })
+
+    it('waits the whole interval after an attempt that failed, however many frames come', async () => {
+      const { store, host, restarted, logged } = await failedRestore()
+      const set = store.set.bind(store)
+      let attempts = 0
+      store.set = () => {
+        attempts += 1
+        throw new Error('storage is still unavailable')
+      }
+
+      vi.setSystemTime(startMs + 5_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_attempt', sentAtLocalMs: 1 })
+      expect(attempts).toBe(1)
+
+      for (const at of [5_001, 7_500, 9_999]) {
+        vi.setSystemTime(startMs + at)
+        await say(restarted, host, { type: 'ping', id: `ping_${at}`, sentAtLocalMs: at })
+      }
+      expect(attempts).toBe(1)
+
+      vi.setSystemTime(startMs + 10_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_next_interval', sentAtLocalMs: 2 })
+      expect(attempts).toBe(2)
+      store.set = set
+      logged.mockRestore()
+    })
+
+    it('is tried again when the write went through and only the alarm could not be set', async () => {
+      const alarms: number[] = []
+      let alarmsAvailable = false
+      const flakyAlarms = Object.assign([] as number[], {
+        push: (at: number) => {
+          if (!alarmsAvailable)
+            throw new Error('alarm storage is unavailable')
+          return alarms.push(at)
+        },
+      })
+      const { store, host } = await roomWithHostAndRequest()
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const restarted = await restored(objectOver(store, [host], flakyAlarms))
+      // The room was written; the alarm is the only thing missing.
+      expect(store.get('room')).toBeDefined()
+      expect(alarms).toEqual([])
+      const before = host.sent.length
+
+      alarmsAvailable = true
+      vi.setSystemTime(startMs + 5_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_alarm_back', sentAtLocalMs: 1 })
+
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+      expect(host.sent.slice(before)).toContainEqual(expect.objectContaining({ type: 'room_snapshot', reason: 'join_cancelled' }))
+      logged.mockRestore()
+    })
+
+    it('forgets the repair when the room is deleted, so a later room is not told about it', async () => {
+      const { host, restarted, logged } = await failedRestore()
+      const withheld = (restarted as unknown as { unsavedRestore: unknown }).unsavedRestore
+      expect(withheld).toMatchObject({ reason: 'join_cancelled' })
+
+      vi.setSystemTime(startMs + MAX_ROOM_LIFETIME_MS + 1_000)
+      await restarted.alarm()
+
+      expect((restarted as unknown as { unsavedRestore: unknown }).unsavedRestore).toBeNull()
+      void host
+      logged.mockRestore()
+    })
+
     it('stays pending while the save keeps failing, and is tried again later', async () => {
       const { store, host, restarted, alarms, logged } = await failedRestore()
       const set = store.set.bind(store)

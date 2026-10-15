@@ -341,31 +341,65 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   /**
    * A restore whose save failed leaves the room without the alarm that carries
-   * its lifetime limit and controller recovery, and a client that only pings
-   * never makes this object write. So the next frame from any client tries the
-   * save again, not more often than every RESTORE_SAVE_RETRY_MS, and the repair
-   * that was withheld is announced once it is saved.
+   * its lifetime limit and controller recovery, and a client that sends
+   * nothing that writes (the extension's own `client_metrics` does, after each
+   * pong; other clients need not) would never make this object save again. So a
+   * frame from any client tries the save again once the previous attempt is
+   * RESTORE_SAVE_RETRY_MS old. The repair that was withheld from the members is
+   * announced by whichever save succeeds first (settleUnsavedRestore).
+   *
+   * This runs after the frame has been handled and can never fail it: it is a
+   * repair, like the restore itself, and the next frame tries again.
    */
   private async retryUnsavedRestore(): Promise<void> {
     const pending = this.unsavedRestore
     if (!pending || !this.coordinator || Date.now() < pending.nextAttemptAtMs)
       return
+    // Claimed before the attempt, so frames that overlap it do not each make
+    // one and a failed attempt waits the full interval.
+    pending.nextAttemptAtMs = Date.now() + RESTORE_SAVE_RETRY_MS
     try {
       await this.persistAndSchedule()
     }
     catch (error) {
-      pending.nextAttemptAtMs = Date.now() + RESTORE_SAVE_RETRY_MS
       console.error('Restoring room state could not be saved.', error instanceof Error ? error.name : 'unknown error')
-      return
     }
+  }
+
+  /**
+   * Called by every successful save. A restore whose save failed is settled by
+   * the next save of any kind, because that save writes the room as it is and
+   * derives the alarm from it; what the members were not told, because the
+   * repair was not durable, is announced then, once. Saves that are not
+   * followed by a broadcast of their own (a metrics report, a participant
+   * leaving) would otherwise never tell them.
+   */
+  private settleUnsavedRestore(): void {
+    const pending = this.unsavedRestore
+    if (!pending)
+      return
     this.unsavedRestore = null
-    if (pending.reason)
+    if (!pending.reason || !this.coordinator)
+      return
+    try {
       this.broadcast({ type: 'room_snapshot', reason: pending.reason, snapshot: this.coordinator.snapshot() })
+    }
+    catch {
+      // A socket that cannot be read is skipped by the next broadcast too.
+    }
   }
 
   async webSocketMessage(socket: WebSocket, rawMessage: string | ArrayBuffer): Promise<void> {
     await this.initialized
-    await this.retryUnsavedRestore()
+    try {
+      await this.handleFrame(socket, rawMessage)
+    }
+    finally {
+      await this.retryUnsavedRestore()
+    }
+  }
+
+  private async handleFrame(socket: WebSocket, rawMessage: string | ArrayBuffer): Promise<void> {
     const attachment = socket.deserializeAttachment() as SocketAttachment
     const nowMs = Date.now()
     if (nowMs - attachment.messageWindowStartedAt > 10_000) {
@@ -477,6 +511,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.coordinator = null
       this.pendingController = null
       this.emptySinceMs = null
+      this.unsavedRestore = null
       return
     }
 
@@ -501,6 +536,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.coordinator = null
       this.pendingController = null
       this.emptySinceMs = null
+      this.unsavedRestore = null
       return
     }
 
@@ -801,10 +837,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       alarmCandidates.push(healthDeadlineMs)
 
     await persistRoomAndSchedule(this.ctx.storage, storedRoom, alarmCandidates)
-    // Any save does what a retried restore save would: it writes the room as
-    // it is now and derives the alarm from it. The members have been sent that
-    // state by whatever caused the write.
-    this.unsavedRestore = null
+    this.settleUnsavedRestore()
   }
 
   private async persistAndObserve(observe: () => void): Promise<void> {
