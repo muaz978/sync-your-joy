@@ -599,7 +599,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
     if (priorTimer)
       clearTimeout(priorTimer)
 
-    recoveryTimers.set(timerKey, setTimeout(() => {
+    recoveryTimers.set(timerKey, setTimeout(() => { // DevSkim: ignore DS172411
       recoveryTimers.delete(timerKey)
       const recovery = room.coordinator.transferDisconnectedController()
       if (recovery?.ok)
