@@ -9788,3 +9788,60 @@
 ## Historical Checkpoint Notes
 - Checkpoint 112 recorded the extension change that ends a waiting request with its room. This checkpoint supersedes nothing.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R4b (controller recovery derived from membership, and a restored room always gets its alarms), tracking issue #119.
+- Checkpoint number: 114.
+- Date and time: 2026-10-16, Europe/Istanbul.
+- Coverage period: Since checkpoint 113 (R7b is #129; R5 merged as #128, `f30df71`; R4 as #127, `fbe3279`).
+- Current context status: Implemented and verified locally on branch `fix/coordinator-controller-recovery`, carried from the reviewed branch built on `fbe3279`. Not merged, released or deployed.
+
+## User Objective and Requirements
+- Close the controller-recovery gap found by the independent review of #127 and the restore-scheduling finding of the Codex review of #127, in both coordinators, before any coordinator deploy. Rules unchanged.
+
+## Complete Chronological Activity Log
+
+### Findings
+- Controller recovery was planned only when the controller's connection was seen to close. If every connection dropped at once (a deploy, an outage), the grace period ran out with nobody connected and the plan lapsed; a member that came back later found the disconnected host still in control with nothing planned, for as long as the members stayed. Same shape in the local service (independent review of #127, probe P4).
+- A restore that had nothing to repair persisted nothing, so a room written by the previous version kept no six-hour lifetime alarm until its next write (Codex review of #127, reproduced as the reviewer's probe P6).
+- Found in the reviews of this branch: a controller stored as disconnected while its socket is attached (a join whose write was lost) must not have control handed away, a stored plan for such a controller must not be carried out, and when that socket later closes a recovery must still be planned (the local service already did).
+
+### Fix
+- Both coordinators re-arm the recovery when a member joins while the controller is disconnected and no plan is pending (`armControllerRecovery`); the edge also derives it on restore.
+- Edge restore always calls `persistAndSchedule()` (one write and one alarm per wake) instead of only when something was repaired; the write is guarded so a failing save serves the restored state and announces nothing; the repair is announced to the attached members only once it is durable.
+- A plan re-armed this way waits `CONTROLLER_REARM_GRACE_MS` = 20 s, longer than the extension's reconnect backoff ceiling (15 s plus jitter); the 10 s grace for a plan made when the host's close is seen is unchanged (a product decision).
+- A controller that still has its socket is never planned against on any caller (the attached set is read from `ctx.getWebSockets()` on every call); a stored plan for such a controller is dropped on restore; a stale-flagged controller whose socket closes gets a plan.
+- The local service takes a test-only `controllerGraceMs` option.
+
+### Verification (local)
+- On the reviewed branch (`fbe3279` base): `npm run check` 41 files, 500 tests; the edge-service and room-service test files five times in a row with no flake. Red first for each behaviour change; the reviewer tests were mutation-checked (51 mutants in one round, 24 in another; survivors listed as equivalent).
+- Independent reviews: one round found two S2 test gaps (the restore alarm not anchored to creation time, and the re-armed plan's alarm and full grace period not pinned), both fixed; two further rounds rated it sound with S3 findings only.
+
+## Confirmed Successful Results
+- The behaviours above are pinned in the fake Durable Object harness and in the real local service with an injected grace.
+
+## Failed, Incomplete, or Unresolved Work
+- Not evidenced on a deployed coordinator. A throwaway Worker on the real runtime (single runs, compatibility date 2026-08-08) supports the restore design: after a hibernation wake the constructor sees all sockets and attachments; a closing socket is still listed inside `webSocketClose`; `getAlarm()` in the constructor returns the due alarm and null inside `alarm()`; `deleteAll()` cancels a pending alarm; an active object kept the old code for about 300 s after a deploy in both code-update modes and was then reset with its sockets dropped and no `webSocketClose` delivered. The observation that the `immediate` pin changed nothing is recorded separately.
+- Accepted and not changed (S3): a put that succeeded followed by a failing `setAlarm` is logged as not saved and not announced; `alarm()` broadcasts are lost if the persist fails and the alarm is retried (pre-existing); the extension's reconnect fallback is a `chrome.alarms` alarm that Chrome may clamp to about 30 s, so a host whose service worker was suspended can miss the 20 s window; the local cleanup-tick reconcile has no behavioural test (defence in depth).
+
+## Decisions and Rationale
+- Unconditional write on restore rather than a `getAlarm() === null` guard: the stored alarm may be later than a deadline this version has, and a ping-only connection never makes the object write again.
+- 20 s for a re-armed plan, because a host that is merely backing off after an outage would otherwise lose control to the first member that returns.
+
+## Files and Artifacts
+- `apps/edge-service/src/worker.ts`, `worker.test.ts`; `apps/room-service/src/server.ts`, `server.test.ts`; `docs/ARCHITECTURE.md`, `docs/IMPLEMENTATION.md`; `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- That `ctx.getWebSockets()` is complete inside the constructor holds for a hibernation wake (observed); across a real code update on production it is not evidenced.
+
+## Open Questions, Blockers, and Dependencies
+- A production deploy needs the owner's approval for the exact commit and a recorded rollback target.
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA; then the documentation and runbook revision, the Dependabot pull requests, and a final Linux run on `main`.
+
+## Historical Checkpoint Notes
+- Checkpoint 113 recorded the side-panel window in the E2E harness. This checkpoint supersedes nothing.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
