@@ -9542,7 +9542,7 @@
 - Checkpoint number: 112.
 - Date and time: 2026-10-15, Europe/Istanbul.
 - Coverage period: Since checkpoint 111 (R4 merged as #127, `fbe3279`).
-- Current context status: Implemented and verified locally on branch `fix/extension-pending-room-expiry`, built on `61a38f7` and brought up to date with `fbe3279` (the merge of #127). Not merged, released or deployed.
+- Current context status: Implemented and verified locally on branch `fix/extension-pending-room-expiry`, built on `61a38f7` and brought up to date with `fbe3279` (the merge of #127). Not merged, released or deployed. The automated review of PR #128 raised five findings (the provenance names the wrong source, the expiry notice is never delivered, the rewind assertion is vacuous, the pending pill hides the reconnecting state, a `room_expired` error is not terminal); all five were confirmed from the code and are addressed on this branch, below.
 
 ## User Objective and Requirements
 - Close the extension-side gaps found by the residual-evidence audit of #120 and prove, in a real browser, that installed extensions need no update. Rules unchanged.
@@ -9554,6 +9554,13 @@
 - The on-page pill showed member wording ("Member, 0 connected") to a requester.
 - No real-browser spec covered the waiting view, withdrawal, denial, approval or a requester's video being left alone; no side-panel or service-worker test used the real placeholder; the shipped build had never been run against the new coordinator.
 
+### Review findings on PR #128 (all confirmed from the code)
+- Provenance (`tests/e2e/global-setup.ts`): with `SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT` set the extension was built from that tree, but `writeProvenance()` took the commit, tree and the source, lockfile and configuration hashes from the checkout, so evidence for a release build named the current checkout.
+- Notice (`service-worker.ts`, `endRoomBecauseGone`): `leaveRoom()` clears the player binding and the notice was sent afterwards through `sendToPlayerTab()`, which returns at once when the tab and frame ids are null. Checked further: even once delivered, the content script hides its pill host when there is no snapshot, so the text would have been written into a hidden element.
+- Rewind assertion (`pending-approval.spec.ts`): `afterWaiting.seconds > Math.min(beforeWaiting.seconds, 1)` passes when the video was at 10 s, is sought to 0 and plays for the 3 s wait.
+- Pending pill (`content-script.ts`): the awaiting-approval branch of `renderPill` printed "Waiting for the host" whatever the connection; when the requester's own connection drops the worker keeps the pending snapshot and reports `reconnecting`.
+- `room_expired` error (`service-worker.ts`): the local service answers a non-ping message from a client whose socket survived `closeAll` with an error carrying `room_expired`; only `room_not_found` was terminal, so that client kept a stale snapshot.
+
 ### Fix
 - `apps/extension/src/service-worker.ts`: `endRoomBecauseGone()` (leaves the room the way a denied request does, with a message and a notice). Used when the coordinator closes with reason `room_expired`, and when `room_not_found` arrives while a snapshot is held. A first join to a wrong code (no snapshot yet) keeps the plain error; an ordinary dropped connection still reconnects.
 - `apps/extension/src/content-script.ts`, `room-membership.ts`: the pill shows `AWAITING_APPROVAL_PILL` for a pending request and hides the playback controls.
@@ -9561,11 +9568,25 @@
 - `tests/e2e/pending-approval.spec.ts`: two real profiles; the requester is already playing its own video; waiting view, video neither paused nor rewound over three seconds, no tab opened, Cancel request withdraws (the host's list empties), denial returns the requester to the join form, approval joins.
 - `apps/extension/src/service-worker.test.ts` (5 tests with the real `pendingSnapshot()`), `room-membership.test.ts` (4).
 
+### Fix for the review findings
+- `service-worker.ts`: `endRoomBecauseGone()` reads the player tab, frame and document before `leaveRoom()` and sends the notice to that page once with `sendToTab()`; the diagnostic and `state.lastError` are as before. An error with code `room_expired` is terminal like `room_not_found`, with the expired wording of the close path, only while a snapshot is held. The two messages are constants shared by the close and error paths.
+- `content-script.ts`, `mini-controller-state.ts`: a notice that arrives when there is no room shows the pill for the notice alone for 8 s (`miniControllerView(false, hidden, true)`), whether or not the participant had hidden the controller, with the action buttons hidden. A notice with a room is shown as before. `tests/e2e/room-ended-notice.spec.ts` (new) sends the page the worker's `SHOW_NOTICE` in a real profile and checks the pill appears and goes away.
+- `room-membership.ts`: `pendingPillCopy(connection)`; `connected` keeps `AWAITING_APPROVAL_PILL`, any other state shows what a member sees for it ("Reconnecting", or the "Connection unclear" label) with a detail that the request is pending and the browser is not connected. `content-script.ts` only calls it; the playback button stays hidden and Sync disabled.
+- `pending-approval.spec.ts`: the requester's video starts 6 s into the clip, the element is watched from before the request (minimum position from `timeupdate`, every `seeking` target), and the spec fails on any position or seek below where it was, as well as on a pause or a stall.
+- `tests/e2e/provenance.ts` (new): `readSourceIdentity`, `collectProvenance`, `resolveExtensionSourceRoot`, `hashFiles`; `global-setup.ts` is a thin caller. `provenance.json` keeps `source`, `lock`, `config` and `e2e` byte for byte and adds `extensionSource` (root relative to the checkout, `sameAsCheckout`, commit, tree, hashes, configuration, and `missing` for a file an older tree lacks). No script or doc read the field names; `docs/CR_D01_E2E_ARTIFACTS.md` and `docs/TEST_GUIDE.md` describe the new section.
+
 ### Verification (local)
 - Real browser, current build: `pending-approval.spec.ts` passes.
 - Real browser, shipped v0.2.6 build (built from tag `v0.2.6`, manifest 0.2.6) against the current coordinator: passes; the requester's video keeps playing and is not rewound.
 - Mutation in real browser: with the coordinator's placeholder media set back to null and the same v0.2.6 build, the spec fails at `expect(paused).toBe(false)`: the exact regression the Codex review of the first version of #120 found. This is the first real-browser evidence for "installed extensions need no update".
 - Red for the service worker change: with `service-worker.ts` reverted to main, the room-expired and room-not-found tests fail; the other three pass either way.
+
+### Verification of the review fixes (local)
+- Tests added: `service-worker.test.ts` +5 (a `room_expired` error leaves the room; a `room_expired` error with no room stays a plain error; the page a player is bound to gets the expiry notice once with the side panel closed, and the same for `room_not_found`; no bound tab still ends the room), `mini-controller-state.test.ts` +2, `room-membership.test.ts` +3, `tests/provenance.test.ts` +8 (new file). `npm run check`: 43 files, 494 tests (42 files, 476 tests before), strict typecheck, extension and server builds. `npm run test:e2e`: 13 passed, 1 skipped (the authenticated Crunchyroll test, which safe-skips without storage state).
+- Red first: with `service-worker.ts` as at `43cc8dc` the two bound-player tests fail at the notice assertion (the page was detached, nothing was sent), and the `room_expired` error test fails at "expected the room to be left"; with `pendingPillCopy` returning the previous copy two of its three tests fail at the status assertion; with the extension attributed to the checkout the provenance test fails at `extensionSource.commit`. The no-room error test and the no-bound-tab test pass either way (negative controls).
+- The rewind assertion is not vacuous: in a copy of the spec outside the repository the requester's video is sought to 0 right after the request. The previous assertion passes; the new one fails at `afterWaiting.seconds > beforeWaiting.seconds + 1` (3.0 against 7.9). When the seek is undone 400 ms later by seeking forward again, the final position is fine and the watched minimum fails it (0.00005 against at least 6.6).
+- `room-ended-notice.spec.ts` is not vacuous: with the content script's `SHOW_NOTICE` handler calling only `showNotice()` (the previous behavior) the pill host stays `display: none` and the spec fails at the wait for `block`. A screenshot showed the pill with the expiry text and no buttons.
+- Provenance with the variable unset: the old `writeProvenance()` from `43cc8dc` and `collectProvenance()` produce identical JSON apart from `extensionSource`. With it set to an export of tag `v0.2.6` (tree `2e82193f`) a real run recorded that tree under `extensionSource` and the checkout under `source`.
 
 ## Confirmed Successful Results
 - An installed 0.2.6 extension is left alone by the current coordinator's placeholder, in a real browser, and the spec detects the regression it guards.
@@ -9573,16 +9594,23 @@
 ## Failed, Incomplete, or Unresolved Work
 - Chromium only, one machine, the local test player; no authenticated provider, two accounts or two devices (phase R8 hands this off).
 - The pill text and the side panel's waiting view are pinned by the real-browser spec (waiting view) and a copy test; there is no unit test of the side panel's DOM.
+- The on-page notice for an ended room is pinned by the delivery test (worker side), the pure view function and `room-ended-notice.spec.ts` (content-script side, with the message sent by the test). No spec ends a real room end to end, because that needs the E2E coordinator's expiry clock.
+- The side panel's waiting view still says "Waiting for the host to let you in" while the connection is down; only the pill was in the finding.
+- A denied join request has the same defect as the expiry notice: `join_denied` leaves the room and then sends its notice through `sendToPlayerTab()`, so the page never gets it. Not changed here; it was not part of the findings.
 
 ## Decisions and Rationale
-- `room_expired` is terminal for members as well as requesters: it is sent only when the room has been removed, and reconnecting could only end in `room_not_found`.
+- `room_expired` is terminal for members as well as requesters: it is sent only when the room has been removed, and reconnecting could only end in `room_not_found`. That holds for the error as well as the close, and only while the client holds a snapshot, so a first join keeps its plain error.
+- A notice about a room that is gone is shown on the pill rather than only delivered: with no snapshot the pill host is hidden, so delivery alone would have been invisible.
+- `extensionSource` is additive and `source`, `lock` and `config` keep describing the checkout, so nothing that reads the old fields changes meaning; the docs say which is which.
 - The spec lives in the normal E2E run, so every run re-checks the pending flow; the legacy-build option is opt-in because it needs another checkout's `node_modules`.
 
 ## Files and Artifacts
-- `apps/extension/src/service-worker.ts`, `service-worker.test.ts`, `content-script.ts`, `room-membership.ts`, `room-membership.test.ts`; `tests/e2e/global-setup.ts`, `tests/e2e/pending-approval.spec.ts`; `CHANGELOG.md`.
+- `apps/extension/src/service-worker.ts`, `service-worker.test.ts`, `content-script.ts`, `room-membership.ts`, `room-membership.test.ts`, `mini-controller-state.ts`, `mini-controller-state.test.ts`; `tests/e2e/global-setup.ts`, `tests/e2e/provenance.ts`, `tests/provenance.test.ts`, `tests/e2e/pending-approval.spec.ts`, `tests/e2e/room-ended-notice.spec.ts`; `docs/CR_D01_E2E_ARTIFACTS.md`, `docs/TEST_GUIDE.md`; `CHANGELOG.md`.
 
 ## Assumptions and Uncertainties
 - The spec relies on the extension's own panel opened as a tab (see tests/e2e/two-profile-sync.spec.ts), as the other specs do.
+- The 20 s clip loops; the spec's 6 s start leaves about 14 s of room, and the whole spec takes about 7 s.
+- The real run with an override used an export of the tag with the current `node_modules` linked in, so its `@syncyourjoy/*` packages were the current ones; it checks the provenance plumbing, not a shipped v0.2.6 bundle.
 
 ## Open Questions, Blockers, and Dependencies
 - Ships with the next extension release; nothing here needs a coordinator deploy.
