@@ -7,6 +7,7 @@ import { isLikelyAdvertisingUrl } from './site-adapter.ts'
 import { bindMediaToSharedPage } from './media-fingerprint.ts'
 import { resolveControlPosition } from './control-position.ts'
 import { shouldConfirmMediaMismatch } from './readiness-state.ts'
+import { isAwaitingApproval } from './room-membership.ts'
 import { connectionQuality } from './connection-quality.ts'
 import { browserApi } from './browser-api.ts'
 import { fitDiagnosticsReport } from './diagnostics-budget.ts'
@@ -28,6 +29,9 @@ const DIAGNOSTIC_COLLECTION_TIMEOUT_MS = 8_000
 // alarm is a fallback that wakes the service worker to retry a reconnect
 // even if it was suspended while the setTimeout backoff was pending.
 const RECONNECT_ALARM_NAME = 'syncYourJoyReconnect'
+// What a participant is told when the coordinator no longer has their room.
+const ROOM_EXPIRED_MESSAGE = 'This room has expired. Create or join another room to keep watching together.'
+const ROOM_GONE_MESSAGE = 'This room is no longer available. Create or join another room to keep watching together.'
 
 interface DiagnosticCollection {
   reportId: string
@@ -687,7 +691,12 @@ async function connect(roomCode: string): Promise<void> {
       }
     }, { once: true })
 
-    nextSocket.addEventListener('close', () => {
+    nextSocket.addEventListener('close', (event) => {
+      // Read before anything below can leave the room, which sets the flag:
+      // the diagnostic is about who closed the socket, not about what this
+      // handler then did.
+      const closedByThisClient = intentionallyClosed
+      let serverEndedRoom = false
       // A stale socket (already replaced by a newer connection, e.g. via
       // startFreshConnection) must not tear down the new socket's ping loop
       // or flip connection state away from whatever the new socket set.
@@ -696,14 +705,25 @@ async function connect(roomCode: string): Promise<void> {
         connectionPromise = null
         stopPingLoop()
 
-        if (!intentionallyClosed && state.snapshot) {
-          state.connection = 'reconnecting'
-          state.connectionQuality = 'offline'
-          void publishState()
-          scheduleReconnect()
+        if (!closedByThisClient && state.snapshot) {
+          // The coordinator closes with this reason only when the room has
+          // been removed (its lifetime ended, or nobody was in it for too
+          // long). Reconnecting could only end in room_not_found, so leave
+          // the room instead of keeping a waiting or room view up for a room
+          // that no longer exists.
+          if ((event as CloseEvent).reason === 'room_expired') {
+            serverEndedRoom = true
+            endRoomBecauseGone(ROOM_EXPIRED_MESSAGE)
+          }
+          else {
+            state.connection = 'reconnecting'
+            state.connectionQuality = 'offline'
+            void publishState()
+            scheduleReconnect()
+          }
         }
       }
-      recordDiagnostic('connection', 'socket_closed', { intentional: intentionallyClosed })
+      recordDiagnostic('connection', 'socket_closed', { intentional: closedByThisClient, ...(serverEndedRoom ? { serverEndedRoom: true } : {}) })
     })
   })
 
@@ -805,10 +825,7 @@ function handleServerMessage(raw: string): void {
       // so the pending-close handler below does not treat this as a
       // dropped connection worth auto-reconnecting back into.
       recordDiagnostic('error', 'join_denied', { code: safeDiagnosticCode(message.code) }, { reason: 'command-rejected' })
-      leaveRoom()
-      state.lastError = message.message
-      void publishState()
-      void sendToPlayerTab({ type: 'SHOW_NOTICE', message: message.message })
+      leaveRoomWithNotice(message.message)
       return
     }
     if (message.snapshot)
@@ -821,6 +838,17 @@ function handleServerMessage(raw: string): void {
   }
 
   if (message.type === 'error') {
+    // While this client believes it is in a room, room_not_found can only
+    // mean the room is gone (a reconnect found nothing to rejoin), and
+    // room_expired is what a coordinator may answer for a room it has
+    // already removed (the current local service closes every socket first,
+    // so this is defence in depth). A first join to a wrong code has no
+    // snapshot yet and keeps the plain error.
+    if ((message.code === 'room_not_found' || message.code === 'room_expired') && state.snapshot) {
+      recordDiagnostic('error', 'room_gone', { code: safeDiagnosticCode(message.code) }, { reason: 'server-error' })
+      endRoomBecauseGone(message.code === 'room_expired' ? ROOM_EXPIRED_MESSAGE : ROOM_GONE_MESSAGE)
+      return
+    }
     state.lastError = message.message
     recordDiagnostic('error', 'server_error', { code: safeDiagnosticCode(message.code) }, { reason: 'server-error' })
     void publishState()
@@ -916,6 +944,38 @@ function sendToServer(message: ClientMessage): boolean {
     return false
   socket.send(JSON.stringify(message))
   return true
+}
+
+/**
+ * The room this client was in no longer exists on the coordinator. Leave it
+ * the way a denied join request does (so nothing reconnects into it) and say
+ * why, instead of leaving the last snapshot, or a waiting view, on screen.
+ */
+function endRoomBecauseGone(message: string): void {
+  recordDiagnostic('connection', 'room_gone', {})
+  leaveRoomWithNotice(message)
+}
+
+/**
+ * Leaves the room and says why, in the side panel (through the published
+ * error) and on the page the participant is watching, which has to hear it
+ * although the side panel may be closed.
+ *
+ * leaveRoom() unbinds the player tab, after which sendToPlayerTab() has
+ * nowhere to send to, so the binding is read first. The page is detached from
+ * the room (by leaveRoom()) before it is told why. `roomEnded` marks the
+ * notice as being about a room that is gone, which is what lets the page show
+ * it without a room; an ordinary notice is only shown in a room.
+ */
+function leaveRoomWithNotice(message: string): void {
+  const playerTabId = state.playerTabId
+  const playerFrameId = state.playerFrameId
+  const playerDocumentId = playerBinding?.documentId ?? undefined
+  leaveRoom()
+  state.lastError = message
+  void publishState()
+  if (playerTabId !== null && playerFrameId !== null)
+    void sendToTab(playerTabId, { type: 'SHOW_NOTICE', message, roomEnded: true }, playerFrameId, playerDocumentId)
 }
 
 function leaveRoom(): void {
@@ -1084,6 +1144,13 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
 }
 
 async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snapshot']>): Promise<void> {
+  // An unapproved requester is not a member: the shared page is not theirs to
+  // open. A current coordinator sends such a client no navigation at all; an
+  // older one sends the whole room, link included, so check here as well. The
+  // revision is not recorded, so the page is opened once the request is
+  // approved.
+  if (isAwaitingApproval({ participantId: state.participantId, snapshot }))
+    return
   const navigation = snapshot.navigation
   if (!navigation || navigation.revision <= state.lastOpenedNavigationRevision || navigation.revision === pendingNavigationRevision)
     return

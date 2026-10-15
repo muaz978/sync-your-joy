@@ -12,17 +12,16 @@
 // a fresh extension there. The canonical apps/extension/dist release output
 // is never used as the E2E build target.
 import type { FullConfig } from '@playwright/test'
-import { createHash, randomBytes } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, dirname, relative, resolve } from 'node:path'
+import { randomBytes } from 'node:crypto'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRoomService, type RoomService } from '../../apps/room-service/src/server.ts'
 import { sanitizeError } from './artifact-utils.ts'
+import { buildExtensionAndRecordProvenance } from './provenance.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(here, '..', '..')
-const buildExtensionScript = resolve(repoRoot, 'scripts/build-extension.mjs')
 
 let service: RoomService | null = null
 
@@ -51,8 +50,19 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     process.env.SYNCYOURJOY_E2E_TEST_MODE = '1'
     process.env.SYNCYOURJOY_E2E_TEST_ORIGIN = testPlayerOrigin
 
-    await buildExtension(roomServerUrl, extensionDistDir)
-    await writeProvenance(artifactDirectory, extensionDistDir, roomServerUrl)
+    // Builds the extension (from the checkout, or from the tree
+    // SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT names) and records where it came
+    // from. Which tree is built, and from where, is decided and tested in
+    // provenance.ts; this only supplies the run's inputs.
+    await writeJson(resolve(artifactDirectory, 'provenance.json'), await buildExtensionAndRecordProvenance({
+      runId: basename(artifactDirectory),
+      createdAt: new Date().toISOString(),
+      checkoutRoot: repoRoot,
+      extensionSourceOverride: process.env.SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT,
+      extensionDistDir,
+      roomServerUrl,
+      env: process.env,
+    }))
   }
   catch (error) {
     await writeJson(resolve(artifactDirectory, 'setup-failure.json'), {
@@ -76,76 +86,6 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     delete process.env.SYNCYOURJOY_E2E_TEST_MODE
     delete process.env.SYNCYOURJOY_E2E_TEST_ORIGIN
   }
-}
-
-async function buildExtension(roomServerUrl: string, extensionDistDir: string): Promise<void> {
-  console.log(`[e2e] building an isolated extension at ${relative(repoRoot, extensionDistDir)}...`)
-  execFileSync(process.execPath, [buildExtensionScript], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      SYNCYOURJOY_ROOM_SERVER_URL: roomServerUrl,
-      SYNCYOURJOY_EXTENSION_OUTPUT_DIR: extensionDistDir,
-    },
-    stdio: 'inherit',
-  })
-}
-
-async function writeProvenance(
-  artifactDirectory: string,
-  extensionDistDir: string,
-  roomServerUrl: string,
-): Promise<void> {
-  const trackedFiles = execFileSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' })
-    .split('\0')
-    .filter(Boolean)
-  const sourceFiles = trackedFiles.filter(path => /^(apps|packages|scripts|tests|fixtures)\//.test(path))
-  const configFiles = [
-    'package.json',
-    'tsconfig.json',
-    'vitest.config.ts',
-    'uno.config.mjs',
-    'scripts/build-extension.mjs',
-    'tests/e2e/playwright.config.ts',
-    'apps/extension/static/manifest.json',
-  ]
-  const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim()
-  const sourceTree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim()
-  const manifestPath = resolve(extensionDistDir, 'manifest.json')
-
-  await writeJson(resolve(artifactDirectory, 'provenance.json'), {
-    schemaVersion: 1,
-    runId: basename(artifactDirectory),
-    createdAt: new Date().toISOString(),
-    source: {
-      commit: sourceCommit,
-      tree: sourceTree,
-      trackedSourceSha256: await hashFiles(sourceFiles),
-    },
-    lock: {
-      packageLockSha256: await hashFiles(['package-lock.json']),
-    },
-    config: {
-      files: configFiles,
-      sha256: await hashFiles(configFiles),
-    },
-    e2e: {
-      roomServerOrigin: new URL(roomServerUrl).origin,
-      extensionOutput: relative(repoRoot, extensionDistDir),
-      extensionManifestSha256: await hashFiles([manifestPath]),
-    },
-  })
-}
-
-async function hashFiles(paths: string[]): Promise<string> {
-  const hash = createHash('sha256')
-  for (const path of [...paths].sort()) {
-    const filePath = resolve(repoRoot, path)
-    hash.update(path)
-    hash.update('\0')
-    hash.update(await readFile(filePath))
-  }
-  return hash.digest('hex')
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {

@@ -1,4 +1,4 @@
-import type { MediaFingerprint, OperationAcknowledgement, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
+import type { MediaFingerprint, OperationAcknowledgement, ParticipantPlaybackStatus, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { canApplySoftDriftCorrection, canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isPlaybackRateAccepted, isSeekAligned, isSettledPausedSeek, LOCAL_SEEK_MAX_WAIT_MS, PLAYBACK_STARTUP_TIMEOUT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
@@ -9,7 +9,8 @@ import { PlayerOperations, type OperationToken } from './player-operations.ts'
 import { clearPlaybackStartFailed, createPlayerHealthState, markPlaybackStartFailed, markPlayerHealthBuffering, observePlayerHealth, resetPlayerHealthBaseline, type PlayerHealthState } from './player-health.ts'
 import { decidePlayerIdentity } from './player-identity.ts'
 import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
-import { localPlaybackStatus, playbackStatusCopy } from './playback-status.ts'
+import { localPlaybackStatus } from './playback-status.ts'
+import { pillView, roomlessNoticeView } from './pill-view.ts'
 import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
 import { isAwaitingApproval } from './room-membership.ts'
@@ -31,6 +32,8 @@ const SEEK_RECOVERY_GRACE_MS = 2_500
 const SOFT_CORRECTION_MAX_MS = 2_500
 const PLAYER_PILL_LAYER = '2147483600'
 const MINI_CONTROLLER_HIDDEN_KEY = 'syncYourJoyMiniControllerHidden'
+// How long the pill stays up for a notice about a room that has ended.
+const ROOMLESS_NOTICE_VISIBLE_MS = 8_000
 
 let video: HTMLVideoElement | null = null
 let activeState: ExtensionState | null = null
@@ -89,6 +92,10 @@ let transactionalSampleSequence = 0
 let frameObserverVideo: HTMLVideoElement | null = null
 let frameObserverCallbackId: number | null = null
 let observedPresentedFrameCount = 0
+
+// See showNoticeWithoutRoom().
+let roomlessNotice: string | null = null
+let roomlessNoticeTimer: ReturnType<typeof setTimeout> | null = null
 
 const pillHost = document.createElement('div')
 pillHost.id = 'sync-your-joy-root'
@@ -154,7 +161,7 @@ shadow.innerHTML = `
     button:focus-visible { outline: 2px solid #42a99d; outline-offset: 2px; }
     button:active { transform: translateY(1px); box-shadow: inset 2px 2px 5px rgb(15 23 42 / 16%); }
     button[hidden] { display: none; }
-    .pill[hidden], .restore[hidden] { display: none; }
+    .pill[hidden], .restore[hidden], .actions[hidden] { display: none; }
     .hide-button {
       min-width: 34px;
       width: 34px;
@@ -204,7 +211,7 @@ shadow.innerHTML = `
       <span class="status" id="syj-status">Connected</span>
       <span class="meta" id="syj-meta">Waiting for room state</span>
     </span>
-    <span class="actions">
+    <span class="actions" id="syj-actions">
       <button id="syj-sync" type="button">Sync</button>
       <button id="syj-playback" type="button">Pause</button>
       <button id="syj-room" type="button">Room</button>
@@ -226,6 +233,7 @@ document.documentElement.append(pillHost)
 const statusElement = shadow.querySelector<HTMLElement>('#syj-status')
 const metaElement = shadow.querySelector<HTMLElement>('#syj-meta')
 const noticeElement = shadow.querySelector<HTMLElement>('#syj-notice')
+const actionsElement = shadow.querySelector<HTMLElement>('#syj-actions')
 const playbackButton = shadow.querySelector<HTMLButtonElement>('#syj-playback')
 const syncButton = shadow.querySelector<HTMLButtonElement>('#syj-sync')
 const roomButton = shadow.querySelector<HTMLButtonElement>('#syj-room')
@@ -346,6 +354,11 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
       localIntentHoldUntil = 0
     if (message.state.lastError)
       localIntentHoldUntil = 0
+    // A room the page is in again, or still in, has nothing to do with the
+    // notice about the room that ended, which must not reappear when this one
+    // is left.
+    if (message.state.snapshot)
+      clearRoomlessNotice()
     renderPill()
     applyAuthoritativeState()
     if (!video)
@@ -364,7 +377,13 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     forceSyncToRoom(false)
   }
   else if (message.type === 'SHOW_NOTICE') {
-    showNotice(message.message)
+    // Only a notice about a room that has ended is shown on a page with no
+    // room. It is shown whether or not this page has yet been told that the
+    // room is gone, so it does not depend on which of the two arrives first.
+    if (message.roomEnded === true)
+      showNoticeWithoutRoom(message.message)
+    else
+      showNotice(message.message)
   }
   return false
 })
@@ -1577,7 +1596,8 @@ function restorePlaybackRate(): void {
 
 function renderPill(): void {
   const snapshot = activeState?.snapshot
-  const view = miniControllerView(Boolean(snapshot && (video || isNavigationTargetPage())), miniControllerHidden)
+  const noticeWithoutRoom = !snapshot ? roomlessNotice : null
+  const view = miniControllerView(Boolean(snapshot && (video || isNavigationTargetPage())), miniControllerHidden, noticeWithoutRoom !== null)
   pillHost.style.display = view.hostVisible ? 'block' : 'none'
   pillHost.style.top = view.restoreVisible ? '20px' : 'auto'
   pillHost.style.bottom = view.restoreVisible ? 'auto' : '20px'
@@ -1585,18 +1605,50 @@ function renderPill(): void {
     pillElement.hidden = !view.controllerVisible
   if (restoreButton)
     restoreButton.hidden = !view.restoreVisible
+  if (actionsElement)
+    actionsElement.hidden = noticeWithoutRoom !== null
+  if (noticeWithoutRoom !== null) {
+    const notice = roomlessNoticeView(noticeWithoutRoom)
+    if (statusElement)
+      statusElement.textContent = notice.status
+    if (metaElement)
+      metaElement.textContent = notice.meta
+    // The room view's last error line belongs to a room that is gone; left in
+    // place it is shown under the message that says so.
+    if (noticeElement)
+      noticeElement.textContent = ''
+    return
+  }
   if (!snapshot || !activeState)
     return
 
-  const participant = snapshot.participants.find(item => item.id === activeState?.participantId)
-  const connected = snapshot.participants.filter(item => item.connected)
-  const allReady = connected.every(item => item.ready && item.mediaMatches)
-  const isController = snapshot.controller.participantId === activeState.participantId
-  const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
+  const pill = pillView({
+    state: { connection: activeState.connection, participantId: activeState.participantId, lastError: activeState.lastError, snapshot },
+    hasVideo: video !== null,
+    localStatus: currentLocalPlaybackStatus(snapshot, activeState),
+  })
+  if (statusElement)
+    statusElement.textContent = pill.status
+  if (metaElement)
+    metaElement.textContent = pill.meta
+  if (playbackButton) {
+    playbackButton.hidden = pill.playbackHidden
+    playbackButton.disabled = pill.playbackDisabled
+    playbackButton.textContent = pill.playbackLabel
+  }
+  if (syncButton)
+    syncButton.disabled = pill.syncDisabled
+  if (noticeElement && pill.notice)
+    noticeElement.textContent = pill.notice
+}
+
+function currentLocalPlaybackStatus(snapshot: NonNullable<ExtensionState['snapshot']>, current: ExtensionState): ParticipantPlaybackStatus {
+  const participant = snapshot.participants.find(item => item.id === current.participantId)
+  const estimatedServerNowMs = Date.now() + current.serverOffsetMs
   const catchingUp = snapshot.playback.status === 'playing' && video !== null
     && Math.abs(video.currentTime - expectedPosition(snapshot.playback, estimatedServerNowMs)) > 0.6
-  const localStatus = localPlaybackStatus({
-    connected: activeState.connection === 'connected',
+  return localPlaybackStatus({
+    connected: current.connection === 'connected',
     hasVideo: video !== null,
     mediaMatches: participant?.mediaMatches ?? false,
     ready: participant?.ready ?? false,
@@ -1613,27 +1665,6 @@ function renderPill(): void {
     statusAgeMs: video ? Math.max(0, performance.now() - playerHealth.observedAtMs) : null,
     nowMs: performance.now(),
   })
-  const localStatusCopy = playbackStatusCopy(localStatus, isController)
-
-  if (statusElement)
-    statusElement.textContent = activeState.connection === 'reconnecting'
-      ? 'Reconnecting'
-      : snapshot.seek
-        ? `Seeking ${snapshot.seek.acknowledgedParticipantIds.length}/${connected.length}`
-        : localStatusCopy.label
-  if (metaElement)
-    metaElement.textContent = snapshot.seek
-      ? `Moving everyone to ${formatPillTime(snapshot.seek.positionSeconds)}`
-      : `${localStatusCopy.detail} ${isController ? 'Controller' : 'Member'}, ${connected.length} connected.`
-  if (playbackButton) {
-    playbackButton.hidden = !isController || !video
-    playbackButton.disabled = snapshot.seek !== null || (snapshot.playback.status === 'paused' && !allReady)
-    playbackButton.textContent = snapshot.seek ? 'Aligning' : snapshot.playback.status === 'playing' ? 'Pause' : 'Play'
-  }
-  if (syncButton)
-    syncButton.disabled = !video || localStatus === 'wrong-media'
-  if (noticeElement && activeState.lastError)
-    noticeElement.textContent = activeState.lastError
 }
 
 function setMiniControllerHidden(hidden: boolean): void {
@@ -1965,13 +1996,42 @@ function consumeExpectedSeek(): boolean {
 function showNotice(message: string, sticky = false): void {
   if (!noticeElement)
     return
+  // While the notice about a room that has ended is up there is no room for
+  // this one to be about, and its line sits under that message.
+  if (roomlessNotice !== null)
+    return
   noticeElement.textContent = message
   if (sticky)
     return
-  setTimeout(() => {
+  // Reviewed false positive: the callback is a fixed arrow function and the
+  // delay is a constant, so no untrusted data reaches the timer.
+  setTimeout(() => { // DevSkim: ignore DS172411
     if (noticeElement.textContent === message)
       noticeElement.textContent = ''
   }, 5_000)
+}
+
+// A notice that arrives when there is no room, which is how a participant
+// hears that their room has ended, has no controller to appear in: the pill is
+// hidden whenever there is no snapshot. Show the pill for the notice alone,
+// then hide it again.
+function showNoticeWithoutRoom(message: string): void {
+  clearRoomlessNotice()
+  roomlessNotice = message
+  renderPill()
+  // Reviewed false positive: the callback is a fixed arrow function and the
+  // delay is a constant, so no untrusted data reaches the timer.
+  roomlessNoticeTimer = setTimeout(() => { // DevSkim: ignore DS172411
+    clearRoomlessNotice()
+    renderPill()
+  }, ROOMLESS_NOTICE_VISIBLE_MS)
+}
+
+function clearRoomlessNotice(): void {
+  if (roomlessNoticeTimer)
+    clearTimeout(roomlessNoticeTimer)
+  roomlessNoticeTimer = null
+  roomlessNotice = null
 }
 
 function createMediaFingerprint(target: HTMLVideoElement): MediaFingerprint {
@@ -2001,12 +2061,6 @@ function containerPageUrl(playerUrl: URL): URL {
 
 function finiteOrZero(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0
-}
-
-function formatPillTime(value: number): string {
-  const seconds = Math.max(0, Math.floor(value))
-  const minutes = Math.floor(seconds / 60)
-  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
 }
 
 async function sendRuntime(request: RuntimeRequest): Promise<RuntimeResponse> {
