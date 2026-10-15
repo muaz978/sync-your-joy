@@ -9219,3 +9219,83 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, first fix (tracking issue #119, units U1 and the edge part of U2).
+- Checkpoint number: 107.
+- Date and time: 2026-10-15, Europe/Istanbul.
+- Coverage period: Since checkpoint 106.
+- Current context status: A fix for unapproved join requests is implemented and verified locally on branch `fix/review-pending-joins-receive-nothing`, based on `d2a2cc8`. It is not merged, released or deployed.
+
+## User Objective and Requirements
+- Review the code that reached `main` without a recorded review, in priority order, and drive confirmed S0-S2 defects to zero without weakening any existing guarantee.
+- Every change follows the repository rules: no attribution, no closing keywords, exact-head review, required checks, evidence classes kept separate.
+
+## Complete Chronological Activity Log
+
+### Review (U1, U2)
+- Action taken: five independent reviewers on U1 (correctness, security, lifecycle, tests, and a security reviewer from a different model family) and three on U2 read the introducing change and the live code against `d2a2cc8`. The reproduction stage was cut off by a usage limit, so reproductions were done by hand and by the new tests below.
+- Result: the reviewers converged on the same defects with `file:line` evidence. The ones fixed here:
+  1. An unapproved requester received the full room snapshot (shared link, playback state, participant names, transaction contract) and every later broadcast on both services, and the stock extension acted on it (it opens the controller's shared page). Evidence: `apps/room-service/src/server.ts` join and `broadcast`, `apps/edge-service/src/worker.ts` join and `broadcast`, `apps/extension/src/service-worker.ts` `applySharedNavigation`.
+  2. On the edge coordinator, `broadcast` iterated every accepted socket, including sockets that never sent `join_room`, so a holder of a room code could listen without being approved.
+  3. A pending request was never removed when its socket closed (`RoomCoordinator.disconnect` ignores a non-participant), so approving it later created a connected member with no socket.
+  4. A second client that knew only the participant id replaced a pending request and its approval target (`join` overwrote the map entry and the services issued a fresh token).
+  5. On the edge, any join, including a pending one, cleared the empty-room expiry.
+  6. A rejected command or rejected join embedded the full snapshot (`RoomCoordinator.failure()`), so a wrong session token, a full room or a command from a pending requester handed the sender the whole room state. This included the new refusal for a pending id, found while reviewing this change before it was merged.
+
+### Review of the fix itself (exact head `d638b83`)
+- An automated reviewer on the pull request and an independent three-lens panel (security bypass, correctness and compatibility, test adequacy and extension impact) read the fix. They converged on three defects in the fix itself, all introduced or left open by it, and all reproduced before being fixed:
+  7. S1/S2, regression for installed extensions: the redacted placeholder had `media: null` and was paused at 0. `currentEpisodeMatchesRoom()` treats null media as "matches", so `applyAuthoritativeState` paused and rewound whatever the requester was watching. Before the change a requester on a different video was left alone. Evidence: `apps/extension/src/content-script.ts` `currentEpisodeMatchesRoom` and `applyAuthoritativeState`; reproduced by feeding the real `pendingSnapshot()` to the real content script (pause called once, position written to 0).
+  8. S2: withdrawing a pending request set `emptySinceMs` unconditionally, so anyone holding a room code could keep an empty room, its creator's per-IP slot and one of the room cap alive until the six-hour lifetime by opening and closing requests less than thirty minutes apart. Reproduced with a mocked clock on the edge object; the local service has the same code.
+  9. S3: an empty room that expired under a waiting request deleted the room without closing the socket, leaving the waiting view up for a room that no longer exists (the lifetime branch already closed sockets with `room_expired`).
+  10. S3: the placeholder still carried the revision, the controller's participant id and lease epoch, and the time of the last play, pause or seek.
+
+### Fix
+- `packages/sync-engine/src/room.ts`: `join` binds an existing pending request to its session token and refuses a missing or different token (fail closed); new `hasParticipant`, `hasPendingJoin`, `pendingJoinSessionToken`, `cancelPendingJoin` (reason `join_cancelled`) and `pendingSnapshot` (same shape, no media, navigation, seek, participants, other requests or contract).
+- `apps/room-service/src/server.ts` and `apps/edge-service/src/worker.ts`: pending sockets receive `pendingSnapshot`, are excluded from every broadcast, become members on approval, are withdrawn when their connection closes, and a pending join no longer clears the empty-room expiry. The edge `broadcast` also skips sockets that never joined.
+- Both services send `snapshot: null` in a rejection unless the sender is a member, and the two direct `session_invalid` rejections no longer embed a snapshot. The extension already guards on `if (message.snapshot)`.
+- Second commit: the placeholder's `media` is a fingerprint no real media matches (`pending:approval`, which the participant-id grammar cannot produce), with `revision` 0, `controller` `{ participantId: 'pending:approval', leaseEpoch: 0 }` and `effectiveAtServerMs` 0, so deployed content scripts stop at their mismatch guard. Every other consumer of the media in the service worker goes through `mediaMatches`, which is false for null and for the fingerprint alike, and the waiting view does not render it, so nothing else changes.
+- Third commit: the empty-room clock starts only when it is not already running (both services, both disconnect paths); an expired empty room closes its remaining sockets with `room_expired` (local cleanup timer and edge alarm); the content script returns early from `applyAuthoritativeState` while its own request is pending, using the shared `isAwaitingApproval` helper moved from the side panel to `apps/extension/src/room-membership.ts`.
+- `docs/ARCHITECTURE.md` and `CHANGELOG.md` (Unreleased) state the guarantee.
+
+### Verification (local, synthetic fixtures)
+- New tests: 12 in `apps/room-service/src/server.test.ts`, 6 in `packages/sync-engine/src/room.test.ts`, 13 in the new `apps/edge-service/src/worker.test.ts` (the first runtime tests of the Durable Object class, driven with fake sockets) and 4 in `apps/extension/src/content-script.test.ts`: 35 in total. One test that exists on `main` changed: it asserted that a pending requester sees the host in `participants`, which is the exposure itself. Three tests added earlier in this series were adapted when the placeholder's `media` stopped being null (server, edge and coordinator).
+- The follow-up tests cover the second review round: the content script fed with the real `pendingSnapshot()` output for a room on a different and on the same video, fed with the full snapshot an older coordinator sends, and a control showing an approved member is still driven; the empty-room clock with a mocked `Date` on both services (a stranger's request opened at minute 29 and withdrawn does not extend the expiry, and the room is gone after thirty minutes); a request still waiting when the room expires is closed with `room_expired`; negative tests that pin the redaction of rejections (`room_full` for a stranger, a forged `respond_to_join` from a requester, denial) and the edge token re-attach and intruder-close paths.
+- Red on the unfixed code: the new server and edge tests fail against `d2a2cc8` at their intended assertions. On the old code the never-joined socket received 3 broadcasts, the pending snapshot was not redacted, and an intruder using the pending participant id received `room_joined` and took over the request.
+- Red on the previous head's sources (`d638b83`, sources reverted and the new tests kept): 11 tests fail (9 new, 2 updated) at their intended assertions, and the approved-member control passes either way.
+- Green on the fix: `npm run check` 39 files and 441 tests (406 before this series), strict typecheck, server build and extension build; `npm run test:e2e` 12 passed, 1 skipped, the same as before the follow-up.
+- Not done: a mutation check that flips the `senderIsMember` argument of the two rejection paths was attempted, was held by the sandbox review and did not run. Those negative tests are therefore pinned by reading, not by a recorded mutation.
+
+## Confirmed Successful Results
+- The five defects above are reproduced at runtime on `d2a2cc8` and fixed on the branch.
+
+## Failed, Incomplete, or Unresolved Work
+- Not covered by this change, tracked on #119: edge room retention (the six-hour lifetime alarm is never scheduled), the cap on connections that never join (20, no idle timeout), validators that accept unknown nested fields (exportState can throw), leave-and-rejoin returning `session_invalid`, the shared-link query stripping, the stale duration clamp, origin prefix matching, and the intermittent "Playback blocked" miss (X1).
+- Older extensions (before 0.2.0) get no explicit pending state and re-request after a denial; unchanged.
+- No deployed-coordinator validation exists for this change. No authenticated provider, two-account, two-device or user-acceptance evidence is claimed.
+
+## Decisions and Rationale
+- A redacted snapshot with the same shape, instead of a new message type, keeps deployed extensions working: they identify a pending join by their own id in `pendingJoinRequests` and not in `participants`.
+- Binding a pending request to its session token reuses the existing reconnect capability instead of adding a protocol field.
+- No extension release is needed for the exposure fix: the placeholder is inert for the content scripts that are already installed (non-matching media), so a coordinator deploy alone protects them. The content-script guard and the shared `isAwaitingApproval` helper ship with the next extension release as a second line of defence, and also cover an older coordinator that still sends a pending requester the full room state. A deploy is justified because the exposure is live on the deployed coordinator (policy decided on 2026-10-15: confirmed S0/S1 live in production), and it needs the explicit Durable Object `code_update_strategy` pin first.
+
+## Files and Artifacts
+- `packages/sync-engine/src/room.ts`, `room.test.ts`; `apps/room-service/src/server.ts`, `server.test.ts`; `apps/edge-service/src/worker.ts`, `worker.test.ts`; `apps/extension/src/content-script.ts`, `content-script.test.ts`, `sidepanel.ts`, `room-membership.ts` (new); `docs/ARCHITECTURE.md`; `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- Reviewer findings that were not reproduced by a test are source traces, labelled as such on #119.
+- The edge tests use a fake Durable Object context; the Workers runtime itself is not exercised.
+
+## Open Questions, Blockers, and Dependencies
+- A coordinator deploy needs the `immediate` code-update strategy pin (separate reviewed PR after #118) and a recorded rollback target.
+
+## Next Steps
+1. Exact-head review and merge of this change.
+2. Next fix themes in order: edge retention and unjoined-socket cap; validator depth and unknown fields; leave-and-rejoin session handling and shared-link query stripping.
+3. Post the U1 and U2 review records on #119 with verdicts and what was not reviewed.
+
+## Historical Checkpoint Notes
+- Checkpoint 106 recorded the 0.2.6 release preparation. This checkpoint supersedes nothing.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.

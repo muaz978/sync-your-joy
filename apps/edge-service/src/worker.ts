@@ -204,6 +204,24 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (stillConnected)
       return
 
+    // A requester that disappears before the controller decides must not
+    // stay approvable: approving it would create a connected member that
+    // has no socket. Withdraw the request instead of disconnecting.
+    const withdrawn = this.coordinator.cancelPendingJoin(attachment.participantId)
+    if (withdrawn?.ok) {
+      // The empty-room clock starts once, when the last member leaves. A
+      // withdrawn request is not a member, so it must not restart the clock:
+      // anyone who knows the code could otherwise keep an empty room (and its
+      // storage and alarm) alive by opening and closing requests less than
+      // the TTL apart.
+      if (this.emptySinceMs === null && !this.coordinator.hasConnectedParticipants())
+        this.emptySinceMs = Date.now()
+      await this.persistAndObserve(() => {
+        this.broadcast({ type: 'room_snapshot', reason: withdrawn.reason, snapshot: withdrawn.snapshot })
+      })
+      return
+    }
+
     const result = this.coordinator.disconnect(attachment.participantId)
     if (!result?.ok)
       return
@@ -214,7 +232,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         recoverAtMs: Date.now() + CONTROLLER_GRACE_MS,
       }
     }
-    if (!this.coordinator.hasConnectedParticipants())
+    if (this.emptySinceMs === null && !this.coordinator.hasConnectedParticipants())
       this.emptySinceMs = Date.now()
 
     await this.persistAndObserve(() => {
@@ -243,6 +261,12 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     if (this.emptySinceMs !== null && nowMs - this.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
+      // A request still waiting in an empty room no longer holds the room
+      // open, so tell it the room is gone, as the lifetime branch above does.
+      // Without this its waiting view stays up for a room that no longer
+      // exists.
+      for (const socket of this.ctx.getWebSockets())
+        socket.close(1000, 'room_expired')
       await this.ctx.storage.deleteAll()
       this.coordinator = null
       this.pendingController = null
@@ -327,11 +351,16 @@ export class RoomDurableObject extends DurableObject<Env> {
       }
 
       const existing = this.coordinator.exportState().participants.find(item => item.id === message.participantId)
+      // A request that is already pending is bound to the token issued for
+      // it: only the client holding that token may re-attach. Everyone else
+      // who merely knows the participant id is rejected below (fail closed).
       const sessionToken = existing
         ? existing.sessionToken ? message.sessionToken : randomToken()
-        : randomToken()
+        : this.coordinator.hasPendingJoin(message.participantId)
+          ? this.coordinator.pendingJoinSessionToken(message.participantId) === message.sessionToken ? message.sessionToken : undefined
+          : randomToken()
       if (!sessionToken) {
-        this.send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: this.coordinator.snapshot() })
+        this.send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: null })
         return
       }
       const result = this.coordinator.join({
@@ -342,7 +371,10 @@ export class RoomDurableObject extends DurableObject<Env> {
         ...(message.capabilities ? { capabilities: message.capabilities } : {}),
       })
       if (!result.ok) {
-        this.sendResult(socket, null, result)
+        // The sender has not been admitted, so the rejection must not carry
+        // the room's state (a full room or a refused token would otherwise
+        // hand a stranger the whole snapshot).
+        this.sendResult(socket, null, result, false)
         return
       }
 
@@ -351,13 +383,20 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.closePriorParticipantSocket(message.participantId, socket)
       if (this.pendingController?.participantId === message.participantId)
         this.pendingController = null
-      this.emptySinceMs = null
+      // A pending request is not a member, so it must not cancel the
+      // empty-room expiry: otherwise one unapproved request keeps an
+      // otherwise empty room alive.
+      const pendingRequest = result.reason === 'join_pending'
+      if (!pendingRequest)
+        this.emptySinceMs = null
       await this.persistAndObserve(() => {
         this.send(socket, {
           type: 'room_joined',
           participantId: message.participantId,
           sessionToken,
-          snapshot: result.snapshot,
+          // An unapproved requester gets a snapshot that carries nothing
+          // about the room, only its own pending entry.
+          snapshot: pendingRequest ? this.coordinator!.pendingSnapshot(message.participantId) : result.snapshot,
         })
         this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot }, socket)
       })
@@ -452,7 +491,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       // open_link already use.
       const result = this.coordinator.respondToJoin(attachment.participantId, message.leaseEpoch, message.participantId, message.approve)
       if (!result.ok) {
-        this.sendResult(socket, message.actionId, result)
+        this.sendResult(socket, message.actionId, result, this.coordinator.hasParticipant(attachment.participantId))
         return
       }
 
@@ -489,7 +528,7 @@ export class RoomDurableObject extends DurableObject<Env> {
           : this.coordinator.control(attachment.participantId, message)
 
     if (!result.ok) {
-      this.sendResult(socket, message.type === 'control' || message.type === 'open_link' ? message.actionId : null, result)
+      this.sendResult(socket, message.type === 'control' || message.type === 'open_link' ? message.actionId : null, result, this.coordinator.hasParticipant(attachment.participantId))
       return
     }
 
@@ -542,8 +581,16 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   private broadcast(message: ServerMessage, except?: WebSocket): void {
     for (const socket of this.ctx.getWebSockets()) {
-      if (socket !== except)
-        this.send(socket, message)
+      if (socket === except)
+        continue
+      // Only approved members receive room broadcasts. A socket that has not
+      // joined at all (participantId null) or whose join request is still
+      // pending must learn nothing about the room: the controller's
+      // approval is the only thing that grants access to its state.
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null
+      if (!attachment?.participantId || !this.coordinator?.hasParticipant(attachment.participantId))
+        continue
+      this.send(socket, message)
     }
   }
 
@@ -557,7 +604,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
   }
 
-  private sendResult(socket: WebSocket, actionId: string | null, result: RoomResult): void {
+  private sendResult(socket: WebSocket, actionId: string | null, result: RoomResult, senderIsMember: boolean): void {
     if (result.ok)
       return
     this.send(socket, {
@@ -565,7 +612,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       actionId,
       code: result.code,
       message: result.message,
-      snapshot: result.snapshot,
+      // Only an admitted member may be told the room's state in a rejection.
+      snapshot: senderIsMember ? result.snapshot : null,
     })
   }
 
