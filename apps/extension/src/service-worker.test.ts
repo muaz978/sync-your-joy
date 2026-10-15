@@ -185,12 +185,40 @@ function buildRoomSnapshot(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot 
   }
 }
 
+// vi.resetModules() makes the next test load a fresh copy of the worker; it
+// does not stop the copy the last test loaded. That copy's timers kept
+// running: a reconnect it had scheduled fired during a later test and opened a
+// socket in that test's FakeWebSocket.instances, and its ping and heartbeat
+// intervals ran for the life of the file. Everything a test starts through
+// setTimeout or setInterval is therefore stopped when the test ends.
+const startedTimers = { timeouts: new Set<ReturnType<typeof setTimeout>>(), intervals: new Set<ReturnType<typeof setInterval>>() }
+
 beforeEach(() => {
   vi.resetModules()
   FakeWebSocket.instances = []
+  const realSetTimeout = globalThis.setTimeout
+  const realSetInterval = globalThis.setInterval
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(((...args: Parameters<typeof setTimeout>) => {
+    const handle = realSetTimeout(...args)
+    startedTimers.timeouts.add(handle)
+    return handle
+  }) as typeof setTimeout)
+  vi.spyOn(globalThis, 'setInterval').mockImplementation(((...args: Parameters<typeof setInterval>) => {
+    const handle = realSetInterval(...args)
+    startedTimers.intervals.add(handle)
+    return handle
+  }) as typeof setInterval)
 })
 
 afterEach(() => {
+  for (const handle of startedTimers.timeouts)
+    clearTimeout(handle)
+  for (const handle of startedTimers.intervals)
+    clearInterval(handle)
+  startedTimers.timeouts.clear()
+  startedTimers.intervals.clear()
+  vi.mocked(globalThis.setTimeout).mockRestore()
+  vi.mocked(globalThis.setInterval).mockRestore()
   vi.unstubAllGlobals()
 })
 
@@ -1351,6 +1379,34 @@ describe('service worker while a join request is pending', () => {
     const closes = response!.report.events.filter(event => event.message === 'socket_closed')
     expect(closes[0]!.details).toMatchObject({ intentional: false })
     expect(closes[0]!.details).not.toHaveProperty('serverEndedRoom')
+  })
+
+  // vi.resetModules() abandons the worker a test loaded; it does not stop it.
+  // A reconnect it had scheduled (500 to 750 ms out) used to fire during a
+  // later test and open a socket in that test's FakeWebSocket.instances, which
+  // made the tests that count or index sockets fail about one run in ten.
+  // The first test leaves a dropped connection's reconnect pending; the second
+  // runs on after it with a WebSocket to catch whatever it opens.
+  describe('a reconnect that an earlier test left pending', () => {
+    it('is scheduled by a dropped connection, which this test leaves unfinished', async () => {
+      const { sendMessageMock, socket } = await resumedWaitingWorker()
+
+      socket.simulateClose(1006, '')
+
+      await vi.waitFor(() => {
+        if (broadcasts(sendMessageMock).at(-1)?.state?.connection !== 'reconnecting')
+          throw new Error('expected a reconnect to be scheduled')
+      })
+    })
+
+    it('does not open a socket while a later test runs', async () => {
+      vi.stubGlobal('WebSocket', FakeWebSocket)
+
+      // Longer than the longest first backoff (500 ms plus 250 ms of jitter).
+      await new Promise(resolve => setTimeout(resolve, 900))
+
+      expect(FakeWebSocket.instances).toEqual([])
+    })
   })
 
   describe('with a player tab bound and the side panel closed', () => {
