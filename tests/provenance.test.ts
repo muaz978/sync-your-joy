@@ -1,13 +1,16 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   assertExtensionBuilt,
   assertExtensionSourceRoot,
+  buildExtensionAndRecordProvenance,
   collectProvenance,
   hashFiles,
+  isCheckoutExtensionBuild,
   readSourceIdentity,
   resolveExtensionSourceRoot,
 } from './e2e/provenance.ts'
@@ -25,6 +28,12 @@ function git(root: string, ...args: string[]): string {
   ).trim()
 }
 
+// A process started in a directory reports its realpath, and the system
+// temporary directory is a symlink on macOS.
+function realpathOf(path: string): string {
+  return realpathSync(path)
+}
+
 function createRepo(root: string, files: Record<string, string>): void {
   mkdirSync(root, { recursive: true })
   git(root, 'init', '-q')
@@ -34,6 +43,20 @@ function createRepo(root: string, files: Record<string, string>): void {
   }
   git(root, 'add', '.')
   git(root, 'commit', '-q', '-m', 'fixture')
+}
+
+// A build script that does what the real one is asked to: write an extension
+// into SYNCYOURJOY_EXTENSION_OUTPUT_DIR. It records where and with what it was
+// run, so a test can tell which tree's script ran and how.
+function buildScript(label: string): string {
+  return [
+    `import { mkdirSync, writeFileSync } from 'node:fs'`,
+    `import { join } from 'node:path'`,
+    `const out = process.env.SYNCYOURJOY_EXTENSION_OUTPUT_DIR`,
+    `mkdirSync(out, { recursive: true })`,
+    `writeFileSync(join(out, 'manifest.json'), JSON.stringify({ builtBy: ${JSON.stringify(label)}, cwd: process.cwd(), roomServerUrl: process.env.SYNCYOURJOY_ROOM_SERVER_URL }))`,
+    '',
+  ].join('\n')
 }
 
 describe('E2E provenance', () => {
@@ -51,7 +74,7 @@ describe('E2E provenance', () => {
       'apps/extension/static/manifest.json': '{"version":"0.2.7"}\n',
       'tests/e2e/pending-approval.spec.ts': 'current spec\n',
       'tests/e2e/playwright.config.ts': 'current config\n',
-      'scripts/build-extension.mjs': 'current build\n',
+      'scripts/build-extension.mjs': buildScript('current'),
       'package.json': '{"version":"0.2.7"}\n',
       'package-lock.json': '{"lock":"current"}\n',
       'tsconfig.json': '{}\n',
@@ -62,7 +85,7 @@ describe('E2E provenance', () => {
     createRepo(release, {
       'apps/room-service/src/server.ts': 'release coordinator\n',
       'apps/extension/static/manifest.json': '{"version":"0.2.6"}\n',
-      'scripts/build-extension.mjs': 'release build\n',
+      'scripts/build-extension.mjs': buildScript('release'),
       'package.json': '{"version":"0.2.6"}\n',
       'package-lock.json': '{"lock":"release"}\n',
       'tsconfig.json': '{}\n',
@@ -107,6 +130,17 @@ describe('E2E provenance', () => {
       const empty = join(base, 'empty-dir')
       mkdirSync(empty)
       expect(() => assertExtensionSourceRoot(empty)).toThrow(/no scripts\/build-extension\.mjs/)
+    })
+
+    it('names the variable, before anything is built, when the tree is an export with no git history', () => {
+      // `git archive v0.2.6 | tar -x`: it has the build script, so it passed
+      // the check above, was built in full, and then failed on `git ls-files`
+      // with an error that does not mention the variable.
+      const exported = join(base, 'exported-tag')
+      mkdirSync(join(exported, 'scripts'), { recursive: true })
+      writeFileSync(join(exported, 'scripts/build-extension.mjs'), buildScript('exported'))
+
+      expect(() => assertExtensionSourceRoot(exported)).toThrow(/SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT.*exported-tag.*git/s)
     })
   })
 
@@ -189,6 +223,11 @@ describe('E2E provenance', () => {
       expect(record.e2e.roomServerOrigin).toBe('ws://127.0.0.1:54321')
       expect(record.e2e.extensionOutput).toBe(join('test-results', 'e2e-run', 'extension'))
       expect(Object.keys(record.e2e)).toEqual(['roomServerOrigin', 'extensionOutput', 'extensionManifestSha256'])
+      // The path as given, a NUL, then the manifest the build wrote.
+      const manifestPath = join(checkout, 'test-results/e2e-run/extension/manifest.json')
+      expect(record.e2e.extensionManifestSha256).toBe(
+        createHash('sha256').update(manifestPath).update('\0').update(readFileSync(manifestPath)).digest('hex'),
+      )
       expect(record.extensionSource).toEqual({
         root: '.',
         sameAsCheckout: true,
@@ -229,6 +268,98 @@ describe('E2E provenance', () => {
       expect(there.e2e).toEqual(here.e2e)
       expect(there.source).toEqual(here.source)
       expect(resolve(checkout, there.extensionSource.root)).toBe(release)
+    })
+  })
+
+  describe('buildExtensionAndRecordProvenance', () => {
+    const run = (name: string, override: string | undefined) => {
+      const extensionDistDir = join(base, name, 'extension')
+      return {
+        extensionDistDir,
+        built: buildExtensionAndRecordProvenance({
+          runId: name,
+          createdAt: '2026-10-15T00:00:00.000Z',
+          checkoutRoot: checkout,
+          extensionSourceOverride: override,
+          extensionDistDir,
+          roomServerUrl,
+          env: { ...process.env, SYNCYOURJOY_E2E_TEST_MODE: '1' },
+          stdio: 'ignore',
+          log: () => undefined,
+        }),
+      }
+    }
+    const builtManifest = (extensionDistDir: string) => JSON.parse(readFileSync(join(extensionDistDir, 'manifest.json'), 'utf8')) as Record<string, string>
+
+    it('builds the checkout\'s extension, and records the checkout as its source, when no override is given', async () => {
+      const { extensionDistDir, built } = run('build-checkout', undefined)
+      const record = await built
+
+      expect(builtManifest(extensionDistDir)).toEqual({ builtBy: 'current', cwd: realpathOf(checkout), roomServerUrl })
+      expect(record.extensionSource.sameAsCheckout).toBe(true)
+      expect(record.extensionSource.root).toBe('.')
+      expect(record.extensionSource.commit).toBe(git(checkout, 'rev-parse', 'HEAD'))
+    })
+
+    it('builds the other tree\'s extension, in that tree, and records that tree as its source, with an override', async () => {
+      const { extensionDistDir, built } = run('build-release', release)
+      const record = await built
+
+      expect(builtManifest(extensionDistDir)).toEqual({ builtBy: 'release', cwd: realpathOf(release), roomServerUrl })
+      expect(record.extensionSource.sameAsCheckout).toBe(false)
+      expect(record.extensionSource.commit).toBe(git(release, 'rev-parse', 'HEAD'))
+      expect(record.source.commit).toBe(git(checkout, 'rev-parse', 'HEAD'))
+      // The manifest recorded is the one this build wrote.
+      const manifestPath = join(extensionDistDir, 'manifest.json')
+      expect(record.e2e.extensionManifestSha256).toBe(
+        createHash('sha256').update(manifestPath).update('\0').update(readFileSync(manifestPath)).digest('hex'),
+      )
+    })
+
+    it('stops with the variable\'s name, and builds nothing, when the override does not exist', async () => {
+      const { extensionDistDir, built } = run('build-missing', join(base, 'no-such-checkout'))
+
+      await expect(built).rejects.toThrow(/SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT.*does not exist/)
+      expect(existsSync(join(extensionDistDir, 'manifest.json'))).toBe(false)
+    })
+
+    it('stops with the variable\'s name, and builds nothing, when the override is an export with no git history', async () => {
+      const { extensionDistDir, built } = run('build-exported', join(base, 'exported-tag'))
+
+      await expect(built).rejects.toThrow(/SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT.*git/s)
+      expect(existsSync(join(extensionDistDir, 'manifest.json'))).toBe(false)
+    })
+
+    it('says so when the build wrote its extension somewhere other than the run\'s directory', async () => {
+      // A script that predates SYNCYOURJOY_EXTENSION_OUTPUT_DIR.
+      const old = join(base, 'old-release')
+      createRepo(old, { 'scripts/build-extension.mjs': 'export {}\n', 'package.json': '{}\n' })
+
+      const { built } = run('build-old', old)
+
+      await expect(built).rejects.toThrow(/did not write .*manifest\.json.*v0\.2\.4 and earlier/s)
+    })
+  })
+
+  describe('isCheckoutExtensionBuild', () => {
+    const provenanceIn = (name: string, extensionSource: unknown) => {
+      const directory = join(base, name)
+      mkdirSync(directory, { recursive: true })
+      writeFileSync(join(directory, 'provenance.json'), JSON.stringify({ extensionSource }))
+      return directory
+    }
+
+    it('is true for a run that built the checkout\'s own extension', () => {
+      expect(isCheckoutExtensionBuild(provenanceIn('prov-same', { sameAsCheckout: true }))).toBe(true)
+    })
+
+    it('is false for a run that built another tree\'s extension', () => {
+      expect(isCheckoutExtensionBuild(provenanceIn('prov-other', { sameAsCheckout: false }))).toBe(false)
+    })
+
+    it('does not claim a different build when there is nothing recorded to say so', () => {
+      expect(isCheckoutExtensionBuild(undefined)).toBe(true)
+      expect(isCheckoutExtensionBuild(join(base, 'no-provenance-here'))).toBe(true)
     })
   })
 })

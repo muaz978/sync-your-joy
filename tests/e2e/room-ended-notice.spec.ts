@@ -6,11 +6,12 @@
 //
 // The worker's side (which page gets the notice, and that it gets it once) is
 // covered in apps/extension/src/service-worker.test.ts. This sends the same
-// message the worker sends.
+// message the worker sends, `roomEnded` included.
 import { expect, test } from '@playwright/test'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { launchExtensionProfile, type ExtensionProfile } from './extension-profile.ts'
+import { isCheckoutExtensionBuild } from './provenance.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const extensionDistDir = resolve(here, '..', '..', 'apps/extension/dist')
@@ -20,6 +21,13 @@ test.describe('a notice about a room that has ended', () => {
   let profile: ExtensionProfile
 
   test.beforeAll(async () => {
+    // This sends the page the message this checkout's service worker sends
+    // when a room ends. A release build does not know it, so against one this
+    // would fail without anything having regressed.
+    test.skip(
+      !isCheckoutExtensionBuild(process.env.SYNCYOURJOY_E2E_ARTIFACT_DIR),
+      'The extension in this run was built from another tree (SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT), which does not send or understand the room-ended notice.',
+    )
     const dist = process.env.SYNCYOURJOY_E2E_EXTENSION_DIST ?? extensionDistDir
     const artifactDirectory = process.env.SYNCYOURJOY_E2E_ARTIFACT_DIR
     profile = await launchExtensionProfile(dist, 'room-ended', {
@@ -51,12 +59,16 @@ test.describe('a notice about a room that has ended', () => {
     const worker = profile.context.serviceWorkers()[0]
     if (!worker)
       throw new Error('The extension service worker was not running.')
+    // The message as the worker sends it (see leaveRoomWithNotice).
     await worker.evaluate(async (message) => {
       const [tab] = await chrome.tabs.query({ url: '*://127.0.0.1/*' })
-      await chrome.tabs.sendMessage(tab!.id!, { type: 'SHOW_NOTICE', message })
+      await chrome.tabs.sendMessage(tab!.id!, { type: 'SHOW_NOTICE', message, roomEnded: true })
     }, 'This room has expired. Create or join another room to keep watching together.')
 
     await expect.poll(displayed).toBe('block')
+    // Long enough to be read: it is not a flash.
+    await page.waitForTimeout(3_000)
+    expect(await displayed()).toBe('block')
     await expect.poll(displayed, { timeout: 15_000 }).toBe('none')
   })
 })

@@ -5,7 +5,7 @@
 // waits, with a link shared in the room.
 //
 // The same spec runs against the shipped v0.2.6 extension build by setting
-// SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT (see tests/e2e/global-setup.ts), which
+// SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT (see tests/e2e/provenance.ts), which
 // is how "installed extensions need no update" is checked against the current
 // coordinator: the coordinator is the code under test, the extension is
 // whichever build the run builds.
@@ -18,11 +18,21 @@ const here = dirname(fileURLToPath(import.meta.url))
 const extensionDistDir = resolve(here, '..', '..', 'apps/extension/dist')
 const fixtureVideoPath = resolve(here, '..', '..', 'fixtures/sync-test-clip.mp4')
 // The requester's own video is moved this far into the 20 s clip before it
-// asks to join. A seek back to 0:00 is then far from where playback would be
-// anyway, and the looping clip cannot wrap around inside this spec.
+// asks to join, so that a seek back to 0:00 is far from where playback would
+// be anyway.
 const WATCHING_FROM_SECONDS = 6
 // Sampling jitter only; a rewind is whole seconds.
 const POSITION_TOLERANCE_SECONDS = 0.25
+// The clip loops. A backward jump from this close to its end is the loop
+// starting over, not something the room did, so how long the flow takes does
+// not decide whether this spec passes.
+const LOOP_WRAP_WINDOW_SECONDS = 1
+// The extension opens a shared link at most this long after it hears of it
+// (applySharedNavigation caps its delay at 2 s in apps/extension/src/
+// service-worker.ts), so a page it was going to open for the requester is open
+// by the end of the window below.
+const NAVIGATION_DELAY_CAP_MS = 2_000
+const OBSERVATION_WINDOW_MS = NAVIGATION_DELAY_CAP_MS + 1_000
 
 test.describe('a join request that has not been approved', () => {
   let host: ExtensionProfile
@@ -89,51 +99,67 @@ test.describe('a join request that has not been approved', () => {
     }, WATCHING_FROM_SECONDS)
     await expect.poll(async () => (await position()).seconds, { timeout: 10_000 }).toBeGreaterThan(WATCHING_FROM_SECONDS + 0.5)
 
-    // From here until the wait is over the element itself is watched: a sample
-    // of the position can miss a seek that is undone, and an assertion on the
-    // final position alone passes when a rewound video simply played on.
-    await ownVideo.evaluate(() => {
-      const video = document.querySelector('video')!
-      const watch = { seekedTo: [] as number[], minimumSeconds: video.currentTime }
-      ;(window as unknown as { __ownVideoWatch: typeof watch }).__ownVideoWatch = watch
-      video.addEventListener('seeking', () => watch.seekedTo.push(video.currentTime))
-      video.addEventListener('timeupdate', () => {
-        watch.minimumSeconds = Math.min(watch.minimumSeconds, video.currentTime)
-      })
-    })
-
     const request = async () => {
       await requester.panel.fill('#display-name', 'Requester')
       await requester.panel.fill('#room-code', roomCode!)
       await requester.panel.click('#join-form button[type=submit]')
     }
 
+    // From here until the wait is over the element itself is watched: a sample
+    // of the position can miss a seek that is undone, and an assertion on the
+    // final position alone passes when a rewound video simply played on. The
+    // position the watch starts from is sampled in the same call, so what the
+    // watch saw and what it is compared with cannot differ by a round trip.
+    const startWatching = () => ownVideo.evaluate(({ tolerance, wrapWindow }) => {
+      const video = document.querySelector('video')!
+      const watch = { backwardSeeks: [] as Array<{ from: number, to: number }>, wraps: 0 }
+      ;(window as unknown as { __ownVideoWatch: typeof watch }).__ownVideoWatch = watch
+      let previous = video.currentTime
+      video.addEventListener('timeupdate', () => {
+        previous = video.currentTime
+      })
+      video.addEventListener('seeking', () => {
+        const to = video.currentTime
+        if (previous >= video.duration - wrapWindow)
+          watch.wraps += 1
+        else if (to < previous - tolerance)
+          watch.backwardSeeks.push({ from: previous, to })
+        previous = to
+      })
+      return { paused: video.paused, seconds: video.currentTime }
+    }, { tolerance: POSITION_TOLERANCE_SECONDS, wrapWindow: LOOP_WRAP_WINDOW_SECONDS })
+
     // --- 1. It asks to join: waiting view, and its video is left alone -------
     // Counted before the request: a tab opened for the host's link would
     // otherwise be counted into the baseline.
     const pagesBeforeRequest = requester.context.pages().length
     const ownVideoUrl = ownVideo.url()
-    const beforeWaiting = await position()
+    const beforeWaiting = await startWatching()
     expect(beforeWaiting.seconds).toBeGreaterThan(WATCHING_FROM_SECONDS)
     await request()
     await host.panel.waitForSelector('[data-approve-join]', { timeout: 15_000 })
     await expect(requester.panel.getByText('Waiting for the host to let you in')).toBeVisible()
 
-    await ownVideo.waitForTimeout(3_000)
+    await ownVideo.waitForTimeout(OBSERVATION_WINDOW_MS)
     const afterWaiting = await position()
+    await ownVideo.waitForTimeout(500)
+    const stillPlaying = await position()
     const watched = await ownVideo.evaluate(
-      () => (window as unknown as { __ownVideoWatch: { seekedTo: number[], minimumSeconds: number } }).__ownVideoWatch,
+      () => (window as unknown as { __ownVideoWatch: { backwardSeeks: Array<{ from: number, to: number }>, wraps: number } }).__ownVideoWatch,
     )
-    // Not paused, and it kept playing from where it was.
+    // Not paused, and it kept playing.
     expect(afterWaiting.paused).toBe(false)
-    expect(afterWaiting.seconds).toBeGreaterThan(beforeWaiting.seconds + 1)
-    // Never moved backwards at any point since the request was sent: not
-    // rewound to 0:00 (or anywhere earlier) by whatever the coordinator sent,
-    // even if it then played on past where it had been.
-    expect(watched.minimumSeconds).toBeGreaterThanOrEqual(beforeWaiting.seconds - POSITION_TOLERANCE_SECONDS)
-    expect(watched.seekedTo.filter(seconds => seconds < beforeWaiting.seconds - POSITION_TOLERANCE_SECONDS)).toEqual([])
+    expect(stillPlaying.seconds).not.toBe(afterWaiting.seconds)
+    // It was never moved backwards since the request was sent: not rewound to
+    // 0:00 (or anywhere earlier) by whatever the coordinator sent, even if it
+    // then played on past where it had been. A loop starting over is not that.
+    expect(watched.backwardSeeks).toEqual([])
+    // Unless the loop started over, it played on from where it was.
+    if (watched.wraps === 0)
+      expect(afterWaiting.seconds).toBeGreaterThan(beforeWaiting.seconds + 1)
     // The shared link was not opened for it, in a new tab or in its own.
     expect(requester.context.pages().length).toBe(pagesBeforeRequest)
+    expect(requester.context.pages().map(page => page.url())).not.toContain(sharedLink)
     expect(ownVideo.url()).toBe(ownVideoUrl)
 
     // --- 2. It withdraws the request: the host's list empties ----------------
@@ -155,7 +181,8 @@ test.describe('a join request that has not been approved', () => {
     await requester.panel.waitForSelector('#copy-code', { timeout: 15_000 })
     await expect(requester.panel.locator('#copy-code .font-mono').first()).toHaveText(roomCode!)
     // A member's browser does open the shared link, so step 1 above could
-    // have failed.
-    await expect.poll(() => requester.context.pages().length, { timeout: 15_000 }).toBeGreaterThan(pagesBeforeRequest)
+    // have failed. It has to be that link: some other page opening does not
+    // count.
+    await expect.poll(() => requester.context.pages().map(page => page.url()), { timeout: 15_000 }).toContain(sharedLink)
   })
 })

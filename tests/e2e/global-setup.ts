@@ -13,22 +13,15 @@
 // is never used as the E2E build target.
 import type { FullConfig } from '@playwright/test'
 import { randomBytes } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { basename, dirname, relative, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRoomService, type RoomService } from '../../apps/room-service/src/server.ts'
 import { sanitizeError } from './artifact-utils.ts'
-import {
-  assertExtensionBuilt,
-  assertExtensionSourceRoot,
-  collectProvenance,
-  resolveExtensionSourceRoot,
-} from './provenance.ts'
+import { buildExtensionAndRecordProvenance } from './provenance.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(here, '..', '..')
-const buildExtensionScript = resolve(repoRoot, 'scripts/build-extension.mjs')
 
 let service: RoomService | null = null
 
@@ -57,8 +50,19 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     process.env.SYNCYOURJOY_E2E_TEST_MODE = '1'
     process.env.SYNCYOURJOY_E2E_TEST_ORIGIN = testPlayerOrigin
 
-    await buildExtension(roomServerUrl, extensionDistDir)
-    await writeProvenance(artifactDirectory, extensionDistDir, roomServerUrl)
+    // Builds the extension (from the checkout, or from the tree
+    // SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT names) and records where it came
+    // from. Which tree is built, and from where, is decided and tested in
+    // provenance.ts; this only supplies the run's inputs.
+    await writeJson(resolve(artifactDirectory, 'provenance.json'), await buildExtensionAndRecordProvenance({
+      runId: basename(artifactDirectory),
+      createdAt: new Date().toISOString(),
+      checkoutRoot: repoRoot,
+      extensionSourceOverride: process.env.SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT,
+      extensionDistDir,
+      roomServerUrl,
+      env: process.env,
+    }))
   }
   catch (error) {
     await writeJson(resolve(artifactDirectory, 'setup-failure.json'), {
@@ -82,58 +86,6 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     delete process.env.SYNCYOURJOY_E2E_TEST_MODE
     delete process.env.SYNCYOURJOY_E2E_TEST_ORIGIN
   }
-}
-
-function extensionSourceRoot(): string {
-  return resolveExtensionSourceRoot(repoRoot, process.env.SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT)
-}
-
-async function buildExtension(roomServerUrl: string, extensionDistDir: string): Promise<void> {
-  // Optional: build the extension from another checkout (for example a git
-  // worktree of a release tag, with its own node_modules installed) while the
-  // coordinator and the specs stay the current tree's. That is how a shipped
-  // extension is checked against the current coordinator.
-  //
-  // That checkout's build script has to read SYNCYOURJOY_ROOM_SERVER_URL,
-  // SYNCYOURJOY_EXTENSION_OUTPUT_DIR and the SYNCYOURJOY_E2E_TEST_* variables.
-  // Releases from v0.2.5 on do. v0.2.4 and earlier ignore the output
-  // directory and build into their own apps/extension/dist, which
-  // assertExtensionBuilt() reports instead of failing later on a missing
-  // manifest.
-  const sourceRoot = extensionSourceRoot()
-  const external = sourceRoot !== repoRoot
-  if (external)
-    assertExtensionSourceRoot(sourceRoot)
-  const script = external ? resolve(sourceRoot, 'scripts/build-extension.mjs') : buildExtensionScript
-  console.log(`[e2e] building an isolated extension at ${relative(repoRoot, extensionDistDir)}${external ? ` from ${sourceRoot}` : ''}...`)
-  execFileSync(process.execPath, [script], {
-    cwd: sourceRoot,
-    env: {
-      ...process.env,
-      SYNCYOURJOY_ROOM_SERVER_URL: roomServerUrl,
-      SYNCYOURJOY_EXTENSION_OUTPUT_DIR: extensionDistDir,
-    },
-    stdio: 'inherit',
-  })
-  assertExtensionBuilt(extensionDistDir, sourceRoot)
-}
-
-async function writeProvenance(
-  artifactDirectory: string,
-  extensionDistDir: string,
-  roomServerUrl: string,
-): Promise<void> {
-  // The checkout supplies the coordinator and the specs; the extension is
-  // built from `extensionSourceRoot()`, which is another tree when
-  // SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT is set. Both are recorded.
-  await writeJson(resolve(artifactDirectory, 'provenance.json'), await collectProvenance({
-    runId: basename(artifactDirectory),
-    createdAt: new Date().toISOString(),
-    checkoutRoot: repoRoot,
-    extensionSourceRoot: extensionSourceRoot(),
-    extensionDistDir,
-    roomServerUrl,
-  }))
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {
