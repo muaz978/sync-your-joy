@@ -319,7 +319,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
 
   // A Durable Object over a shared store, so a "restart" is a second object
   // built over the same storage with whichever sockets are still attached.
-  function objectOver(store: Map<string, unknown>, sockets: FakeSocket[], alarms: number[] = []) {
+  function objectOver(store: Map<string, unknown>, sockets: FakeSocket[], alarms: number[] = [], existingAlarmAtMs: number | null = null) {
     const ctx = {
       storage: {
         get: async (key: string) => store.get(key),
@@ -327,7 +327,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
         delete: async (key: string) => store.delete(key),
         deleteAll: async () => { store.clear() },
         setAlarm: async (at: number) => { alarms.push(at) },
-        getAlarm: async () => null,
+        getAlarm: async () => existingAlarmAtMs,
         deleteAlarm: async () => {},
       },
       blockConcurrencyWhile: async <T>(fn: () => Promise<T>) => fn(),
@@ -512,6 +512,29 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     await say(room, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA })
 
     expect(alarms.at(-1)).toBe(startMs + MAX_ROOM_LIFETIME_MS)
+  })
+
+  it('schedules the lifetime limit when restoring a room that needed no repair', async () => {
+    const { store, host, friend } = await roomWithHostAndRequest()
+    const alarms: number[] = []
+
+    // Every stored connection still has its socket and the clock is
+    // consistent, so restoring changes nothing. The room was last written by a
+    // version that never scheduled the limit, and no alarm is set for it.
+    await restored(objectOver(store, [host, friend], alarms))
+
+    expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+  })
+
+  it('does not trust an existing alarm that is later than the lifetime limit', async () => {
+    const { store, host, friend } = await roomWithHostAndRequest()
+    const alarms: number[] = []
+
+    // An alarm from an earlier version can be later than a deadline this
+    // version has; having one set is not the same as having the right one.
+    await restored(objectOver(store, [host, friend], alarms, startMs + 2 * MAX_ROOM_LIFETIME_MS))
+
+    expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
   })
 
   describe('controller recovery', () => {
