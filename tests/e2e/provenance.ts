@@ -17,9 +17,9 @@
 // checkout's when the two are the same tree.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { relative, resolve } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 
 const SOURCE_FILE_PATTERN = /^(apps|packages|scripts|tests|fixtures)\//
 
@@ -48,6 +48,13 @@ export interface SourceIdentity {
   config: ConfigIdentity
 }
 
+/**
+ * The workspace packages the extension bundle is built from. esbuild finds
+ * them by Node resolution from the tree the build runs in, so which copy is
+ * bundled depends on where `node_modules/@syncyourjoy/<name>` resolves to.
+ */
+export const WORKSPACE_PACKAGES = ['@syncyourjoy/protocol', '@syncyourjoy/sync-engine'] as const
+
 export interface ProvenanceRecord {
   schemaVersion: 1
   runId: string
@@ -65,7 +72,56 @@ export interface ProvenanceRecord {
     trackedSourceSha256: string
     packageLockSha256: string
     config: ConfigIdentity
+    /**
+     * Where each workspace package the build resolves to is, relative to this
+     * tree (`null` when it does not resolve from it). For a tree built with
+     * its own dependencies these are inside it; a path starting with `..` is a
+     * package from another tree.
+     */
+    workspacePackages: Record<string, string | null>
   }
+}
+
+/** The real path of `path`, or its resolved path when it does not exist. */
+function realOrResolved(path: string): string {
+  try {
+    return realpathSync(path)
+  }
+  catch {
+    return resolve(path)
+  }
+}
+
+/**
+ * Whether two paths are the same tree. A symlinked spelling of the checkout
+ * (a link, or /tmp for /private/tmp on macOS) is the checkout, not another
+ * tree built from.
+ */
+export function isSameTree(a: string, b: string): boolean {
+  return realOrResolved(a) === realOrResolved(b)
+}
+
+function isInside(root: string, path: string): boolean {
+  const relation = relative(root, path)
+  return relation === '' || (relation !== '..' && !relation.startsWith(`..${sep}`) && !isAbsolute(relation))
+}
+
+/**
+ * Where each workspace package resolves to from `root`, relative to the
+ * tree's real path; `null` for one that does not resolve.
+ */
+export function resolveWorkspacePackages(root: string): Record<string, string | null> {
+  const realRoot = realOrResolved(root)
+  const resolved: Record<string, string | null> = {}
+  for (const name of WORKSPACE_PACKAGES) {
+    try {
+      resolved[name] = relative(realRoot, realpathSync(resolve(root, 'node_modules', name))) || '.'
+    }
+    catch {
+      resolved[name] = null
+    }
+  }
+  return resolved
 }
 
 /** The tree the extension is built from: the override when one is given. */
@@ -76,7 +132,8 @@ export function resolveExtensionSourceRoot(checkoutRoot: string, override: strin
 /**
  * Fails with a message that names the variable when the other tree cannot be
  * built from, instead of the "spawnSync node ENOENT" a missing path produces,
- * or a git error that arrives only after the whole build has run.
+ * a git error that arrives only after the whole build has run, or a build that
+ * succeeds with another tree's packages.
  */
 export function assertExtensionSourceRoot(sourceRoot: string): void {
   const variable = 'SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT'
@@ -90,6 +147,26 @@ export function assertExtensionSourceRoot(sourceRoot: string): void {
   // history, so it would be built in full and then fail on `git ls-files`.
   if (!existsSync(resolve(sourceRoot, '.git'))) {
     throw new Error(`${variable} points at ${sourceRoot}, which is not a git checkout or worktree (it has no .git). The run records the commit and tree the extension was built from, so use \`git worktree add\` for the tag rather than an export.`)
+  }
+  // The bundle is built from @syncyourjoy/protocol and @syncyourjoy/sync-engine
+  // as Node resolves them from this tree. A worktree with no node_modules of
+  // its own, below a directory that has one (this repository's own
+  // <checkout>/.claude/worktrees/<name> layout), or one whose node_modules is a
+  // link to another tree's, builds without error from that tree's packages
+  // while the run is recorded as built from this one.
+  const realRoot = realpathSync(sourceRoot)
+  for (const name of WORKSPACE_PACKAGES) {
+    const link = resolve(sourceRoot, 'node_modules', name)
+    let real: string
+    try {
+      real = realpathSync(link)
+    }
+    catch {
+      throw new Error(`${variable} points at ${sourceRoot}, which has no ${name} in its own node_modules (${link} does not exist). The workspace packages must resolve inside the tree, or the extension is built from another tree's: run \`npm ci --ignore-scripts\` there.`)
+    }
+    if (!isInside(realRoot, real)) {
+      throw new Error(`${variable} points at ${sourceRoot}, where ${name} resolves to ${real}, outside it. The workspace packages must resolve inside the tree, or the extension is built from another tree's: run \`npm ci --ignore-scripts\` there.`)
+    }
   }
 }
 
@@ -143,7 +220,7 @@ export interface CollectProvenanceInput {
 
 export async function collectProvenance(input: CollectProvenanceInput): Promise<ProvenanceRecord> {
   const checkout = await readSourceIdentity(input.checkoutRoot)
-  const sameAsCheckout = resolve(input.extensionSourceRoot) === resolve(input.checkoutRoot)
+  const sameAsCheckout = isSameTree(input.extensionSourceRoot, input.checkoutRoot)
   const extension = sameAsCheckout ? checkout : await readSourceIdentity(input.extensionSourceRoot)
   const manifestPath = resolve(input.extensionDistDir, 'manifest.json')
 
@@ -166,13 +243,14 @@ export async function collectProvenance(input: CollectProvenanceInput): Promise<
       extensionManifestSha256: await hashFiles(input.checkoutRoot, [manifestPath]),
     },
     extensionSource: {
-      root: relative(input.checkoutRoot, input.extensionSourceRoot) || '.',
+      root: sameAsCheckout ? '.' : relative(realOrResolved(input.checkoutRoot), realOrResolved(input.extensionSourceRoot)),
       sameAsCheckout,
       commit: extension.commit,
       tree: extension.tree,
       trackedSourceSha256: extension.trackedSourceSha256,
       packageLockSha256: extension.packageLockSha256,
       config: extension.config,
+      workspacePackages: resolveWorkspacePackages(input.extensionSourceRoot),
     },
   }
 }
@@ -214,7 +292,7 @@ export interface BuildExtensionInput {
  */
 export async function buildExtensionAndRecordProvenance(input: BuildExtensionInput): Promise<ProvenanceRecord> {
   const sourceRoot = resolveExtensionSourceRoot(input.checkoutRoot, input.extensionSourceOverride)
-  const external = resolve(sourceRoot) !== resolve(input.checkoutRoot)
+  const external = !isSameTree(sourceRoot, input.checkoutRoot)
   if (external)
     assertExtensionSourceRoot(sourceRoot)
 

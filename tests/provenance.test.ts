@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -43,6 +43,30 @@ function createRepo(root: string, files: Record<string, string>): void {
   }
   git(root, 'add', '.')
   git(root, 'commit', '-q', '-m', 'fixture')
+}
+
+const WORKSPACE_PACKAGES = ['protocol', 'sync-engine'] as const
+
+// A tree with its own dependencies: the workspace packages the extension is
+// bundled from are directories inside it, as after `npm ci` in a worktree.
+function installOwnWorkspacePackages(root: string): void {
+  for (const name of WORKSPACE_PACKAGES) {
+    const directory = join(root, 'node_modules/@syncyourjoy', name)
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'package.json'), `{"name":"@syncyourjoy/${name}"}\n`)
+  }
+}
+
+// A checkout's own layout: node_modules/@syncyourjoy/<name> is a relative
+// symlink to packages/<name> in the same tree, which is what npm workspaces
+// leave. Nothing here is tracked, so the identity of the tree is unchanged.
+function installWorkspaceLinks(root: string): void {
+  mkdirSync(join(root, 'node_modules/@syncyourjoy'), { recursive: true })
+  for (const name of WORKSPACE_PACKAGES) {
+    mkdirSync(join(root, 'packages', name), { recursive: true })
+    writeFileSync(join(root, 'packages', name, 'package.json'), `{"name":"@syncyourjoy/${name}"}\n`)
+    symlinkSync(join('../../packages', name), join(root, 'node_modules/@syncyourjoy', name))
+  }
 }
 
 // A build script that does what the real one is asked to: write an extension
@@ -92,6 +116,8 @@ describe('E2E provenance', () => {
       'tsconfig.json': '{}\n',
       'vitest.config.ts': 'export default {}\n',
     })
+    installWorkspaceLinks(checkout)
+    installOwnWorkspacePackages(release)
     mkdirSync(join(checkout, 'test-results/e2e-run/extension'), { recursive: true })
     writeFileSync(join(checkout, 'test-results/e2e-run/extension/manifest.json'), '{"built":true}\n')
   })
@@ -118,7 +144,7 @@ describe('E2E provenance', () => {
   })
 
   describe('assertExtensionSourceRoot', () => {
-    it('accepts a checkout that has a build script', () => {
+    it('accepts a tree that has a build script and its own dependencies', () => {
       expect(() => assertExtensionSourceRoot(release)).not.toThrow()
     })
 
@@ -142,6 +168,55 @@ describe('E2E provenance', () => {
       writeFileSync(join(exported, 'scripts/build-extension.mjs'), buildScript('exported'))
 
       expect(() => assertExtensionSourceRoot(exported)).toThrow(/SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT.*exported-tag.*git/s)
+    })
+
+    // esbuild resolves @syncyourjoy/protocol and @syncyourjoy/sync-engine by
+    // Node resolution from the tree it is run in. A tree with no node_modules
+    // of its own, below a directory that has one, would be built with that
+    // directory's workspace packages while the run was recorded as built from
+    // the tree. That is this repository's own worktree layout
+    // (<checkout>/.claude/worktrees/<name>).
+    describe('where the workspace packages come from', () => {
+      it('accepts a tree that has its own node_modules', () => {
+        expect(() => assertExtensionSourceRoot(release)).not.toThrow()
+      })
+
+      it('accepts a checkout whose workspace packages are links to its own packages directory', () => {
+        expect(() => assertExtensionSourceRoot(checkout)).not.toThrow()
+      })
+
+      it('names the variable and the package when the tree has no node_modules of its own below a directory that has one', () => {
+        const hoisted = join(base, 'hoisted')
+        installOwnWorkspacePackages(hoisted)
+        const worktree = join(hoisted, 'worktrees/v0.2.6')
+        createRepo(worktree, { 'scripts/build-extension.mjs': buildScript('hoisted'), 'package.json': '{}\n', 'package-lock.json': '{}\n' })
+        // Resolution from the worktree would find the packages one level up.
+        expect(existsSync(join(hoisted, 'node_modules/@syncyourjoy/protocol'))).toBe(true)
+
+        expect(() => assertExtensionSourceRoot(worktree)).toThrow(
+          /SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT.*v0\.2\.6.*@syncyourjoy\/protocol.*resolve inside.*npm ci --ignore-scripts/s,
+        )
+      })
+
+      it('names the variable and the package when the tree is an export with the checkout\'s node_modules linked in', () => {
+        const linked = join(base, 'linked-modules')
+        createRepo(linked, { 'scripts/build-extension.mjs': buildScript('linked'), 'package.json': '{}\n' })
+        symlinkSync(join(checkout, 'node_modules'), join(linked, 'node_modules'))
+        // The links resolve, to the checkout's packages.
+        expect(realpathOf(join(linked, 'node_modules/@syncyourjoy/protocol'))).toBe(realpathOf(join(checkout, 'packages/protocol')))
+
+        expect(() => assertExtensionSourceRoot(linked)).toThrow(
+          /SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT.*linked-modules.*@syncyourjoy\/protocol.*resolves to .*checkout.*packages.*protocol.*resolve inside.*npm ci --ignore-scripts/s,
+        )
+      })
+
+      it('also requires sync-engine, not only protocol', () => {
+        const half = join(base, 'half-installed')
+        createRepo(half, { 'scripts/build-extension.mjs': buildScript('half'), 'package.json': '{}\n' })
+        mkdirSync(join(half, 'node_modules/@syncyourjoy/protocol'), { recursive: true })
+
+        expect(() => assertExtensionSourceRoot(half)).toThrow(/SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT.*@syncyourjoy\/sync-engine/s)
+      })
     })
   })
 
@@ -242,6 +317,10 @@ describe('E2E provenance', () => {
         trackedSourceSha256: identity.trackedSourceSha256,
         packageLockSha256: identity.packageLockSha256,
         config: identity.config,
+        workspacePackages: {
+          '@syncyourjoy/protocol': join('packages', 'protocol'),
+          '@syncyourjoy/sync-engine': join('packages', 'sync-engine'),
+        },
       })
     })
 
@@ -336,14 +415,76 @@ describe('E2E provenance', () => {
       expect(existsSync(join(extensionDistDir, 'manifest.json'))).toBe(false)
     })
 
+    it('stops with the variable\'s name, and builds nothing, when the override would be built with another tree\'s workspace packages', async () => {
+      const { extensionDistDir, built } = run('build-hoisted', join(base, 'hoisted/worktrees/v0.2.6'))
+
+      await expect(built).rejects.toThrow(/SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT.*@syncyourjoy\/protocol.*resolve inside/s)
+      expect(existsSync(join(extensionDistDir, 'manifest.json'))).toBe(false)
+    })
+
+    it('records where the workspace packages the extension was built from resolve to, inside the tree', async () => {
+      const { built } = run('build-packages', release)
+      const record = await built
+
+      expect(record.extensionSource.workspacePackages).toEqual({
+        '@syncyourjoy/protocol': join('node_modules', '@syncyourjoy', 'protocol'),
+        '@syncyourjoy/sync-engine': join('node_modules', '@syncyourjoy', 'sync-engine'),
+      })
+    })
+
     it('says so when the build wrote its extension somewhere other than the run\'s directory', async () => {
       // A script that predates SYNCYOURJOY_EXTENSION_OUTPUT_DIR.
       const old = join(base, 'old-release')
       createRepo(old, { 'scripts/build-extension.mjs': 'export {}\n', 'package.json': '{}\n' })
+      installOwnWorkspacePackages(old)
 
       const { built } = run('build-old', old)
 
       await expect(built).rejects.toThrow(/did not write .*manifest\.json.*v0\.2\.4 and earlier/s)
+    })
+  })
+
+  // The same checkout reached through another spelling (a symlink, or
+  // /tmp for /private/tmp on macOS) is the checkout, not another tree.
+  describe('a symlinked spelling of the checkout', () => {
+    let spelling: string
+    beforeAll(() => {
+      spelling = join(base, 'checkout-spelling')
+      symlinkSync(checkout, spelling)
+    })
+
+    it('is the checkout in the record', async () => {
+      const record = await collect(spelling)
+
+      expect(record.extensionSource.sameAsCheckout).toBe(true)
+      expect(record.extensionSource.root).toBe('.')
+      expect(record.extensionSource.commit).toBe(record.source.commit)
+    })
+
+    it('is built as the checkout, is not checked as another tree, and is not reported as another build', async () => {
+      const extensionDistDir = join(base, 'build-spelling', 'extension')
+      const record = await buildExtensionAndRecordProvenance({
+        runId: 'build-spelling',
+        createdAt: '2026-10-15T00:00:00.000Z',
+        checkoutRoot: checkout,
+        extensionSourceOverride: spelling,
+        extensionDistDir,
+        roomServerUrl,
+        env: { ...process.env },
+        stdio: 'ignore',
+        log: () => undefined,
+      })
+
+      expect(JSON.parse(readFileSync(join(extensionDistDir, 'manifest.json'), 'utf8')).builtBy).toBe('current')
+      expect(record.extensionSource.sameAsCheckout).toBe(true)
+      const runDirectory = join(base, 'build-spelling')
+      writeFileSync(join(runDirectory, 'provenance.json'), JSON.stringify(record))
+      expect(isCheckoutExtensionBuild(runDirectory)).toBe(true)
+    })
+
+    it('is still another tree when it is another tree', async () => {
+      const record = await collect(release)
+      expect(record.extensionSource.sameAsCheckout).toBe(false)
     })
   })
 
