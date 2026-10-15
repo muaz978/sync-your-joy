@@ -18,6 +18,7 @@
     "fixtures:generate-adaptive": "node scripts/generate-adaptive-fixture.mjs",
     "dev:edge": "wrangler dev --config apps/edge-service/wrangler.jsonc",
     "deploy:edge": "wrangler deploy --config apps/edge-service/wrangler.jsonc",
+    "rollback:edge": "wrangler rollback --config apps/edge-service/wrangler.jsonc --durable-objects-code-update-mode immediate",
     "smoke:edge": "node scripts/smoke-room-service.mjs",
     "verify:browser-packages": "node scripts/verify-browser-packages.mjs",
     "docs:test-guide": "node scripts/generate-test-guide.mjs",

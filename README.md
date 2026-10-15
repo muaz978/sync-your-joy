@@ -127,7 +127,8 @@ Useful commands:
 npm run dev:server              # local WebSocket room service
 npm run dev:fixture             # local generic-player compatibility fixture
 npm run dev:edge                # local Cloudflare Durable Objects runtime
-npm run deploy:edge             # deploy the edge room service
+npm run deploy:edge             # deploy the edge room service (immediate Durable Object update)
+npm run rollback:edge -- ID     # roll the edge room service back to a recorded Version ID
 npm run smoke:edge -- URL       # exercise two clients against a room service
 npm run build                   # server and unpacked extension
 npm run build:extension:firefox # Firefox sidebar build for local smoke testing
