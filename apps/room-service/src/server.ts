@@ -11,6 +11,10 @@ import { WebSocket, WebSocketServer } from 'ws'
 
 const MAX_MESSAGE_BYTES = 16_384
 const CONTROLLER_GRACE_MS = 10_000
+// A re-armed recovery (a member returned) waits on a host that has been
+// backing off since an outage: the extension's reconnect delay reaches 15 s
+// plus up to 250 ms of jitter, so it gets more than that.
+const CONTROLLER_REARM_GRACE_MS = 20_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
 const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
 // Scoped per remote IP, not per room: an unauthenticated socket has not yet
@@ -79,7 +83,9 @@ export interface RoomServiceOptions {
   cleanupIntervalMs?: number
   /**
    * How long a disconnected controller is given to come back before control
-   * passes to a connected member. Defaults to 10 seconds; tests shorten it.
+   * passes to a connected member, both when it leaves and when a returning
+   * member re-arms a recovery that lapsed. Defaults to 10 and 20 seconds;
+   * tests shorten it.
    */
   controllerGraceMs?: number
 }
@@ -294,7 +300,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
 
       const snapshot = room.coordinator.snapshot()
       if (snapshot.controller.participantId === client.participantId)
-        scheduleControllerRecovery(room, client.roomCode, client.participantId)
+        scheduleControllerRecovery(room, client.roomCode, client.participantId, options.controllerGraceMs ?? CONTROLLER_GRACE_MS)
 
       if (room.emptySinceMs === null && !room.coordinator.hasConnectedParticipants())
         room.emptySinceMs = now()
@@ -587,7 +593,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
   // control to the longest-connected member. If nobody is connected when the
   // period runs out there is nobody to hand control to and the plan lapses;
   // armControllerRecovery() makes a new one when somebody returns.
-  function scheduleControllerRecovery(room: RoomEntry, code: string, controllerId: string): void {
+  function scheduleControllerRecovery(room: RoomEntry, code: string, controllerId: string, graceMs: number): void {
     const timerKey = `${code}:${controllerId}`
     const priorTimer = recoveryTimers.get(timerKey)
     if (priorTimer)
@@ -598,7 +604,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       const recovery = room.coordinator.transferDisconnectedController()
       if (recovery?.ok)
         broadcast(room, { type: 'room_snapshot', reason: recovery.reason, snapshot: recovery.snapshot })
-    }, options.controllerGraceMs ?? CONTROLLER_GRACE_MS))
+    }, graceMs))
   }
 
   // Controller recovery is derived from membership, like the empty-room
@@ -614,7 +620,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       return
     if (recoveryTimers.has(`${code}:${controller.id}`))
       return
-    scheduleControllerRecovery(room, code, controller.id)
+    scheduleControllerRecovery(room, code, controller.id, options.controllerGraceMs ?? CONTROLLER_REARM_GRACE_MS)
   }
 
   const cleanupTimer = setInterval(() => {

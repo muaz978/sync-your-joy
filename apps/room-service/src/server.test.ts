@@ -1074,14 +1074,14 @@ describe('controller recovery', () => {
     }
   }
 
-  // Recovery timers with this delay are captured instead of started: the test
-  // reads the delay each one was given and decides when it fires, so nothing
-  // here waits for a grace period or races one.
-  function captureRecoveryTimers(delayMs: number) {
+  // Recovery timers with one of these delays are captured instead of started:
+  // the test reads the delay each one was given and decides when it fires, so
+  // nothing here waits for a grace period or races one.
+  function captureRecoveryTimers(delaysMs: number[]) {
     const startTimer = globalThis.setTimeout
     const planned: Array<{ delayMs: number, fire: () => void }> = []
     const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: () => void, delay?: number, ...args: unknown[]) => {
-      if (delay !== delayMs)
+      if (delay === undefined || !delaysMs.includes(delay))
         return startTimer(handler, delay, ...args)
       planned.push({ delayMs: delay, fire: handler })
       return startTimer(() => {}, 0)
@@ -1119,12 +1119,12 @@ describe('controller recovery', () => {
     back.close()
   })
 
-  describe('with the grace period captured', () => {
+  describe('with the recovery timers captured', () => {
     // A value nothing else in the process uses as a timer delay.
     const CAPTURED_GRACE_MS = 4_321
 
     it('gives the host a full grace period again when a member returns after the plan lapsed', async () => {
-      const timers = captureRecoveryTimers(CAPTURED_GRACE_MS)
+      const timers = captureRecoveryTimers([CAPTURED_GRACE_MS])
       try {
         const { host, friend, code, friendToken } = await roomWithApprovedFriend({ controllerGraceMs: CAPTURED_GRACE_MS })
         host.close()
@@ -1153,8 +1153,36 @@ describe('controller recovery', () => {
       }
     })
 
+    it('gives a controller that is backing off a longer grace period when a member re-arms the recovery', async () => {
+      // The delays the service uses when it is not given a shorter grace period.
+      const timers = captureRecoveryTimers([10_000, 20_000])
+      try {
+        const { host, friend, code, friendToken } = await roomWithApprovedFriend({})
+        host.close()
+        await until(() => timers.planned.length === 1, 'the recovery to be planned')
+        friend.close()
+        await until(() => service!.inspectRoom(code)?.connectedParticipants === false, 'everyone to be gone')
+        timers.planned[0]!.fire()
+
+        const back = await connect(service!.url)
+        back.send(JSON.stringify({
+          type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null, sessionToken: friendToken,
+        }))
+        await expect(nextMessage(back)).resolves.toMatchObject({ type: 'room_joined' })
+
+        // The host that left while a member was there gets 10 s. One that has
+        // been backing off since an outage is given more than the extension's
+        // longest reconnect delay (15 s plus up to 250 ms of jitter).
+        expect(timers.planned.map(timer => timer.delayMs)).toEqual([10_000, 20_000])
+        back.close()
+      }
+      finally {
+        timers.release()
+      }
+    })
+
     it('keeps the recovery that is already pending when a member reconnects', async () => {
-      const timers = captureRecoveryTimers(CAPTURED_GRACE_MS)
+      const timers = captureRecoveryTimers([CAPTURED_GRACE_MS])
       try {
         const { host, friend, code, friendToken } = await roomWithApprovedFriend({ controllerGraceMs: CAPTURED_GRACE_MS })
         host.close()

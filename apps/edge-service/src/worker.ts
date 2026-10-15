@@ -9,6 +9,10 @@ import { applyEarliestDueDeadline, persistRoomAndSchedule, persistThenObserve } 
 
 const MAX_MESSAGE_BYTES = 16_384
 const CONTROLLER_GRACE_MS = 10_000
+// A re-armed recovery (a member returned, or the room was restored) waits on a
+// host that has been backing off since an outage: the extension's reconnect
+// delay reaches 15 s plus up to 250 ms of jitter, so it gets more than that.
+const CONTROLLER_REARM_GRACE_MS = 20_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
 const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
 const MAX_PENDING_CONNECTIONS_PER_ROOM = 20
@@ -250,7 +254,7 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     this.pendingController = {
       participantId: controller.id,
-      recoverAtMs: Date.now() + CONTROLLER_GRACE_MS,
+      recoverAtMs: Date.now() + CONTROLLER_REARM_GRACE_MS,
     }
   }
 

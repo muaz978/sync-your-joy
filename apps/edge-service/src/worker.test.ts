@@ -304,6 +304,11 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
   const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
   const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
   const CONTROLLER_GRACE_MS = 10_000
+  const CONTROLLER_REARM_GRACE_MS = 20_000
+  // The longest the extension waits between reconnect attempts: min(15 s,
+  // 500 ms * 2^n) plus up to 250 ms of jitter (scheduleReconnect in
+  // apps/extension/src/service-worker.ts).
+  const LONGEST_RECONNECT_BACKOFF_MS = 15_000 + 250
   const startMs = 1_900_000_000_000
   type Inspect = { emptySinceMs: number | null, coordinator: { snapshot: () => { participants: Array<{ id: string, connected: boolean }>, pendingJoinRequests: Array<{ id: string }>, controller: { participantId: string } } } | null, pendingController: { participantId: string } | null }
   const inspect = (room: InstanceType<typeof RoomDurableObject>) => room as unknown as Inspect
@@ -702,7 +707,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       attach(first, [back])
       await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
       expect(back.last()).toMatchObject({ type: 'room_joined' })
-      vi.setSystemTime(startMs + 2 * CONTROLLER_GRACE_MS + 2_000)
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000 + CONTROLLER_REARM_GRACE_MS + 1_000)
       await first.alarm()
 
       expect(controllerOf(first)).toBe('participant_friend')
@@ -724,16 +729,53 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       const back = new FakeSocket()
       attach(first, [back])
       await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
-      expect(alarms.at(-1)).toBe(returnedAtMs + CONTROLLER_GRACE_MS)
+      expect(alarms.at(-1)).toBe(returnedAtMs + CONTROLLER_REARM_GRACE_MS)
 
       // An alarm that is delivered before the grace period is over changes nothing.
-      vi.setSystemTime(returnedAtMs + CONTROLLER_GRACE_MS - 1_000)
+      vi.setSystemTime(returnedAtMs + CONTROLLER_REARM_GRACE_MS - 1_000)
       await first.alarm()
       expect(controllerOf(first)).toBe('participant_host')
 
-      vi.setSystemTime(returnedAtMs + CONTROLLER_GRACE_MS + 1_000)
+      vi.setSystemTime(returnedAtMs + CONTROLLER_REARM_GRACE_MS + 1_000)
       await first.alarm()
       expect(controllerOf(first)).toBe('participant_friend')
+    })
+
+    it('keeps control with a host that returns after its longest reconnect backoff', async () => {
+      const alarms: number[] = []
+      const { host, friend, first } = await hostAndApprovedFriend(alarms)
+      const hostToken = sessionTokenOf(host)
+      const friendToken = sessionTokenOf(friend)
+
+      // Every connection drops and the grace period runs out with nobody there.
+      await first.webSocketClose(host as never)
+      await first.webSocketClose(friend as never)
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+
+      // The member is back first. The host has been backing off since the
+      // outage and is back at the end of its longest delay.
+      const memberBackAtMs = startMs + 60_000
+      vi.setSystemTime(memberBackAtMs)
+      const memberBack = new FakeSocket()
+      attach(first, [memberBack])
+      await say(first, memberBack, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      const hostBack = new FakeSocket()
+      attach(first, [memberBack, hostBack])
+
+      // The alarm is delivered when it is due; the host reconnects when its
+      // backoff ends. Whichever comes first happens first.
+      const steps = [
+        { atMs: alarms.at(-1)!, run: () => first.alarm() },
+        { atMs: memberBackAtMs + LONGEST_RECONNECT_BACKOFF_MS, run: () => say(first, hostBack, { type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA, sessionToken: hostToken }) },
+      ].sort((a, b) => a.atMs - b.atMs)
+      for (const step of steps) {
+        vi.setSystemTime(step.atMs)
+        await step.run()
+      }
+
+      expect(hostBack.last()).toMatchObject({ type: 'room_joined' })
+      expect(controllerOf(first)).toBe('participant_host')
     })
 
     it('plans the recovery a stored room is missing when restoring it with the host gone and a member attached', async () => {
@@ -747,10 +789,10 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
 
       const restarted = await restored(objectOver(store, [friend], alarms))
 
-      expect(inspect(restarted).pendingController).toMatchObject({ participantId: 'participant_host', recoverAtMs: restoredAtMs + CONTROLLER_GRACE_MS })
-      expect(alarms).toEqual([restoredAtMs + CONTROLLER_GRACE_MS])
+      expect(inspect(restarted).pendingController).toMatchObject({ participantId: 'participant_host', recoverAtMs: restoredAtMs + CONTROLLER_REARM_GRACE_MS })
+      expect(alarms).toEqual([restoredAtMs + CONTROLLER_REARM_GRACE_MS])
       expect((store.get('room') as { pendingController: unknown }).pendingController).toMatchObject({ participantId: 'participant_host' })
-      vi.setSystemTime(restoredAtMs + CONTROLLER_GRACE_MS + 1_000)
+      vi.setSystemTime(restoredAtMs + CONTROLLER_REARM_GRACE_MS + 1_000)
       await restarted.alarm()
       expect(controllerOf(restarted)).toBe('participant_friend')
     })
