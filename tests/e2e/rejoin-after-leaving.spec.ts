@@ -3,14 +3,16 @@
 // The service worker issues a page a binding token with its first media
 // report, and a page that still holds a token the worker has dropped (it
 // clears the binding when the room is left) has every later report refused.
-// Left alone, that page could not take part in the next room until it was
-// reloaded: nothing to share, no ready button, no playback. This is the flow
-// in one real browser with the real extension, in the page that stays open
-// throughout.
+// The worker now tells a page when it has no bound player at all and the page
+// drops the token then; without that the page could not take part in the next
+// room until it was reloaded: nothing to share, no ready button, no playback.
+// This is the flow in one real browser with the real extension, in the page
+// that stays open throughout.
 import { expect, test } from '@playwright/test'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { launchExtensionProfile, type ExtensionProfile } from './extension-profile.ts'
+import { isCheckoutExtensionBuild } from './provenance.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const extensionDistDir = resolve(here, '..', '..', 'apps/extension/dist')
@@ -20,6 +22,13 @@ test.describe('a page that was bound to a room and then left it', () => {
   let profile: ExtensionProfile
 
   test.beforeAll(async () => {
+    // This checks an extension change made in this checkout; a release build
+    // (SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT) does not have it, so against one
+    // this would fail without anything having regressed.
+    test.skip(
+      !isCheckoutExtensionBuild(process.env.SYNCYOURJOY_E2E_ARTIFACT_DIR),
+      'The extension in this run was built from another tree (SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT), which does not have the change this spec checks.',
+    )
     const dist = process.env.SYNCYOURJOY_E2E_EXTENSION_DIST ?? extensionDistDir
     const artifactDirectory = process.env.SYNCYOURJOY_E2E_ARTIFACT_DIR
     profile = await launchExtensionProfile(dist, 'watcher', {

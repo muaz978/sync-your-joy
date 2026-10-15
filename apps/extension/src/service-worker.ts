@@ -1004,7 +1004,7 @@ function leaveRoom(): void {
     intentionallyClosed = false
   }, 0)
   if (previousPlayerTabId !== null && previousPlayerFrameId !== null)
-    void sendToTab(previousPlayerTabId, { type: 'APPLY_ROOM_STATE', state }, previousPlayerFrameId, previousPlayerDocumentId)
+    void sendToTab(previousPlayerTabId, { type: 'APPLY_ROOM_STATE', state, bindingReleased: true }, previousPlayerFrameId, previousPlayerDocumentId)
 }
 
 function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: number, media: MediaFingerprint, bindingId?: string): boolean {
@@ -1246,7 +1246,7 @@ async function unbindPlayerContext(): Promise<void> {
   const previousDocumentId = playerBinding?.documentId ?? undefined
   clearPlayerTab()
   if (previousTabId !== null && previousFrameId !== null)
-    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId, previousDocumentId)
+    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState(), bindingReleased: true }, previousFrameId, previousDocumentId)
 }
 
 function isController(): boolean {

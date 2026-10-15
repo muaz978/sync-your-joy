@@ -292,11 +292,12 @@ describe('adaptive player lifecycle', () => {
     expect(status?.bindingId).toBe('binding_content_document')
   })
 
-  describe('the worker binding token after the room is left', () => {
-    // The worker clears the binding when the room is left and refuses a media
-    // report that carries a token it no longer knows (acceptMediaBinding). A
-    // page that kept the token would be locked out of the next room until it
-    // was reloaded, so this stand-in answers like the worker does.
+  describe('the worker binding token once the worker has no bound player', () => {
+    // The worker clears the binding when the room is left or the player is
+    // unbound, and refuses a media report that carries a token it does not
+    // know (acceptMediaBinding): a page that kept the token would be locked out
+    // of the next room until it was reloaded. A page that another document
+    // replaced is deliberately kept out. This stand-in answers like the worker.
     let workerToken: string | null = null
     let joined: ExtensionState
 
@@ -312,6 +313,21 @@ describe('adaptive player lifecycle', () => {
       await reportMedia()
     }
 
+    function detached(): ExtensionState {
+      const left = structuredClone(state)
+      left.snapshot = null
+      left.playerTabId = null
+      left.playerFrameId = null
+      left.playerAreaPixels = 0
+      left.playerLastSeenAtMs = 0
+      left.currentMedia = null
+      return left
+    }
+
+    function detachedReports(): Array<Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }>> {
+      return messages.filter((message): message is Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }> => message.type === 'MEDIA_DETECTED')
+    }
+
     beforeEach(() => {
       workerToken = null
       joined = structuredClone(state)
@@ -325,36 +341,26 @@ describe('adaptive player lifecycle', () => {
       })
     })
 
-    function leaveRoom(): void {
-      workerToken = null
-      const left = structuredClone(state)
-      left.snapshot = null
-      left.playerTabId = null
-      left.playerFrameId = null
-      left.playerAreaPixels = 0
-      left.playerLastSeenAtMs = 0
-      left.currentMedia = null
-      state = left
-      listener({ type: 'APPLY_ROOM_STATE', state })
-    }
-
-    it('reports media without the old token once the worker has no bound player', async () => {
+    it('reports media without the old token once the room is left', async () => {
       await bindAs('binding_before_leaving')
       expect(statuses().at(-1)?.bindingId).toBe('binding_before_leaving')
-      leaveRoom()
+      workerToken = null
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state, bindingReleased: true })
       messages.length = 0
 
       await reportMedia()
 
-      const detected = messages.filter((message): message is Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }> => message.type === 'MEDIA_DETECTED')
-      expect(detected.length).toBeGreaterThan(0)
-      for (const report of detected)
+      expect(detachedReports().length).toBeGreaterThan(0)
+      for (const report of detachedReports())
         expect(report.bindingId).toBeUndefined()
     })
 
     it('is bound again for the next room, with the token the worker issues then', async () => {
       await bindAs('binding_before_leaving')
-      leaveRoom()
+      workerToken = null
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state, bindingReleased: true })
       await reportMedia()
       state = structuredClone(joined)
       listener({ type: 'APPLY_ROOM_STATE', state })
@@ -376,9 +382,40 @@ describe('adaptive player lifecycle', () => {
 
       await reportMedia()
 
-      const detected = messages.filter((message): message is Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }> => message.type === 'MEDIA_DETECTED')
-      expect(detected.length).toBeGreaterThan(0)
-      expect(detected.every(report => report.bindingId === 'binding_while_roomless')).toBe(true)
+      expect(detachedReports().length).toBeGreaterThan(0)
+      expect(detachedReports().every(report => report.bindingId === 'binding_while_roomless')).toBe(true)
+    })
+
+    it('keeps the token of a page that another document replaced, so the worker keeps refusing it', async () => {
+      await bindAs('binding_that_was_replaced')
+      // The binding now belongs to another document; this page is told it is
+      // detached, without a release.
+      workerToken = 'binding_of_the_other_document'
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      messages.length = 0
+
+      await reportMedia()
+
+      expect(detachedReports().length).toBeGreaterThan(0)
+      expect(detachedReports().every(report => report.bindingId === 'binding_that_was_replaced')).toBe(true)
+    })
+
+    it('is invited to bind afresh when the worker asks it to report after unbinding', async () => {
+      await bindAs('binding_that_was_replaced')
+      workerToken = 'binding_of_the_other_document'
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      // The user comes back to this page: the worker unbinds the other
+      // document and asks this one to report.
+      workerToken = null
+      messages.length = 0
+      listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(detachedReports().length).toBeGreaterThan(0)
+      expect(detachedReports().every(report => report.bindingId === undefined)).toBe(true)
     })
   })
 

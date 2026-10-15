@@ -9809,30 +9809,31 @@
 - Not the cause, found while diagnosing: a second room created without a bound player has no matching media, so even a correctly bound page shows "Different episode" until the host shares the page. The spec therefore presses "Use current" and "Open link for everyone" before it looks for the ready button.
 
 ### Fix
-- `apps/extension/src/content-script.ts`: on `APPLY_ROOM_STATE`, a state with `playerTabId === null` clears `playerBindingId`. The worker binds at most one player and sets `playerTabId` in the same step as the binding (`bindPlayerContext`) and clears both in `clearPlayerTab`, so such a state means this page is not the bound player (room left, or another document took over; both `leaveRoom()` and `detachedState()` produce it). A page that is still bound keeps its token, with or without a room.
-- `apps/extension/src/content-script.test.ts`: three tests that model the worker's refusal: no token is sent after the room is left; the page is bound again and uses the next token; the token is kept while the worker still has the page bound, roomless or not (a negative control that passes before the change).
-- `tests/e2e/rejoin-after-leaving.spec.ts` (new), `CHANGELOG.md`.
+- `apps/extension/src/internal.ts`, `apps/extension/src/service-worker.ts`: `APPLY_ROOM_STATE` has an optional `bindingReleased`, set in the two flows that clear the binding and tell the page: `leaveRoom()` and `unbindPlayerContext()` (the player is unbound to look at another tab). The detach that `bindPlayerContext()` sends to a page another document replaced does not carry it.
+- `apps/extension/src/content-script.ts`: the page drops its token on `bindingReleased`, and on `REPORT_PLAYER_CONTEXT`, which the worker sends only to a tab right after unbinding its player (`selectActivePlayerTab`), so a page that was replaced earlier is invited to bind afresh when the user comes back to it.
+- First version (89c5844) dropped the token on any state with `playerTabId === null`. The Codex review pointed out that this also frees a page another document replaced, which the worker deliberately keeps refused (a retired document must not take the binding back); it was changed to the explicit release.
+- Tests: `apps/extension/src/content-script.test.ts` (a stand-in that refuses like the worker; the replaced-page case is the one the first version failed), `apps/extension/src/service-worker.test.ts` (the flag on leave and on unbind, not on replacement), `tests/e2e/rejoin-after-leaving.spec.ts` (new; skips itself on an extension built from another tree), `CHANGELOG.md`.
 
 ### Verification
-- `npm run check`: 44 files, 581 tests (578 on `main`), strict typecheck, server and extension builds.
-- The new E2E spec: red without the change, green with it, on the same build tree. The rest of the E2E suite was not re-run on this branch (the change is one assignment in the content script and no other spec was touched).
+- `npm test`: 44 files, 586 tests (578 on `main`), strict typecheck; `npm run test:e2e`: 15 passed, 1 skipped (the authenticated provider run), with the change as pushed.
+- The new content-script tests: 3 of 5 fail against the content script of `main` (the other two are negative controls), and the replaced-page test fails against the first version of this change. The two worker tests that check the flag fail without it. The E2E spec failed without the first version of the change (20 s) and passes with it.
 
 ## Confirmed Successful Results
 - The unit tests and the real-browser spec distinguish the old and the new content script.
 
 ## Failed, Incomplete, or Unresolved Work
 - Only macOS and one profile. The authenticated provider flows, two devices and a real streaming page were not run.
-- A retired document that is still alive in another frame and never receives the detaching state keeps its token, as before; it was not observed to matter.
-- The worker still answers a refused report with a plain success and no hint. A report-side hint would also cover a page that missed the detaching message; it was not added because the page had no other way to learn the token was dropped than the detaching state, which every path that clears the binding sends.
+- Not covered, as before: the paths that clear the binding without telling the page keep the page refused. Navigation (`onUpdated` loading) is intended; `refreshBoundPlayerTab()` clearing the binding when the page reports no media, or cannot be reached, is not, and a page that later has a video again stays refused until it is reloaded or asked to report. Rare; recorded here, not changed.
+- A page another document replaced stays refused until the worker unbinds and asks it to report (the user switches back to it). That is the existing behaviour for a replaced page.
 
 ## Decisions and Rationale
-- Fix in the page, not by letting the worker accept an unknown token when it has no binding: the refusal is what keeps a retired document from taking the binding back (its comment in `acceptMediaBinding`), and a page that is told it is not bound is equivalent to a freshly loaded one.
+- Fix in the page, on an explicit release, not by letting the worker accept an unknown token when it has no binding and not by freeing a page on any detach: the refusal is what keeps a retired document from taking the binding back (its comment in `acceptMediaBinding`), including after navigation cleared the binding (`chrome.tabs.onUpdated` loading, where the page is not told and keeps its token).
 
 ## Files and Artifacts
 - `apps/extension/src/content-script.ts`, `apps/extension/src/content-script.test.ts`, `tests/e2e/rejoin-after-leaving.spec.ts`, `CHANGELOG.md`.
 
 ## Assumptions and Uncertainties
-- That every path that clears the worker's binding while the page is alive sends the page a state with `playerTabId === null`. Read in `service-worker.ts` at `fcf6049`: `leaveRoom()`, `unbindPlayerContext()` and the detach in `bindPlayerContext()` do; the "player unreachable" path in `sendToPlayerTab()` clears the binding after a failed delivery, which means there was no page to tell.
+- That `REPORT_PLAYER_CONTEXT` is only sent right after an unbind: its single sender is `selectActivePlayerTab()`, which unbinds before it asks (read in `service-worker.ts` at `fcf6049`). A second sender added later would free a bound page.
 
 ## Open Questions, Blockers, and Dependencies
 - Needs a new extension build to reach users; it is not a coordinator change and a coordinator deploy does not carry it.
