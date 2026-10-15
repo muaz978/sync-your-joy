@@ -21,6 +21,11 @@ These changes take effect when the room coordinator is redeployed, and deployed 
 - A request that is still waiting when an empty room expires is now closed with `room_expired` instead of being left connected to a room that no longer exists.
 - The extension's content script no longer pauses, seeks or starts the page's video while the participant's own join request is pending, whatever snapshot an older coordinator sends it.
 
+### Changed
+
+- Maintenance, no runtime change: `ws` 8.22.0 for the local room service, the dev-dependency group (wrangler 4.147.0, vitest 5.0.3, tsx, type packages), and `github/codeql-action` init, analyze and upload-sarif together at v4.38.3. The shipped extension bundle, local service bundle and coordinator Worker bundle are byte-identical to the previous toolchain's. Dependabot now updates the codeql-action family in one pull request, because a split bump fails the required analysis check on its own.
+- Heads-up for operators: wrangler 4.147.0 sends a deferred, 300-second Durable Object code update on every coordinator deploy and rollback unless told otherwise. Do not deploy or roll back the coordinator until the `immediate` pin lands.
+
 ## [0.2.6] - 2026-09-29
 
 This is a compatible test release containing the coordinator and extension fixes merged after `v0.2.5`. The coordinator fixes take effect only after the room coordinator is redeployed. The extension changes take effect when each participant loads this package. The paused-seek fix is a coordinator change, so update participants' extensions together with, or before, the coordinator.

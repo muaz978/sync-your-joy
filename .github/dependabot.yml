@@ -26,5 +26,13 @@ updates:
     commit-message:
       prefix: ci
       include: scope
+    # init, analyze and upload-sarif must run the same release: analyze
+    # refuses a configuration file written by a different action version, so a
+    # split bump fails the required "Analyze (javascript-typescript)" check on
+    # its own and can never merge. Update the whole family in one pull request.
+    groups:
+      codeql-action:
+        patterns:
+          - 'github/codeql-action/*'
     cooldown:
       default-days: 7
