@@ -119,6 +119,15 @@ describe('RoomDurableObject: who receives room state', () => {
     expect(friend.sent).toHaveLength(receivedBefore)
   })
 
+  it('does not hand room state to a pending requester inside a rejection either', async () => {
+    const { room, friend } = await roomWithPendingFriend()
+
+    await say(room, friend, { type: 'control', actionId: 'action_pending_control', basedOnRevision: 0, leaseEpoch: 1, kind: 'play', positionSeconds: 1 })
+
+    expect(friend.last()).toMatchObject({ type: 'command_rejected', actionId: 'action_pending_control', snapshot: null })
+    expect(JSON.stringify(friend.last())).not.toContain('private title')
+  })
+
   it('starts delivering the full state once the request is approved', async () => {
     const { room, host, friend, observer } = await roomWithPendingFriend()
 
@@ -154,7 +163,7 @@ describe('RoomDurableObject: who receives room state', () => {
 
     await say(room, intruder, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Attacker', code: CODE, media: null })
 
-    expect(intruder.last()).toMatchObject({ type: 'command_rejected', code: 'session_invalid' })
+    expect(intruder.last()).toMatchObject({ type: 'command_rejected', code: 'session_invalid', snapshot: null })
     await say(room, host, approve)
     expect(friend.last()).toMatchObject({
       reason: 'join_approved',

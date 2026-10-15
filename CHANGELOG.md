@@ -12,6 +12,7 @@ These are coordinator-side changes: they take effect when the room coordinator i
 - On the edge coordinator, a connection that never sent a join request no longer receives room broadcasts. Before, it could listen to a room for as long as it stayed connected.
 - A pending join request is bound to the session issued for it. Sending the same participant id again without that session is refused instead of replacing the request and its approval.
 - A pending join request is withdrawn when its connection closes, so it can no longer be approved into a member that has no connection and blocks the room.
+- A rejected command or rejected join no longer carries the room snapshot to a client that is not a member. Before, a wrong session token or a full room handed the sender the whole room state inside the rejection.
 - An unapproved request no longer cancels the edge coordinator's empty-room expiry.
 
 ## [0.2.6] - 2026-09-29

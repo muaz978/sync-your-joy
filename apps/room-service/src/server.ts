@@ -340,7 +340,7 @@ export async function createRoomService(options: { port?: number; host?: string;
           ? entry.coordinator.pendingJoinSessionToken(message.participantId) === message.sessionToken ? message.sessionToken : undefined
           : randomBytes(16).toString('base64url')
       if (!sessionToken) {
-        send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: entry.coordinator.snapshot() })
+        send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: null })
         return
       }
       const result = entry.coordinator.join({
@@ -351,7 +351,10 @@ export async function createRoomService(options: { port?: number; host?: string;
         ...(message.capabilities ? { capabilities: message.capabilities } : {}),
       })
       if (!result.ok) {
-        sendResult(socket, null, result)
+        // The sender has not been admitted, so the rejection must not carry
+        // the room's state (a full room or a refused token would otherwise
+        // hand a stranger the whole snapshot).
+        sendResult(socket, null, result, false)
         return
       }
 
@@ -472,7 +475,7 @@ export async function createRoomService(options: { port?: number; host?: string;
       // -- the same pattern transfer_control and open_link already use.
       const result = room.coordinator.respondToJoin(client.participantId, message.leaseEpoch, message.participantId, message.approve)
       if (!result.ok) {
-        sendResult(socket, message.actionId, result)
+        sendResult(socket, message.actionId, result, room.coordinator.hasParticipant(client.participantId))
         return
       }
 
@@ -522,7 +525,7 @@ export async function createRoomService(options: { port?: number; host?: string;
           : room.coordinator.control(client.participantId, message)
 
     if (!result.ok) {
-      sendResult(socket, message.type === 'control' || message.type === 'open_link' ? message.actionId : null, result)
+      sendResult(socket, message.type === 'control' || message.type === 'open_link' ? message.actionId : null, result, room.coordinator.hasParticipant(client.participantId))
       return
     }
 
@@ -608,7 +611,7 @@ function broadcast(room: RoomEntry, message: ServerMessage, except?: WebSocket):
   }
 }
 
-function sendResult(socket: WebSocket, actionId: string | null, result: RoomResult): void {
+function sendResult(socket: WebSocket, actionId: string | null, result: RoomResult, senderIsMember: boolean): void {
   if (result.ok)
     return
   send(socket, {
@@ -616,7 +619,8 @@ function sendResult(socket: WebSocket, actionId: string | null, result: RoomResu
     actionId,
     code: result.code,
     message: result.message,
-    snapshot: result.snapshot,
+    // Only an admitted member may be told the room's state in a rejection.
+    snapshot: senderIsMember ? result.snapshot : null,
   })
 }
 

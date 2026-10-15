@@ -9243,16 +9243,18 @@
   3. A pending request was never removed when its socket closed (`RoomCoordinator.disconnect` ignores a non-participant), so approving it later created a connected member with no socket.
   4. A second client that knew only the participant id replaced a pending request and its approval target (`join` overwrote the map entry and the services issued a fresh token).
   5. On the edge, any join, including a pending one, cleared the empty-room expiry.
+  6. A rejected command or rejected join embedded the full snapshot (`RoomCoordinator.failure()`), so a wrong session token, a full room or a command from a pending requester handed the sender the whole room state. This included the new refusal for a pending id, found while reviewing this change before it was merged.
 
 ### Fix
 - `packages/sync-engine/src/room.ts`: `join` binds an existing pending request to its session token and refuses a missing or different token (fail closed); new `hasParticipant`, `hasPendingJoin`, `pendingJoinSessionToken`, `cancelPendingJoin` (reason `join_cancelled`) and `pendingSnapshot` (same shape, no media, navigation, seek, participants, other requests or contract).
 - `apps/room-service/src/server.ts` and `apps/edge-service/src/worker.ts`: pending sockets receive `pendingSnapshot`, are excluded from every broadcast, become members on approval, are withdrawn when their connection closes, and a pending join no longer clears the empty-room expiry. The edge `broadcast` also skips sockets that never joined.
+- Both services send `snapshot: null` in a rejection unless the sender is a member, and the two direct `session_invalid` rejections no longer embed a snapshot. The extension already guards on `if (message.snapshot)`.
 - `docs/ARCHITECTURE.md` and `CHANGELOG.md` (Unreleased) state the guarantee.
 
 ### Verification (local, synthetic fixtures)
-- New tests: 6 in `apps/room-service/src/server.test.ts`, 4 in `packages/sync-engine/src/room.test.ts`, 5 in the new `apps/edge-service/src/worker.test.ts` (the first runtime tests of the Durable Object class, driven with fake sockets). One existing test changed: it asserted that a pending requester sees the host in `participants`, which is the exposure itself.
+- New tests: 7 in `apps/room-service/src/server.test.ts`, 4 in `packages/sync-engine/src/room.test.ts`, 6 in the new `apps/edge-service/src/worker.test.ts` (the first runtime tests of the Durable Object class, driven with fake sockets). One existing test changed: it asserted that a pending requester sees the host in `participants`, which is the exposure itself.
 - Red on the unfixed code: the new server and edge tests fail against `d2a2cc8` at their intended assertions. On the old code the never-joined socket received 3 broadcasts, the pending snapshot was not redacted, and an intruder using the pending participant id received `room_joined` and took over the request.
-- Green on the fix: `npm run check` 39 files and 421 tests (406 before), both typechecks, server and extension builds; `npm run test:e2e` 12 passed, 1 skipped.
+- Green on the fix: `npm run check` 39 files and 423 tests (406 before), both typechecks, server and extension builds; `npm run test:e2e` 12 passed, 1 skipped.
 
 ## Confirmed Successful Results
 - The five defects above are reproduced at runtime on `d2a2cc8` and fixed on the branch.

@@ -687,7 +687,7 @@ describe('unapproved join requests receive nothing', () => {
     intruder.send(JSON.stringify({
       type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Attacker', code, media: null,
     }))
-    await expect(rejection).resolves.toMatchObject({ type: 'command_rejected', code: 'session_invalid' })
+    await expect(rejection).resolves.toMatchObject({ type: 'command_rejected', code: 'session_invalid', snapshot: null })
 
     const hostApproved = nextMessage(host)
     const friendApproved = nextMessage(friend)
@@ -723,6 +723,19 @@ describe('unapproved join requests receive nothing', () => {
     await expect(approved).resolves.toMatchObject({ type: 'room_snapshot', reason: 'join_approved' })
     reattached.close()
     host.close()
+  })
+
+  it('does not hand room state to a pending requester inside a rejection either', async () => {
+    const { host, friend } = await roomWithPendingFriend()
+    const rejection = nextMessage(friend)
+    friend.send(JSON.stringify({
+      type: 'control', actionId: 'action_pending_control', basedOnRevision: 0, leaseEpoch: 1, kind: 'play', positionSeconds: 1,
+    }))
+    const rejected = await rejection
+    expect(rejected).toMatchObject({ type: 'command_rejected', actionId: 'action_pending_control', snapshot: null })
+    expect(JSON.stringify(rejected)).not.toContain('private title')
+    host.close()
+    friend.close()
   })
 
   it('starts delivering the full room state once the request is approved', async () => {

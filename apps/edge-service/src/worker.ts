@@ -349,7 +349,7 @@ export class RoomDurableObject extends DurableObject<Env> {
           ? this.coordinator.pendingJoinSessionToken(message.participantId) === message.sessionToken ? message.sessionToken : undefined
           : randomToken()
       if (!sessionToken) {
-        this.send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: this.coordinator.snapshot() })
+        this.send(socket, { type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'This participant session is no longer valid. Reconnect from the original browser session.', snapshot: null })
         return
       }
       const result = this.coordinator.join({
@@ -360,7 +360,10 @@ export class RoomDurableObject extends DurableObject<Env> {
         ...(message.capabilities ? { capabilities: message.capabilities } : {}),
       })
       if (!result.ok) {
-        this.sendResult(socket, null, result)
+        // The sender has not been admitted, so the rejection must not carry
+        // the room's state (a full room or a refused token would otherwise
+        // hand a stranger the whole snapshot).
+        this.sendResult(socket, null, result, false)
         return
       }
 
@@ -477,7 +480,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       // open_link already use.
       const result = this.coordinator.respondToJoin(attachment.participantId, message.leaseEpoch, message.participantId, message.approve)
       if (!result.ok) {
-        this.sendResult(socket, message.actionId, result)
+        this.sendResult(socket, message.actionId, result, this.coordinator.hasParticipant(attachment.participantId))
         return
       }
 
@@ -514,7 +517,7 @@ export class RoomDurableObject extends DurableObject<Env> {
           : this.coordinator.control(attachment.participantId, message)
 
     if (!result.ok) {
-      this.sendResult(socket, message.type === 'control' || message.type === 'open_link' ? message.actionId : null, result)
+      this.sendResult(socket, message.type === 'control' || message.type === 'open_link' ? message.actionId : null, result, this.coordinator.hasParticipant(attachment.participantId))
       return
     }
 
@@ -590,7 +593,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
   }
 
-  private sendResult(socket: WebSocket, actionId: string | null, result: RoomResult): void {
+  private sendResult(socket: WebSocket, actionId: string | null, result: RoomResult, senderIsMember: boolean): void {
     if (result.ok)
       return
     this.send(socket, {
@@ -598,7 +601,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       actionId,
       code: result.code,
       message: result.message,
-      snapshot: result.snapshot,
+      // Only an admitted member may be told the room's state in a rejection.
+      snapshot: senderIsMember ? result.snapshot : null,
     })
   }
 
