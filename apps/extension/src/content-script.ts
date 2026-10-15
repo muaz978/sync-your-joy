@@ -330,6 +330,15 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
         ? message.state.snapshot?.seek?.revision !== pendingSeek.roomRevision
         : commandChanged)
     activeState = message.state
+    // The worker binds at most one player and sets playerTabId whenever it has
+    // one, so a state without a player tab is the worker telling this page it
+    // is not the bound player (the room was left, or another document took
+    // over). Its token is retired and the worker refuses a report that still
+    // carries it (acceptMediaBinding), so keeping it would lock the page out of
+    // the next room until a reload. A page that is still bound, with or
+    // without a room, keeps its token.
+    if (message.state.playerTabId === null)
+      playerBindingId = null
     if (pendingSeekSuperseded || commandChanged || controllerChanged || roomDetached) {
       // The room may release a shared barrier before the browser finishes its
       // native seek. Keep a short-lived attribution window for that target so

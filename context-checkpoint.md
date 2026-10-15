@@ -9788,3 +9788,59 @@
 ## Historical Checkpoint Notes
 - Checkpoint 112 recorded the extension change that ends a waiting request with its room. This checkpoint supersedes nothing.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R5b (a page that left a room keeps a binding token the worker has dropped), tracking issue #119.
+- Checkpoint number: 116.
+- Date and time: 2026-10-16, Europe/Istanbul.
+- Coverage period: Since checkpoint 113 (`main` at `fcf6049`). Checkpoints 114 (controller recovery, #130) and 115 (runtime observations, #131) are on their own branches and are not merged at the time of writing, so this number follows them.
+- Current context status: Implemented on branch `fix/stale-player-binding`, failing test first, verified on macOS. Not merged.
+
+## User Objective and Requirements
+- Close the gaps the review found, in tracked phases. R5b was recorded by the review of #128 as a defect that exists in v0.2.6 and is separate from the waiting-view change.
+
+## Complete Chronological Activity Log
+
+### Findings
+- The content script keeps the worker-issued `playerBindingId` for the life of the page and attaches it to every media report (`withPlayerBinding`). The worker clears the binding when a room is left (`leaveRoom()` to `clearPlayerTab()`), and `acceptMediaBinding()` answers a report that carries a token when it has no binding with a refusal (`return bindingId === undefined`), without sending a token back. The page therefore never re-learns one. A room created afterwards from the same page had no player: "Use current" stayed disabled and no ready button appeared until the page was reloaded.
+- Real browser, same page throughout (`tests/e2e/rejoin-after-leaving.spec.ts`): without the change the second room's "Use current" never enables (20 s); with it the spec passes in about 5 s.
+- Not the cause, found while diagnosing: a second room created without a bound player has no matching media, so even a correctly bound page shows "Different episode" until the host shares the page. The spec therefore presses "Use current" and "Open link for everyone" before it looks for the ready button.
+
+### Fix
+- `apps/extension/src/content-script.ts`: on `APPLY_ROOM_STATE`, a state with `playerTabId === null` clears `playerBindingId`. The worker binds at most one player and sets `playerTabId` in the same step as the binding (`bindPlayerContext`) and clears both in `clearPlayerTab`, so such a state means this page is not the bound player (room left, or another document took over; both `leaveRoom()` and `detachedState()` produce it). A page that is still bound keeps its token, with or without a room.
+- `apps/extension/src/content-script.test.ts`: three tests that model the worker's refusal: no token is sent after the room is left; the page is bound again and uses the next token; the token is kept while the worker still has the page bound, roomless or not (a negative control that passes before the change).
+- `tests/e2e/rejoin-after-leaving.spec.ts` (new), `CHANGELOG.md`.
+
+### Verification
+- `npm run check`: 44 files, 581 tests (578 on `main`), strict typecheck, server and extension builds.
+- The new E2E spec: red without the change, green with it, on the same build tree. The rest of the E2E suite was not re-run on this branch (the change is one assignment in the content script and no other spec was touched).
+
+## Confirmed Successful Results
+- The unit tests and the real-browser spec distinguish the old and the new content script.
+
+## Failed, Incomplete, or Unresolved Work
+- Only macOS and one profile. The authenticated provider flows, two devices and a real streaming page were not run.
+- A retired document that is still alive in another frame and never receives the detaching state keeps its token, as before; it was not observed to matter.
+- The worker still answers a refused report with a plain success and no hint. A report-side hint would also cover a page that missed the detaching message; it was not added because the page had no other way to learn the token was dropped than the detaching state, which every path that clears the binding sends.
+
+## Decisions and Rationale
+- Fix in the page, not by letting the worker accept an unknown token when it has no binding: the refusal is what keeps a retired document from taking the binding back (its comment in `acceptMediaBinding`), and a page that is told it is not bound is equivalent to a freshly loaded one.
+
+## Files and Artifacts
+- `apps/extension/src/content-script.ts`, `apps/extension/src/content-script.test.ts`, `tests/e2e/rejoin-after-leaving.spec.ts`, `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- That every path that clears the worker's binding while the page is alive sends the page a state with `playerTabId === null`. Read in `service-worker.ts` at `fcf6049`: `leaveRoom()`, `unbindPlayerContext()` and the detach in `bindPlayerContext()` do; the "player unreachable" path in `sendToPlayerTab()` clears the binding after a failed delivery, which means there was no page to tell.
+
+## Open Questions, Blockers, and Dependencies
+- Needs a new extension build to reach users; it is not a coordinator change and a coordinator deploy does not carry it.
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA.
+2. Fold into the next test release notes (extension change, present in 0.2.6).
+
+## Historical Checkpoint Notes
+- Checkpoint 112 recorded the review that found this as "pre-existing at v0.2.6". This checkpoint closes it.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
