@@ -38,6 +38,17 @@ describe('isAwaitingApproval', () => {
     delete legacy.pendingJoinRequests
     expect(isAwaitingApproval({ participantId: me, snapshot: legacy as unknown as RoomSnapshot })).toBe(false)
   })
+
+  it('does not throw for a pending list that is null or missing, for a member or for someone not in the room', () => {
+    for (const withList of [(raw: Record<string, unknown>) => { raw.pendingJoinRequests = null }, (raw: Record<string, unknown>) => { delete raw.pendingJoinRequests }]) {
+      for (const participants of [[member], []]) {
+        const raw = snapshot({ participants }) as unknown as Record<string, unknown>
+        withList(raw)
+        expect(() => isAwaitingApproval({ participantId: me, snapshot: raw as unknown as RoomSnapshot })).not.toThrow()
+        expect(isAwaitingApproval({ participantId: me, snapshot: raw as unknown as RoomSnapshot })).toBe(false)
+      }
+    }
+  })
 })
 
 describe('the pending pill copy', () => {
