@@ -22,6 +22,10 @@ const CONTROLLER_GRACE_MS = 10_000
 const CONTROLLER_REARM_GRACE_MS = 20_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
 const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
+// A restore whose save failed is tried again on a later frame, at most this
+// often, so a storage outage costs one write attempt per interval and not one
+// per frame from every connected client.
+const RESTORE_SAVE_RETRY_MS = 5_000
 const MAX_PENDING_CONNECTIONS_PER_ROOM = 20
 const MAX_UPGRADE_ATTEMPTS_PER_IP = 30
 const UPGRADE_ATTEMPT_WINDOW_MS = 60_000
@@ -124,6 +128,10 @@ export class RoomDurableObject extends DurableObject<Env> {
   // persisted: a cold start simply forgets any in-flight diagnostics round.
   private pendingDiagnosticsRequests = new Map<string, Set<string>>()
   private readonly initialized: Promise<void>
+  // Set when restoring could not save what it derived (the alarm included).
+  // `reason` is the repair that was withheld from the members until it is
+  // saved, if there was one.
+  private unsavedRestore: { reason: string | null, nextAttemptAtMs: number } | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -159,8 +167,10 @@ export class RoomDurableObject extends DurableObject<Env> {
           await this.persistAndSchedule()
         }
         catch (error) {
-          // The next write or alarm derives and saves it again.
+          // The next frame from a client tries it again (retryUnsavedRestore),
+          // and so does any later write or alarm.
           saved = false
+          this.unsavedRestore = { reason, nextAttemptAtMs: Date.now() + RESTORE_SAVE_RETRY_MS }
           console.error('Restoring room state could not be saved.', error instanceof Error ? error.name : 'unknown error')
         }
         // A member that kept its socket across the restart still holds the
@@ -329,8 +339,33 @@ export class RoomDurableObject extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client })
   }
 
+  /**
+   * A restore whose save failed leaves the room without the alarm that carries
+   * its lifetime limit and controller recovery, and a client that only pings
+   * never makes this object write. So the next frame from any client tries the
+   * save again, not more often than every RESTORE_SAVE_RETRY_MS, and the repair
+   * that was withheld is announced once it is saved.
+   */
+  private async retryUnsavedRestore(): Promise<void> {
+    const pending = this.unsavedRestore
+    if (!pending || !this.coordinator || Date.now() < pending.nextAttemptAtMs)
+      return
+    try {
+      await this.persistAndSchedule()
+    }
+    catch (error) {
+      pending.nextAttemptAtMs = Date.now() + RESTORE_SAVE_RETRY_MS
+      console.error('Restoring room state could not be saved.', error instanceof Error ? error.name : 'unknown error')
+      return
+    }
+    this.unsavedRestore = null
+    if (pending.reason)
+      this.broadcast({ type: 'room_snapshot', reason: pending.reason, snapshot: this.coordinator.snapshot() })
+  }
+
   async webSocketMessage(socket: WebSocket, rawMessage: string | ArrayBuffer): Promise<void> {
     await this.initialized
+    await this.retryUnsavedRestore()
     const attachment = socket.deserializeAttachment() as SocketAttachment
     const nowMs = Date.now()
     if (nowMs - attachment.messageWindowStartedAt > 10_000) {
@@ -766,6 +801,10 @@ export class RoomDurableObject extends DurableObject<Env> {
       alarmCandidates.push(healthDeadlineMs)
 
     await persistRoomAndSchedule(this.ctx.storage, storedRoom, alarmCandidates)
+    // Any save does what a retried restore save would: it writes the room as
+    // it is now and derives the alarm from it. The members have been sent that
+    // state by whatever caused the write.
+    this.unsavedRestore = null
   }
 
   private async persistAndObserve(observe: () => void): Promise<void> {

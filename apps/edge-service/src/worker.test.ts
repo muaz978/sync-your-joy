@@ -496,6 +496,82 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     logged.mockRestore()
   })
 
+  describe('a restore whose save failed', () => {
+    // A client that only pings never makes the object write, and the alarm
+    // that carries the lifetime limit and controller recovery is set by the
+    // same save, so the next frame of any kind (a ping included) tries again.
+    async function failedRestore() {
+      const alarms: number[] = []
+      const { store, host } = await roomWithHostAndRequest()
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const set = store.set.bind(store)
+      store.set = () => { throw new Error('storage is unavailable') }
+      const restarted = await restored(objectOver(store, [host], alarms))
+      store.set = set
+      return { store, host, restarted, alarms, logged }
+    }
+
+    it('is tried again on the next ping, once the retry delay has passed, and the repair is announced then', async () => {
+      const { store, host, restarted, alarms, logged } = await failedRestore()
+      expect(alarms).toEqual([])
+      const before = host.sent.length
+
+      vi.setSystemTime(startMs + 5_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_retry', sentAtLocalMs: 1 })
+
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+      const sent = host.sent.slice(before)
+      expect(sent).toContainEqual(expect.objectContaining({ type: 'room_snapshot', snapshot: expect.objectContaining({ pendingJoinRequests: [] }) }))
+      expect(sent).toContainEqual(expect.objectContaining({ type: 'pong', id: 'ping_retry' }))
+      // Saved: a later restore has nothing left to repair or announce.
+      const sentBefore = host.sent.length
+      await restored(objectOver(store, [host]))
+      expect(host.sent).toHaveLength(sentBefore)
+      logged.mockRestore()
+    })
+
+    it('is not tried on every frame, only after the retry delay', async () => {
+      const { host, restarted, alarms, logged } = await failedRestore()
+
+      await say(restarted, host, { type: 'ping', id: 'ping_too_soon', sentAtLocalMs: 1 })
+      expect(alarms).toEqual([])
+
+      vi.setSystemTime(startMs + 5_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_after_delay', sentAtLocalMs: 2 })
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+      logged.mockRestore()
+    })
+
+    it('is settled by any other save, which writes the same state, so nothing is written again', async () => {
+      const { host, restarted, alarms, logged } = await failedRestore()
+
+      await say(restarted, host, { type: 'client_metrics', roundTripMs: 20 })
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+
+      vi.setSystemTime(startMs + 5_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_after_save', sentAtLocalMs: 1 })
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+      logged.mockRestore()
+    })
+
+    it('stays pending while the save keeps failing, and is tried again later', async () => {
+      const { store, host, restarted, alarms, logged } = await failedRestore()
+      const set = store.set.bind(store)
+      store.set = () => { throw new Error('storage is still unavailable') }
+
+      vi.setSystemTime(startMs + 5_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_still_failing', sentAtLocalMs: 1 })
+      expect(host.last()).toMatchObject({ type: 'pong', id: 'ping_still_failing' })
+      expect(alarms).toEqual([])
+
+      store.set = set
+      vi.setSystemTime(startMs + 10_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_recovered', sentAtLocalMs: 2 })
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+      logged.mockRestore()
+    })
+  })
+
   it('clears a stale empty-room clock on restore when a member is still attached', async () => {
     const { store, host } = await roomWithHostAndRequest()
     ;(store.get('room') as { emptySinceMs: number | null }).emptySinceMs = startMs - EMPTY_ROOM_TTL_MS * 2

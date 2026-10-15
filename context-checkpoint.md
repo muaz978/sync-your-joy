@@ -9810,7 +9810,7 @@
 
 ### Fix
 - Both coordinators re-arm the recovery when a member joins while the controller is disconnected and no plan is pending (`armControllerRecovery`); the edge also derives it on restore.
-- Edge restore always calls `persistAndSchedule()` (one write and one alarm per wake) instead of only when something was repaired; the write is guarded so a failing save serves the restored state and announces nothing; the repair is announced to the attached members only once it is durable.
+- Edge restore always calls `persistAndSchedule()` (one write and one alarm per wake) instead of only when something was repaired; the write is guarded so a failing save serves the restored state and announces nothing; the repair is announced to the attached members only once it is durable. A save that failed is tried again on the next frame from any client, a ping included, at most every 5 s (`retryUnsavedRestore`, added after the Codex review of `ef18c26` found that a client that only pings would never write again and the alarm would stay unset); any other successful save settles it.
 - A plan re-armed this way waits `CONTROLLER_REARM_GRACE_MS` = 20 s, longer than the extension's reconnect backoff ceiling (15 s plus jitter); the 10 s grace for a plan made when the host's close is seen is unchanged (a product decision).
 - A controller that still has its socket is never planned against on any caller (the attached set is read from `ctx.getWebSockets()` on every call); a stored plan for such a controller is dropped on restore; a stale-flagged controller whose socket closes gets a plan.
 - The local service takes a test-only `controllerGraceMs` option.
@@ -9819,6 +9819,7 @@
 - On the reviewed branch (`fbe3279` base): `npm run check` 41 files, 500 tests; the edge-service and room-service test files five times in a row with no flake. Red first for each behaviour change; the reviewer tests were mutation-checked (51 mutants in one round, 24 in another; survivors listed as equivalent).
 - After the rebase onto `fcf6049` (#128 and #129 merged): `npm run check` 44 files, 611 tests; the edge-service and room-service test files five times in a row, 97 tests each, no flake; `npm run test:e2e` 14 passed, 1 skipped.
 - Independent reviews: one round found two S2 test gaps (the restore alarm not anchored to creation time, and the re-armed plan's alarm and full grace period not pinned), both fixed; two further rounds rated it sound with S3 findings only.
+- After the Codex review of `ef18c26` (a P2: a failed restore save is never retried for a client that only pings): `npm run check` 44 files, 615 tests (four new, written red first: retried on the next ping after the 5 s delay and the withheld repair announced; not on every frame; stays pending while the save keeps failing; settled by any other save); edge-service and room-service files five times, 101 tests each, no flake. Not re-reviewed independently.
 
 ## Confirmed Successful Results
 - The behaviours above are pinned in the fake Durable Object harness and in the real local service with an injected grace.
