@@ -354,6 +354,11 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
       localIntentHoldUntil = 0
     if (message.state.lastError)
       localIntentHoldUntil = 0
+    // A room the page is in again, or still in, has nothing to do with the
+    // notice about the room that ended, which must not reappear when this one
+    // is left.
+    if (message.state.snapshot)
+      clearRoomlessNotice()
     renderPill()
     applyAuthoritativeState()
     if (!video)
@@ -372,10 +377,13 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     forceSyncToRoom(false)
   }
   else if (message.type === 'SHOW_NOTICE') {
-    if (activeState?.snapshot)
-      showNotice(message.message)
-    else
+    // Only a notice about a room that has ended is shown on a page with no
+    // room. It is shown whether or not this page has yet been told that the
+    // room is gone, so it does not depend on which of the two arrives first.
+    if (message.roomEnded === true)
       showNoticeWithoutRoom(message.message)
+    else
+      showNotice(message.message)
   }
   return false
 })
@@ -1605,6 +1613,10 @@ function renderPill(): void {
       statusElement.textContent = notice.status
     if (metaElement)
       metaElement.textContent = notice.meta
+    // The room view's last error line belongs to a room that is gone; left in
+    // place it is shown under the message that says so.
+    if (noticeElement)
+      noticeElement.textContent = ''
     return
   }
   if (!snapshot || !activeState)
@@ -1998,15 +2010,20 @@ function showNotice(message: string, sticky = false): void {
 // hidden whenever there is no snapshot. Show the pill for the notice alone,
 // then hide it again.
 function showNoticeWithoutRoom(message: string): void {
+  clearRoomlessNotice()
   roomlessNotice = message
   renderPill()
-  if (roomlessNoticeTimer)
-    clearTimeout(roomlessNoticeTimer)
   roomlessNoticeTimer = setTimeout(() => {
-    roomlessNotice = null
-    roomlessNoticeTimer = null
+    clearRoomlessNotice()
     renderPill()
   }, ROOMLESS_NOTICE_VISIBLE_MS)
+}
+
+function clearRoomlessNotice(): void {
+  if (roomlessNoticeTimer)
+    clearTimeout(roomlessNoticeTimer)
+  roomlessNoticeTimer = null
+  roomlessNotice = null
 }
 
 function createMediaFingerprint(target: HTMLVideoElement): MediaFingerprint {

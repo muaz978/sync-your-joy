@@ -171,7 +171,13 @@ export type RuntimeEvent =
   | { type: 'APPLY_ROOM_STATE'; state: ExtensionState }
   | { type: 'PAUSE_LOCAL' }
   | { type: 'FORCE_SYNC' }
-  | { type: 'SHOW_NOTICE'; message: string }
+  /**
+   * `roomEnded` marks a notice about a room that no longer exists (it expired,
+   * was gone, or the request to join it was declined), which a page shows
+   * although it has no room to show it in. Any other notice is about the room
+   * the page is in and is only shown there.
+   */
+  | { type: 'SHOW_NOTICE'; message: string; roomEnded?: true }
   | { type: 'LOCK_PLAYER' }
   | { type: 'UNLOCK_PLAYER' }
 

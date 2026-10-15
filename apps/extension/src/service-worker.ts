@@ -825,10 +825,7 @@ function handleServerMessage(raw: string): void {
       // so the pending-close handler below does not treat this as a
       // dropped connection worth auto-reconnecting back into.
       recordDiagnostic('error', 'join_denied', { code: safeDiagnosticCode(message.code) }, { reason: 'command-rejected' })
-      leaveRoom()
-      state.lastError = message.message
-      void publishState()
-      void sendToPlayerTab({ type: 'SHOW_NOTICE', message: message.message })
+      leaveRoomWithNotice(message.message)
       return
     }
     if (message.snapshot)
@@ -955,9 +952,21 @@ function sendToServer(message: ClientMessage): boolean {
  */
 function endRoomBecauseGone(message: string): void {
   recordDiagnostic('connection', 'room_gone', {})
-  // leaveRoom() unbinds the player tab, after which sendToPlayerTab() has
-  // nowhere to send to. Read the binding first so the page the participant
-  // is watching on still hears why the room ended when no side panel is open.
+  leaveRoomWithNotice(message)
+}
+
+/**
+ * Leaves the room and says why, in the side panel (through the published
+ * error) and on the page the participant is watching, which has to hear it
+ * although the side panel may be closed.
+ *
+ * leaveRoom() unbinds the player tab, after which sendToPlayerTab() has
+ * nowhere to send to, so the binding is read first. The page is detached from
+ * the room (by leaveRoom()) before it is told why. `roomEnded` marks the
+ * notice as being about a room that is gone, which is what lets the page show
+ * it without a room; an ordinary notice is only shown in a room.
+ */
+function leaveRoomWithNotice(message: string): void {
   const playerTabId = state.playerTabId
   const playerFrameId = state.playerFrameId
   const playerDocumentId = playerBinding?.documentId ?? undefined
@@ -965,7 +974,7 @@ function endRoomBecauseGone(message: string): void {
   state.lastError = message
   void publishState()
   if (playerTabId !== null && playerFrameId !== null)
-    void sendToTab(playerTabId, { type: 'SHOW_NOTICE', message }, playerFrameId, playerDocumentId)
+    void sendToTab(playerTabId, { type: 'SHOW_NOTICE', message, roomEnded: true }, playerFrameId, playerDocumentId)
 }
 
 function leaveRoom(): void {

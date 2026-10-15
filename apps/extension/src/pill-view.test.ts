@@ -74,8 +74,11 @@ describe('the on-page pill for a pending join request', () => {
   it('shows the connection, not the host, when the requester\'s own connection is down', () => {
     const reconnecting = pillView(input({ snapshot: pendingSnapshot(), connection: 'reconnecting' }))
     expect(reconnecting.status).toBe('Reconnecting')
-    expect(reconnecting.meta).toMatch(/pending/i)
+    // The coordinator withdrew the request when this socket closed, and the
+    // browser asks again when it is back: it is not pending in the meantime.
+    expect(reconnecting.meta).not.toMatch(/pending/i)
     expect(reconnecting.meta).toMatch(/not connected/i)
+    expect(reconnecting.meta).toMatch(/ask to join again/i)
     expect(reconnecting.playbackHidden).toBe(true)
     expect(reconnecting.syncDisabled).toBe(true)
 
@@ -136,17 +139,34 @@ describe('the on-page pill for a member', () => {
     expect(pillView(input({ connection: 'reconnecting' })).status).toBe('Reconnecting')
   })
 
-  it('reports seek progress and locks the playback button while the room aligns', () => {
-    const snapshot = memberSnapshot()
-    snapshot.seek = {
+  describe('while the room aligns on a seek', () => {
+    // Everyone is ready with the right media and the room is playing, so the
+    // only thing that can lock the controller's playback button is the seek.
+    const alignedRoom = (seek: RoomSnapshot['seek']) => {
+      const snapshot = memberSnapshot()
+      snapshot.participants = snapshot.participants.map(participant => ({ ...participant, ready: true, mediaMatches: true }))
+      snapshot.playback = { ...snapshot.playback, status: 'playing' }
+      snapshot.seek = seek
+      return snapshot
+    }
+    const seeking = {
       revision: 2, positionSeconds: 65, requestedByParticipantId: 'participant_host',
       acknowledgedParticipantIds: ['participant_host'], deadlineAtServerMs: 0,
     } as unknown as RoomSnapshot['seek']
-    const view = pillView(input({ snapshot, participantId: 'participant_host' }))
-    expect(view.status).toBe('Seeking 1/2')
-    expect(view.meta).toBe('Moving everyone to 1:05')
-    expect(view.playbackLabel).toBe('Aligning')
-    expect(view.playbackDisabled).toBe(true)
+
+    it('reports seek progress and locks the playback button', () => {
+      const view = pillView(input({ snapshot: alignedRoom(seeking), participantId: 'participant_host' }))
+      expect(view.status).toBe('Seeking 1/2')
+      expect(view.meta).toBe('Moving everyone to 1:05')
+      expect(view.playbackLabel).toBe('Aligning')
+      expect(view.playbackDisabled).toBe(true)
+    })
+
+    it('leaves the playback button available once there is no seek', () => {
+      const view = pillView(input({ snapshot: alignedRoom(null), participantId: 'participant_host' }))
+      expect(view.playbackLabel).toBe('Pause')
+      expect(view.playbackDisabled).toBe(false)
+    })
   })
 
   it('disables Sync for a different episode', () => {

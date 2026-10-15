@@ -1205,6 +1205,25 @@ describe('service worker while a join request is pending', () => {
       })
     }
 
+    it('opens the shared page once for a member while somebody else\'s request is waiting', async () => {
+      // Only the participant's own pending request holds the page back. A room
+      // with anybody else's request listed is still a room its members open the
+      // host's link for.
+      const { chrome: fakeChrome, socket } = await resumedWaitingWorker()
+      const approved = approvedSnapshot()
+      const withAnotherRequest: RoomSnapshot = { ...approved, pendingJoinRequests: [{ id: 'participant_other', name: 'Sam', requestedAtMs: 1 }] }
+      expect(withAnotherRequest.participants.some(participant => participant.id === 'participant_friend')).toBe(true)
+
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'join_approved', snapshot: withAnotherRequest })
+      await vi.waitFor(() => {
+        if (vi.mocked(fakeChrome.tabs.create).mock.calls.length === 0)
+          throw new Error('expected the shared page to be opened')
+      })
+      await settle()
+
+      expect(vi.mocked(fakeChrome.tabs.create).mock.calls).toEqual([[{ url: SHARED_LINK, active: true }]])
+    })
+
     it('opens the shared page once, after the request is approved, even if the room was sent earlier', async () => {
       const { chrome: fakeChrome, socket } = await resumedWaitingWorker()
       socket.simulateMessage({ type: 'room_joined', participantId: 'participant_friend', sessionToken: 'friend-session-token-000000', snapshot: leakedFullSnapshot() })
@@ -1326,32 +1345,67 @@ describe('service worker while a join request is pending', () => {
     })
   }
 
-  it('records that the server ended the room, rather than that this client closed the socket', async () => {
-    const fake = await resumedWaitingWorker()
-    await letThePastBackoffElapse(() => fake.socket.simulateClose(1000, 'room_expired'))
-
-    // The events are reported once a room is joined again.
+  // A worker reports the events it recorded once it is in a room again, so
+  // these tests join another room on the same worker and ask for the report.
+  // The socket is found by its room code: the worker may have opened others.
+  async function eventsReportedAfterJoining(fake: Awaited<ReturnType<typeof resumedWaitingWorker>>, code = 'ZZZZZZZZ') {
     vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
     const joined = new Promise<RuntimeResponse>((resolve) => {
-      fake.messageListener({ type: 'JOIN_ROOM', code: 'ZZZZZZZZ' }, {} as chrome.runtime.MessageSender, response => resolve(response as RuntimeResponse))
+      fake.messageListener({ type: 'JOIN_ROOM', code }, {} as chrome.runtime.MessageSender, response => resolve(response as RuntimeResponse))
     })
-    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
-    const next = FakeWebSocket.instances[1]!
+    const socketForRoom = () => FakeWebSocket.instances.find(candidate => new URL(candidate.url).searchParams.get('code') === code)
+    await vi.waitFor(() => expect(socketForRoom()).toBeDefined(), { timeout: 3_000 })
+    const next = socketForRoom()!
     next.simulateOpen()
     await joined
     next.simulateMessage({
       type: 'room_joined',
       participantId: 'participant_friend',
       sessionToken: 'friend-session-token-000000',
-      snapshot: buildRoomSnapshot({ code: 'ZZZZZZZZ', participants: [{ id: 'participant_friend', name: 'Rana', role: 'member', ready: false, connected: true, mediaMatches: false, latencyMs: null }] }),
+      snapshot: buildRoomSnapshot({ code, participants: [{ id: 'participant_friend', name: 'Rana', role: 'member', ready: false, connected: true, mediaMatches: false, latencyMs: null }] }),
     })
-    next.simulateMessage({ type: 'diagnostics_requested', reportId: 'report_room_ended' })
+    next.simulateMessage({ type: 'diagnostics_requested', reportId: `report_${code}` })
 
     const response = next.sentMessages.find((message): message is { type: 'diagnostics_response', report: DiagnosticsReport } =>
       (message as { type?: string }).type === 'diagnostics_response')
-    const closes = response!.report.events.filter(event => event.message === 'socket_closed')
+    return response!.report.events
+  }
+
+  it('records that the server ended the room, rather than that this client closed the socket', async () => {
+    const fake = await resumedWaitingWorker()
+    await letThePastBackoffElapse(() => fake.socket.simulateClose(1000, 'room_expired'))
+
+    const events = await eventsReportedAfterJoining(fake)
+
+    const closes = events.filter(event => event.message === 'socket_closed')
     expect(closes).toHaveLength(1)
     expect(closes[0]!.details).toMatchObject({ intentional: false, serverEndedRoom: true })
+  })
+
+  it('records that the room ended, once, when the coordinator closes the socket as expired', async () => {
+    const fake = await resumedWaitingWorker()
+    await letThePastBackoffElapse(() => fake.socket.simulateClose(1000, 'room_expired'))
+
+    const events = await eventsReportedAfterJoining(fake)
+
+    expect(events.filter(event => event.category === 'connection' && event.message === 'room_gone')).toHaveLength(1)
+    // The error path's own record belongs to an error the coordinator sent.
+    expect(events.filter(event => event.category === 'error' && event.message === 'room_gone')).toEqual([])
+  })
+
+  it('records the code the coordinator gave, and that the room ended, when it answers with an error', async () => {
+    const fake = await resumedWaitingWorker()
+    fake.socket.simulateMessage({ type: 'error', code: 'room_not_found', message: 'That room code is invalid or has expired.' })
+    await vi.waitFor(() => {
+      if (broadcasts(fake.sendMessageMock).at(-1)?.state?.snapshot !== null)
+        throw new Error('expected the room to be left')
+    })
+
+    const events = await eventsReportedAfterJoining(fake)
+
+    expect(events.filter(event => event.category === 'error' && event.message === 'room_gone').map(event => event.details))
+      .toEqual([{ code: 'room_not_found' }])
+    expect(events.filter(event => event.category === 'connection' && event.message === 'room_gone')).toHaveLength(1)
   })
 
   it('still records an ordinary dropped connection as neither intentional nor the server ending the room', async () => {
@@ -1362,10 +1416,9 @@ describe('service worker while a join request is pending', () => {
         throw new Error('expected a reconnect')
     })
     vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
-    const next = await (async () => {
-      await vi.waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(1), { timeout: 3_000 })
-      return FakeWebSocket.instances[1]!
-    })()
+    // The reconnect is the socket this worker opens after the original one.
+    await vi.waitFor(() => expect(FakeWebSocket.instances.some(candidate => candidate !== fake.socket)).toBe(true), { timeout: 3_000 })
+    const next = FakeWebSocket.instances.find(candidate => candidate !== fake.socket)!
     next.simulateOpen()
     await vi.waitFor(() => {
       if (!next.sentMessages.some(message => (message as { type?: string }).type === 'join_room'))
@@ -1379,6 +1432,28 @@ describe('service worker while a join request is pending', () => {
     const closes = response!.report.events.filter(event => event.message === 'socket_closed')
     expect(closes[0]!.details).toMatchObject({ intentional: false })
     expect(closes[0]!.details).not.toHaveProperty('serverEndedRoom')
+    expect(response!.report.events.filter(event => event.message === 'room_gone')).toEqual([])
+  })
+
+  it('leaves a first join alone when its socket is closed as expired before it is in a room', async () => {
+    // No snapshot yet: there is no room to have ended, and nothing for the
+    // page to be told about. The close is not turned into a "room expired".
+    const fake = buildFakeChrome({ sessionState: undefined })
+    vi.stubGlobal('chrome', fake.chrome)
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    await import('./service-worker.ts')
+    const joined = new Promise<RuntimeResponse>((resolve) => {
+      fake.messageListener({ type: 'JOIN_ROOM', code: 'ABCDEFGH' }, {} as chrome.runtime.MessageSender, response => resolve(response as RuntimeResponse))
+    })
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+    const socket = FakeWebSocket.instances[0]!
+    socket.simulateOpen()
+    await joined
+
+    socket.simulateClose(1000, 'room_expired')
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    expect(broadcasts(fake.sendMessageMock).map(event => event.state?.lastError ?? null).filter(Boolean)).toEqual([])
   })
 
   // vi.resetModules() abandons the worker a test loaded; it does not stop it.
@@ -1426,11 +1501,30 @@ describe('service worker while a join request is pending', () => {
       // No extension view is open to receive runtime messages.
       worker.sendMessageMock.mockRejectedValue(new Error('Could not establish connection. Receiving end does not exist.'))
       vi.mocked(worker.chrome.tabs.sendMessage).mockClear()
-      return worker
+      // What the page is sent, in order. The worker hands the page its live
+      // state object, so whether the room was already gone is read at the
+      // moment of the call, not afterwards.
+      const pageMessages: Array<{ type: string, roomWasGone: boolean | null }> = []
+      vi.mocked(worker.chrome.tabs.sendMessage).mockImplementation((async (_tabId: number, message: unknown) => {
+        const { type, state: sent } = message as { type: string, state?: { snapshot: unknown } }
+        pageMessages.push({ type, roomWasGone: type === 'APPLY_ROOM_STATE' ? sent?.snapshot === null : null })
+        return { media: { service: 'html5', canonicalId: 'html5:own-video', title: 'Own video', durationSeconds: 60 }, diagnostics: null, sample: null }
+      }) as unknown as typeof chrome.tabs.sendMessage)
+      return { ...worker, pageMessages }
+    }
+
+    // The page chooses what to show from whether it still has a room when the
+    // notice reaches it, so the notice has to come after the page was
+    // detached. A notice that arrives first is taken for an ordinary one and
+    // is hidden by the detach that follows.
+    const noticeFollowsDetach = (pageMessages: Array<{ type: string, roomWasGone: boolean | null }>) => {
+      const detached = pageMessages.findIndex(message => message.type === 'APPLY_ROOM_STATE' && message.roomWasGone === true)
+      const notice = pageMessages.findIndex(message => message.type === 'SHOW_NOTICE')
+      return detached !== -1 && notice !== -1 && detached < notice
     }
 
     it('tells the page the player is bound to why the room expired, once', async () => {
-      const { chrome: fakeChrome, socket } = await workerWithoutSidePanel()
+      const { chrome: fakeChrome, socket, pageMessages } = await workerWithoutSidePanel()
 
       socket.simulateClose(1000, 'room_expired')
 
@@ -1440,12 +1534,13 @@ describe('service worker while a join request is pending', () => {
       })
       await new Promise(resolve => setTimeout(resolve, 30))
       expect(notices(fakeChrome)).toEqual([
-        [42, { type: 'SHOW_NOTICE', message: expect.stringMatching(/has expired/i) }, { documentId: 'document_waiting' }],
+        [42, { type: 'SHOW_NOTICE', message: expect.stringMatching(/has expired/i), roomEnded: true }, { documentId: 'document_waiting' }],
       ])
+      expect(noticeFollowsDetach(pageMessages)).toBe(true)
     })
 
     it('does the same when the room is reported gone by an error', async () => {
-      const { chrome: fakeChrome, socket } = await workerWithoutSidePanel()
+      const { chrome: fakeChrome, socket, pageMessages } = await workerWithoutSidePanel()
 
       socket.simulateMessage({ type: 'error', code: 'room_not_found', message: 'That room code is invalid or has expired.' })
 
@@ -1455,8 +1550,31 @@ describe('service worker while a join request is pending', () => {
       })
       await new Promise(resolve => setTimeout(resolve, 30))
       expect(notices(fakeChrome)).toEqual([
-        [42, { type: 'SHOW_NOTICE', message: expect.stringMatching(/no longer available/i) }, { documentId: 'document_waiting' }],
+        [42, { type: 'SHOW_NOTICE', message: expect.stringMatching(/no longer available/i), roomEnded: true }, { documentId: 'document_waiting' }],
       ])
+      expect(noticeFollowsDetach(pageMessages)).toBe(true)
+    })
+
+    it('tells the page the player is bound to that the host declined the request, once', async () => {
+      const { chrome: fakeChrome, socket, pageMessages } = await workerWithoutSidePanel()
+
+      socket.simulateMessage({
+        type: 'command_rejected',
+        actionId: 'action_join',
+        code: 'join_denied',
+        message: 'The host declined to let you join this room.',
+        snapshot: null,
+      })
+
+      await vi.waitFor(() => {
+        if (!pageDetached(fakeChrome))
+          throw new Error('expected the page to be detached from the room')
+      })
+      await new Promise(resolve => setTimeout(resolve, 30))
+      expect(notices(fakeChrome)).toEqual([
+        [42, { type: 'SHOW_NOTICE', message: 'The host declined to let you join this room.', roomEnded: true }, { documentId: 'document_waiting' }],
+      ])
+      expect(noticeFollowsDetach(pageMessages)).toBe(true)
     })
 
     it('still ends the room and records why when no player tab is bound', async () => {

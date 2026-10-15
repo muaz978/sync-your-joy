@@ -37,16 +37,18 @@ export const AWAITING_APPROVAL_PILL = {
 
 /**
  * The pill copy for a pending request on the given connection. "Waiting for
- * the host" is only true while the request actually reached the coordinator;
- * when this client's own connection is down the service worker keeps the
- * pending snapshot and reports `reconnecting`, and blaming the host then would
- * be wrong. The status is the one a member sees for the same connection state.
+ * the host" is only true while the request actually reached the coordinator.
+ * When this client's own connection is down the coordinator has withdrawn the
+ * request (it does so when the socket closes) and the browser asks again when
+ * the connection is back, so the request is not pending in the meantime and
+ * the host is not the one being waited for. The status is the one a member
+ * sees for the same connection state.
  */
 export function pendingPillCopy(connection: ExtensionState['connection']): { status: string, detail: string } {
   if (connection === 'connected')
     return AWAITING_APPROVAL_PILL
   return {
     status: connection === 'reconnecting' ? 'Reconnecting' : playbackStatusCopy('unknown', false).label,
-    detail: 'Your request to join is pending, but this browser is not connected to the room right now. Nothing on this page changes.',
+    detail: 'This browser is not connected to the room right now. It will ask to join again when the connection is back.',
   }
 }

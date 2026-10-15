@@ -72,14 +72,19 @@ describe('the pending pill copy for a connection state', () => {
       expect(pendingPillCopy(connection).status).not.toMatch(/waiting for the host/i)
   })
 
-  it('still says the request is pending, and that nothing on the page changes, without member wording', () => {
-    for (const connection of ['connected', 'reconnecting', 'disconnected'] as const) {
+  it('says the request is pending, and that nothing on the page changes, while the connection is up, without member wording', () => {
+    const copy = pendingPillCopy('connected')
+    expect(copy.detail).toMatch(/pending/i)
+    expect(copy.detail).toMatch(/nothing on this page changes/i)
+    expect(`${copy.status} ${copy.detail}`).not.toMatch(/member|connected\.|episode/i)
+  })
+
+  it('does not call the request pending while this browser is not connected: the coordinator withdraws it then', () => {
+    for (const connection of ['reconnecting', 'disconnected'] as const) {
       const copy = pendingPillCopy(connection)
-      expect(copy.detail).toMatch(/pending/i)
-      expect(copy.detail).toMatch(/nothing on this page changes/i)
-      expect(`${copy.status} ${copy.detail}`).not.toMatch(/member|connected\.|episode/i)
+      expect(copy.detail).toBe('This browser is not connected to the room right now. It will ask to join again when the connection is back.')
+      expect(copy.detail).not.toMatch(/pending/i)
+      expect(`${copy.status} ${copy.detail}`).not.toMatch(/member|episode|waiting for the host/i)
     }
-    expect(pendingPillCopy('reconnecting').detail).toMatch(/not connected/i)
-    expect(pendingPillCopy('connected').detail).not.toMatch(/not connected/i)
   })
 })
