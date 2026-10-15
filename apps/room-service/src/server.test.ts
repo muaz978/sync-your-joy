@@ -932,9 +932,11 @@ describe('empty room expiry with unapproved requests', () => {
     await settle()
 
     const closed = new Promise<{ code: number, reason: string }>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('The waiting request was left connected to an expired room.')), 3_000)
+      const timeout = AbortSignal.timeout(3_000)
+      const onAbort = () => reject(new Error('The waiting request was left connected to an expired room.'))
+      timeout.addEventListener('abort', onAbort, { once: true })
       waiting.once('close', (code, reason) => {
-        clearTimeout(timer)
+        timeout.removeEventListener('abort', onAbort)
         resolve({ code, reason: reason.toString() })
       })
     })
