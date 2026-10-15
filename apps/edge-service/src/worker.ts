@@ -149,13 +149,16 @@ export class RoomDurableObject extends DurableObject<Env> {
         // same way. Serving the restored state as it is (what this code did
         // before it existed) is better than a room that can no longer be
         // reached.
-        let reason: string | null = null
+        // What was repaired is recorded as it happens, so a step that throws
+        // afterwards cannot leave a repair that is saved and never announced.
+        const repair: { reason: string | null } = { reason: null }
         try {
-          reason = this.healRestoredState()
+          this.healRestoredState(repair)
         }
         catch (error) {
           console.error('Restoring room state could not be reconciled with its sockets.', error instanceof Error ? error.name : 'unknown error')
         }
+        const reason = repair.reason
         // Every restore re-derives the alarm, not only one that repaired
         // something: the alarm that is set belongs to whichever code last wrote
         // the room and can lack a deadline this code has (the lifetime limit)
@@ -200,10 +203,10 @@ export class RoomDurableObject extends DurableObject<Env> {
    * membership changed (a request withdrawn or a member marked disconnected),
    * and null when it did not.
    */
-  private healRestoredState(): string | null {
+  private healRestoredState(repair: { reason: string | null }): void {
     const coordinator = this.coordinator
     if (!coordinator)
-      return null
+      return
 
     const attached = this.attachedParticipantIds()
 
@@ -214,21 +217,20 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (this.pendingController && attached.has(this.pendingController.participantId))
       this.pendingController = null
 
-    let reason: string | null = null
     const snapshot = coordinator.snapshot()
     for (const request of snapshot.pendingJoinRequests) {
       if (attached.has(request.id))
         continue
       const withdrawn = coordinator.cancelPendingJoin(request.id)
       if (withdrawn?.ok)
-        reason = withdrawn.reason
+        repair.reason = withdrawn.reason
     }
     for (const participant of snapshot.participants) {
       if (!participant.connected || attached.has(participant.id))
         continue
       const disconnected = coordinator.disconnect(participant.id)
       if (disconnected?.ok) {
-        reason = disconnected.reason
+        repair.reason = disconnected.reason
         if (coordinator.snapshot().controller.participantId === participant.id) {
           this.pendingController = {
             participantId: participant.id,
@@ -241,7 +243,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // controller gone, a member attached and no recovery pending (a lapsed
     // plan, saved by code that did not re-arm it) would otherwise leave the
     // absent controller in control until a member joined.
-    this.armControllerRecovery()
+    this.armControllerRecovery(attached)
 
     const clock = reconcileEmptyClock({
       emptySinceMs: this.emptySinceMs,
@@ -249,7 +251,6 @@ export class RoomDurableObject extends DurableObject<Env> {
       nowMs: Date.now(),
     })
     this.emptySinceMs = clock
-    return reason
   }
 
   /**
@@ -261,7 +262,7 @@ export class RoomDurableObject extends DurableObject<Env> {
    * otherwise a host that is no longer there would keep control of the room
    * for as long as the members stay.
    */
-  private armControllerRecovery(): void {
+  private armControllerRecovery(attachedNow?: Set<string>): void {
     const coordinator = this.coordinator
     if (!coordinator || this.pendingController)
       return
@@ -274,7 +275,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // flag says (a join whose write was lost): handing its control away would
     // take it from a host that is there. Asked on every call, so a member that
     // returns is held to it as well as a restore.
-    if (this.attachedParticipantIds().has(controller.id))
+    if ((attachedNow ?? this.attachedParticipantIds()).has(controller.id))
       return
 
     this.pendingController = {
@@ -378,15 +379,16 @@ export class RoomDurableObject extends DurableObject<Env> {
     const pending = this.unsavedRestore
     if (!pending)
       return
+    if (pending.reason && this.coordinator) {
+      try {
+        this.broadcast({ type: 'room_snapshot', reason: pending.reason, snapshot: this.coordinator.snapshot() })
+      }
+      catch {
+        // Kept, so the next save announces it.
+        return
+      }
+    }
     this.unsavedRestore = null
-    if (!pending.reason || !this.coordinator)
-      return
-    try {
-      this.broadcast({ type: 'room_snapshot', reason: pending.reason, snapshot: this.coordinator.snapshot() })
-    }
-    catch {
-      // A socket that cannot be read is skipped by the next broadcast too.
-    }
   }
 
   async webSocketMessage(socket: WebSocket, rawMessage: string | ArrayBuffer): Promise<void> {
@@ -861,7 +863,15 @@ export class RoomDurableObject extends DurableObject<Env> {
       // joined at all (participantId null) or whose join request is still
       // pending must learn nothing about the room: the controller's
       // approval is the only thing that grants access to its state.
-      const attachment = socket.deserializeAttachment() as SocketAttachment | null
+      let attachment: SocketAttachment | null
+      try {
+        attachment = socket.deserializeAttachment() as SocketAttachment | null
+      }
+      catch {
+        // One socket whose attachment cannot be read is skipped; the others
+        // still hear it.
+        continue
+      }
       if (!attachment?.participantId || !this.coordinator?.hasParticipant(attachment.participantId))
         continue
       this.send(socket, message)
