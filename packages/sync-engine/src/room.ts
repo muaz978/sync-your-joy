@@ -30,6 +30,14 @@ import { isSettledPausedSeek } from './operation-state.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
+/**
+ * Value pendingSnapshot() puts in every field that would otherwise reveal room
+ * state. It contains a colon, which the participant-id grammar
+ * (`[a-zA-Z0-9_-]`) cannot produce, and it is not a media service, so it can
+ * never equal a real participant id or match a real fingerprint.
+ */
+const PENDING_PLACEHOLDER = 'pending:approval'
+
 export interface InternalParticipant extends ParticipantState {
   joinedAtMs: number
   /** Random capability used only to resume this participant session. */
@@ -397,7 +405,19 @@ export class RoomCoordinator {
    * the clients already parse, so deployed extensions still show their
    * waiting view, but it carries nothing about the room: no media, shared
    * link, playback, seek, participants, other requests or transaction
-   * contract. The requester's own pending entry is the signal clients use.
+   * contract, and no room-derived counters or times (revision, lease epoch,
+   * the time of the last play, pause or seek). The requester's own pending
+   * entry is the signal clients use.
+   *
+   * The placeholder must also be inert for a player. Deployed content
+   * scripts apply any snapshot whose media they cannot disprove to the page's
+   * video: a snapshot with `media: null` that is paused at 0 pauses and
+   * rewinds whatever the requester is watching. `media` therefore carries a
+   * fingerprint that matches no real media, which makes those scripts stop
+   * at their episode-mismatch guard and leave the video alone. Nothing else
+   * reads this media while a request is pending: the waiting view does not
+   * render it and the requester is not a participant, so no readiness or
+   * controller logic runs on it.
    */
   pendingSnapshot(participantId: string): RoomSnapshot {
     const full = this.snapshot()
@@ -405,13 +425,13 @@ export class RoomCoordinator {
     return {
       roomId: full.roomId,
       code: full.code,
-      revision: full.revision,
-      controller: full.controller,
-      media: null,
+      revision: 0,
+      controller: { participantId: PENDING_PLACEHOLDER, leaseEpoch: 0 },
+      media: { service: PENDING_PLACEHOLDER, canonicalId: `${PENDING_PLACEHOLDER}:none`, title: 'Waiting for approval', durationSeconds: null },
       playback: {
         status: 'paused',
         positionSeconds: 0,
-        effectiveAtServerMs: full.playback.effectiveAtServerMs,
+        effectiveAtServerMs: 0,
         playbackRate: 1,
       },
       seek: null,

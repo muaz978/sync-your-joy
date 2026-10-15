@@ -243,7 +243,12 @@ export async function createRoomService(options: { port?: number; host?: string;
       const withdrawn = room.coordinator.cancelPendingJoin(client.participantId)
       if (withdrawn?.ok) {
         broadcast(room, { type: 'room_snapshot', reason: withdrawn.reason, snapshot: withdrawn.snapshot })
-        if (!room.coordinator.hasConnectedParticipants())
+        // The empty-room clock starts once, when the last member leaves. A
+        // withdrawn request is not a member, so it must not restart the
+        // clock: anyone who knows the code could otherwise keep an empty room
+        // alive indefinitely by opening and closing requests less than the
+        // TTL apart.
+        if (room.emptySinceMs === null && !room.coordinator.hasConnectedParticipants())
           room.emptySinceMs = Date.now()
         return
       }
@@ -266,7 +271,7 @@ export async function createRoomService(options: { port?: number; host?: string;
         }, CONTROLLER_GRACE_MS))
       }
 
-      if (!room.coordinator.hasConnectedParticipants())
+      if (room.emptySinceMs === null && !room.coordinator.hasConnectedParticipants())
         room.emptySinceMs = Date.now()
     })
   })
@@ -545,6 +550,11 @@ export async function createRoomService(options: { port?: number; host?: string;
       if (deadlineResult?.ok)
         broadcast(room, { type: 'room_snapshot', reason: deadlineResult.reason, snapshot: deadlineResult.snapshot })
       if (room.emptySinceMs !== null && nowMs - room.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
+        // A request still waiting in an empty room no longer holds the room
+        // open, so tell it the room is gone. Without this its waiting view
+        // stays up for a room that no longer exists.
+        for (const socket of room.sockets)
+          socket.close(1000, 'room_expired')
         rooms.delete(code)
         releaseRoomIpSlot(room.creatorIp)
       }

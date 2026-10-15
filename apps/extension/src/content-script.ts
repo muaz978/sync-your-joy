@@ -12,6 +12,7 @@ import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-a
 import { localPlaybackStatus, playbackStatusCopy } from './playback-status.ts'
 import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
+import { isAwaitingApproval } from './room-membership.ts'
 import { discoverOpenShadowRoots, discoverVideoElements } from './video-discovery.ts'
 
 declare const __SYNCYOURJOY_TEST_MODE__: boolean
@@ -996,6 +997,16 @@ function applyAuthoritativeState(): void {
   const snapshot = activeState?.snapshot
   if (!activeState || !snapshot)
     return
+
+  // An unapproved join request is not a room member. Whatever snapshot it
+  // holds -- the redacted placeholder of a current coordinator, or the full
+  // room state an older coordinator still sends -- must never pause, seek or
+  // start the video the requester is watching.
+  if (isAwaitingApproval(activeState)) {
+    clearScheduledPlay()
+    invalidatePlayRequest()
+    return
+  }
 
   const transactionalOperation = currentTransactionalOperation()
   if (transactionalOperation && applyTransactionalOperation(transactionalOperation))

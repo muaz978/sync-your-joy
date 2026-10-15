@@ -209,7 +209,12 @@ export class RoomDurableObject extends DurableObject<Env> {
     // has no socket. Withdraw the request instead of disconnecting.
     const withdrawn = this.coordinator.cancelPendingJoin(attachment.participantId)
     if (withdrawn?.ok) {
-      if (!this.coordinator.hasConnectedParticipants())
+      // The empty-room clock starts once, when the last member leaves. A
+      // withdrawn request is not a member, so it must not restart the clock:
+      // anyone who knows the code could otherwise keep an empty room (and its
+      // storage and alarm) alive by opening and closing requests less than
+      // the TTL apart.
+      if (this.emptySinceMs === null && !this.coordinator.hasConnectedParticipants())
         this.emptySinceMs = Date.now()
       await this.persistAndObserve(() => {
         this.broadcast({ type: 'room_snapshot', reason: withdrawn.reason, snapshot: withdrawn.snapshot })
@@ -227,7 +232,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         recoverAtMs: Date.now() + CONTROLLER_GRACE_MS,
       }
     }
-    if (!this.coordinator.hasConnectedParticipants())
+    if (this.emptySinceMs === null && !this.coordinator.hasConnectedParticipants())
       this.emptySinceMs = Date.now()
 
     await this.persistAndObserve(() => {
@@ -256,6 +261,12 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     if (this.emptySinceMs !== null && nowMs - this.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
+      // A request still waiting in an empty room no longer holds the room
+      // open, so tell it the room is gone, as the lifetime branch above does.
+      // Without this its waiting view stays up for a room that no longer
+      // exists.
+      for (const socket of this.ctx.getWebSockets())
+        socket.close(1000, 'room_expired')
       await this.ctx.storage.deleteAll()
       this.coordinator = null
       this.pendingController = null

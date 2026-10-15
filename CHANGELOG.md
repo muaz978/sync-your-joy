@@ -4,16 +4,18 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
-These are coordinator-side changes: they take effect when the room coordinator is redeployed, and no extension update is needed. They close gaps found while reviewing the host-approval join (tracking issue #119).
+These changes take effect when the room coordinator is redeployed, and deployed extensions need no update: the coordinator now answers an unapproved request with a placeholder that already-installed content scripts leave alone. The extension itself also stops driving a page's video for a pending request, which ships with the next extension release as a second line of defence. They close gaps found while reviewing the host-approval join (tracking issue #119).
 
 ### Security
 
-- A client whose join request has not been approved no longer receives any room state. Before, it received the full snapshot (shared link, playback state, participant names, transaction contract) and every later broadcast, and the extension acted on it, for example by opening the shared page. It now receives a snapshot that carries only its own pending entry and is excluded from broadcasts until the controller approves it.
+- A client whose join request has not been approved no longer receives any room state. Before, it received the full snapshot (shared link, playback state, participant names, transaction contract) and every later broadcast, and the extension acted on it, for example by opening the shared page. It now receives a snapshot that carries only its own pending entry and is excluded from broadcasts until the controller approves it. That snapshot is also inert for a player: it carries a fingerprint that matches no real media, no revision, controller identity or playback time, so an installed extension no longer pauses and rewinds the video a requester is watching while it waits.
 - On the edge coordinator, a connection that never sent a join request no longer receives room broadcasts. Before, it could listen to a room for as long as it stayed connected.
 - A pending join request is bound to the session issued for it. Sending the same participant id again without that session is refused instead of replacing the request and its approval.
 - A pending join request is withdrawn when its connection closes, so it can no longer be approved into a member that has no connection and blocks the room.
 - A rejected command or rejected join no longer carries the room snapshot to a client that is not a member. Before, a wrong session token or a full room handed the sender the whole room state inside the rejection.
-- An unapproved request no longer cancels the edge coordinator's empty-room expiry.
+- An unapproved request no longer cancels the empty-room expiry on either coordinator, and a request that is withdrawn no longer restarts it. Before, anyone who only knew a room code could keep an empty room alive by opening and closing requests less than thirty minutes apart.
+- A request that is still waiting when an empty room expires is now closed with `room_expired` instead of being left connected to a room that no longer exists.
+- The extension's content script no longer pauses, seeks or starts the page's video while the participant's own join request is pending, whatever snapshot an older coordinator sends it.
 
 ## [0.2.6] - 2026-09-29
 

@@ -1,6 +1,7 @@
 import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import type { MediaFingerprint } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, RuntimeEvent, RuntimeRequest } from './internal.ts'
+import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Exercise the actual content-script listeners and timers. The fake media
@@ -1162,5 +1163,71 @@ describe('autoplay permission rejection (#68)', () => {
     let context: unknown
     listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, response => { context = response })
     expect(context).toMatchObject({ sample: { playbackStartFailed: false } })
+  })
+})
+
+describe('an unapproved join request', () => {
+  const localEpisode: MediaFingerprint = {
+    service: 'crunchyroll', canonicalId: 'crunchyroll:GE00365016JAJP', title: 'Episode', durationSeconds: 1420,
+  }
+  const otherEpisode: MediaFingerprint = {
+    service: 'crunchyroll', canonicalId: 'crunchyroll:GEOTHER000000', title: 'Different', durationSeconds: 1420,
+  }
+
+  function roomWithPendingFriend(hostMedia: MediaFingerprint): RoomCoordinator {
+    const room = new RoomCoordinator({ roomId: 'room_123456', code: 'ABCDEFGH' }, { id: 'participant_host', name: 'Muaz', media: hostMedia }, () => Date.now())
+    room.join({ id: 'participant_friend', name: 'Rana', media: localEpisode, sessionToken: 'friend-session-token-000000' })
+    return room
+  }
+
+  function applyAsFriend(snapshot: NonNullable<ExtensionState['snapshot']>): void {
+    state = { ...structuredClone(state), participantId: 'participant_friend', snapshot }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+  }
+
+  function watchingAt(seconds: number): void {
+    video.paused = false
+    video.position = seconds
+  }
+
+  // The coordinator answers a request with a placeholder that is paused at 0.
+  // A page whose script treated that as the room's playback would pause and
+  // rewind whatever the requester is watching before anyone has let them in.
+  for (const [label, hostMedia] of [['a different video', otherEpisode], ['the same video', localEpisode]] as const) {
+    it(`leaves the video alone when the placeholder arrives while the room is on ${label}`, () => {
+      watchingAt(600)
+
+      applyAsFriend(roomWithPendingFriend(hostMedia).pendingSnapshot('participant_friend'))
+
+      expect(video.pause).not.toHaveBeenCalled()
+      expect(video.play).not.toHaveBeenCalled()
+      expect(video.writes).toEqual([])
+      expect(video.position).toBe(600)
+      expect(video.paused).toBe(false)
+    })
+  }
+
+  it('ignores the full room state an older coordinator still sends to a pending requester', () => {
+    const full = roomWithPendingFriend(localEpisode).snapshot()
+    expect(full.participants.some(participant => participant.id === 'participant_friend')).toBe(false)
+    expect(full.pendingJoinRequests.map(request => request.id)).toContain('participant_friend')
+    watchingAt(600)
+
+    applyAsFriend(full)
+
+    expect(video.pause).not.toHaveBeenCalled()
+    expect(video.writes).toEqual([])
+    expect(video.position).toBe(600)
+  })
+
+  it('drives the video again once the request is approved', () => {
+    const room = roomWithPendingFriend(localEpisode)
+    room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_friend', true)
+    watchingAt(600)
+
+    applyAsFriend(room.snapshot())
+
+    expect(video.pause).toHaveBeenCalled()
+    expect(video.writes).toEqual([0])
   })
 })

@@ -1,6 +1,6 @@
 import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import type { ServerMessage } from '@syncyourjoy/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { createRoomService, type RoomService } from './server.ts'
 
@@ -640,13 +640,16 @@ describe('unapproved join requests receive nothing', () => {
   it('gives a pending requester a snapshot that carries nothing about the room', async () => {
     const { host, friend, joined } = await roomWithPendingFriend()
     expect(joined.snapshot).toMatchObject({
-      media: null,
       navigation: null,
       seek: null,
       participants: [],
       playback: { status: 'paused', positionSeconds: 0 },
       pendingJoinRequests: [expect.objectContaining({ id: 'participant_friend', name: 'Rana' })],
     })
+    // A fingerprint that matches no real media, never the room's own and
+    // never null, so a deployed player stays inert while the request waits.
+    expect(joined.snapshot.media).not.toBeNull()
+    expect(joined.snapshot.media?.canonicalId).not.toBe(hostMedia.canonicalId)
     expect(joined.snapshot.contract).toBeUndefined()
     expect(JSON.stringify(joined)).not.toContain('private title')
     expect(JSON.stringify(joined)).not.toContain('Muaz')
@@ -738,6 +741,67 @@ describe('unapproved join requests receive nothing', () => {
     friend.close()
   })
 
+  it('does not hand room state to a stranger who is turned away because the room is full', async () => {
+    const { host, friend, code } = await roomWithPendingFriend()
+    const fillers: WebSocket[] = []
+    // The host and the first request take two of the ten places; eight more
+    // pending requests fill the room, because pending requests count.
+    for (let index = 0; index < 8; index += 1) {
+      const socket = await connect(service!.url)
+      const accepted = nextMessage(socket)
+      socket.send(JSON.stringify({
+        type: 'join_room', protocolVersion: 1, participantId: `participant_filler_${index}`, name: `Filler ${index}`, code, media: null,
+      }))
+      await expect(accepted).resolves.toMatchObject({ type: 'room_joined' })
+      fillers.push(socket)
+    }
+
+    const stranger = await connect(service!.url)
+    const rejection = nextMessage(stranger)
+    stranger.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_stranger', name: 'Stranger', code, media: null,
+    }))
+    const rejected = await rejection
+
+    expect(rejected).toMatchObject({ type: 'command_rejected', code: 'room_full', snapshot: null })
+    expect(JSON.stringify(rejected)).not.toContain('private title')
+    for (const socket of [host, friend, stranger, ...fillers])
+      socket.close()
+  })
+
+  it('refuses an approval sent by a pending requester without handing it room state', async () => {
+    const { host, friend } = await roomWithPendingFriend()
+    const rejection = nextMessage(friend)
+    friend.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_friend', approve: true, actionId: 'action_forged', basedOnRevision: 0, leaseEpoch: 1,
+    }))
+
+    const rejected = await rejection
+    expect(rejected).toMatchObject({ type: 'command_rejected', actionId: 'action_forged', code: 'controller_only', snapshot: null })
+    expect(JSON.stringify(rejected)).not.toContain('private title')
+
+    // The forged approval changed nothing: the host can still decide.
+    const friendApproved = nextMessage(friend)
+    approve(host)
+    await expect(friendApproved).resolves.toMatchObject({ type: 'room_snapshot', reason: 'join_approved' })
+    host.close()
+    friend.close()
+  })
+
+  it('tells only the denied requester it was denied, without any room state', async () => {
+    const { host, friend } = await roomWithPendingFriend()
+    const denied = nextMessage(friend)
+    host.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_friend', approve: false, actionId: 'action_deny_friend', basedOnRevision: 0, leaseEpoch: 1,
+    }))
+
+    const message = await denied
+    expect(message).toMatchObject({ type: 'command_rejected', code: 'join_denied', snapshot: null })
+    expect(JSON.stringify(message)).not.toContain('private title')
+    host.close()
+    friend.close()
+  })
+
   it('starts delivering the full room state once the request is approved', async () => {
     const { host, friend } = await roomWithPendingFriend()
     const approved = nextMessage(friend)
@@ -798,6 +862,87 @@ async function joinAndApprove(
   }))
   await Promise.all([hostApproved, friendApproved])
 }
+
+describe('empty room expiry with unapproved requests', () => {
+  const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
+  const startMs = 1_900_000_000_000
+  const hostMedia = { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A private title', durationSeconds: 600 }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Only Date is faked: the sockets and the service's own 100 ms cleanup
+  // interval keep running on real timers and simply observe the moved clock.
+  const settle = (ms = 60) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+  async function emptiedRoom() {
+    vi.useFakeTimers({ toFake: ['Date'], now: startMs })
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'EXPR1234', media: hostMedia,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    // The service assigns the room code; the one a client proposes is only a
+    // hint, so every later join must use the code it was given.
+    return { host, code: created.snapshot.code }
+  }
+
+  async function request(code: string, participantId: string): Promise<WebSocket> {
+    const socket = await connect(service!.url)
+    socket.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId, name: 'Rana', code, media: null,
+    }))
+    const joined = await nextMessage(socket)
+    if (joined.type !== 'room_joined')
+      throw new Error(`Expected the request to be accepted as pending, got ${joined.type}`)
+    return socket
+  }
+
+  it('does not let a withdrawn request restart the clock of an empty room', async () => {
+    const { host, code } = await emptiedRoom()
+    host.close()
+    await settle()
+
+    // 29 minutes into the 30 minute window a stranger who only knows the
+    // code opens a request and walks away again.
+    vi.setSystemTime(startMs + 29 * 60_000)
+    const stranger = await request(code, 'participant_stranger')
+    stranger.close()
+    await settle()
+
+    vi.setSystemTime(startMs + EMPTY_ROOM_TTL_MS + 60_000)
+    await settle(300)
+
+    const probe = await connect(service!.url)
+    probe.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_probe', name: 'Probe', code, media: null,
+    }))
+    await expect(nextMessage(probe)).resolves.toMatchObject({ type: 'error', code: 'room_not_found' })
+    probe.close()
+  })
+
+  it('tells a request that is still waiting when the empty room expires', async () => {
+    const { host, code } = await emptiedRoom()
+    const waiting = await request(code, 'participant_waiting')
+    host.close()
+    await settle()
+
+    const closed = new Promise<{ code: number, reason: string }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('The waiting request was left connected to an expired room.')), 3_000)
+      waiting.once('close', (code, reason) => {
+        clearTimeout(timer)
+        resolve({ code, reason: reason.toString() })
+      })
+    })
+    vi.setSystemTime(startMs + EMPTY_ROOM_TTL_MS + 60_000)
+
+    await expect(closed).resolves.toEqual({ code: 1000, reason: 'room_expired' })
+  })
+})
 
 async function connect(url: string): Promise<WebSocket> {
   // A real browser (including the extension) always sends Origin on a
