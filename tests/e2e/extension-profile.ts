@@ -311,6 +311,11 @@ async function openPanelWindow(
     predicate: page => page.url() === panelUrl,
     timeout: 20_000,
   })
+  // If creating the window fails, the launch fails with that error and the
+  // context is closed, which rejects this wait as well with nothing listening
+  // (an unhandled rejection that hides the real error). Only the first one is
+  // reported; the wait is still awaited below on the success path.
+  opened.catch(() => undefined)
   await serviceWorker.evaluate(async (url) => {
     await chrome.windows.create({ url, type: 'popup', focused: false })
   }, panelUrl)

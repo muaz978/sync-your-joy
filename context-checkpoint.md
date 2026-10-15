@@ -9751,7 +9751,7 @@
 
 ### Findings
 - On Linux Chromium (headless new, Node 22) `two-profile-sync.spec.ts` and `three-profile-browser-matrix.spec.ts` timed out at `page.click('#ready-button')` on the side panel, with Playwright logging "element was detached from the DOM / not stable" about sixty times. The same failure occurs at release commit `b1c05f8`, so it is not a regression.
-- Cause, measured: the harness opened the side panel as an ordinary tab that ends up behind the video tab; Linux Chromium paints a background tab only two to three times a second (macOS: 60 Hz), the panel rewrites its DOM on every room-state heartbeat, and Playwright's two-consecutive-frame stability check never passes. Because the click timed out, the sync tolerance, seek and matrix assertions never ran on Linux.
+- Cause, measured: the harness opened the side panel as an ordinary tab that ends up behind the video tab; Linux Chromium paints a background tab only two to three times a second (macOS: not throttled), the panel rewrites its DOM on every room-state heartbeat, and Playwright's two-consecutive-frame stability check never passes. Because the click timed out, the sync tolerance, seek and matrix assertions never ran on Linux.
 - Rejected: `bringToFront()` before each panel action makes the clicks pass but hides the video tab; the room then cancels the playback operation (`manual-recovery`) and the specs fail for a reason that is not a sync defect. The player binding also accepts a new player only from the active tab.
 
 ### Fix
@@ -9759,13 +9759,14 @@
 - `tests/e2e/two-profile-sync.spec.ts` (comments), `docs/TEST_GUIDE.md`, `CHANGELOG.md` (one *(local test runs)* entry).
 
 ### Verification
-- Linux, Docker image `node:22` (Colima VM, arm64 native and amd64 under Rosetta; source copied into the container, Chromium 153 installed by Playwright, install scripts run): `npm run check` 44 files, 532 tests; `CI=true npm run test:e2e` 14 passed, 1 skipped (the authenticated provider run) on both architectures; the previously blocked assertions ran (sustained window `samples=59 maxDrift=0.003`, frames equal across three profiles). Headed under Xvfb passed too. Taken on the commit before the rebase; the rebased commit differs only in changelog context.
+- Linux, Docker image `node:22` (Colima VM, arm64 native and amd64 under Rosetta; source copied into the container, Chromium 153 installed by Playwright, install scripts run): `npm run check` 44 files, 532 tests; `CI=true npm run test:e2e` 14 passed, 1 skipped (the authenticated provider run) on both architectures; the previously blocked assertions ran (sustained window `samples=59 maxDrift=0.003`, frames equal across three profiles). Headed under Xvfb passed too. These Linux runs were taken in one VM by the author, on the commit before the rebase and before the review commits of #128 landed (532 tests, and the older form of `pending-approval.spec.ts`); only macOS has run the head, so the final `pending-approval.spec.ts` has not run on Linux.
 - macOS after the rebase: `npm run check` 44 files, 578 tests; `npm run test:e2e` 14 passed, 1 skipped (load average about 9).
 
 ## Confirmed Successful Results
 - The two multi-profile specs run end to end on Linux. Their sync, seek and matrix assertions pass there.
 
 ## Failed, Incomplete, or Unresolved Work
+- The Linux numbers (about 2 to 3 Hz for a background tab, the rejected `bringToFront` experiment) were measured by the author in one Docker VM and have no log or artifact in the repository.
 - One of sixteen Linux matrix runs failed "A player paused during the sustained window": a short real media stall in a six-vCPU VM running three software-decoding Chromium instances, answered by the designed stall recovery (`manual-recovery`). It did not reproduce in eight isolated repeats or on macOS. Whether this is the environment or a product sensitivity is not established.
 - `crunchyroll-two-profile.spec.ts` has the same panel-click pattern and runs on `ubuntu-latest` in `e2e-crunchyroll.yml`; the helper change covers it but it needs secrets and was not run. `ci.yml` does not run `test:e2e`, so none of this is exercised by CI. A headed macOS run was not done. The Colima profile used for the Linux runs was deleted afterwards.
 
@@ -9776,7 +9777,7 @@
 - `tests/e2e/extension-profile.ts`, `tests/e2e/two-profile-sync.spec.ts`, `docs/TEST_GUIDE.md`, `CHANGELOG.md`.
 
 ## Assumptions and Uncertainties
-- The popup window is excluded from tab-strip placement, so `chrome.tabs.create` still opens the shared video in the profile's main window (observed in every run); this relies on current Chromium behaviour.
+- The popup window is excluded from tab-strip placement, so `chrome.tabs.create` still opens the shared video in the profile's main window (observed in every run); this relies on current Chromium behaviour and is not asserted by the helper (a layout assertion at launch was considered and not added, because it could not be tried on Linux).
 
 ## Open Questions, Blockers, and Dependencies
 - Nothing blocks merging; the Linux flake above is evidence to watch, not a gate.
