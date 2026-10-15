@@ -4,7 +4,7 @@ import type { ClientMessage, ServerMessage } from '@syncyourjoy/protocol'
 import type { RoomCoordinatorState, RoomResult } from '@syncyourjoy/sync-engine'
 import { DurableObject } from 'cloudflare:workers'
 import { isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
-import { RoomCoordinator } from '@syncyourjoy/sync-engine'
+import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator } from '@syncyourjoy/sync-engine'
 import { applyEarliestDueDeadline, persistRoomAndSchedule, persistThenObserve } from './alarm.ts'
 
 const MAX_MESSAGE_BYTES = 16_384
@@ -57,6 +57,14 @@ interface StoredRoom {
   } | null
   emptySinceMs: number | null
   createdAtMs: number
+}
+
+// What restoring a room changed. `reason` is set only when membership changed
+// (a request withdrawn or a member marked disconnected), which is what the
+// members that are still attached need to be told.
+interface HealOutcome {
+  changed: boolean
+  reason: string | null
 }
 
 export default {
@@ -123,8 +131,112 @@ export class RoomDurableObject extends DurableObject<Env> {
         this.pendingController = stored.pendingController
         this.emptySinceMs = stored.emptySinceMs
         this.createdAtMs = stored.createdAtMs ?? Date.now()
+
+        // Reconciling is a repair, never a precondition: if it throws, this
+        // constructor would throw with it, the object would be reset and every
+        // later request for the room would fail the same way. Serving the
+        // restored state as it is (what this code did before it existed) is
+        // better than a room that can no longer be reached.
+        let healed: HealOutcome = { changed: false, reason: null }
+        try {
+          healed = this.healRestoredState()
+        }
+        catch (error) {
+          console.error('Restoring room state could not be reconciled with its sockets.', error instanceof Error ? error.name : 'unknown error')
+        }
+        if (healed.changed) {
+          await this.persistAndSchedule()
+          // A member that kept its socket across the restart still holds the
+          // picture from before it: it would keep showing a participant as
+          // connected, or a request as waiting, until some unrelated message.
+          if (healed.reason && this.coordinator)
+            this.broadcast({ type: 'room_snapshot', reason: healed.reason, snapshot: this.coordinator.snapshot() })
+        }
       }
     })
+  }
+
+  /**
+   * Brings stored state back in line with the sockets that are actually
+   * attached after this object was rebuilt (a restart, an eviction, a code
+   * update). A socket closing normally withdraws its pending request and marks
+   * its member disconnected; if the previous instance went away before that
+   * happened, or never delivered the close, the stored state still describes
+   * connections that no longer exist: a request that can be approved into a
+   * member with no connection, a member shown as connected forever, and an
+   * empty room whose expiry clock was never started.
+   *
+   * Hibernating sockets stay attached across a restart with their attachment,
+   * so a participant that still has a socket is never touched. Returns whether
+   * anything changed and needs persisting, and, when the room's membership
+   * changed, the reason to tell the members that are still attached.
+   */
+  private healRestoredState(): HealOutcome {
+    const coordinator = this.coordinator
+    if (!coordinator)
+      return { changed: false, reason: null }
+
+    const attached = new Set<string>()
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null
+      if (attachment?.participantId)
+        attached.add(attachment.participantId)
+    }
+
+    let changed = false
+    let reason: string | null = null
+    const snapshot = coordinator.snapshot()
+    for (const request of snapshot.pendingJoinRequests) {
+      if (attached.has(request.id))
+        continue
+      const withdrawn = coordinator.cancelPendingJoin(request.id)
+      if (withdrawn?.ok) {
+        changed = true
+        reason = withdrawn.reason
+      }
+    }
+    for (const participant of snapshot.participants) {
+      if (!participant.connected || attached.has(participant.id))
+        continue
+      const disconnected = coordinator.disconnect(participant.id)
+      if (disconnected?.ok) {
+        changed = true
+        reason = disconnected.reason
+        if (coordinator.snapshot().controller.participantId === participant.id) {
+          this.pendingController = {
+            participantId: participant.id,
+            recoverAtMs: Date.now() + CONTROLLER_GRACE_MS,
+          }
+        }
+      }
+    }
+
+    const clock = reconcileEmptyClock({
+      emptySinceMs: this.emptySinceMs,
+      hasConnectedParticipants: coordinator.hasConnectedParticipants(),
+      nowMs: Date.now(),
+    })
+    if (clock !== this.emptySinceMs) {
+      this.emptySinceMs = clock
+      changed = true
+    }
+    return { changed, reason }
+  }
+
+  /**
+   * Closes sockets best effort. close() can throw for a socket that is
+   * already closing; one failure must not abort an expiry before the room's
+   * storage is deleted or leave the remaining sockets unnotified.
+   */
+  private closeSockets(reason: string): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        socket.close(1000, reason)
+      }
+      catch {
+        // Already closing or closed; webSocketClose handles the cleanup.
+      }
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -212,8 +324,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       // The empty-room clock starts once, when the last member leaves. A
       // withdrawn request is not a member, so it must not restart the clock:
       // anyone who knows the code could otherwise keep an empty room (and its
-      // storage and alarm) alive by opening and closing requests less than
-      // the TTL apart.
+      // storage and alarm) alive until its lifetime limit by opening and
+      // closing requests less than the TTL apart.
       if (this.emptySinceMs === null && !this.coordinator.hasConnectedParticipants())
         this.emptySinceMs = Date.now()
       await this.persistAndObserve(() => {
@@ -251,8 +363,7 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     const nowMs = Date.now()
     if (nowMs - this.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
-      for (const socket of this.ctx.getWebSockets())
-        socket.close(1000, 'room_expired')
+      this.closeSockets('room_expired')
       await this.ctx.storage.deleteAll()
       this.coordinator = null
       this.pendingController = null
@@ -260,13 +371,23 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
-    if (this.emptySinceMs !== null && nowMs - this.emptySinceMs >= EMPTY_ROOM_TTL_MS) {
+    // The empty-room clock is derived from membership, so enforce that here
+    // instead of trusting every code path to keep it in step: someone is
+    // connected -> no clock; nobody is connected -> a clock must be running. A
+    // stale clock would otherwise expire a room under active members, and a
+    // missing one would keep an empty room alive.
+    this.emptySinceMs = reconcileEmptyClock({
+      emptySinceMs: this.emptySinceMs,
+      hasConnectedParticipants: this.coordinator.hasConnectedParticipants(),
+      nowMs,
+    })
+
+    if (isEmptyRoomExpired(this.emptySinceMs, nowMs, EMPTY_ROOM_TTL_MS)) {
       // A request still waiting in an empty room no longer holds the room
       // open, so tell it the room is gone, as the lifetime branch above does.
       // Without this its waiting view stays up for a room that no longer
       // exists.
-      for (const socket of this.ctx.getWebSockets())
-        socket.close(1000, 'room_expired')
+      this.closeSockets('room_expired')
       await this.ctx.storage.deleteAll()
       this.coordinator = null
       this.pendingController = null
@@ -553,6 +674,11 @@ export class RoomDurableObject extends DurableObject<Env> {
       alarmCandidates.push(this.pendingController.recoverAtMs)
     if (this.emptySinceMs !== null)
       alarmCandidates.push(this.emptySinceMs + EMPTY_ROOM_TTL_MS)
+    // The lifetime limit is enforced by the alarm, so it must be scheduled:
+    // without it a room whose members stay connected, or that was pinned open
+    // by other activity, only met the limit if some unrelated alarm happened
+    // to fire after it.
+    alarmCandidates.push(this.createdAtMs + MAX_ROOM_LIFETIME_MS)
     const seekDeadlineMs = this.coordinator.pendingSeekDeadlineMs()
     if (seekDeadlineMs !== null)
       alarmCandidates.push(seekDeadlineMs)
