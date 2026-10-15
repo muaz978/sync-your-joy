@@ -1,4 +1,5 @@
 import type { ExtensionState } from './internal.ts'
+import { playbackStatusCopy } from './playback-status.ts'
 
 /**
  * A brand-new join is pending until the host approves it (host-approval
@@ -33,3 +34,19 @@ export const AWAITING_APPROVAL_PILL = {
   status: 'Waiting for the host',
   detail: 'Your request to join is pending. Nothing on this page changes until the host lets you in.',
 } as const
+
+/**
+ * The pill copy for a pending request on the given connection. "Waiting for
+ * the host" is only true while the request actually reached the coordinator;
+ * when this client's own connection is down the service worker keeps the
+ * pending snapshot and reports `reconnecting`, and blaming the host then would
+ * be wrong. The status is the one a member sees for the same connection state.
+ */
+export function pendingPillCopy(connection: ExtensionState['connection']): { status: string, detail: string } {
+  if (connection === 'connected')
+    return AWAITING_APPROVAL_PILL
+  return {
+    status: connection === 'reconnecting' ? 'Reconnecting' : playbackStatusCopy('unknown', false).label,
+    detail: 'Your request to join is pending, but this browser is not connected to the room right now. Nothing on this page changes.',
+  }
+}

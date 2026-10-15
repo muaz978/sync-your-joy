@@ -1056,8 +1056,24 @@ describe('service worker while a join request is pending', () => {
     lastPongAtMs: 0,
   })
 
-  async function resumedWaitingWorker() {
-    const fake = buildFakeChrome({ sessionState: persistedWaitingState() })
+  // `boundPlayer` gives the requester a tab it is already watching a video
+  // in, which is how a requester is normally found: it asks to join from a
+  // page with its own player.
+  async function resumedWaitingWorker(options: { boundPlayer?: boolean } = {}) {
+    const fake = buildFakeChrome({
+      sessionState: options.boundPlayer
+        ? { ...persistedWaitingState(), playerTabId: 42, playerFrameId: 0, playerAreaPixels: 500_000 }
+        : persistedWaitingState(),
+      ...(options.boundPlayer ? { playerBindingState: { id: 'binding_waiting', documentId: 'document_waiting' } } : {}),
+    })
+    if (options.boundPlayer) {
+      ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+        media: { service: 'html5', canonicalId: 'html5:own-video', title: 'Own video', durationSeconds: 60 },
+        diagnostics: null,
+        sample: null,
+      })
+      ;(fake.chrome.tabs.get as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 42, url: 'https://player.example.test/watch' })
+    }
     vi.stubGlobal('chrome', fake.chrome)
     vi.stubGlobal('WebSocket', FakeWebSocket)
     await import('./service-worker.ts')
@@ -1158,5 +1174,116 @@ describe('service worker while a join request is pending', () => {
         throw new Error('expected the room to be left')
     })
     expect(broadcasts(sendMessageMock).at(-1)!.state!.lastError).toMatch(/no longer available/i)
+  })
+
+  it('leaves the room, as expired, when the coordinator answers a message with room_expired, and does not reconnect', async () => {
+    // A client whose socket survived the room's removal (closeAll could not
+    // close it) is answered with this error code instead of a close.
+    const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker()
+    const alarmsBefore = vi.mocked(fakeChrome.alarms.create).mock.calls.length
+
+    socket.simulateMessage({ type: 'error', code: 'room_expired', message: 'This room has expired.' })
+
+    await vi.waitFor(() => {
+      const last = broadcasts(sendMessageMock).at(-1)?.state
+      if (last?.snapshot !== null)
+        throw new Error('expected the room to be left')
+    })
+    const last = broadcasts(sendMessageMock).at(-1)!.state!
+    expect(last.lastError).toMatch(/has expired/i)
+    expect(last.connection).toBe('disconnected')
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    expect(vi.mocked(fakeChrome.alarms.create).mock.calls.length).toBe(alarmsBefore)
+  })
+
+  it('keeps a room_expired error as a plain error while this client is not in a room', async () => {
+    const fake = buildFakeChrome({ sessionState: undefined })
+    vi.stubGlobal('chrome', fake.chrome)
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    await import('./service-worker.ts')
+    const joined = new Promise<RuntimeResponse>((resolve) => {
+      fake.messageListener({ type: 'JOIN_ROOM', code: 'ABCDEFGH' }, {} as chrome.runtime.MessageSender, response => resolve(response as RuntimeResponse))
+    })
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+    const socket = FakeWebSocket.instances[0]!
+    socket.simulateOpen()
+    await joined
+
+    socket.simulateMessage({ type: 'error', code: 'room_expired', message: 'This room has expired.' })
+
+    await vi.waitFor(() => {
+      const last = broadcasts(fake.sendMessageMock).at(-1)?.state
+      if (last?.lastError !== 'This room has expired.')
+        throw new Error('expected the plain error to be published')
+    })
+    // Nothing was left and nothing was closed: it only reports the error.
+    expect(broadcasts(fake.sendMessageMock).at(-1)!.state!.lastError).toBe('This room has expired.')
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN)
+  })
+
+  describe('with a player tab bound and the side panel closed', () => {
+    const notices = (fakeChrome: typeof chrome) =>
+      vi.mocked(fakeChrome.tabs.sendMessage).mock.calls
+        .filter(([, message]) => (message as { type?: string }).type === 'SHOW_NOTICE')
+    // The page is detached from the room first; that it arrives proves the
+    // binding was live when the room ended.
+    const pageDetached = (fakeChrome: typeof chrome) =>
+      vi.mocked(fakeChrome.tabs.sendMessage).mock.calls.some(([tabId, message]) =>
+        tabId === 42
+        && (message as { type?: string }).type === 'APPLY_ROOM_STATE'
+        && (message as { state: { snapshot: unknown } }).state.snapshot === null)
+
+    async function workerWithoutSidePanel() {
+      const worker = await resumedWaitingWorker({ boundPlayer: true })
+      // No extension view is open to receive runtime messages.
+      worker.sendMessageMock.mockRejectedValue(new Error('Could not establish connection. Receiving end does not exist.'))
+      vi.mocked(worker.chrome.tabs.sendMessage).mockClear()
+      return worker
+    }
+
+    it('tells the page the player is bound to why the room expired, once', async () => {
+      const { chrome: fakeChrome, socket } = await workerWithoutSidePanel()
+
+      socket.simulateClose(1000, 'room_expired')
+
+      await vi.waitFor(() => {
+        if (!pageDetached(fakeChrome))
+          throw new Error('expected the page to be detached from the room')
+      })
+      await new Promise(resolve => setTimeout(resolve, 30))
+      expect(notices(fakeChrome)).toEqual([
+        [42, { type: 'SHOW_NOTICE', message: expect.stringMatching(/has expired/i) }, { documentId: 'document_waiting' }],
+      ])
+    })
+
+    it('does the same when the room is reported gone by an error', async () => {
+      const { chrome: fakeChrome, socket } = await workerWithoutSidePanel()
+
+      socket.simulateMessage({ type: 'error', code: 'room_not_found', message: 'That room code is invalid or has expired.' })
+
+      await vi.waitFor(() => {
+        if (!pageDetached(fakeChrome))
+          throw new Error('expected the page to be detached from the room')
+      })
+      await new Promise(resolve => setTimeout(resolve, 30))
+      expect(notices(fakeChrome)).toEqual([
+        [42, { type: 'SHOW_NOTICE', message: expect.stringMatching(/no longer available/i) }, { documentId: 'document_waiting' }],
+      ])
+    })
+
+    it('still ends the room and records why when no player tab is bound', async () => {
+      const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker()
+      vi.mocked(fakeChrome.tabs.sendMessage).mockClear()
+
+      socket.simulateClose(1000, 'room_expired')
+
+      await vi.waitFor(() => {
+        if (broadcasts(sendMessageMock).at(-1)?.state?.snapshot !== null)
+          throw new Error('expected the room to be left')
+      })
+      expect(broadcasts(sendMessageMock).at(-1)!.state!.lastError).toMatch(/has expired/i)
+      expect(notices(fakeChrome)).toEqual([])
+    })
   })
 })

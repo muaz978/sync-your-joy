@@ -28,6 +28,9 @@ const DIAGNOSTIC_COLLECTION_TIMEOUT_MS = 8_000
 // alarm is a fallback that wakes the service worker to retry a reconnect
 // even if it was suspended while the setTimeout backoff was pending.
 const RECONNECT_ALARM_NAME = 'syncYourJoyReconnect'
+// What a participant is told when the coordinator no longer has their room.
+const ROOM_EXPIRED_MESSAGE = 'This room has expired. Create or join another room to keep watching together.'
+const ROOM_GONE_MESSAGE = 'This room is no longer available. Create or join another room to keep watching together.'
 
 interface DiagnosticCollection {
   reportId: string
@@ -703,7 +706,7 @@ async function connect(roomCode: string): Promise<void> {
           // the room instead of keeping a waiting or room view up for a room
           // that no longer exists.
           if ((event as CloseEvent).reason === 'room_expired') {
-            endRoomBecauseGone('This room has expired. Create or join another room to keep watching together.')
+            endRoomBecauseGone(ROOM_EXPIRED_MESSAGE)
           }
           else {
             state.connection = 'reconnecting'
@@ -832,11 +835,13 @@ function handleServerMessage(raw: string): void {
 
   if (message.type === 'error') {
     // While this client believes it is in a room, room_not_found can only
-    // mean the room is gone (a reconnect found nothing to rejoin). A first
-    // join to a wrong code has no snapshot yet and keeps the plain error.
-    if (message.code === 'room_not_found' && state.snapshot) {
+    // mean the room is gone (a reconnect found nothing to rejoin), and
+    // room_expired is what the local coordinator answers a socket that
+    // survived the room's removal. A first join to a wrong code has no
+    // snapshot yet and keeps the plain error.
+    if ((message.code === 'room_not_found' || message.code === 'room_expired') && state.snapshot) {
       recordDiagnostic('error', 'room_gone', { code: safeDiagnosticCode(message.code) }, { reason: 'server-error' })
-      endRoomBecauseGone('This room is no longer available. Create or join another room to keep watching together.')
+      endRoomBecauseGone(message.code === 'room_expired' ? ROOM_EXPIRED_MESSAGE : ROOM_GONE_MESSAGE)
       return
     }
     state.lastError = message.message
@@ -943,10 +948,17 @@ function sendToServer(message: ClientMessage): boolean {
  */
 function endRoomBecauseGone(message: string): void {
   recordDiagnostic('connection', 'room_gone', {})
+  // leaveRoom() unbinds the player tab, after which sendToPlayerTab() has
+  // nowhere to send to. Read the binding first so the page the participant
+  // is watching on still hears why the room ended when no side panel is open.
+  const playerTabId = state.playerTabId
+  const playerFrameId = state.playerFrameId
+  const playerDocumentId = playerBinding?.documentId ?? undefined
   leaveRoom()
   state.lastError = message
   void publishState()
-  void sendToPlayerTab({ type: 'SHOW_NOTICE', message })
+  if (playerTabId !== null && playerFrameId !== null)
+    void sendToTab(playerTabId, { type: 'SHOW_NOTICE', message }, playerFrameId, playerDocumentId)
 }
 
 function leaveRoom(): void {

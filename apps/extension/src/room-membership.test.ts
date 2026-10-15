@@ -1,6 +1,7 @@
 import type { RoomSnapshot } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
-import { AWAITING_APPROVAL_PILL, isAwaitingApproval } from './room-membership.ts'
+import { playbackStatusCopy } from './playback-status.ts'
+import { AWAITING_APPROVAL_PILL, isAwaitingApproval, pendingPillCopy } from './room-membership.ts'
 
 function snapshot(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
   return {
@@ -44,5 +45,30 @@ describe('the pending pill copy', () => {
     expect(AWAITING_APPROVAL_PILL.status).toMatch(/waiting for the host/i)
     expect(AWAITING_APPROVAL_PILL.detail).toMatch(/pending/i)
     expect(`${AWAITING_APPROVAL_PILL.status} ${AWAITING_APPROVAL_PILL.detail}`).not.toMatch(/member|connected|episode/i)
+  })
+})
+
+describe('the pending pill copy for a connection state', () => {
+  it('blames the host only while the connection is up', () => {
+    expect(pendingPillCopy('connected')).toEqual(AWAITING_APPROVAL_PILL)
+  })
+
+  it('shows the same status as a member would while the connection is down, not "waiting for the host"', () => {
+    // The member path shows exactly this for these two connection states.
+    expect(pendingPillCopy('reconnecting').status).toBe('Reconnecting')
+    expect(pendingPillCopy('disconnected').status).toBe(playbackStatusCopy('unknown', false).label)
+    for (const connection of ['reconnecting', 'disconnected'] as const)
+      expect(pendingPillCopy(connection).status).not.toMatch(/waiting for the host/i)
+  })
+
+  it('still says the request is pending, and that nothing on the page changes, without member wording', () => {
+    for (const connection of ['connected', 'reconnecting', 'disconnected'] as const) {
+      const copy = pendingPillCopy(connection)
+      expect(copy.detail).toMatch(/pending/i)
+      expect(copy.detail).toMatch(/nothing on this page changes/i)
+      expect(`${copy.status} ${copy.detail}`).not.toMatch(/member|connected\.|episode/i)
+    }
+    expect(pendingPillCopy('reconnecting').detail).toMatch(/not connected/i)
+    expect(pendingPillCopy('connected').detail).not.toMatch(/not connected/i)
   })
 })
