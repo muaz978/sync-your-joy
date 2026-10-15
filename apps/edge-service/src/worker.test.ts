@@ -383,6 +383,70 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     expect(inspect(restarted).pendingController?.participantId).toBe('participant_host')
   })
 
+  it('tells a member that kept its socket which request restoring withdrew', async () => {
+    const { store, host } = await roomWithHostAndRequest()
+    const before = host.sent.length
+
+    // The requester's socket did not survive; the host's did.
+    await restored(objectOver(store, [host]))
+
+    const told = host.sent.slice(before)
+    expect(told).toHaveLength(1)
+    expect(told[0]).toMatchObject({ type: 'room_snapshot', reason: 'join_cancelled', snapshot: { pendingJoinRequests: [] } })
+  })
+
+  it('tells a member that kept its socket which participant restoring marked disconnected', async () => {
+    const { store, host, first } = await roomWithHostAndRequest()
+    await say(first, host, approve)
+    const before = host.sent.length
+
+    // The approved friend's socket did not survive; the host's did.
+    await restored(objectOver(store, [host]))
+
+    const told = host.sent.slice(before)
+    expect(told).toHaveLength(1)
+    const snapshot = told[0]
+    expect(snapshot).toMatchObject({ type: 'room_snapshot', reason: 'participant_disconnected' })
+    const participants = snapshot?.type === 'room_snapshot' ? snapshot.snapshot.participants : []
+    expect(participants.find(participant => participant.id === 'participant_friend')?.connected).toBe(false)
+    expect(participants.find(participant => participant.id === 'participant_host')?.connected).toBe(true)
+  })
+
+  it('sends nothing on restore when every stored connection still has its socket', async () => {
+    const { store, host, friend } = await roomWithHostAndRequest()
+    const hostBefore = host.sent.length
+    const friendBefore = friend.sent.length
+
+    await restored(objectOver(store, [host, friend]))
+
+    expect(host.sent).toHaveLength(hostBefore)
+    expect(friend.sent).toHaveLength(friendBefore)
+  })
+
+  it('still serves the restored room when reconciling it throws', async () => {
+    const { store, host } = await roomWithHostAndRequest()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Reading one socket's attachment fails once, which is what the
+    // reconciliation reads first.
+    const flaky = new FakeSocket()
+    const read = flaky.deserializeAttachment.bind(flaky)
+    let reads = 0
+    flaky.deserializeAttachment = () => {
+      if (reads++ === 0)
+        throw new Error('attachment storage hiccup')
+      return read()
+    }
+
+    const restarted = await restored(objectOver(store, [flaky, host]))
+    await say(restarted, host, approve)
+
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(inspect(restarted).coordinator).not.toBeNull()
+    // The stored request was left as it was and is still decidable.
+    expect(host.last()).toMatchObject({ type: 'room_snapshot', reason: 'join_approved' })
+    logged.mockRestore()
+  })
+
   it('clears a stale empty-room clock on restore when a member is still attached', async () => {
     const { store, host } = await roomWithHostAndRequest()
     ;(store.get('room') as { emptySinceMs: number | null }).emptySinceMs = startMs - EMPTY_ROOM_TTL_MS * 2

@@ -59,6 +59,14 @@ interface StoredRoom {
   createdAtMs: number
 }
 
+// What restoring a room changed. `reason` is set only when membership changed
+// (a request withdrawn or a member marked disconnected), which is what the
+// members that are still attached need to be told.
+interface HealOutcome {
+  changed: boolean
+  reason: string | null
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
@@ -123,8 +131,27 @@ export class RoomDurableObject extends DurableObject<Env> {
         this.pendingController = stored.pendingController
         this.emptySinceMs = stored.emptySinceMs
         this.createdAtMs = stored.createdAtMs ?? Date.now()
-        if (this.healRestoredState())
+
+        // Reconciling is a repair, never a precondition: if it throws, this
+        // constructor would throw with it, the object would be reset and every
+        // later request for the room would fail the same way. Serving the
+        // restored state as it is (what this code did before it existed) is
+        // better than a room that can no longer be reached.
+        let healed: HealOutcome = { changed: false, reason: null }
+        try {
+          healed = this.healRestoredState()
+        }
+        catch (error) {
+          console.error('Restoring room state could not be reconciled with its sockets.', error instanceof Error ? error.name : 'unknown error')
+        }
+        if (healed.changed) {
           await this.persistAndSchedule()
+          // A member that kept its socket across the restart still holds the
+          // picture from before it: it would keep showing a participant as
+          // connected, or a request as waiting, until some unrelated message.
+          if (healed.reason && this.coordinator)
+            this.broadcast({ type: 'room_snapshot', reason: healed.reason, snapshot: this.coordinator.snapshot() })
+        }
       }
     })
   }
@@ -141,12 +168,13 @@ export class RoomDurableObject extends DurableObject<Env> {
    *
    * Hibernating sockets stay attached across a restart with their attachment,
    * so a participant that still has a socket is never touched. Returns whether
-   * anything changed and needs persisting.
+   * anything changed and needs persisting, and, when the room's membership
+   * changed, the reason to tell the members that are still attached.
    */
-  private healRestoredState(): boolean {
+  private healRestoredState(): HealOutcome {
     const coordinator = this.coordinator
     if (!coordinator)
-      return false
+      return { changed: false, reason: null }
 
     const attached = new Set<string>()
     for (const socket of this.ctx.getWebSockets()) {
@@ -156,14 +184,24 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     let changed = false
+    let reason: string | null = null
     const snapshot = coordinator.snapshot()
     for (const request of snapshot.pendingJoinRequests) {
-      if (!attached.has(request.id) && coordinator.cancelPendingJoin(request.id))
+      if (attached.has(request.id))
+        continue
+      const withdrawn = coordinator.cancelPendingJoin(request.id)
+      if (withdrawn?.ok) {
         changed = true
+        reason = withdrawn.reason
+      }
     }
     for (const participant of snapshot.participants) {
-      if (participant.connected && !attached.has(participant.id) && coordinator.disconnect(participant.id)?.ok) {
+      if (!participant.connected || attached.has(participant.id))
+        continue
+      const disconnected = coordinator.disconnect(participant.id)
+      if (disconnected?.ok) {
         changed = true
+        reason = disconnected.reason
         if (coordinator.snapshot().controller.participantId === participant.id) {
           this.pendingController = {
             participantId: participant.id,
@@ -182,7 +220,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.emptySinceMs = clock
       changed = true
     }
-    return changed
+    return { changed, reason }
   }
 
   /**

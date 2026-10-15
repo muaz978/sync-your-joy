@@ -339,6 +339,10 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
           sessionToken: randomBytes(16).toString('base64url'),
           ...(message.capabilities ? { capabilities: message.capabilities } : {}),
         },
+        // The same clock the cleanup loop and the room entries use, so that
+        // deadlines and participant timestamps cannot disagree under an
+        // injected clock.
+        now,
       )
       const entry: RoomEntry = { coordinator, sockets: new Set([socket]), pending: new Set(), emptySinceMs: null, createdAtMs: now(), creatorIp: remoteAddress, pendingDiagnosticsRequests: new Map() }
       rooms.set(code, entry)
