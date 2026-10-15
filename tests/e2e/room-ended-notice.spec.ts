@@ -60,10 +60,11 @@ test.describe('a notice about a room that has ended', () => {
     if (!worker)
       throw new Error('The extension service worker was not running.')
     // The message as the worker sends it (see leaveRoomWithNotice).
-    await worker.evaluate(async (message) => {
-      const [tab] = await chrome.tabs.query({ url: '*://127.0.0.1/*' })
+    // The tab is the one showing this page, found by the page's own URL.
+    await worker.evaluate(async ({ message, pageUrl }) => {
+      const tab = (await chrome.tabs.query({})).find(candidate => candidate.url === pageUrl)
       await chrome.tabs.sendMessage(tab!.id!, { type: 'SHOW_NOTICE', message, roomEnded: true })
-    }, 'This room has expired. Create or join another room to keep watching together.')
+    }, { message: 'This room has expired. Create or join another room to keep watching together.', pageUrl: page.url() })
 
     await expect.poll(displayed).toBe('block')
     // Long enough to be read: it is not a flash.

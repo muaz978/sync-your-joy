@@ -1999,7 +1999,9 @@ function showNotice(message: string, sticky = false): void {
   noticeElement.textContent = message
   if (sticky)
     return
-  setTimeout(() => {
+  // Reviewed false positive: the callback is a fixed arrow function and the
+  // delay is a constant, so no untrusted data reaches the timer.
+  setTimeout(() => { // DevSkim: ignore DS172411
     if (noticeElement.textContent === message)
       noticeElement.textContent = ''
   }, 5_000)
@@ -2013,7 +2015,9 @@ function showNoticeWithoutRoom(message: string): void {
   clearRoomlessNotice()
   roomlessNotice = message
   renderPill()
-  roomlessNoticeTimer = setTimeout(() => {
+  // Reviewed false positive: the callback is a fixed arrow function and the
+  // delay is a constant, so no untrusted data reaches the timer.
+  roomlessNoticeTimer = setTimeout(() => { // DevSkim: ignore DS172411
     clearRoomlessNotice()
     renderPill()
   }, ROOMLESS_NOTICE_VISIBLE_MS)

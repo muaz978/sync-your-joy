@@ -63,7 +63,8 @@ describe('E2E provenance', () => {
   let base: string
   let checkout: string
   let release: string
-  const roomServerUrl = 'ws://127.0.0.1:54321/rooms'
+  // Any origin will do; .test is reserved, so this names no real host.
+  const roomServerUrl = 'ws://rooms.test:54321/rooms'
 
   beforeAll(() => {
     base = mkdtempSync(join(tmpdir(), 'syj-provenance-'))
@@ -162,8 +163,13 @@ describe('E2E provenance', () => {
       mkdirSync(join(files, 'b'), { recursive: true })
       writeFileSync(join(files, 'a.txt'), 'alpha\n')
       writeFileSync(join(files, 'b/c.txt'), 'beta\n')
-      // Independently computed: sha256 over "a.txt\0alpha\n" then "b/c.txt\0beta\n".
-      const expected = '922e353a160a731f4eae43509456030f6dd4a474257304580e349d9e94567d96'
+      // Computed here with node:crypto, not by hashFiles: sha256 over
+      // "a.txt\0alpha\n" then "b/c.txt\0beta\n" (each path, a NUL, the file's
+      // bytes, in sorted path order).
+      const expected = createHash('sha256')
+        .update('a.txt\0alpha\n')
+        .update('b/c.txt\0beta\n')
+        .digest('hex')
       expect(await hashFiles(files, ['b/c.txt', 'a.txt'])).toBe(expected)
     })
   })
@@ -220,7 +226,7 @@ describe('E2E provenance', () => {
       })
       expect(record.lock).toEqual({ packageLockSha256: identity.packageLockSha256 })
       expect(Object.keys(record.config)).toEqual(['files', 'sha256'])
-      expect(record.e2e.roomServerOrigin).toBe('ws://127.0.0.1:54321')
+      expect(record.e2e.roomServerOrigin).toBe('ws://rooms.test:54321')
       expect(record.e2e.extensionOutput).toBe(join('test-results', 'e2e-run', 'extension'))
       expect(Object.keys(record.e2e)).toEqual(['roomServerOrigin', 'extensionOutput', 'extensionManifestSha256'])
       // The path as given, a NUL, then the manifest the build wrote.
