@@ -124,11 +124,12 @@ export class RoomDurableObject extends DurableObject<Env> {
         this.emptySinceMs = stored.emptySinceMs
         this.createdAtMs = stored.createdAtMs ?? Date.now()
 
-        // Reconciling is a repair, never a precondition: if it throws, this
-        // constructor would throw with it, the object would be reset and every
-        // later request for the room would fail the same way. Serving the
-        // restored state as it is (what this code did before it existed) is
-        // better than a room that can no longer be reached.
+        // Reconciling and saving the result are repairs, never preconditions:
+        // if either throws, this constructor would throw with it, the object
+        // would be reset and every later request for the room would fail the
+        // same way. Serving the restored state as it is (what this code did
+        // before it existed) is better than a room that can no longer be
+        // reached.
         let reason: string | null = null
         try {
           reason = this.healRestoredState()
@@ -142,11 +143,20 @@ export class RoomDurableObject extends DurableObject<Env> {
         // or sit after it, and a connection that only pings never makes this
         // object write again. The price is one write per wake; trusting
         // getAlarm() would save it and keep a stale alarm.
-        await this.persistAndSchedule()
+        let saved = true
+        try {
+          await this.persistAndSchedule()
+        }
+        catch (error) {
+          // The next write or alarm derives and saves it again.
+          saved = false
+          console.error('Restoring room state could not be saved.', error instanceof Error ? error.name : 'unknown error')
+        }
         // A member that kept its socket across the restart still holds the
         // picture from before it: it would keep showing a participant as
-        // connected, or a request as waiting, until some unrelated message.
-        if (reason && this.coordinator)
+        // connected, or a request as waiting, until some unrelated message. A
+        // repair that was not saved is not announced as if it were.
+        if (saved && reason && this.coordinator)
           this.broadcast({ type: 'room_snapshot', reason, snapshot: this.coordinator.snapshot() })
       }
     })

@@ -451,6 +451,34 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     logged.mockRestore()
   })
 
+  it('serves the restored room and announces nothing when the restore cannot be saved', async () => {
+    const { store, host } = await roomWithHostAndRequest()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const set = store.set.bind(store)
+    store.set = () => { throw new Error(`storage is unavailable for room ${CODE}`) }
+    const before = host.sent.length
+
+    // The requester's socket did not survive, so restoring has a repair to make.
+    const restarted = await restored(objectOver(store, [host]))
+
+    // The repaired state is served from memory but not announced as if it were
+    // saved, and only the error's name is logged, never what it says.
+    expect(inspect(restarted).coordinator?.snapshot().pendingJoinRequests).toEqual([])
+    expect(host.sent).toHaveLength(before)
+    expect(logged.mock.calls).toEqual([['Restoring room state could not be saved.', 'Error']])
+    await say(restarted, host, { type: 'ping', id: 'ping_after_restore', sentAtLocalMs: 1 })
+    expect(host.last()).toMatchObject({ type: 'pong', id: 'ping_after_restore' })
+
+    // The next write saves what restoring derived, so a later restore has
+    // nothing left to repair or announce.
+    store.set = set
+    await say(restarted, host, { type: 'client_metrics', roundTripMs: 20 })
+    const sentBefore = host.sent.length
+    await restored(objectOver(store, [host]))
+    expect(host.sent).toHaveLength(sentBefore)
+    logged.mockRestore()
+  })
+
   it('clears a stale empty-room clock on restore when a member is still attached', async () => {
     const { store, host } = await roomWithHostAndRequest()
     ;(store.get('room') as { emptySinceMs: number | null }).emptySinceMs = startMs - EMPTY_ROOM_TTL_MS * 2
