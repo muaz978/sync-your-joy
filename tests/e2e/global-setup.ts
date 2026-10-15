@@ -12,13 +12,14 @@
 // a fresh extension there. The canonical apps/extension/dist release output
 // is never used as the E2E build target.
 import type { FullConfig } from '@playwright/test'
-import { createHash, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRoomService, type RoomService } from '../../apps/room-service/src/server.ts'
 import { sanitizeError } from './artifact-utils.ts'
+import { collectProvenance, resolveExtensionSourceRoot } from './provenance.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(here, '..', '..')
@@ -78,15 +79,17 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
   }
 }
 
+function extensionSourceRoot(): string {
+  return resolveExtensionSourceRoot(repoRoot, process.env.SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT)
+}
+
 async function buildExtension(roomServerUrl: string, extensionDistDir: string): Promise<void> {
   // Optional: build the extension from another checkout (for example a git
   // worktree of a release tag, with its own node_modules installed) while the
   // coordinator and the specs stay the current tree's. That is how a shipped
   // extension is checked against the current coordinator. The build script
   // takes the same environment variables in every version.
-  const sourceRoot = process.env.SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT
-    ? resolve(process.env.SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT)
-    : repoRoot
+  const sourceRoot = extensionSourceRoot()
   const script = sourceRoot === repoRoot ? buildExtensionScript : resolve(sourceRoot, 'scripts/build-extension.mjs')
   console.log(`[e2e] building an isolated extension at ${relative(repoRoot, extensionDistDir)}${sourceRoot === repoRoot ? '' : ` from ${sourceRoot}`}...`)
   execFileSync(process.execPath, [script], {
@@ -105,56 +108,17 @@ async function writeProvenance(
   extensionDistDir: string,
   roomServerUrl: string,
 ): Promise<void> {
-  const trackedFiles = execFileSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' })
-    .split('\0')
-    .filter(Boolean)
-  const sourceFiles = trackedFiles.filter(path => /^(apps|packages|scripts|tests|fixtures)\//.test(path))
-  const configFiles = [
-    'package.json',
-    'tsconfig.json',
-    'vitest.config.ts',
-    'uno.config.mjs',
-    'scripts/build-extension.mjs',
-    'tests/e2e/playwright.config.ts',
-    'apps/extension/static/manifest.json',
-  ]
-  const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim()
-  const sourceTree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim()
-  const manifestPath = resolve(extensionDistDir, 'manifest.json')
-
-  await writeJson(resolve(artifactDirectory, 'provenance.json'), {
-    schemaVersion: 1,
+  // The checkout supplies the coordinator and the specs; the extension is
+  // built from `extensionSourceRoot()`, which is another tree when
+  // SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT is set. Both are recorded.
+  await writeJson(resolve(artifactDirectory, 'provenance.json'), await collectProvenance({
     runId: basename(artifactDirectory),
     createdAt: new Date().toISOString(),
-    source: {
-      commit: sourceCommit,
-      tree: sourceTree,
-      trackedSourceSha256: await hashFiles(sourceFiles),
-    },
-    lock: {
-      packageLockSha256: await hashFiles(['package-lock.json']),
-    },
-    config: {
-      files: configFiles,
-      sha256: await hashFiles(configFiles),
-    },
-    e2e: {
-      roomServerOrigin: new URL(roomServerUrl).origin,
-      extensionOutput: relative(repoRoot, extensionDistDir),
-      extensionManifestSha256: await hashFiles([manifestPath]),
-    },
-  })
-}
-
-async function hashFiles(paths: string[]): Promise<string> {
-  const hash = createHash('sha256')
-  for (const path of [...paths].sort()) {
-    const filePath = resolve(repoRoot, path)
-    hash.update(path)
-    hash.update('\0')
-    hash.update(await readFile(filePath))
-  }
-  return hash.digest('hex')
+    checkoutRoot: repoRoot,
+    extensionSourceRoot: extensionSourceRoot(),
+    extensionDistDir,
+    roomServerUrl,
+  }))
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {

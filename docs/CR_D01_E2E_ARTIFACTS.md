@@ -23,7 +23,10 @@ The earlier E2E setup built into `apps/extension/dist` and decided whether to re
   - a SHA-256 over the build and E2E configuration files;
   - the room-service origin;
   - the isolated extension output path;
-  - the generated extension manifest SHA-256.
+  - the generated extension manifest SHA-256;
+  - `extensionSource`: the tree the extension bundle was built from (its path relative to the checkout, whether it is the checkout, its commit and Git tree, and the same source, lockfile and configuration hashes computed from that tree).
+
+The first group of fields (`source`, `lock`, `config`) describes the checkout that supplies the room coordinator and the specs. The extension is built from that same checkout unless `SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT` names another one, for example a worktree of a release tag with its own `node_modules`, which is how a shipped extension is checked against the current coordinator. In that case `extensionSource` identifies the release tree and the other fields keep identifying the checkout, so evidence for a run against a release build is not attributed to the current checkout. Without the variable `extensionSource` repeats the checkout's values. A configuration file that a release tree does not have is listed under `extensionSource.config.missing`.
 
 The provenance file contains hashes and bounded local endpoint identity only. It does not contain storage state, cookies, credentials, signed URLs, media bytes or page content.
 
