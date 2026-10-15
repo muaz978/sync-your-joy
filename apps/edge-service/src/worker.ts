@@ -169,8 +169,9 @@ export class RoomDurableObject extends DurableObject<Env> {
    * its member disconnected; if the previous instance went away before that
    * happened, or never delivered the close, the stored state still describes
    * connections that no longer exist: a request that can be approved into a
-   * member with no connection, a member shown as connected forever, and an
-   * empty room whose expiry clock was never started.
+   * member with no connection, a member shown as connected forever, an empty
+   * room whose expiry clock was never started, and a controller that is gone
+   * with nothing planned to replace it.
    *
    * Hibernating sockets stay attached across a restart with their attachment,
    * so a participant that still has a socket is never touched. Returns the
@@ -213,6 +214,11 @@ export class RoomDurableObject extends DurableObject<Env> {
         }
       }
     }
+    // Derived like the empty-room clock below: a room last written with its
+    // controller gone, a member attached and no recovery pending (a lapsed
+    // plan, saved by code that did not re-arm it) would otherwise leave the
+    // absent controller in control until a member joined.
+    this.armControllerRecovery()
 
     const clock = reconcileEmptyClock({
       emptySinceMs: this.emptySinceMs,
@@ -228,9 +234,9 @@ export class RoomDurableObject extends DurableObject<Env> {
    * clock: while the controller is disconnected and somebody is connected, a
    * recovery must be pending. The plan made when the controller left is
    * dropped by the alarm if its grace period ran out with nobody connected, so
-   * one is made again when a member comes back; otherwise a host that is no
-   * longer there would keep control of the room for as long as the members
-   * stay.
+   * one is made again when a member comes back, and when a room is restored;
+   * otherwise a host that is no longer there would keep control of the room
+   * for as long as the members stay.
    */
   private armControllerRecovery(): void {
     const coordinator = this.coordinator

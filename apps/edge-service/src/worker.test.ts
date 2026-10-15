@@ -654,9 +654,9 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     }
 
     async function hostAndApprovedFriend(alarms: number[] = []) {
-      const { host, friend, first } = await roomWithHostAndRequest(alarms)
+      const { store, host, friend, first } = await roomWithHostAndRequest(alarms)
       await say(first, host, approve)
-      return { host, friend, first }
+      return { store, host, friend, first }
     }
 
     it('hands control to a connected member when the controller does not return in time', async () => {
@@ -734,6 +734,36 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       vi.setSystemTime(returnedAtMs + CONTROLLER_GRACE_MS + 1_000)
       await first.alarm()
       expect(controllerOf(first)).toBe('participant_friend')
+    })
+
+    it('plans the recovery a stored room is missing when restoring it with the host gone and a member attached', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      await first.webSocketClose(host as never)
+      // The plan lapsed under code that did not re-arm it, and was saved so.
+      ;(store.get('room') as { pendingController: unknown }).pendingController = null
+      const restoredAtMs = startMs + 60_000
+      vi.setSystemTime(restoredAtMs)
+      const alarms: number[] = []
+
+      const restarted = await restored(objectOver(store, [friend], alarms))
+
+      expect(inspect(restarted).pendingController).toMatchObject({ participantId: 'participant_host', recoverAtMs: restoredAtMs + CONTROLLER_GRACE_MS })
+      expect(alarms).toEqual([restoredAtMs + CONTROLLER_GRACE_MS])
+      expect((store.get('room') as { pendingController: unknown }).pendingController).toMatchObject({ participantId: 'participant_host' })
+      vi.setSystemTime(restoredAtMs + CONTROLLER_GRACE_MS + 1_000)
+      await restarted.alarm()
+      expect(controllerOf(restarted)).toBe('participant_friend')
+    })
+
+    it('plans no recovery on restore when nobody is connected to hand control to', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      await first.webSocketClose(host as never)
+      await first.webSocketClose(friend as never)
+      ;(store.get('room') as { pendingController: unknown }).pendingController = null
+
+      const restarted = await restored(objectOver(store, []))
+
+      expect(inspect(restarted).pendingController).toBeNull()
     })
 
     it('does not postpone a recovery that is already pending when a member reconnects', async () => {
