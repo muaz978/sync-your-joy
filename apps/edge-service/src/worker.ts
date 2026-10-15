@@ -222,7 +222,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // controller gone, a member attached and no recovery pending (a lapsed
     // plan, saved by code that did not re-arm it) would otherwise leave the
     // absent controller in control until a member joined.
-    this.armControllerRecovery()
+    this.armControllerRecovery(attached)
 
     const clock = reconcileEmptyClock({
       emptySinceMs: this.emptySinceMs,
@@ -242,7 +242,7 @@ export class RoomDurableObject extends DurableObject<Env> {
    * otherwise a host that is no longer there would keep control of the room
    * for as long as the members stay.
    */
-  private armControllerRecovery(): void {
+  private armControllerRecovery(attached?: ReadonlySet<string>): void {
     const coordinator = this.coordinator
     if (!coordinator || this.pendingController)
       return
@@ -250,6 +250,11 @@ export class RoomDurableObject extends DurableObject<Env> {
     const snapshot = coordinator.snapshot()
     const controller = snapshot.participants.find(participant => participant.id === snapshot.controller.participantId)
     if (!controller || controller.connected || !coordinator.hasConnectedParticipants())
+      return
+    // A controller that still has its socket is not gone, whatever the stored
+    // flag says (a join whose write was lost): handing its control away would
+    // take it from a host that is there.
+    if (attached?.has(controller.id))
       return
 
     this.pendingController = {

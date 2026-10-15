@@ -808,6 +808,18 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       expect(inspect(restarted).pendingController).toBeNull()
     })
 
+    it('plans no recovery on restore for a controller that still has its socket', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      await first.webSocketClose(host as never)
+      // The host's join was not saved: the room says it is disconnected while
+      // its socket is attached, and no plan is pending.
+      ;(store.get('room') as { pendingController: unknown }).pendingController = null
+
+      const restarted = await restored(objectOver(store, [host, friend]))
+
+      expect(inspect(restarted).pendingController).toBeNull()
+    })
+
     it('does not postpone a recovery that is already pending when a member reconnects', async () => {
       const { host, friend, first } = await hostAndApprovedFriend()
       const friendToken = sessionTokenOf(friend)
