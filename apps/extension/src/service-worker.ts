@@ -7,6 +7,7 @@ import { isLikelyAdvertisingUrl } from './site-adapter.ts'
 import { bindMediaToSharedPage } from './media-fingerprint.ts'
 import { resolveControlPosition } from './control-position.ts'
 import { shouldConfirmMediaMismatch } from './readiness-state.ts'
+import { isAwaitingApproval } from './room-membership.ts'
 import { connectionQuality } from './connection-quality.ts'
 import { browserApi } from './browser-api.ts'
 import { fitDiagnosticsReport } from './diagnostics-budget.ts'
@@ -1127,6 +1128,13 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
 }
 
 async function applySharedNavigation(snapshot: NonNullable<ExtensionState['snapshot']>): Promise<void> {
+  // An unapproved requester is not a member: the shared page is not theirs to
+  // open. A current coordinator sends such a client no navigation at all; an
+  // older one sends the whole room, link included, so check here as well. The
+  // revision is not recorded, so the page is opened once the request is
+  // approved.
+  if (isAwaitingApproval({ participantId: state.participantId, snapshot }))
+    return
   const navigation = snapshot.navigation
   if (!navigation || navigation.revision <= state.lastOpenedNavigationRevision || navigation.revision === pendingNavigationRevision)
     return

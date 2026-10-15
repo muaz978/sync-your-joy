@@ -1,7 +1,8 @@
 // Real two-profile coverage of the host-approval join (docs/CODE_AUDIT.md
 // SYJ-AUD-003), from the requester's side: the waiting view, withdrawing a
 // request, a denial, an approval, and above all that a requester who is
-// already watching something is left alone while it waits.
+// already watching something (its video and its tabs) is left alone while it
+// waits, with a link shared in the room.
 //
 // The same spec runs against the shipped v0.2.6 extension build by setting
 // SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT (see tests/e2e/global-setup.ts), which
@@ -56,6 +57,17 @@ test.describe('a join request that has not been approved', () => {
     const roomCode = (await host.panel.locator('#copy-code .font-mono').first().textContent())?.trim()
     expect(roomCode).toMatch(/^[A-Z0-9]{8}$/)
 
+    // --- The host shares a link, as a host normally has before anyone asks ---
+    // Without one the room has no navigation, and "the requester's browser
+    // opened nothing" below could not fail. The local service's /health page
+    // is a real page that is not the test player the requester is on, so the
+    // extension would open it in a new tab for a member.
+    const sharedLink = `${new URL(testPlayerUrl).origin}/health`
+    const hostOpensLink = host.context.waitForEvent('page')
+    await host.panel.fill('#shared-video-url', sharedLink)
+    await host.panel.click('#open-shared-link')
+    await hostOpensLink
+
     // --- The requester is already watching its own video ---------------------
     const ownVideo = await requester.context.newPage()
     await ownVideo.goto(testPlayerUrl)
@@ -97,13 +109,16 @@ test.describe('a join request that has not been approved', () => {
     }
 
     // --- 1. It asks to join: waiting view, and its video is left alone -------
+    // Counted before the request: a tab opened for the host's link would
+    // otherwise be counted into the baseline.
+    const pagesBeforeRequest = requester.context.pages().length
+    const ownVideoUrl = ownVideo.url()
     const beforeWaiting = await position()
     expect(beforeWaiting.seconds).toBeGreaterThan(WATCHING_FROM_SECONDS)
     await request()
     await host.panel.waitForSelector('[data-approve-join]', { timeout: 15_000 })
     await expect(requester.panel.getByText('Waiting for the host to let you in')).toBeVisible()
 
-    const pagesWhileWaiting = requester.context.pages().length
     await ownVideo.waitForTimeout(3_000)
     const afterWaiting = await position()
     const watched = await ownVideo.evaluate(
@@ -117,7 +132,9 @@ test.describe('a join request that has not been approved', () => {
     // even if it then played on past where it had been.
     expect(watched.minimumSeconds).toBeGreaterThanOrEqual(beforeWaiting.seconds - POSITION_TOLERANCE_SECONDS)
     expect(watched.seekedTo.filter(seconds => seconds < beforeWaiting.seconds - POSITION_TOLERANCE_SECONDS)).toEqual([])
-    expect(requester.context.pages().length).toBe(pagesWhileWaiting)
+    // The shared link was not opened for it, in a new tab or in its own.
+    expect(requester.context.pages().length).toBe(pagesBeforeRequest)
+    expect(ownVideo.url()).toBe(ownVideoUrl)
 
     // --- 2. It withdraws the request: the host's list empties ----------------
     await requester.panel.click('#leave-room')
@@ -137,5 +154,8 @@ test.describe('a join request that has not been approved', () => {
     await host.panel.click('[data-approve-join]')
     await requester.panel.waitForSelector('#copy-code', { timeout: 15_000 })
     await expect(requester.panel.locator('#copy-code .font-mono').first()).toHaveText(roomCode!)
+    // A member's browser does open the shared link, so step 1 above could
+    // have failed.
+    await expect.poll(() => requester.context.pages().length, { timeout: 15_000 }).toBeGreaterThan(pagesBeforeRequest)
   })
 })

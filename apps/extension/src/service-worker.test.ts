@@ -1011,25 +1011,35 @@ describe('service worker observed episode identity', () => {
 // uses) directly, deterministically, and without a real browser.
 
 describe('service worker while a join request is pending', () => {
-  // The real coordinator's placeholder, not a hand-written fixture, so a
-  // change to what an unapproved requester receives is exercised here.
-  function pendingPlaceholder(): RoomSnapshot {
+  // The real coordinator, not a hand-written fixture, so a change to what an
+  // unapproved requester receives is exercised here. The host has shared a
+  // link, as it normally has by the time anyone asks to join: without one the
+  // room has no navigation, and "no tab was opened" cannot fail.
+  const SHARED_LINK = 'https://video.example.test/watch/42'
+
+  function roomWithPendingFriend(): RoomCoordinator {
     const room = new RoomCoordinator(
       { roomId: 'room_pending', code: 'ABCDEFGH' },
       { id: 'participant_host', name: 'Muaz', media: { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A private title', durationSeconds: 600 } },
       () => 10_000,
     )
+    const before = room.snapshot()
+    room.openLink('participant_host', { actionId: 'action_share_link', basedOnRevision: before.revision, leaseEpoch: before.controller.leaseEpoch, url: SHARED_LINK })
     room.join({ id: 'participant_friend', name: 'Rana', media: null, sessionToken: 'friend-session-token-000000' })
-    return room.pendingSnapshot('participant_friend')
+    return room
+  }
+
+  function pendingPlaceholder(): RoomSnapshot {
+    return roomWithPendingFriend().pendingSnapshot('participant_friend')
+  }
+
+  // What a coordinator that still sends the whole room to a requester sends.
+  function leakedFullSnapshot(): RoomSnapshot {
+    return roomWithPendingFriend().snapshot()
   }
 
   function approvedSnapshot(): RoomSnapshot {
-    const room = new RoomCoordinator(
-      { roomId: 'room_pending', code: 'ABCDEFGH' },
-      { id: 'participant_host', name: 'Muaz', media: { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A private title', durationSeconds: 600 } },
-      () => 10_000,
-    )
-    room.join({ id: 'participant_friend', name: 'Rana', media: null, sessionToken: 'friend-session-token-000000' })
+    const room = roomWithPendingFriend()
     room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_friend', true)
     return room.snapshot()
   }
@@ -1108,6 +1118,7 @@ describe('service worker while a join request is pending', () => {
     const last = broadcasts(sendMessageMock).at(-1)!.state!
     expect(last.snapshot?.participants).toEqual([])
     expect(JSON.stringify(last)).not.toContain('private title')
+    expect(JSON.stringify(last)).not.toContain('video.example.test')
     expect(fakeChrome.tabs.create).not.toHaveBeenCalled()
     expect(fakeChrome.tabs.update).not.toHaveBeenCalled()
   })
@@ -1126,8 +1137,61 @@ describe('service worker while a join request is pending', () => {
         throw new Error('expected the approved room to be published')
     })
     const last = broadcasts(sendMessageMock).at(-1)!.state!.snapshot!
-    expect(last.media?.canonicalId).toBe('youtube:private-id')
+    expect(last.navigation?.url).toBe(SHARED_LINK)
+    expect(last.media?.pageUrl).toBe(SHARED_LINK)
     expect(last.pendingJoinRequests).toEqual([])
+  })
+
+  describe('and the host has shared a link', () => {
+    const settle = () => new Promise(resolve => setTimeout(resolve, 60))
+
+    it('has a shared link in the fixture, which the approved room carries', () => {
+      expect(approvedSnapshot().navigation?.url).toBe(SHARED_LINK)
+      expect(leakedFullSnapshot().navigation?.url).toBe(SHARED_LINK)
+      expect(pendingPlaceholder().navigation).toBeNull()
+    })
+
+    it('opens no tab for the placeholder', async () => {
+      const { chrome: fakeChrome, socket } = await resumedWaitingWorker()
+
+      socket.simulateMessage({ type: 'room_joined', participantId: 'participant_friend', sessionToken: 'friend-session-token-000000', snapshot: pendingPlaceholder() })
+      await settle()
+
+      expect(fakeChrome.tabs.create).not.toHaveBeenCalled()
+      expect(fakeChrome.tabs.update).not.toHaveBeenCalled()
+    })
+
+    for (const kind of ['room_joined', 'room_snapshot'] as const) {
+      it(`opens no tab when a coordinator sends the whole room in a ${kind} while the request waits`, async () => {
+        const { chrome: fakeChrome, socket } = await resumedWaitingWorker()
+        const leaked = leakedFullSnapshot()
+        expect(leaked.pendingJoinRequests.map(request => request.id)).toEqual(['participant_friend'])
+
+        socket.simulateMessage(kind === 'room_joined'
+          ? { type: 'room_joined', participantId: 'participant_friend', sessionToken: 'friend-session-token-000000', snapshot: leaked }
+          : { type: 'room_snapshot', reason: 'room_updated', snapshot: { ...leaked, revision: leaked.revision + 1 } })
+        await settle()
+
+        expect(fakeChrome.tabs.create).not.toHaveBeenCalled()
+        expect(fakeChrome.tabs.update).not.toHaveBeenCalled()
+      })
+    }
+
+    it('opens the shared page once, after the request is approved, even if the room was sent earlier', async () => {
+      const { chrome: fakeChrome, socket } = await resumedWaitingWorker()
+      socket.simulateMessage({ type: 'room_joined', participantId: 'participant_friend', sessionToken: 'friend-session-token-000000', snapshot: leakedFullSnapshot() })
+      await settle()
+      expect(fakeChrome.tabs.create).not.toHaveBeenCalled()
+
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'join_approved', snapshot: approvedSnapshot() })
+      await vi.waitFor(() => {
+        if (vi.mocked(fakeChrome.tabs.create).mock.calls.length === 0)
+          throw new Error('expected the shared page to be opened after approval')
+      })
+      await settle()
+
+      expect(vi.mocked(fakeChrome.tabs.create).mock.calls).toEqual([[{ url: SHARED_LINK, active: true }]])
+    })
   })
 
   it('leaves the room, with a reason, when the coordinator closes the waiting request as expired, and does not reconnect', async () => {
