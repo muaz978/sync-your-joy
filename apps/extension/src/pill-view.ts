@@ -35,8 +35,10 @@ export function pillView(input: PillViewInput): PillView {
 
   // A pending request is not a member: the placeholder snapshot has no
   // participants, so the member copy below ("Member, 0 connected", a
-  // different-episode hint) would be wrong, and none of the room's controls
-  // apply. Say what is actually happening and offer nothing to press.
+  // different-episode hint) would be wrong, and the room's playback controls
+  // do not apply. Say what is actually happening, hide Play/Pause and disable
+  // Sync. Room (which opens the panel, where the request can be cancelled) and
+  // hide stay usable; they are not part of this view.
   if (isAwaitingApproval(state)) {
     const copy = pendingPillCopy(state.connection)
     return {

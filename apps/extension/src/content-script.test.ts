@@ -1330,6 +1330,22 @@ describe('a notice about a room that has ended', () => {
     listener({ type: 'APPLY_ROOM_STATE', state })
   }
   const roomEndedNotice = (message = EXPIRED) => listener({ type: 'SHOW_NOTICE', message, roomEnded: true })
+  // A requester's first snapshot for another room: the placeholder the
+  // coordinator sends before the host has let it in, with no participants and
+  // only its own request listed.
+  const requestToJoinAnotherRoom = () => {
+    state = { ...structuredClone(state), connection: 'connected', lastError: null }
+    state.snapshot = {
+      roomId: 'other', code: 'OTHERROM', revision: 0,
+      controller: { participantId: '', leaseEpoch: 0 },
+      media: null, playback: { status: 'paused', positionSeconds: 0, effectiveAtServerMs: 0, playbackRate: 1 },
+      navigation: null, seek: null,
+      participants: [],
+      pendingJoinRequests: [{ id: state.participantId, name: 'Guest', requestedAtMs: 1 }],
+      policy: { buffering: 'pause-all' },
+    }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+  }
   const joinAnotherRoom = () => {
     state = { ...structuredClone(state), connection: 'connected', lastError: null }
     state.snapshot = {
@@ -1456,6 +1472,42 @@ describe('a notice about a room that has ended', () => {
 
     expect(pillHost.style.display).toBe('none')
     expect(pill('#syj-meta').textContent).not.toBe(EXPIRED)
+  })
+
+  it('is not shown again when a room that was only asked to join while it was up is left', async () => {
+    endRoom()
+    roomEndedNotice()
+    await vi.advanceTimersByTimeAsync(2_000)
+    requestToJoinAnotherRoom()
+    // The waiting pill is what the page shows now, not the old message.
+    expect(pill('#syj-status').textContent).toBe('Waiting for the host')
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    endRoom(null)
+
+    expect(pillHost.style.display).toBe('none')
+    expect(pill('#syj-meta').textContent).not.toBe(EXPIRED)
+  })
+
+  it('does not write an ordinary notice under the room-ended message', () => {
+    endRoom()
+    roomEndedNotice()
+
+    listener({ type: 'SHOW_NOTICE', message: 'The room controller owns playback.' })
+
+    expect(pill('#syj-meta').textContent).toBe(EXPIRED)
+    expect(pill('#syj-notice').textContent).toBe('')
+  })
+
+  it('writes ordinary notices again once the room-ended message is gone', async () => {
+    endRoom()
+    roomEndedNotice()
+    await vi.advanceTimersByTimeAsync(8_000)
+    joinAnotherRoom()
+
+    listener({ type: 'SHOW_NOTICE', message: 'The room controller owns playback.' })
+
+    expect(pill('#syj-notice').textContent).toBe('The room controller owns playback.')
   })
 
   it('hides the actions row with the hidden attribute, which the row\'s own display rule would override', () => {

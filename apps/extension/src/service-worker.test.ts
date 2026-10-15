@@ -1133,6 +1133,11 @@ describe('service worker while a join request is pending', () => {
       .map(([event]) => event as { type?: string, state?: { snapshot: RoomSnapshot | null, lastError: string | null, connection: string } })
       .filter(event => event.type === 'ROOM_STATE_UPDATED')
 
+  // The notices a page was sent, whichever tab it was.
+  const notices = (fakeChrome: typeof chrome) =>
+    vi.mocked(fakeChrome.tabs.sendMessage).mock.calls
+      .filter(([, message]) => (message as { type?: string }).type === 'SHOW_NOTICE')
+
   it('keeps the placeholder and its waiting entry, and opens no tab, when the coordinator re-sends it', async () => {
     const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker()
 
@@ -1271,19 +1276,30 @@ describe('service worker while a join request is pending', () => {
     expect(vi.mocked(fakeChrome.alarms.create).mock.calls.length).toBe(alarmsBefore)
   })
 
-  it('still reconnects after an ordinary dropped connection', async () => {
-    const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker()
+  // The coordinators close sockets for reasons other than a room that has
+  // ended: a session taken over by the same participant's newer connection, a
+  // client that sent too much, a test's forced disconnect, and a plain drop.
+  // Only the reason `room_expired` means the room is gone; for any other the
+  // room is still there and the connection is brought back.
+  for (const [code, reason] of [[1006, ''], [1000, 'session_replaced'], [1008, 'rate_limited'], [4002, 'test_disconnect']] as const) {
+    it(`still reconnects after an ordinary dropped connection (${code} ${reason === '' ? 'with no reason' : reason})`, async () => {
+      const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker({ boundPlayer: true })
+      vi.mocked(fakeChrome.tabs.sendMessage).mockClear()
 
-    socket.simulateClose(1006, '')
+      socket.simulateClose(code, reason)
 
-    await vi.waitFor(() => {
-      const last = broadcasts(sendMessageMock).at(-1)?.state
-      if (last?.connection !== 'reconnecting')
-        throw new Error('expected a reconnect to be scheduled')
+      await vi.waitFor(() => {
+        const last = broadcasts(sendMessageMock).at(-1)?.state
+        if (last?.connection !== 'reconnecting')
+          throw new Error('expected a reconnect to be scheduled')
+      })
+      expect(broadcasts(sendMessageMock).at(-1)!.state!.snapshot).not.toBeNull()
+      expect(broadcasts(sendMessageMock).at(-1)!.state!.lastError).toBeNull()
+      expect(fakeChrome.alarms.create).toHaveBeenCalled()
+      // The page the participant is watching is not told a room has ended.
+      expect(notices(fakeChrome)).toEqual([])
     })
-    expect(broadcasts(sendMessageMock).at(-1)!.state!.snapshot).not.toBeNull()
-    expect(fakeChrome.alarms.create).toHaveBeenCalled()
-  })
+  }
 
   it('leaves the room when a reconnect finds that the room no longer exists', async () => {
     const { sendMessageMock, socket } = await resumedWaitingWorker()
@@ -1485,9 +1501,6 @@ describe('service worker while a join request is pending', () => {
   })
 
   describe('with a player tab bound and the side panel closed', () => {
-    const notices = (fakeChrome: typeof chrome) =>
-      vi.mocked(fakeChrome.tabs.sendMessage).mock.calls
-        .filter(([, message]) => (message as { type?: string }).type === 'SHOW_NOTICE')
     // The page is detached from the room first; that it arrives proves the
     // binding was live when the room ended.
     const pageDetached = (fakeChrome: typeof chrome) =>

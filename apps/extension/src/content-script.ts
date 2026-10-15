@@ -1996,6 +1996,10 @@ function consumeExpectedSeek(): boolean {
 function showNotice(message: string, sticky = false): void {
   if (!noticeElement)
     return
+  // While the notice about a room that has ended is up there is no room for
+  // this one to be about, and its line sits under that message.
+  if (roomlessNotice !== null)
+    return
   noticeElement.textContent = message
   if (sticky)
     return
