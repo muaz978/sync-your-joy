@@ -9299,3 +9299,54 @@
 ## Historical Checkpoint Notes
 - Checkpoint 106 recorded the 0.2.6 release preparation. This checkpoint supersedes nothing.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R3 (local room service survives rejected frames), tracking issue #119.
+- Checkpoint number: 110.
+- Date and time: 2026-10-15, Europe/Istanbul.
+- Coverage period: Since checkpoint 108 (checkpoint 109 is reserved for phase R2).
+- Current context status: Implemented and verified locally on branch `fix/room-service-socket-error-handler`, based on `88f2d89`. Not merged, released or deployed.
+
+## User Objective and Requirements
+- Close the defect found while reviewing the `ws` bump: the local room service has no error listener on its server-side sockets. Rules unchanged: no attribution, no closing keywords, exact-head review, required checks.
+
+## Complete Chronological Activity Log
+
+### Finding
+- Reproduced against the real `createRoomService` under ws 8.21.3 and 8.22.0: one frame that ws rejects (16,385 bytes, invalid UTF-8 in a text frame, an unmasked frame, too many fragments) from a client with an allowed Origin makes ws start the close handshake with the matching status code and then emit `'error'` on the socket. With no listener the emit is thrown and the Node process exits, losing every in-memory room. During E2E the service runs inside the global-setup process, so the run aborts too. Severity S2; the Cloudflare coordinator is not affected (workerd).
+- The size check at `apps/room-service/src/server.ts` after `rawData.toString()` is not unreachable as the review first read: it fires for a binary frame of invalid UTF-8 that decodes to three bytes per replacement character.
+
+### Fix
+- `apps/room-service/src/server.ts`: `socket.on('error', ...)` in the connection handler with a comment on why the listener is required; comment on the decoded-size check.
+- `apps/room-service/src/server.test.ts`: three tests with a bystander client: an oversized frame closes the sender with 1009, invalid UTF-8 in a text frame closes it with 1007, and a binary frame that decodes past the limit closes it with 1009; in each case another client is still served (`pong`).
+
+### Verification (local, synthetic fixtures)
+- Red on the unfixed `server.ts`: the run fails with two unhandled errors (`RangeError: Max payload size exceeded`, `Invalid WebSocket frame: invalid UTF-8 sequence`) and exit code 1; the individual assertions pass because the failure is the process-level error. Green with the fix.
+
+## Confirmed Successful Results
+- The three rejected-frame cases close with the right status code and leave the service running.
+
+## Failed, Incomplete, or Unresolved Work
+- A request or abuse source that is allowed by Origin can still open sockets up to the existing per-IP limits; not changed here.
+
+## Decisions and Rationale
+- A no-op listener rather than logging: ws has already chosen the close code, the `'close'` handler does the cleanup, and the service has no logger to route to.
+
+## Files and Artifacts
+- `apps/room-service/src/server.ts`, `apps/room-service/src/server.test.ts`, `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- Other abusive frames that make ws raise (unmasked frame, more than the fragment limit) take the same path; only the three cases above are pinned by tests.
+
+## Open Questions, Blockers, and Dependencies
+- None.
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA.
+2. Phases R2, R4, R5 as listed on #119.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
