@@ -43,7 +43,7 @@
 - Automatic drift handling: ignore small drift, temporarily adjust playback rate for moderate drift, and seek for large drift.
 - Debounced buffering detection with pause-for-everyone behavior.
 - Monotonic room revisions, ordered rapid controls under the current controller lease, duplicate action suppression, and snapshot recovery.
-- Controller disconnect pause, ten-second recovery grace period, and deterministic handoff.
+- Controller disconnect pause, ten-second recovery grace period, and deterministic handoff. A recovery planned when the host leaves while members are present waits 10 seconds; one re-armed when a member returns after an outage, or derived when a room is restored, waits 20 seconds.
 - Light and dark themes with a restrained neumorphic control treatment.
 - Local test player that accepts a device-local video through an object URL.
 - Cloudflare Worker routing each room code to one stateful Durable Object.
