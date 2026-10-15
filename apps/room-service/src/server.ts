@@ -77,6 +77,11 @@ export interface RoomServiceOptions {
   now?: () => number
   /** How often rooms are checked for deadlines and expiry. Defaults to 100 ms. */
   cleanupIntervalMs?: number
+  /**
+   * How long a disconnected controller is given to come back before control
+   * passes to a connected member. Defaults to 10 seconds; tests shorten it.
+   */
+  controllerGraceMs?: number
 }
 
 export async function createRoomService(options: RoomServiceOptions = {}): Promise<RoomService> {
@@ -288,19 +293,8 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
         broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
 
       const snapshot = room.coordinator.snapshot()
-      if (snapshot.controller.participantId === client.participantId) {
-        const timerKey = `${client.roomCode}:${client.participantId}`
-        const priorTimer = recoveryTimers.get(timerKey)
-        if (priorTimer)
-          clearTimeout(priorTimer)
-
-        recoveryTimers.set(timerKey, setTimeout(() => {
-          recoveryTimers.delete(timerKey)
-          const recovery = room.coordinator.transferDisconnectedController()
-          if (recovery?.ok)
-            broadcast(room, { type: 'room_snapshot', reason: recovery.reason, snapshot: recovery.snapshot })
-        }, CONTROLLER_GRACE_MS))
-      }
+      if (snapshot.controller.participantId === client.participantId)
+        scheduleControllerRecovery(room, client.roomCode, client.participantId)
 
       if (room.emptySinceMs === null && !room.coordinator.hasConnectedParticipants())
         room.emptySinceMs = now()
@@ -407,10 +401,13 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
 
       const pendingRequest = result.reason === 'join_pending'
       entry.sockets.add(socket)
-      if (pendingRequest)
+      if (pendingRequest) {
         entry.pending.add(socket)
-      else
+      }
+      else {
         entry.emptySinceMs = null
+        armControllerRecovery(entry, message.code)
+      }
       clients.set(socket, { socket, participantId: message.participantId, roomCode: message.code })
       for (const priorSocket of entry.sockets) {
         if (priorSocket === socket)
@@ -584,6 +581,40 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
         // Already closing or closed; the 'close' handler cleans up either way.
       }
     }
+  }
+
+  // Gives a disconnected controller a grace period to come back, then hands
+  // control to the longest-connected member. If nobody is connected when the
+  // period runs out there is nobody to hand control to and the plan lapses;
+  // armControllerRecovery() makes a new one when somebody returns.
+  function scheduleControllerRecovery(room: RoomEntry, code: string, controllerId: string): void {
+    const timerKey = `${code}:${controllerId}`
+    const priorTimer = recoveryTimers.get(timerKey)
+    if (priorTimer)
+      clearTimeout(priorTimer)
+
+    recoveryTimers.set(timerKey, setTimeout(() => {
+      recoveryTimers.delete(timerKey)
+      const recovery = room.coordinator.transferDisconnectedController()
+      if (recovery?.ok)
+        broadcast(room, { type: 'room_snapshot', reason: recovery.reason, snapshot: recovery.snapshot })
+    }, options.controllerGraceMs ?? CONTROLLER_GRACE_MS))
+  }
+
+  // Controller recovery is derived from membership, like the empty-room
+  // clock: while the controller is disconnected and somebody is connected, a
+  // recovery must be pending. The plan made when the controller left lapses if
+  // its grace period ran out with nobody connected, so one is made again when
+  // a member comes back; otherwise a host that is no longer there would keep
+  // control of the room for as long as the members stay.
+  function armControllerRecovery(room: RoomEntry, code: string): void {
+    const snapshot = room.coordinator.snapshot()
+    const controller = snapshot.participants.find(participant => participant.id === snapshot.controller.participantId)
+    if (!controller || controller.connected || !room.coordinator.hasConnectedParticipants())
+      return
+    if (recoveryTimers.has(`${code}:${controller.id}`))
+      return
+    scheduleControllerRecovery(room, code, controller.id)
   }
 
   const cleanupTimer = setInterval(() => {

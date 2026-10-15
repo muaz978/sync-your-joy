@@ -1032,6 +1032,79 @@ describe('empty room expiry with unapproved requests', () => {
   })
 })
 
+describe('controller recovery', () => {
+  const GRACE_MS = 60
+  const media = { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A title', durationSeconds: 600 }
+
+  async function roomWithApprovedFriend() {
+    service = await createRoomService({ port: 0, controllerGraceMs: GRACE_MS, cleanupIntervalMs: 10 })
+    const host = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'RECV1234', media,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    const code = created.snapshot.code
+
+    const friend = await connect(service.url)
+    const hostNotice = nextMessage(host)
+    friend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null,
+    }))
+    const friendJoined = await nextMessage(friend)
+    if (friendJoined.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    await hostNotice
+    const hostApproved = nextMessage(host)
+    const friendApproved = nextMessage(friend)
+    host.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_friend', approve: true, actionId: 'action_approve_friend', basedOnRevision: 0, leaseEpoch: 1,
+    }))
+    await Promise.all([hostApproved, friendApproved])
+    return { host, friend, code, friendToken: friendJoined.sessionToken }
+  }
+
+  async function until(condition: () => boolean, what: string, timeoutMs = 3_000): Promise<void> {
+    const deadline = AbortSignal.timeout(timeoutMs)
+    while (!condition()) {
+      if (deadline.aborted)
+        throw new Error(`Timed out waiting for ${what}.`)
+      await new Promise<void>(resolve => setTimeout(resolve, 5))
+    }
+  }
+
+  it('hands control to a connected member when the controller does not return in time', async () => {
+    const { host, friend } = await roomWithApprovedFriend()
+
+    host.close()
+    const recovered = await nextRoomSnapshot(friend, 'controller_recovered')
+
+    expect(recovered.snapshot.controller.participantId).toBe('participant_friend')
+    friend.close()
+  })
+
+  it('hands control to a member that returns after the grace period lapsed with nobody connected', async () => {
+    const { host, friend, code, friendToken } = await roomWithApprovedFriend()
+
+    host.close()
+    friend.close()
+    await until(() => service!.inspectRoom(code)?.connectedParticipants === false, 'everyone to be gone')
+    // Long enough for the grace period to run out with nobody to take control.
+    await new Promise<void>(resolve => setTimeout(resolve, GRACE_MS * 4))
+
+    const back = await connect(service!.url)
+    back.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null, sessionToken: friendToken,
+    }))
+    await expect(nextMessage(back)).resolves.toMatchObject({ type: 'room_joined' })
+    const recovered = await nextRoomSnapshot(back, 'controller_recovered')
+
+    expect(recovered.snapshot.controller.participantId).toBe('participant_friend')
+    back.close()
+  })
+})
+
 async function connect(url: string): Promise<WebSocket> {
   // A real browser (including the extension) always sends Origin on a
   // WebSocket handshake; originAllowed() now rejects a missing one, so the

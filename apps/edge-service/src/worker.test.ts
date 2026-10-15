@@ -304,7 +304,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
   const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
   const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
   const startMs = 1_900_000_000_000
-  type Inspect = { emptySinceMs: number | null, coordinator: { snapshot: () => { participants: Array<{ id: string, connected: boolean }>, pendingJoinRequests: Array<{ id: string }> } } | null, pendingController: { participantId: string } | null }
+  type Inspect = { emptySinceMs: number | null, coordinator: { snapshot: () => { participants: Array<{ id: string, connected: boolean }>, pendingJoinRequests: Array<{ id: string }>, controller: { participantId: string } } } | null, pendingController: { participantId: string } | null }
   const inspect = (room: InstanceType<typeof RoomDurableObject>) => room as unknown as Inspect
   // The restore step runs inside the object's constructor; waiting for it
   // lets a test look at what restoring alone did, before any alarm or message.
@@ -512,5 +512,75 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     await say(room, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA })
 
     expect(alarms.at(-1)).toBe(startMs + MAX_ROOM_LIFETIME_MS)
+  })
+
+  describe('controller recovery', () => {
+    const CONTROLLER_GRACE_MS = 10_000
+    const controllerOf = (room: InstanceType<typeof RoomDurableObject>) => inspect(room).coordinator?.snapshot().controller.participantId
+    const sessionTokenOf = (socket: FakeSocket) => {
+      const joined = socket.sent.find(message => message.type === 'room_joined')
+      if (joined?.type !== 'room_joined')
+        throw new Error('Expected the socket to have joined')
+      return joined.sessionToken
+    }
+    const attach = (room: InstanceType<typeof RoomDurableObject>, sockets: FakeSocket[]) => {
+      ;(room as unknown as { ctx: { getWebSockets: () => FakeSocket[] } }).ctx.getWebSockets = () => sockets
+    }
+
+    async function hostAndApprovedFriend() {
+      const { host, friend, first } = await roomWithHostAndRequest()
+      await say(first, host, approve)
+      return { host, friend, first }
+    }
+
+    it('hands control to a connected member when the controller does not return in time', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+
+      await first.webSocketClose(host as never)
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+
+      expect(controllerOf(first)).toBe('participant_friend')
+      expect(friend.last()).toMatchObject({ type: 'room_snapshot', reason: 'controller_recovered' })
+    })
+
+    it('keeps control with a controller that returns within the grace period', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const hostToken = sessionTokenOf(host)
+
+      await first.webSocketClose(host as never)
+      const back = new FakeSocket()
+      attach(first, [back, friend])
+      vi.setSystemTime(startMs + 5_000)
+      await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA, sessionToken: hostToken })
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+
+      expect(controllerOf(first)).toBe('participant_host')
+    })
+
+    it('hands control to a member that returns after the grace period lapsed with nobody connected', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const friendToken = sessionTokenOf(friend)
+
+      // Every connection drops at once, as in a deploy, and the grace period
+      // runs out with nobody there to hand control to.
+      await first.webSocketClose(host as never)
+      await first.webSocketClose(friend as never)
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+      expect(controllerOf(first)).toBe('participant_host')
+
+      // The member comes back; the host does not.
+      const back = new FakeSocket()
+      attach(first, [back])
+      await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      expect(back.last()).toMatchObject({ type: 'room_joined' })
+      vi.setSystemTime(startMs + 2 * CONTROLLER_GRACE_MS + 2_000)
+      await first.alarm()
+
+      expect(controllerOf(first)).toBe('participant_friend')
+      expect(back.last()).toMatchObject({ type: 'room_snapshot', reason: 'controller_recovered' })
+    })
   })
 })

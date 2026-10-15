@@ -224,6 +224,31 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   /**
+   * Controller recovery is derived from membership, like the empty-room
+   * clock: while the controller is disconnected and somebody is connected, a
+   * recovery must be pending. The plan made when the controller left is
+   * dropped by the alarm if its grace period ran out with nobody connected, so
+   * one is made again when a member comes back; otherwise a host that is no
+   * longer there would keep control of the room for as long as the members
+   * stay.
+   */
+  private armControllerRecovery(): void {
+    const coordinator = this.coordinator
+    if (!coordinator || this.pendingController)
+      return
+
+    const snapshot = coordinator.snapshot()
+    const controller = snapshot.participants.find(participant => participant.id === snapshot.controller.participantId)
+    if (!controller || controller.connected || !coordinator.hasConnectedParticipants())
+      return
+
+    this.pendingController = {
+      participantId: controller.id,
+      recoverAtMs: Date.now() + CONTROLLER_GRACE_MS,
+    }
+  }
+
+  /**
    * Closes sockets best effort. close() can throw for a socket that is
    * already closing; one failure must not abort an expiry before the room's
    * storage is deleted or leave the remaining sockets unnotified.
@@ -508,8 +533,10 @@ export class RoomDurableObject extends DurableObject<Env> {
       // empty-room expiry: otherwise one unapproved request keeps an
       // otherwise empty room alive.
       const pendingRequest = result.reason === 'join_pending'
-      if (!pendingRequest)
+      if (!pendingRequest) {
         this.emptySinceMs = null
+        this.armControllerRecovery()
+      }
       await this.persistAndObserve(() => {
         this.send(socket, {
           type: 'room_joined',
