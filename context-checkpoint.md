@@ -9358,11 +9358,74 @@
 
 ## Historical Checkpoint Notes
 - Checkpoint 107 recorded the pending-join fix. This checkpoint supersedes nothing.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R2 (deploy safety for the Durable Object coordinator), tracking issue #119.
+- Checkpoint number: 109.
+- Date and time: 2026-10-15, Europe/Istanbul.
+- Coverage period: Since checkpoint 108 (dependency batch merged as #121, `e4565bf`).
+- Current context status: Implemented and verified locally on branch `fix/edge-do-immediate-code-update`, based on `e4565bf`. Not merged, released or deployed. Nothing was sent to Cloudflare.
+
+## User Objective and Requirements
+- Make a coordinator deploy or rollback apply Durable Object code immediately, so a security fix reaches live rooms at once and a bad build can be rolled back at once, with no deploy possible between the wrangler bump and the pin. Rules unchanged.
+
+## Complete Chronological Activity Log
+
+### Finding (from the review of the dependency batch)
+- wrangler 4.141.0 added Durable Object code-update strategies and from then on sends `code_update_strategy {mode: deferred, max_delay: 300}` on `wrangler deploy`, `versions deploy` and `rollback`; 4.135.0 sent nothing. The coordinator declares a Durable Object export, so deploy attaches it to the upload metadata and rollback to the deployments request body. Confirmed again on this tree: `wrangler deploy --dry-run --outfile` produced `"code_update_strategy":{"mode":"deferred","max_delay":300}` before the pin and `{"mode":"immediate"}` after it.
+- A rollback that does not read `wrangler.jsonc` (only `--name`, or from a directory without the config) still sends deferred 300 s; the documented `npx wrangler rollback` was exactly that.
+
+### Fix
+- `apps/edge-service/wrangler.jsonc`: `durable_objects.code_update_strategy: {"mode": "immediate"}` with a comment on why.
+- `package.json`: `rollback:edge` runs `wrangler rollback --config apps/edge-service/wrangler.jsonc --durable-objects-code-update-mode immediate`; the explicit flag makes a wrangler that no longer knows the option fail loudly.
+- `tests/deploy-config.test.ts`: pins the config value, requires `--config` on `deploy:edge`, `rollback:edge` and the deploy workflow plus the explicit flag on rollback, and runs the installed wrangler's `deploy --dry-run --outfile` (no network or credentials) asserting the upload metadata carries `immediate` and not `deferred`.
+- `docs/RELEASING.md`, `README.md`, `docs/V0_2_5_CONTROLLED_TEST_SESSION.md`: deploy, record-the-active-version and rollback instructions use the new script and explain the config-less rollback caveat.
+
+### Verification (local; no credentials, no network to Cloudflare)
+- Red with the pin and the script reverted: all three new tests fail. Green with the change.
+- Rollback rehearsal against an in-process fake Cloudflare API (network disabled): `npm run rollback:edge -- <id>` and `wrangler rollback <id> --config apps/edge-service/wrangler.jsonc` both POST `{"mode":"immediate"}`; `wrangler rollback <id> --name sync-your-joy-rooms` without a config POSTs `{"mode":"deferred","max_delay":300}`. Fake-API harness: `scratchpad/open-pr-review/dd-relnotes/tools/mock-cf.mjs` (not committed; it depends on wrangler's internal undici).
+
+## Confirmed Successful Results
+- Deploy and rollback with the pinned config send an immediate Durable Object code update; the unpinned rollback path is documented rather than hidden.
+
+## Failed, Incomplete, or Unresolved Work
+- What Cloudflare's servers do with `immediate` versus `deferred` was not observed: no credentials and no remote call were made. That is an owner-gated check (phase R8).
+- A rollback started from the Cloudflare dashboard was not examined.
+- The pin is ignored by wrangler older than 4.141.0; the lockfile resolves 4.147.0.
+
+## Decisions and Rationale
+- Config pin plus an explicit flag on rollback only: the deploy path is covered by the config and by the dry-run test, while a rollback is the path most likely to be run without the config.
+- The rollback request itself is not covered by a repository test: it needs a fake Cloudflare API tied to wrangler's internal HTTP client, which would break on wrangler bumps for reasons unrelated to this setting. It was rehearsed once and recorded above.
+
+## Files and Artifacts
+- `apps/edge-service/wrangler.jsonc`, `tests/deploy-config.test.ts`, `package.json`, `README.md`, `docs/RELEASING.md`, `docs/V0_2_5_CONTROLLED_TEST_SESSION.md`, `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- `exports` declares the Durable Object, which routes deploy through the legacy upload path where the strategy is attached; a future wrangler could attach it elsewhere. The dry-run test would catch a change in the upload metadata.
+
+## Open Questions, Blockers, and Dependencies
+- The first real deploy after this merges needs the owner's approval and a recorded rollback target (phase R8).
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA.
+2. Phases R4, R5 as listed on #119, then the owner-gated deploy.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+
+# Context Checkpoint
+
+## Session Metadata
 - Task or project: SyncYourJoy review coverage remediation, phase R3 (local room service survives rejected frames), tracking issue #119.
 - Checkpoint number: 110.
 - Date and time: 2026-10-15, Europe/Istanbul.
 - Coverage period: Since checkpoint 108 (checkpoint 109 is reserved for phase R2).
-- Current context status: Implemented and verified locally on branch `fix/room-service-socket-error-handler`, based on `88f2d89`. Not merged, released or deployed.
+- Current context status: Implemented and verified locally on branch `fix/room-service-socket-error-handler`, based on `88f2d89` and then brought up to date with `e4565bf` (the dependency batch, checkpoint 108). Not merged, released or deployed.
 
 ## User Objective and Requirements
 - Close the defect found while reviewing the `ws` bump: the local room service has no error listener on its server-side sockets. Rules unchanged: no attribution, no closing keywords, exact-head review, required checks.

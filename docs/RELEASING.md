@@ -13,6 +13,15 @@ The Worker is deployed separately from extension releases. Add a GitHub Actions 
 
 Local deployment requires an authenticated Wrangler session (`npx wrangler login`) or a `CLOUDFLARE_API_TOKEN` environment variable. The account must own the Cloudflare Worker configured in `apps/edge-service/wrangler.jsonc`.
 
+### Durable Object code updates are immediate
+
+Wrangler 4.141.0 and later send a deferred Durable Object code update with a 300 second maximum delay on every deploy, `versions deploy` and rollback unless told otherwise. For the coordinator that would leave old code serving live rooms for up to five minutes after a security fix, or after a rollback of a bad build. `apps/edge-service/wrangler.jsonc` therefore pins `durable_objects.code_update_strategy` to `{ "mode": "immediate" }`, and `tests/deploy-config.test.ts` fails if the pin, the commands that must read it, or wrangler's own behavior drift.
+
+- Deploy with `npm run deploy:edge` or the **Deploy room coordinator** workflow; both pass `--config apps/edge-service/wrangler.jsonc`.
+- Before a deploy, record the active Version ID (`npx wrangler deployments status --config apps/edge-service/wrangler.jsonc`) so there is a rollback target.
+- Roll back with `npm run rollback:edge -- <version-id> -m "<reason>"`. It passes `--config` and `--durable-objects-code-update-mode immediate`. A rollback run without `--config` (for example only `--name sync-your-joy-rooms`, or from the Cloudflare dashboard) does not read the pin and may be deferred by up to five minutes; the explicit flag also makes a wrangler that does not know the option fail loudly instead of silently deferring.
+- The pin is silently ignored by wrangler releases older than 4.141.0. The lockfile resolves a newer one; keep it that way.
+
 ## What the workflow verifies
 
 When a tag matching `vMAJOR.MINOR.PATCH` is pushed, `.github/workflows/release.yml`:

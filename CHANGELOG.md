@@ -28,7 +28,7 @@ Where an entry applies: unmarked entries are coordinator changes and take effect
 ### Changed
 
 - Maintenance, no runtime change: `ws` 8.22.0 for the local room service, the dev-dependency group (wrangler 4.147.0, vitest 5.0.3, tsx, type packages), and `github/codeql-action` init, analyze and upload-sarif together at v4.38.3. The shipped extension bundle, local service bundle and coordinator Worker bundle are byte-identical to the previous toolchain's. Dependabot now updates the codeql-action family in one pull request, because a split bump fails the required analysis check on its own.
-- Heads-up for operators: wrangler 4.147.0 sends a deferred, 300-second Durable Object code update on every coordinator deploy and rollback unless told otherwise. Do not deploy or roll back the coordinator until the `immediate` pin lands.
+- Coordinator deploys and rollbacks now apply Durable Object code immediately: `apps/edge-service/wrangler.jsonc` pins `durable_objects.code_update_strategy` to `immediate` (wrangler 4.147.0 otherwise sends a deferred, 300-second update on every deploy and rollback), and `npm run rollback:edge -- <version-id>` rolls back with that setting. A rollback run without `--config` is not covered by the pin; see docs/RELEASING.md.
 
 ## [0.2.6] - 2026-09-29
 

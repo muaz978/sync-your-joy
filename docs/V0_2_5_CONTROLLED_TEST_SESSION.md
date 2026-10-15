@@ -133,7 +133,7 @@ The output must contain no runtime files. At `15680494f939bffbd84f4ab395dc70b8a2
 
 - A deployment changes the production coordinator for every current user and room. It needs explicit user authorization for that specific run.
 - Never paste, request or print a Cloudflare token. The workflow uses the repository secret.
-- Before deploying, record the currently active Version ID (last recorded: `209278f7-9154-4ad0-974a-3ad565a67581`). There is no rollback workflow, so a rollback needs an operator with Cloudflare access running `npx wrangler rollback`.
+- Before deploying, record the currently active Version ID (last recorded: `209278f7-9154-4ad0-974a-3ad565a67581`). There is no rollback workflow, so a rollback needs an operator with Cloudflare access running `npm run rollback:edge -- <version-id> -m "<reason>"` (it passes `--config` and the immediate Durable Object update mode; a bare `npx wrangler rollback` is deferred by up to five minutes, see docs/RELEASING.md).
 
 ### 1.4 Gate 0: identity verification before the session
 
