@@ -9475,8 +9475,8 @@
 - Task or project: SyncYourJoy review coverage remediation, phase R4 (coordinator lifecycle hardening), tracking issue #119.
 - Checkpoint number: 111.
 - Date and time: 2026-10-15, Europe/Istanbul.
-- Coverage period: Since checkpoint 110 (phases R1 and R3 merged as #121 and #122; R2 is #126).
-- Current context status: Implemented and verified locally on branch `fix/coordinator-lifecycle-hardening`, built on `88f2d89` and brought up to date with `d04338a`. Not merged, released or deployed.
+- Coverage period: Since checkpoint 110 (phases R1, R2 and R3 merged as #121, #126 and #122).
+- Current context status: Implemented and verified locally on branch `fix/coordinator-lifecycle-hardening`, built on `88f2d89` and brought up to date with `61a38f7` (the merge of #126). Not merged, released or deployed.
 
 ## User Objective and Requirements
 - Close the S3 follow-ups of the review of #120 and of the residual-evidence audit, before any coordinator deploy. Rules unchanged.
