@@ -8,7 +8,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { chromium, type BrowserContext, type Page } from '@playwright/test'
+import { chromium, type BrowserContext, type Page, type Worker } from '@playwright/test'
 import {
   artifactFileName,
   sanitizeBrowserUrl,
@@ -44,11 +44,12 @@ export interface ExtensionProfile {
    */
   storageStateSessionCheck?: StorageStateSessionCheck
   /**
-   * The extension's side panel, opened here as an ordinary tab at its
-   * chrome-extension:// URL rather than docked into the browser's side
-   * panel UI region. See the "Why the panel is opened as a tab" note in
-   * tests/e2e/two-profile-sync.spec.ts for exactly why this is the real
-   * panel's own HTML/JS and not a stand-in for it.
+   * The extension's side panel, opened here as an ordinary page at its
+   * chrome-extension:// URL, in a window of its own, rather than docked into
+   * the browser's side panel UI region. See the "Why the panel is not the
+   * docked side panel" note in tests/e2e/two-profile-sync.spec.ts for exactly
+   * why this is the real panel's own HTML/JS and not a stand-in for it, and
+   * openPanelWindow() below for why it has a window of its own.
    */
   panel: Page
   close: () => Promise<void>
@@ -177,8 +178,7 @@ export async function launchExtensionProfile(
     const extensionId = new URL(serviceWorker.url()).host
     await recordEvent('service-worker-ready', { extensionId })
 
-    const panel = await browserContext.newPage()
-    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`)
+    const panel = await openPanelWindow(browserContext, serviceWorker, extensionId)
     await panel.waitForSelector('#create-form, #join-form')
     const privacyAccept = panel.locator('#privacy-accept')
     if (await privacyAccept.count() > 0)
@@ -275,6 +275,46 @@ async function applyStorageState(
   const sessionCheck = checkStorageStateSession(state, applied, session, nowSeconds)
   assertStorageStateSession(sessionCheck, label)
   return { check, sessionCheck }
+}
+
+/**
+ * Opens the side panel page in a window of its own.
+ *
+ * A tab in the video tab's window is the wrong place for it. Chrome presents
+ * only the active tab of a window, and the video tab is the one the extension
+ * opens in front of the panel. A background tab is not painted at the normal
+ * rate in Chromium on Linux: its requestAnimationFrame runs at a few hertz,
+ * while the panel replaces its DOM on every room-state heartbeat. Playwright
+ * waits for two consecutive frames with the element in the same place before
+ * it clicks, so every click on the panel's buttons ended as "element is not
+ * stable" there, and nothing after the first click ran.
+ *
+ * Bringing the panel to the front instead hides the video tab, and a hidden
+ * tab presents no frames. The room's own frame-progress check then cancels
+ * the play operation with `manual-recovery` about two seconds in, for a
+ * reason that has nothing to do with synchronization. The extension also
+ * only binds a player from the active tab (shouldAcceptPlayerContext in
+ * apps/extension/src/player-tab.ts), so a hidden video tab could not be bound
+ * again. A docked side panel does neither: it is visible next to the active
+ * tab, as a window of its own is here.
+ *
+ * It is a popup window, which has no tab strip, so the extension keeps opening
+ * the shared video in the profile's ordinary window.
+ */
+async function openPanelWindow(
+  context: BrowserContext,
+  serviceWorker: Worker,
+  extensionId: string,
+): Promise<Page> {
+  const panelUrl = `chrome-extension://${extensionId}/sidepanel.html`
+  const opened = context.waitForEvent('page', {
+    predicate: page => page.url() === panelUrl,
+    timeout: 20_000,
+  })
+  await serviceWorker.evaluate(async (url) => {
+    await chrome.windows.create({ url, type: 'popup', focused: false })
+  }, panelUrl)
+  return await opened
 }
 
 async function readSafePanelState(panel: Page): Promise<Record<string, unknown>> {
