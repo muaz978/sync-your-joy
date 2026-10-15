@@ -692,6 +692,11 @@ async function connect(roomCode: string): Promise<void> {
     }, { once: true })
 
     nextSocket.addEventListener('close', (event) => {
+      // Read before anything below can leave the room, which sets the flag:
+      // the diagnostic is about who closed the socket, not about what this
+      // handler then did.
+      const closedByThisClient = intentionallyClosed
+      let serverEndedRoom = false
       // A stale socket (already replaced by a newer connection, e.g. via
       // startFreshConnection) must not tear down the new socket's ping loop
       // or flip connection state away from whatever the new socket set.
@@ -700,13 +705,14 @@ async function connect(roomCode: string): Promise<void> {
         connectionPromise = null
         stopPingLoop()
 
-        if (!intentionallyClosed && state.snapshot) {
+        if (!closedByThisClient && state.snapshot) {
           // The coordinator closes with this reason only when the room has
           // been removed (its lifetime ended, or nobody was in it for too
           // long). Reconnecting could only end in room_not_found, so leave
           // the room instead of keeping a waiting or room view up for a room
           // that no longer exists.
           if ((event as CloseEvent).reason === 'room_expired') {
+            serverEndedRoom = true
             endRoomBecauseGone(ROOM_EXPIRED_MESSAGE)
           }
           else {
@@ -717,7 +723,7 @@ async function connect(roomCode: string): Promise<void> {
           }
         }
       }
-      recordDiagnostic('connection', 'socket_closed', { intentional: intentionallyClosed })
+      recordDiagnostic('connection', 'socket_closed', { intentional: closedByThisClient, ...(serverEndedRoom ? { serverEndedRoom: true } : {}) })
     })
   })
 

@@ -1194,21 +1194,32 @@ describe('service worker while a join request is pending', () => {
     })
   })
 
+  // Runs `trigger` with timers faked, then lets far more time pass than the
+  // longest reconnect backoff (15 s plus jitter). A check made a few
+  // milliseconds later cannot see a reconnect scheduled for 500 ms or more.
+  // Only setTimeout is faked, and it is faked before `trigger`, so a timer the
+  // trigger schedules is one that is advanced.
+  async function letThePastBackoffElapse(trigger: () => void): Promise<void> {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      trigger()
+      await vi.advanceTimersByTimeAsync(20_000)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  }
+
   it('leaves the room, with a reason, when the coordinator closes the waiting request as expired, and does not reconnect', async () => {
     const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker()
     const alarmsBefore = vi.mocked(fakeChrome.alarms.create).mock.calls.length
 
-    socket.simulateClose(1000, 'room_expired')
+    await letThePastBackoffElapse(() => socket.simulateClose(1000, 'room_expired'))
 
-    await vi.waitFor(() => {
-      const last = broadcasts(sendMessageMock).at(-1)?.state
-      if (last?.snapshot !== null)
-        throw new Error('expected the room to be left')
-    })
     const last = broadcasts(sendMessageMock).at(-1)!.state!
+    expect(last.snapshot).toBeNull()
     expect(last.lastError).toMatch(/expired/i)
     expect(last.connection).toBe('disconnected')
-    await new Promise(resolve => setTimeout(resolve, 30))
     expect(FakeWebSocket.instances).toHaveLength(1)
     expect(vi.mocked(fakeChrome.alarms.create).mock.calls.length).toBe(alarmsBefore)
   })
@@ -1246,44 +1257,100 @@ describe('service worker while a join request is pending', () => {
     const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker()
     const alarmsBefore = vi.mocked(fakeChrome.alarms.create).mock.calls.length
 
-    socket.simulateMessage({ type: 'error', code: 'room_expired', message: 'This room has expired.' })
+    await letThePastBackoffElapse(() => socket.simulateMessage({ type: 'error', code: 'room_expired', message: 'This room has expired.' }))
 
-    await vi.waitFor(() => {
-      const last = broadcasts(sendMessageMock).at(-1)?.state
-      if (last?.snapshot !== null)
-        throw new Error('expected the room to be left')
-    })
     const last = broadcasts(sendMessageMock).at(-1)!.state!
+    expect(last.snapshot).toBeNull()
     expect(last.lastError).toMatch(/has expired/i)
     expect(last.connection).toBe('disconnected')
-    await new Promise(resolve => setTimeout(resolve, 30))
     expect(FakeWebSocket.instances).toHaveLength(1)
     expect(vi.mocked(fakeChrome.alarms.create).mock.calls.length).toBe(alarmsBefore)
   })
 
-  it('keeps a room_expired error as a plain error while this client is not in a room', async () => {
-    const fake = buildFakeChrome({ sessionState: undefined })
-    vi.stubGlobal('chrome', fake.chrome)
-    vi.stubGlobal('WebSocket', FakeWebSocket)
-    await import('./service-worker.ts')
+  // A first join to a wrong or expired code has no snapshot yet. It is an
+  // ordinary failure to join, shown as the server's own error, not the end of
+  // a room this client was in.
+  for (const code of ['room_not_found', 'room_expired'] as const) {
+    it(`shows a ${code} error as the plain join error while this client is not in a room`, async () => {
+      const fake = buildFakeChrome({ sessionState: undefined })
+      vi.stubGlobal('chrome', fake.chrome)
+      vi.stubGlobal('WebSocket', FakeWebSocket)
+      await import('./service-worker.ts')
+      const joined = new Promise<RuntimeResponse>((resolve) => {
+        fake.messageListener({ type: 'JOIN_ROOM', code: 'ABCDEFGH' }, {} as chrome.runtime.MessageSender, response => resolve(response as RuntimeResponse))
+      })
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+      const socket = FakeWebSocket.instances[0]!
+      socket.simulateOpen()
+      await joined
+
+      socket.simulateMessage({ type: 'error', code, message: 'That room code is invalid or has expired.' })
+
+      await vi.waitFor(() => {
+        const last = broadcasts(fake.sendMessageMock).at(-1)?.state
+        if (last?.lastError !== 'That room code is invalid or has expired.')
+          throw new Error('expected the plain error to be published')
+      })
+      // Nothing was left: the server's own message, and the socket untouched.
+      expect(broadcasts(fake.sendMessageMock).at(-1)!.state!.lastError).toBe('That room code is invalid or has expired.')
+      expect(socket.readyState).toBe(FakeWebSocket.OPEN)
+      expect(vi.mocked(fake.chrome.tabs.sendMessage)).not.toHaveBeenCalled()
+    })
+  }
+
+  it('records that the server ended the room, rather than that this client closed the socket', async () => {
+    const fake = await resumedWaitingWorker()
+    await letThePastBackoffElapse(() => fake.socket.simulateClose(1000, 'room_expired'))
+
+    // The events are reported once a room is joined again.
+    vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
     const joined = new Promise<RuntimeResponse>((resolve) => {
-      fake.messageListener({ type: 'JOIN_ROOM', code: 'ABCDEFGH' }, {} as chrome.runtime.MessageSender, response => resolve(response as RuntimeResponse))
+      fake.messageListener({ type: 'JOIN_ROOM', code: 'ZZZZZZZZ' }, {} as chrome.runtime.MessageSender, response => resolve(response as RuntimeResponse))
     })
-    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
-    const socket = FakeWebSocket.instances[0]!
-    socket.simulateOpen()
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    const next = FakeWebSocket.instances[1]!
+    next.simulateOpen()
     await joined
-
-    socket.simulateMessage({ type: 'error', code: 'room_expired', message: 'This room has expired.' })
-
-    await vi.waitFor(() => {
-      const last = broadcasts(fake.sendMessageMock).at(-1)?.state
-      if (last?.lastError !== 'This room has expired.')
-        throw new Error('expected the plain error to be published')
+    next.simulateMessage({
+      type: 'room_joined',
+      participantId: 'participant_friend',
+      sessionToken: 'friend-session-token-000000',
+      snapshot: buildRoomSnapshot({ code: 'ZZZZZZZZ', participants: [{ id: 'participant_friend', name: 'Rana', role: 'member', ready: false, connected: true, mediaMatches: false, latencyMs: null }] }),
     })
-    // Nothing was left and nothing was closed: it only reports the error.
-    expect(broadcasts(fake.sendMessageMock).at(-1)!.state!.lastError).toBe('This room has expired.')
-    expect(socket.readyState).toBe(FakeWebSocket.OPEN)
+    next.simulateMessage({ type: 'diagnostics_requested', reportId: 'report_room_ended' })
+
+    const response = next.sentMessages.find((message): message is { type: 'diagnostics_response', report: DiagnosticsReport } =>
+      (message as { type?: string }).type === 'diagnostics_response')
+    const closes = response!.report.events.filter(event => event.message === 'socket_closed')
+    expect(closes).toHaveLength(1)
+    expect(closes[0]!.details).toMatchObject({ intentional: false, serverEndedRoom: true })
+  })
+
+  it('still records an ordinary dropped connection as neither intentional nor the server ending the room', async () => {
+    const fake = await resumedWaitingWorker()
+    fake.socket.simulateClose(1006, '')
+    await vi.waitFor(() => {
+      if (broadcasts(fake.sendMessageMock).at(-1)?.state?.connection !== 'reconnecting')
+        throw new Error('expected a reconnect')
+    })
+    vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+    const next = await (async () => {
+      await vi.waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(1), { timeout: 3_000 })
+      return FakeWebSocket.instances[1]!
+    })()
+    next.simulateOpen()
+    await vi.waitFor(() => {
+      if (!next.sentMessages.some(message => (message as { type?: string }).type === 'join_room'))
+        throw new Error('expected the reconnect to rejoin')
+    })
+    next.simulateMessage({ type: 'room_joined', participantId: 'participant_friend', sessionToken: 'friend-session-token-000000', snapshot: pendingPlaceholder() })
+    next.simulateMessage({ type: 'diagnostics_requested', reportId: 'report_dropped' })
+
+    const response = next.sentMessages.find((message): message is { type: 'diagnostics_response', report: DiagnosticsReport } =>
+      (message as { type?: string }).type === 'diagnostics_response')
+    const closes = response!.report.events.filter(event => event.message === 'socket_closed')
+    expect(closes[0]!.details).toMatchObject({ intentional: false })
+    expect(closes[0]!.details).not.toHaveProperty('serverEndedRoom')
   })
 
   describe('with a player tab bound and the side panel closed', () => {
