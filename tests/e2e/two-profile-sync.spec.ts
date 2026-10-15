@@ -20,9 +20,9 @@
 //     streaming provider account.
 //
 // What this test does NOT cover: literally clicking Chrome's own docked
-// side-panel UI chrome. See "Why the panel is opened as a tab" at the
-// bottom of this file for exactly what that gap does and does not mean in
-// practice, and docs/TEST_GUIDE.md for a plain-English summary and how to
+// side-panel UI chrome. See "Why the panel is not the docked side panel" at
+// the bottom of this file for exactly what that gap does and does not mean
+// in practice, and docs/TEST_GUIDE.md for a plain-English summary and how to
 // run this.
 import { expect, test, type Page } from '@playwright/test'
 import { dirname, resolve } from 'node:path'
@@ -313,7 +313,7 @@ async function assertPositionsConverge(pageA: Page, pageB: Page): Promise<void> 
   }, { message: 'Both real video timelines should converge.' }).toBeLessThanOrEqual(SYNC_TOLERANCE_SECONDS)
 }
 
-// --- Why the panel is opened as a tab ---------------------------------------
+// --- Why the panel is not the docked side panel ------------------------------
 //
 // The side panel's HTML page (apps/extension/static/sidepanel.html and
 // apps/extension/src/sidepanel.ts) has no dependency on being docked into
@@ -324,7 +324,7 @@ async function assertPositionsConverge(pageA: Page, pageB: Page): Promise<void> 
 // #sync-everyone) runs the
 // exact same real event listener and the exact same real
 // chrome.runtime.sendMessage call whether the page is docked in the side
-// panel or open in an ordinary tab.
+// panel or open as an ordinary page in a window of its own.
 //
 // We investigated driving the *actual* docked side panel first:
 //   - Chrome only opens the real side panel in response to a trusted user
@@ -355,8 +355,13 @@ async function assertPositionsConverge(pageA: Page, pageB: Page): Promise<void> 
 // returns the real, unfiltered global state directly in its response, and
 // every subsequent ROOM_STATE_UPDATED broadcast the panel listens for also
 // carries the real state. We verified this empirically before writing this
-// test: the panel opened as a tab creates a real room against the real
+// test: the panel opened as a page creates a real room against the real
 // room-service and reflects the real, live room snapshot throughout.
+//
+// The panel page has a window of its own, not a tab in the video tab's window
+// (openPanelWindow in ./extension-profile.ts says why): a background tab is
+// painted too rarely on Linux for Playwright to click it, and bringing it to
+// the front would hide the video tab instead.
 //
 // So this test drives the real panel code end to end, just not the cosmetic
 // docking chrome around it. A follow-up that wants that last mile would need
