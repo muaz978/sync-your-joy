@@ -3,7 +3,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { collectProvenance, hashFiles, readSourceIdentity, resolveExtensionSourceRoot } from './e2e/provenance.ts'
+import {
+  assertExtensionBuilt,
+  assertExtensionSourceRoot,
+  collectProvenance,
+  hashFiles,
+  readSourceIdentity,
+  resolveExtensionSourceRoot,
+} from './e2e/provenance.ts'
 
 // A run builds its extension from the current checkout, or from another one
 // (a worktree of a release tag) when SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT is
@@ -83,6 +90,35 @@ describe('E2E provenance', () => {
       expect(resolveExtensionSourceRoot('/work/checkout', undefined)).toBe('/work/checkout')
       expect(resolveExtensionSourceRoot('/work/checkout', '')).toBe('/work/checkout')
       expect(resolveExtensionSourceRoot('/work/checkout', '/work/release')).toBe('/work/release')
+    })
+  })
+
+  describe('assertExtensionSourceRoot', () => {
+    it('accepts a checkout that has a build script', () => {
+      expect(() => assertExtensionSourceRoot(release)).not.toThrow()
+    })
+
+    it('names the variable and the path when the directory does not exist', () => {
+      const missing = join(base, 'no-such-checkout')
+      expect(() => assertExtensionSourceRoot(missing)).toThrow(/SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT.*no-such-checkout.*does not exist/)
+    })
+
+    it('says what is missing when the directory is not a checkout of this repository', () => {
+      const empty = join(base, 'empty-dir')
+      mkdirSync(empty)
+      expect(() => assertExtensionSourceRoot(empty)).toThrow(/no scripts\/build-extension\.mjs/)
+    })
+  })
+
+  describe('assertExtensionBuilt', () => {
+    it('accepts a build that wrote a manifest into the run directory', () => {
+      expect(() => assertExtensionBuilt(join(checkout, 'test-results/e2e-run/extension'), release)).not.toThrow()
+    })
+
+    it('explains a build that ignored the output directory, as v0.2.4 and earlier do', () => {
+      const dist = join(base, 'never-written')
+      mkdirSync(dist)
+      expect(() => assertExtensionBuilt(dist, release)).toThrow(/did not write .*manifest\.json.*v0\.2\.4 and earlier.*v0\.2\.5 and later/s)
     })
   })
 

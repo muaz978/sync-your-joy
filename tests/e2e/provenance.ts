@@ -73,6 +73,35 @@ export function resolveExtensionSourceRoot(checkoutRoot: string, override: strin
   return override ? resolve(override) : checkoutRoot
 }
 
+/**
+ * Fails with a message that names the variable when the other tree cannot be
+ * built from, instead of the "spawnSync node ENOENT" a missing path produces.
+ */
+export function assertExtensionSourceRoot(sourceRoot: string): void {
+  const variable = 'SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT'
+  if (!existsSync(sourceRoot))
+    throw new Error(`${variable} points at ${sourceRoot}, which does not exist.`)
+  if (!existsSync(resolve(sourceRoot, 'scripts/build-extension.mjs'))) {
+    throw new Error(`${variable} points at ${sourceRoot}, which has no scripts/build-extension.mjs. It has to be a checkout of this repository with its dependencies installed.`)
+  }
+}
+
+/**
+ * The build has to have written the extension into the run's own directory.
+ * A release that predates SYNCYOURJOY_EXTENSION_OUTPUT_DIR (v0.2.4 and
+ * earlier) writes into its own apps/extension/dist instead, and the run would
+ * otherwise fail later with ENOENT on manifest.json.
+ */
+export function assertExtensionBuilt(extensionDistDir: string, sourceRoot: string): void {
+  const manifest = resolve(extensionDistDir, 'manifest.json')
+  if (existsSync(manifest))
+    return
+  throw new Error(
+    `The extension build in ${sourceRoot} did not write ${manifest}. `
+    + 'A build script that ignores SYNCYOURJOY_EXTENSION_OUTPUT_DIR (v0.2.4 and earlier) cannot be used as an extension source; v0.2.5 and later can.',
+  )
+}
+
 export async function readSourceIdentity(root: string): Promise<SourceIdentity> {
   const trackedFiles = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
     .split('\0')

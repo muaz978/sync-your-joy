@@ -19,7 +19,12 @@ import { basename, dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRoomService, type RoomService } from '../../apps/room-service/src/server.ts'
 import { sanitizeError } from './artifact-utils.ts'
-import { collectProvenance, resolveExtensionSourceRoot } from './provenance.ts'
+import {
+  assertExtensionBuilt,
+  assertExtensionSourceRoot,
+  collectProvenance,
+  resolveExtensionSourceRoot,
+} from './provenance.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(here, '..', '..')
@@ -87,11 +92,20 @@ async function buildExtension(roomServerUrl: string, extensionDistDir: string): 
   // Optional: build the extension from another checkout (for example a git
   // worktree of a release tag, with its own node_modules installed) while the
   // coordinator and the specs stay the current tree's. That is how a shipped
-  // extension is checked against the current coordinator. The build script
-  // takes the same environment variables in every version.
+  // extension is checked against the current coordinator.
+  //
+  // That checkout's build script has to read SYNCYOURJOY_ROOM_SERVER_URL,
+  // SYNCYOURJOY_EXTENSION_OUTPUT_DIR and the SYNCYOURJOY_E2E_TEST_* variables.
+  // Releases from v0.2.5 on do. v0.2.4 and earlier ignore the output
+  // directory and build into their own apps/extension/dist, which
+  // assertExtensionBuilt() reports instead of failing later on a missing
+  // manifest.
   const sourceRoot = extensionSourceRoot()
-  const script = sourceRoot === repoRoot ? buildExtensionScript : resolve(sourceRoot, 'scripts/build-extension.mjs')
-  console.log(`[e2e] building an isolated extension at ${relative(repoRoot, extensionDistDir)}${sourceRoot === repoRoot ? '' : ` from ${sourceRoot}`}...`)
+  const external = sourceRoot !== repoRoot
+  if (external)
+    assertExtensionSourceRoot(sourceRoot)
+  const script = external ? resolve(sourceRoot, 'scripts/build-extension.mjs') : buildExtensionScript
+  console.log(`[e2e] building an isolated extension at ${relative(repoRoot, extensionDistDir)}${external ? ` from ${sourceRoot}` : ''}...`)
   execFileSync(process.execPath, [script], {
     cwd: sourceRoot,
     env: {
@@ -101,6 +115,7 @@ async function buildExtension(roomServerUrl: string, extensionDistDir: string): 
     },
     stdio: 'inherit',
   })
+  assertExtensionBuilt(extensionDistDir, sourceRoot)
 }
 
 async function writeProvenance(
