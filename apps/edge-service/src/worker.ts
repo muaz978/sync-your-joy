@@ -395,8 +395,22 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     const result = this.coordinator.disconnect(attachment.participantId)
-    if (!result?.ok)
+    if (!result?.ok) {
+      // A controller already stored as disconnected (a join whose write was
+      // lost across a restart) has nothing left to disconnect, but its socket
+      // going away still leaves a room that nobody is acting for. The local
+      // service plans the recovery on every close of the controller, so do
+      // the same here.
+      const gone = this.coordinator.snapshot().controller.participantId === attachment.participantId
+      if (gone && !this.pendingController && this.coordinator.hasConnectedParticipants()) {
+        this.pendingController = {
+          participantId: attachment.participantId,
+          recoverAtMs: Date.now() + CONTROLLER_GRACE_MS,
+        }
+        await this.persistAndSchedule()
+      }
       return
+    }
 
     if (this.coordinator.snapshot().controller.participantId === attachment.participantId) {
       this.pendingController = {

@@ -142,7 +142,7 @@ Never rely only on the visible title or duration. The coordinator blocks readine
 - Debounce short buffering events to avoid pause/resume flapping.
 - In `pause-all` mode, one sustained stall produces one ordered room pause. Resume requires readiness and controller intent.
 - Navigation or episode transition invalidates readiness until the new fingerprint matches.
-- On controller disconnect, pause the room and hold its lease briefly for reconnection. After the grace period, transfer only through a deterministic server rule and broadcast the new lease epoch. A plan made when the host leaves while members are present waits 10 seconds; one re-armed when a member returns after an outage, or derived when a room is restored, waits 20 seconds, longer than the extension's longest reconnect delay.
+- On controller disconnect, pause the room and hold its lease briefly for reconnection. After the grace period, transfer only through a deterministic server rule and broadcast the new lease epoch. A plan made when the host's connection is seen to go away, including by a restore, waits 10 seconds; one re-armed when a member returns after an outage, or when a restore finds the host already marked disconnected with no plan pending, waits 20 seconds, longer than the extension's longest reconnect delay.
 - WebSocket reconnect uses exponential backoff with jitter, the last applied revision, and a per-participant session capability.
 
 ## 7. Security and privacy boundaries

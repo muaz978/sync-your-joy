@@ -934,6 +934,28 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       expect(controllerOf(restarted)).toBe('participant_host')
     })
 
+    it('plans the recovery when a controller stored as disconnected then loses its socket', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      await first.webSocketClose(host as never)
+      // The host's join was not saved: the room says it is disconnected while
+      // its socket is attached, and no plan is pending.
+      ;(store.get('room') as { pendingController: unknown }).pendingController = null
+      const alarms: number[] = []
+      const restarted = await restored(objectOver(store, [host, friend], alarms))
+      expect(inspect(restarted).pendingController).toBeNull()
+
+      // The socket really goes away now. The room has nothing to disconnect,
+      // but nobody is acting for it, so a recovery must be planned.
+      await restarted.webSocketClose(host as never)
+
+      expect(inspect(restarted).pendingController).toMatchObject({ participantId: 'participant_host', recoverAtMs: startMs + CONTROLLER_GRACE_MS })
+      expect(alarms.at(-1)).toBe(startMs + CONTROLLER_GRACE_MS)
+      attach(restarted, [friend])
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await restarted.alarm()
+      expect(controllerOf(restarted)).toBe('participant_friend')
+    })
+
     it('plans no recovery when a member returns while the controller is connected', async () => {
       const alarms: number[] = []
       const { host, friend, first } = await hostAndApprovedFriend(alarms)
