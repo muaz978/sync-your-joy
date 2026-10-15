@@ -30,7 +30,7 @@ The room coordinator (`apps/edge-service`) was written and tested against a fake
 - The restore step relies on `ctx.getWebSockets()` and the attachments being complete inside the constructor: supported for a hibernation wake (E4). After a reset of an active object there are no sockets and no close events (E5, E7), so the stored participants are marked disconnected by the restore step and not by `webSocketClose`; that step is required, not a nicety.
 - Excluding the handler's own socket by identity in `webSocketClose` is correct and necessary (E2). The `try`/`catch` around `socket.close()` is harmless but not needed (E1); the one around `send()` is needed.
 - The restore step always writing and scheduling is consistent with E6: a stored alarm may be later than a deadline the new code has, and `getAlarm()` reports an alarm the instance itself was woken for, so it cannot be used as "nothing is scheduled".
-- A deploy or a rollback should be planned as a window of about five minutes in which active rooms run the previous code, followed by one connection drop per room (E5). Rooms created after the deploy run the new code at once.
+- A deploy or a rollback should be planned as a window of about five minutes in which active rooms run the previous code, followed by one connection drop per room (E5). The figure is a planning estimate from two runs, not a bound, and nothing here shows when the last active room has been reset. Rooms created after the deploy run the new code at once.
 
 ## Not established
 
