@@ -8,12 +8,13 @@
     "enabled": true
   },
   "durable_objects": {
-    // Apply new Durable Object code to running rooms immediately. wrangler
+    // Ask for new Durable Object code to be applied immediately. wrangler
     // 4.141.0 and later default to "deferred" with a 300 second wait on every
-    // deploy and rollback, which would leave old code serving live rooms (a
-    // security fix would stay unapplied, a bad build would keep running) for up
-    // to five minutes. A room reconnects through its stored session token, so
-    // the brief interruption an immediate update causes is handled.
+    // deploy and rollback. This is what is sent; on the real runtime an active
+    // room was observed to keep the previous code for about 300 seconds in
+    // either mode (docs/DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md), so
+    // plan for that window. A room reconnects through its stored session
+    // token and the coordinator repairs its state on restore.
     // Rollbacks must run with --config (npm run rollback:edge) or this is not
     // read.
     "code_update_strategy": {

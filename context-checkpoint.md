@@ -9847,3 +9847,63 @@
 ## Historical Checkpoint Notes
 - Checkpoint 113 recorded the side-panel window in the E2E harness. This checkpoint supersedes nothing.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R8d (record what the real Durable Object runtime was observed to do, and correct the deploy documentation that assumed otherwise), tracking issue #119.
+- Checkpoint number: 115.
+- Date and time: 2026-10-16, Europe/Istanbul.
+- Coverage period: Since checkpoint 113 (R7b merged as #129, `fcf6049`). Checkpoint 114 (controller recovery, #130) is on its own branch and is not merged at the time of writing.
+- Current context status: Documentation and one config comment, on branch `docs/runtime-observations-and-runbook-revision`. Not merged. No deploy and no Cloudflare change is part of it.
+
+## User Objective and Requirements
+- Close the gaps found by the review systematically, in phases that can be tracked. For R8: observe on the real runtime before any production coordinator deploy, and do not deploy without a fresh explicit go for the exact commit and a recorded rollback target.
+
+## Complete Chronological Activity Log
+
+### Findings
+- A throwaway Worker on the real runtime (compatibility date 2026-08-08, wrangler 4.147.0, one account, SQLite-backed object) was driven with synthetic sockets and then deleted. The first write-up of its results was audited against the retained raw data; the audit corrected several statements, among them a close-handshake timing that was mis-attributed, a retry count and a "no further attempt" claim that no retained file supports, a lag figure that was measured from the wrong instant, and a wording of the hibernation result that was wider than its evidence. Those corrections are what the new record carries.
+- The finding that matters for operations: with `durable_objects.code_update_strategy: { mode: "immediate" }` and with the default, an object that was active at deploy time kept serving the previous code for about 300 s and was then reset once, its sockets dropped with code 1006 and no `webSocketClose` delivered to any instance. The repository's statement that the pin applies code to running rooms immediately was therefore not borne out. What wrangler sends is verified; the platform's handling of it was not.
+
+### Changes
+- New `docs/DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`: method and limits, the observations E1 to E7 with the audit's caveats, what they mean for the coordinator, what is not established.
+- `docs/RELEASING.md`: the "code updates are immediate" section now says what is verified and what was observed, and gives the plan window (previous code up to about five minutes on active rooms, then one connection drop per room).
+- `docs/ARCHITECTURE.md` section 6: a paragraph describing the restore step the other documents refer to.
+- `docs/V0_2_5_CONTROLLED_TEST_SESSION.md`: a revision notice (the kit is for v0.2.5; v0.2.6 is current; hardening on `main` is not deployed and production was exposed in the 2026-10-15 baseline probe) and the stale "last recorded" Version ID replaced with the one a read-only deployments listing showed (`681f31dc-eb31-4ced-a661-1d6304d134ff`, previous `6a927c6f-93ea-47dc-b264-a0bc14c9fe1d`), to be read again before any deploy.
+- `apps/edge-service/wrangler.jsonc` comment, `README.md` comment and a `CHANGELOG.md` entry reworded to match. The configuration value is unchanged.
+
+### Verification
+- `tests/deploy-config.test.ts` (3 tests) passes with the edited `wrangler.jsonc` (run in this worktree against another worktree's `node_modules`, so only this file). The full `npm run check` was not run here: the change touches no source, and CI runs it. Each statement in the new documents about the coordinator was compared with `apps/edge-service/src/worker.ts` on this base (identity exclusion in `webSocketClose`, `cancelPendingJoin`, the empty-room clock reconcile, `persistAndSchedule`, the lifetime alarm, the guarded `close()` and `send()`).
+
+## Confirmed Successful Results
+- The restore design's central assumptions (all sockets and attachments visible in the constructor after a wake; a closing socket still listed inside `webSocketClose`; the alarm visible in the constructor and null inside `alarm()`; `deleteAll()` cancels a pending alarm) were observed, each in a single run.
+
+## Failed, Incomplete, or Unresolved Work
+- Not established: whether the `immediate` pin has any effect on the real runtime (one run per mode, no control without a deploy for a connection older than 330 s, mode not verified server-side); whether sockets that survive a wake survive past the five-minute mark (checked for at most 123 s, and the platform documentation says a code update disconnects all WebSockets); the close handshake with `web_socket_auto_reply_to_close` set explicitly and against the real extension client.
+- The probe scripts and the throwaway Worker no longer exist, so none of this can be re-run from the record. The Durable Object namespace and its data were not listed separately and are inferred gone with the script.
+- The v0.2.5 runbook's steps still describe the v0.2.5 flow; only a notice was added, not a rewrite.
+
+## Decisions and Rationale
+- A separate observations record instead of statements spread over the runbook, so the caveats travel with the numbers and the runbook can say "see" without repeating them.
+- The pin stays in `wrangler.jsonc`: it is what the platform documentation describes as the way to ask for an immediate update, and removing it on one observation would be as unsupported as keeping the claim. The comment and the runbook now say what is known.
+
+## Files and Artifacts
+- `docs/DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`, `docs/RELEASING.md`, `docs/ARCHITECTURE.md`, `docs/V0_2_5_CONTROLLED_TEST_SESSION.md`, `apps/edge-service/wrangler.jsonc`, `README.md`, `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- The five-minute figure is two runs on one account on one day; treat it as the order of magnitude to plan for, not a platform guarantee.
+- No Cloudflare account identifier, hostname, token or room code is recorded in the new document.
+
+## Open Questions, Blockers, and Dependencies
+- Whether the owner wants the coordinator hardening on `main` deployed, and when. That needs an explicit go for the exact commit and a recorded rollback target; this change does not ask for it.
+- After a real deploy: re-run the production exposure baseline (expect every measure green), run the edge smoke, and record whether the platform shows the pin as the deployment's strategy.
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA (after #130, which also appends a checkpoint, so this one is renumbered or rebased as needed).
+2. Dependabot #123 and #125, then #124 once it targets wrangler 4.149 or later.
+3. R5b: the stale `playerBindingId` after leaving a room.
+
+## Historical Checkpoint Notes
+- Checkpoint 111 listed the real-runtime observations as a precondition of any deploy; this checkpoint records the first set. It supersedes the sentence in earlier documents that the pin applies code to running rooms immediately.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes, account identifiers or DRM information were recorded.
