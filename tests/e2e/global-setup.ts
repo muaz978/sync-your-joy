@@ -79,9 +79,18 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
 }
 
 async function buildExtension(roomServerUrl: string, extensionDistDir: string): Promise<void> {
-  console.log(`[e2e] building an isolated extension at ${relative(repoRoot, extensionDistDir)}...`)
-  execFileSync(process.execPath, [buildExtensionScript], {
-    cwd: repoRoot,
+  // Optional: build the extension from another checkout (for example a git
+  // worktree of a release tag, with its own node_modules installed) while the
+  // coordinator and the specs stay the current tree's. That is how a shipped
+  // extension is checked against the current coordinator. The build script
+  // takes the same environment variables in every version.
+  const sourceRoot = process.env.SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT
+    ? resolve(process.env.SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT)
+    : repoRoot
+  const script = sourceRoot === repoRoot ? buildExtensionScript : resolve(sourceRoot, 'scripts/build-extension.mjs')
+  console.log(`[e2e] building an isolated extension at ${relative(repoRoot, extensionDistDir)}${sourceRoot === repoRoot ? '' : ` from ${sourceRoot}`}...`)
+  execFileSync(process.execPath, [script], {
+    cwd: sourceRoot,
     env: {
       ...process.env,
       SYNCYOURJOY_ROOM_SERVER_URL: roomServerUrl,

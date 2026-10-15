@@ -23,3 +23,13 @@ export function isAwaitingApproval(current: Pick<ExtensionState, 'participantId'
   const isPending = (snapshot.pendingJoinRequests ?? []).some(request => request.id === current.participantId)
   return isPending && !isParticipant
 }
+
+/**
+ * What the on-page pill says while the participant's own join request is
+ * pending. Kept next to the predicate so the wording cannot drift from the
+ * state it describes, and so a test can pin it.
+ */
+export const AWAITING_APPROVAL_PILL = {
+  status: 'Waiting for the host',
+  detail: 'Your request to join is pending. Nothing on this page changes until the host lets you in.',
+} as const

@@ -9467,3 +9467,64 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R5 (extension: waiting view ends with the room, pending flow pinned in a real browser), tracking issue #119.
+- Checkpoint number: 112.
+- Date and time: 2026-10-15, Europe/Istanbul.
+- Coverage period: Since checkpoint 111 (R4 is #127, in review).
+- Current context status: Implemented and verified locally on branch `fix/extension-pending-room-expiry`, built on `61a38f7`. Not merged, released or deployed.
+
+## User Objective and Requirements
+- Close the extension-side gaps found by the residual-evidence audit of #120 and prove, in a real browser, that installed extensions need no update. Rules unchanged.
+
+## Complete Chronological Activity Log
+
+### Findings (audit of #120)
+- F2: the extension ignored the `room_expired` close reason and a `room_not_found` error while a snapshot is held, so a waiting request reconnected into a room that no longer exists and kept its waiting view (plus an unjoined edge socket holding one of 20 places).
+- The on-page pill showed member wording ("Member, 0 connected") to a requester.
+- No real-browser spec covered the waiting view, withdrawal, denial, approval or a requester's video being left alone; no side-panel or service-worker test used the real placeholder; the shipped build had never been run against the new coordinator.
+
+### Fix
+- `apps/extension/src/service-worker.ts`: `endRoomBecauseGone()` (leaves the room the way a denied request does, with a message and a notice). Used when the coordinator closes with reason `room_expired`, and when `room_not_found` arrives while a snapshot is held. A first join to a wrong code (no snapshot yet) keeps the plain error; an ordinary dropped connection still reconnects.
+- `apps/extension/src/content-script.ts`, `room-membership.ts`: the pill shows `AWAITING_APPROVAL_PILL` for a pending request and hides the playback controls.
+- `tests/e2e/global-setup.ts`: `SYNCYOURJOY_E2E_EXTENSION_SOURCE_ROOT` builds the extension from another checkout (a worktree of a release tag with its own `node_modules`) while the coordinator and the specs stay current.
+- `tests/e2e/pending-approval.spec.ts`: two real profiles; the requester is already playing its own video; waiting view, video neither paused nor rewound over three seconds, no tab opened, Cancel request withdraws (the host's list empties), denial returns the requester to the join form, approval joins.
+- `apps/extension/src/service-worker.test.ts` (5 tests with the real `pendingSnapshot()`), `room-membership.test.ts` (4).
+
+### Verification (local)
+- Real browser, current build: `pending-approval.spec.ts` passes.
+- Real browser, shipped v0.2.6 build (built from tag `v0.2.6`, manifest 0.2.6) against the current coordinator: passes; the requester's video keeps playing and is not rewound.
+- Mutation in real browser: with the coordinator's placeholder media set back to null and the same v0.2.6 build, the spec fails at `expect(paused).toBe(false)`: the exact regression the Codex review of the first version of #120 found. This is the first real-browser evidence for "installed extensions need no update".
+- Red for the service worker change: with `service-worker.ts` reverted to main, the room-expired and room-not-found tests fail; the other three pass either way.
+
+## Confirmed Successful Results
+- An installed 0.2.6 extension is left alone by the current coordinator's placeholder, in a real browser, and the spec detects the regression it guards.
+
+## Failed, Incomplete, or Unresolved Work
+- Chromium only, one machine, the local test player; no authenticated provider, two accounts or two devices (phase R8 hands this off).
+- The pill text and the side panel's waiting view are pinned by the real-browser spec (waiting view) and a copy test; there is no unit test of the side panel's DOM.
+
+## Decisions and Rationale
+- `room_expired` is terminal for members as well as requesters: it is sent only when the room has been removed, and reconnecting could only end in `room_not_found`.
+- The spec lives in the normal E2E run, so every run re-checks the pending flow; the legacy-build option is opt-in because it needs another checkout's `node_modules`.
+
+## Files and Artifacts
+- `apps/extension/src/service-worker.ts`, `service-worker.test.ts`, `content-script.ts`, `room-membership.ts`, `room-membership.test.ts`; `tests/e2e/global-setup.ts`, `tests/e2e/pending-approval.spec.ts`; `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- The spec relies on the extension's own panel opened as a tab (see tests/e2e/two-profile-sync.spec.ts), as the other specs do.
+
+## Open Questions, Blockers, and Dependencies
+- Ships with the next extension release; nothing here needs a coordinator deploy.
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA.
+2. Phase R6 (the new Dependabot pull requests), R7 (verification campaign), then the owner gates in R8.
+
+## Historical Checkpoint Notes
+- Checkpoint 111 recorded the coordinator lifecycle hardening. This checkpoint supersedes nothing.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.

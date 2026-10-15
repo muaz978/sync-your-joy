@@ -12,7 +12,7 @@ import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-a
 import { localPlaybackStatus, playbackStatusCopy } from './playback-status.ts'
 import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
-import { isAwaitingApproval } from './room-membership.ts'
+import { AWAITING_APPROVAL_PILL, isAwaitingApproval } from './room-membership.ts'
 import { discoverOpenShadowRoots, discoverVideoElements } from './video-discovery.ts'
 
 declare const __SYNCYOURJOY_TEST_MODE__: boolean
@@ -1587,6 +1587,23 @@ function renderPill(): void {
     restoreButton.hidden = !view.restoreVisible
   if (!snapshot || !activeState)
     return
+
+  // A pending request is not a member: the placeholder snapshot has no
+  // participants, so the member copy below ("Member, 0 connected", a
+  // different-episode hint) would be wrong. Say what is actually happening.
+  if (isAwaitingApproval(activeState)) {
+    if (statusElement)
+      statusElement.textContent = AWAITING_APPROVAL_PILL.status
+    if (metaElement)
+      metaElement.textContent = AWAITING_APPROVAL_PILL.detail
+    if (playbackButton)
+      playbackButton.hidden = true
+    if (syncButton)
+      syncButton.disabled = true
+    if (noticeElement && activeState.lastError)
+      noticeElement.textContent = activeState.lastError
+    return
+  }
 
   const participant = snapshot.participants.find(item => item.id === activeState?.participantId)
   const connected = snapshot.participants.filter(item => item.connected)

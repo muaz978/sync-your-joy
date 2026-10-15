@@ -687,7 +687,7 @@ async function connect(roomCode: string): Promise<void> {
       }
     }, { once: true })
 
-    nextSocket.addEventListener('close', () => {
+    nextSocket.addEventListener('close', (event) => {
       // A stale socket (already replaced by a newer connection, e.g. via
       // startFreshConnection) must not tear down the new socket's ping loop
       // or flip connection state away from whatever the new socket set.
@@ -697,10 +697,20 @@ async function connect(roomCode: string): Promise<void> {
         stopPingLoop()
 
         if (!intentionallyClosed && state.snapshot) {
-          state.connection = 'reconnecting'
-          state.connectionQuality = 'offline'
-          void publishState()
-          scheduleReconnect()
+          // The coordinator closes with this reason only when the room has
+          // been removed (its lifetime ended, or nobody was in it for too
+          // long). Reconnecting could only end in room_not_found, so leave
+          // the room instead of keeping a waiting or room view up for a room
+          // that no longer exists.
+          if ((event as CloseEvent).reason === 'room_expired') {
+            endRoomBecauseGone('This room has expired. Create or join another room to keep watching together.')
+          }
+          else {
+            state.connection = 'reconnecting'
+            state.connectionQuality = 'offline'
+            void publishState()
+            scheduleReconnect()
+          }
         }
       }
       recordDiagnostic('connection', 'socket_closed', { intentional: intentionallyClosed })
@@ -821,6 +831,14 @@ function handleServerMessage(raw: string): void {
   }
 
   if (message.type === 'error') {
+    // While this client believes it is in a room, room_not_found can only
+    // mean the room is gone (a reconnect found nothing to rejoin). A first
+    // join to a wrong code has no snapshot yet and keeps the plain error.
+    if (message.code === 'room_not_found' && state.snapshot) {
+      recordDiagnostic('error', 'room_gone', { code: safeDiagnosticCode(message.code) }, { reason: 'server-error' })
+      endRoomBecauseGone('This room is no longer available. Create or join another room to keep watching together.')
+      return
+    }
     state.lastError = message.message
     recordDiagnostic('error', 'server_error', { code: safeDiagnosticCode(message.code) }, { reason: 'server-error' })
     void publishState()
@@ -916,6 +934,19 @@ function sendToServer(message: ClientMessage): boolean {
     return false
   socket.send(JSON.stringify(message))
   return true
+}
+
+/**
+ * The room this client was in no longer exists on the coordinator. Leave it
+ * the way a denied join request does (so nothing reconnects into it) and say
+ * why, instead of leaving the last snapshot, or a waiting view, on screen.
+ */
+function endRoomBecauseGone(message: string): void {
+  recordDiagnostic('connection', 'room_gone', {})
+  leaveRoom()
+  state.lastError = message
+  void publishState()
+  void sendToPlayerTab({ type: 'SHOW_NOTICE', message })
 }
 
 function leaveRoom(): void {

@@ -19,6 +19,7 @@
 // bottom of this file for why that path was not taken).
 import type { DiagnosticsReport, RoomSnapshot } from '@syncyourjoy/protocol'
 import { parseClientMessage } from '@syncyourjoy/protocol'
+import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 import type { ContentRequest, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -72,6 +73,12 @@ class FakeWebSocket {
 
   simulateMessage(payload: unknown): void {
     this.dispatch('message', { data: JSON.stringify(payload) })
+  }
+
+  /** A close initiated by the server, with the status code and reason it sent. */
+  simulateClose(code: number, reason: string): void {
+    this.readyState = FakeWebSocket.CLOSED
+    this.dispatch('close', { code, reason })
   }
 
   private dispatch(type: string, event: unknown): void {
@@ -138,6 +145,8 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
         throw new Error('no such tab in this test')
       }),
       query: vi.fn(async () => []),
+      create: vi.fn(async () => ({ id: 999 })),
+      update: vi.fn(async () => ({ id: 999 })),
       get: vi.fn(async () => {
         throw new Error('no such tab in this test')
       }),
@@ -1000,3 +1009,154 @@ describe('service worker observed episode identity', () => {
 // code path (module-load-time `initialize()` reading chrome.storage.session
 // and resuming through the same `reconnectIfNeeded()` a dropped connection
 // uses) directly, deterministically, and without a real browser.
+
+describe('service worker while a join request is pending', () => {
+  // The real coordinator's placeholder, not a hand-written fixture, so a
+  // change to what an unapproved requester receives is exercised here.
+  function pendingPlaceholder(): RoomSnapshot {
+    const room = new RoomCoordinator(
+      { roomId: 'room_pending', code: 'ABCDEFGH' },
+      { id: 'participant_host', name: 'Muaz', media: { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A private title', durationSeconds: 600 } },
+      () => 10_000,
+    )
+    room.join({ id: 'participant_friend', name: 'Rana', media: null, sessionToken: 'friend-session-token-000000' })
+    return room.pendingSnapshot('participant_friend')
+  }
+
+  function approvedSnapshot(): RoomSnapshot {
+    const room = new RoomCoordinator(
+      { roomId: 'room_pending', code: 'ABCDEFGH' },
+      { id: 'participant_host', name: 'Muaz', media: { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A private title', durationSeconds: 600 } },
+      () => 10_000,
+    )
+    room.join({ id: 'participant_friend', name: 'Rana', media: null, sessionToken: 'friend-session-token-000000' })
+    room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_friend', true)
+    return room.snapshot()
+  }
+
+  const persistedWaitingState = () => ({
+    connection: 'connected',
+    participantId: 'participant_friend',
+    sessionToken: 'friend-session-token-000000',
+    displayName: 'Rana',
+    snapshot: pendingPlaceholder(),
+    serverOffsetMs: 0,
+    clockUncertaintyMs: 99_999,
+    lastError: null,
+    playerTabId: null,
+    playerFrameId: null,
+    playerAreaPixels: 0,
+    playerLastSeenAtMs: 0,
+    currentMedia: null,
+    playerDiagnostics: null,
+    lastPlayerSample: null,
+    lastOpenedNavigationRevision: 0,
+    connectionQuality: 'good',
+    roundTripMs: 40,
+    lastPongAtMs: 0,
+  })
+
+  async function resumedWaitingWorker() {
+    const fake = buildFakeChrome({ sessionState: persistedWaitingState() })
+    vi.stubGlobal('chrome', fake.chrome)
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    await import('./service-worker.ts')
+    await vi.waitFor(() => {
+      if (FakeWebSocket.instances.length !== 1)
+        throw new Error('expected the persisted waiting request to reconnect')
+    })
+    const socket = FakeWebSocket.instances[0]!
+    socket.simulateOpen()
+    await vi.waitFor(() => {
+      if (!socket.sentMessages.some(message => (message as { type?: string }).type === 'join_room'))
+        throw new Error('expected join_room to be re-sent with the stored token')
+    })
+    return { ...fake, socket }
+  }
+
+  const broadcasts = (sendMessageMock: ReturnType<typeof vi.fn>) =>
+    sendMessageMock.mock.calls
+      .map(([event]) => event as { type?: string, state?: { snapshot: RoomSnapshot | null, lastError: string | null, connection: string } })
+      .filter(event => event.type === 'ROOM_STATE_UPDATED')
+
+  it('keeps the placeholder and its waiting entry, and opens no tab, when the coordinator re-sends it', async () => {
+    const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker()
+
+    socket.simulateMessage({ type: 'room_joined', participantId: 'participant_friend', sessionToken: 'friend-session-token-000000', snapshot: pendingPlaceholder() })
+
+    await vi.waitFor(() => {
+      const last = broadcasts(sendMessageMock).at(-1)
+      if (!last?.state?.snapshot?.pendingJoinRequests.some(request => request.id === 'participant_friend'))
+        throw new Error('expected the waiting entry to be published')
+    })
+    const last = broadcasts(sendMessageMock).at(-1)!.state!
+    expect(last.snapshot?.participants).toEqual([])
+    expect(JSON.stringify(last)).not.toContain('private title')
+    expect(fakeChrome.tabs.create).not.toHaveBeenCalled()
+    expect(fakeChrome.tabs.update).not.toHaveBeenCalled()
+  })
+
+  it('replaces the placeholder with the full room when the host approves, whatever revision the placeholder had', async () => {
+    const { sendMessageMock, socket } = await resumedWaitingWorker()
+    socket.simulateMessage({ type: 'room_joined', participantId: 'participant_friend', sessionToken: 'friend-session-token-000000', snapshot: pendingPlaceholder() })
+
+    const approved = approvedSnapshot()
+    expect(pendingPlaceholder().revision).toBe(0)
+    socket.simulateMessage({ type: 'room_snapshot', reason: 'join_approved', snapshot: approved })
+
+    await vi.waitFor(() => {
+      const last = broadcasts(sendMessageMock).at(-1)?.state?.snapshot
+      if (!last?.participants.some(participant => participant.id === 'participant_friend'))
+        throw new Error('expected the approved room to be published')
+    })
+    const last = broadcasts(sendMessageMock).at(-1)!.state!.snapshot!
+    expect(last.media?.canonicalId).toBe('youtube:private-id')
+    expect(last.pendingJoinRequests).toEqual([])
+  })
+
+  it('leaves the room, with a reason, when the coordinator closes the waiting request as expired, and does not reconnect', async () => {
+    const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker()
+    const alarmsBefore = vi.mocked(fakeChrome.alarms.create).mock.calls.length
+
+    socket.simulateClose(1000, 'room_expired')
+
+    await vi.waitFor(() => {
+      const last = broadcasts(sendMessageMock).at(-1)?.state
+      if (last?.snapshot !== null)
+        throw new Error('expected the room to be left')
+    })
+    const last = broadcasts(sendMessageMock).at(-1)!.state!
+    expect(last.lastError).toMatch(/expired/i)
+    expect(last.connection).toBe('disconnected')
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    expect(vi.mocked(fakeChrome.alarms.create).mock.calls.length).toBe(alarmsBefore)
+  })
+
+  it('still reconnects after an ordinary dropped connection', async () => {
+    const { chrome: fakeChrome, sendMessageMock, socket } = await resumedWaitingWorker()
+
+    socket.simulateClose(1006, '')
+
+    await vi.waitFor(() => {
+      const last = broadcasts(sendMessageMock).at(-1)?.state
+      if (last?.connection !== 'reconnecting')
+        throw new Error('expected a reconnect to be scheduled')
+    })
+    expect(broadcasts(sendMessageMock).at(-1)!.state!.snapshot).not.toBeNull()
+    expect(fakeChrome.alarms.create).toHaveBeenCalled()
+  })
+
+  it('leaves the room when a reconnect finds that the room no longer exists', async () => {
+    const { sendMessageMock, socket } = await resumedWaitingWorker()
+
+    socket.simulateMessage({ type: 'error', code: 'room_not_found', message: 'That room code is invalid or has expired.' })
+
+    await vi.waitFor(() => {
+      const last = broadcasts(sendMessageMock).at(-1)?.state
+      if (last?.snapshot !== null)
+        throw new Error('expected the room to be left')
+    })
+    expect(broadcasts(sendMessageMock).at(-1)!.state!.lastError).toMatch(/no longer available/i)
+  })
+})

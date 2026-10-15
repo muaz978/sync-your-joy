@@ -9,6 +9,8 @@ These changes take effect when the room coordinator is redeployed, and deployed 
 ### Fixed
 
 - The local room service no longer exits when a client sends a frame that the WebSocket library rejects (a frame over 16 KiB, invalid UTF-8 in a text frame, a protocol violation). Before, one such frame from any client with an allowed Origin ended the process and every in-memory room; the sender is now closed with 1009, 1007 or 1002 and other clients are unaffected. This affects the local service and the local test runs, not the Cloudflare coordinator.
+- *(extension)* A join request that is still waiting now ends when the room is gone. A `room_expired` close, or `room_not_found` after a reconnect, leaves the room with a message instead of keeping the waiting view up and reconnecting into a room that no longer exists. The same applies to a member of a room that expires.
+- *(extension)* The on-page pill says "Waiting for the host" for a pending request instead of member wording ("Member, 0 connected") and hides the playback controls.
 
 ### Security
 
