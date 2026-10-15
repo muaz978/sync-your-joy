@@ -9734,3 +9734,56 @@
 ## Historical Checkpoint Notes
 - Checkpoint 111 recorded the coordinator lifecycle hardening. This checkpoint supersedes nothing.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R7b (the multi-profile E2E specs can click the side panel on Linux), tracking issue #119.
+- Checkpoint number: 113.
+- Date and time: 2026-10-16, Europe/Istanbul.
+- Coverage period: Since checkpoint 112 (R5 merged as #128, `f30df71`).
+- Current context status: Implemented on branch `test/e2e-side-panel-window` and verified on macOS locally and on Linux (arm64 native and amd64 under emulation) before the rebase onto `f30df71`. Not merged.
+
+## User Objective and Requirements
+- Cover "Node 22 and Linux" systematically: run the repository's checks and the real-browser suite on Linux, and make the multi-profile specs able to run there. Rules unchanged.
+
+## Complete Chronological Activity Log
+
+### Findings
+- On Linux Chromium (headless new, Node 22) `two-profile-sync.spec.ts` and `three-profile-browser-matrix.spec.ts` timed out at `page.click('#ready-button')` on the side panel, with Playwright logging "element was detached from the DOM / not stable" about sixty times. The same failure occurs at release commit `b1c05f8`, so it is not a regression.
+- Cause, measured: the harness opened the side panel as an ordinary tab that ends up behind the video tab; Linux Chromium paints a background tab only two to three times a second (macOS: 60 Hz), the panel rewrites its DOM on every room-state heartbeat, and Playwright's two-consecutive-frame stability check never passes. Because the click timed out, the sync tolerance, seek and matrix assertions never ran on Linux.
+- Rejected: `bringToFront()` before each panel action makes the clicks pass but hides the video tab; the room then cancels the playback operation (`manual-recovery`) and the specs fail for a reason that is not a sync defect. The player binding also accepts a new player only from the active tab.
+
+### Fix
+- `tests/e2e/extension-profile.ts`: `launchExtensionProfile()` opens the panel through `openPanelWindow()`: the extension service worker calls `chrome.windows.create({ url: sidepanel.html, type: 'popup', focused: false })` and the helper waits for that page by URL. The video tab stays the active tab of its own window; the panel is painted at about 60 Hz. Helper level: no spec call site, assertion, timeout or retry changed.
+- `tests/e2e/two-profile-sync.spec.ts` (comments), `docs/TEST_GUIDE.md`, `CHANGELOG.md` (one *(local test runs)* entry).
+
+### Verification
+- Linux, Docker image `node:22` (Colima VM, arm64 native and amd64 under Rosetta; source copied into the container, Chromium 153 installed by Playwright, install scripts run): `npm run check` 44 files, 532 tests; `CI=true npm run test:e2e` 14 passed, 1 skipped (the authenticated provider run) on both architectures; the previously blocked assertions ran (sustained window `samples=59 maxDrift=0.003`, frames equal across three profiles). Headed under Xvfb passed too. Taken on the commit before the rebase; the rebased commit differs only in changelog context.
+- macOS after the rebase: `npm run check` 44 files, 578 tests; `npm run test:e2e` 14 passed, 1 skipped (load average about 9).
+
+## Confirmed Successful Results
+- The two multi-profile specs run end to end on Linux. Their sync, seek and matrix assertions pass there.
+
+## Failed, Incomplete, or Unresolved Work
+- One of sixteen Linux matrix runs failed "A player paused during the sustained window": a short real media stall in a six-vCPU VM running three software-decoding Chromium instances, answered by the designed stall recovery (`manual-recovery`). It did not reproduce in eight isolated repeats or on macOS. Whether this is the environment or a product sensitivity is not established.
+- `crunchyroll-two-profile.spec.ts` has the same panel-click pattern and runs on `ubuntu-latest` in `e2e-crunchyroll.yml`; the helper change covers it but it needs secrets and was not run. `ci.yml` does not run `test:e2e`, so none of this is exercised by CI. A headed macOS run was not done. The Colima profile used for the Linux runs was deleted afterwards.
+
+## Decisions and Rationale
+- A popup window of its own at helper level instead of `bringToFront`: it keeps the video tab active, which the coordinator's play operation and the player-binding rule depend on, and it needs no change to any spec.
+
+## Files and Artifacts
+- `tests/e2e/extension-profile.ts`, `tests/e2e/two-profile-sync.spec.ts`, `docs/TEST_GUIDE.md`, `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- The popup window is excluded from tab-strip placement, so `chrome.tabs.create` still opens the shared video in the profile's main window (observed in every run); this relies on current Chromium behaviour.
+
+## Open Questions, Blockers, and Dependencies
+- Nothing blocks merging; the Linux flake above is evidence to watch, not a gate.
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA; then the coordinator controller-recovery change (checkpoint 114).
+
+## Historical Checkpoint Notes
+- Checkpoint 112 recorded the extension change that ends a waiting request with its room. This checkpoint supersedes nothing.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
