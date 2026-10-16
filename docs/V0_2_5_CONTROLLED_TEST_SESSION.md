@@ -11,8 +11,7 @@
 **Revision notice (2026-10-16).** This kit was written for the published `v0.2.5` package and has not been rewritten. What changed since, and what it means for using the kit:
 
 - `v0.2.6` is the current test release. A join request now needs the host's approval, and an unapproved requester is shown no room state; a session with this kit must expect the waiting view and the host's approve or deny step, which the steps below do not describe.
-- **Status note, 2026-10-16:** the coordinator hardening was deployed that day (Worker version `b6ea9ac1`, from `main` at `05a0d68`) and the production exposure probe then found nothing; the sentence below describes the state of 2026-10-15.
-- `main` contains coordinator hardening that is **not deployed**: the production coordinator still sent an unapproved requester the room's media and participant names in a baseline probe on 2026-10-15 (every measure red). "Same-candidate coordinator" in Gate 0 must be checked against the commit that is actually deployed, and a deployment needs the owner's authorization for that exact commit.
+- **Production coordinator (2026-10-16):** the coordinator hardening on `main` was deployed that day (Worker version `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`, from `main` at `05a0d68`; rollback target `681f31dc-eb31-4ced-a661-1d6304d134ff`) and the production exposure probe then found no exposure: a newly created room gave an unapproved requester no room state. The probe does not cover rooms that were active during the deploy (they may run the previous code for about five minutes and are then reset, see `RELEASING.md`); treat those as unverified. The coordinator identities, `209278f7-…` and the "no later deployment" statements further down are the state of 2026-09-24 and are superseded. "Same-candidate coordinator" in Gate 0 must still be checked against the Worker version that is actually deployed when a session starts, and any later deployment needs the owner's authorization for that exact commit.
 - A deploy or a rollback is a five-minute window, not an instant: see [`RELEASING.md`](RELEASING.md) and [`DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`](DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md).
 - Package versions, hashes and counters below are the `v0.2.5` ones and must be replaced for any other package.
 
@@ -99,14 +98,17 @@ Use exactly these values. None of them except `PASS` counts toward acceptance, a
 
 ### 1.2 Coordinator deployment identity: last record and gap
 
+- **Superseded on 2026-10-16.** The production coordinator is Worker version `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f` (from `main` at `05a0d68`; rollback target `681f31dc-eb31-4ced-a661-1d6304d134ff`). The bullets in this section are the record of 2026-09-24 and are kept as history; for a session, fill in the test-day identity from Gate 0 and treat any deployment after this date as needing the owner's authorization for that exact commit.
 - **Last deployment on record.** The `Deploy room coordinator` workflow run `35387667519` ran on 2026-09-18T19:45Z from source commit `1ac5b1c` (which is `v0.2.4`). Its log reports `Current Version ID: 209278f7-9154-4ad0-974a-3ad565a67581`. This ID exists only in the Actions log; no repository doc records it.
 - **Stale records in the docs.** The newest version ID in the repository docs is `11de04d9-f41d-4563-bdda-08136016777e`, from 2026-08-30 (`context-checkpoint.md`, Checkpoint 24). `TEST_GUIDE.md` still says the coordinator was "deployed and smoke-verified on 2026-08-30".
-- **No later deployment.** No deploy workflow run exists after the `v0.2.5` tag. No local `npm run deploy:edge` after 2026-09-18 is recorded.
+- **No later deployment (as of 2026-09-24).** No deploy workflow run exists after the `v0.2.5` tag. No local `npm run deploy:edge` after 2026-09-18 is recorded.
 - **Coordinator code changed.** Between `1ac5b1c` and `423b6f7`, `apps/edge-service`, `packages/protocol` and `packages/sync-engine` changed substantially. The changes include #84 (coordinator prepare/commit), #82 (the operation contract), and alarm and health rehydration.
 - **Risk.** If the running Worker still has the `v0.2.4` source, the 0.2.5 extension falls back to `legacy` room mode, because capability negotiation fails closed (see CR-B07). The session would then not exercise the 0.2.5 transactional behavior.
 - **How to spot legacy mode in the panel.** After the controller presses Play or seeks, **Operation phase** stays `none` and the acknowledgement counters stay `—`.
 
 ### 1.3 Same-candidate coordinator deployment
+
+- **Do not deploy `v0.2.5` or `423b6f7` over the production coordinator (2026-10-16).** Production runs the hardened coordinator (Worker `b6ea9ac1`, `main` at `05a0d68`); the `v0.2.5` coordinator hands an unapproved requester the room state. For a session with a newer package, Gate 0 accepts the coordinator that is deployed when the hardened one is identified (deployed source `05a0d68` or a later `main` commit the owner authorized, Version ID confirmed with Wrangler, exposure probe clean) and treats `423b6f7` and the deploy commands in section 1.3 as the history of the `v0.2.5` session only. Rolling back to `681f31dc` or older needs the owner's explicit decision.
 
 **Rule (2026-09-24).** #30 must not run against the old coordinator deployment. The extension package and the coordinator must come from the same runtime candidate, `423b6f7c77dad2b4a14db6932711be025aac8163` (tag `v0.2.5`). Do not proceed with the provider session if the two come from different runtime candidates or if the deployment target is ambiguous.
 
@@ -145,6 +147,8 @@ The output must contain no runtime files. At `15680494f939bffbd84f4ab395dc70b8a2
 
 ### 1.4 Gate 0: identity verification before the session
 
+- **Do not deploy `v0.2.5` or `423b6f7` over the production coordinator (2026-10-16).** Production runs the hardened coordinator (Worker `b6ea9ac1`, `main` at `05a0d68`); the `v0.2.5` coordinator hands an unapproved requester the room state. For a session with a newer package, Gate 0 accepts the coordinator that is deployed when the hardened one is identified (deployed source `05a0d68` or a later `main` commit the owner authorized, Version ID confirmed with Wrangler, exposure probe clean) and treats `423b6f7` and the deploy commands in section 1.3 as the history of the `v0.2.5` session only. Rolling back to `681f31dc` or older needs the owner's explicit decision.
+
 Run these after the deployment and before the friend starts. Only the operator runs them.
 
 - Never paste tokens, cookies or `.env` contents into notes.
@@ -170,13 +174,14 @@ Run these after the deployment and before the friend starts. Only the operator r
    ```
    - The active Version ID must equal the Version ID from command 2, with nothing newer.
    - If it differs, someone deployed outside the workflow. Stop: the deployed source is unknown.
-4. **Source equivalence.** Needed only for the `main` fallback, with `<C>` = the deployed commit.
+4. **Source equivalence.** Needed only for the `main` fallback of a `v0.2.5` session, with `<C>` = the deployed commit. For a session with a newer package (2026-10-16 onward) use the same command with `05a0d68` in place of `423b6f7`, and expect `SAME` for any later `main` commit that did not touch those three directories; a different result means the deployed source is not the authorized one.
    ```bash
    git diff --quiet 423b6f7c77dad2b4a14db6932711be025aac8163 <C> -- apps/edge-service packages/protocol packages/sync-engine && echo SAME || echo DIFFERENT
    ```
 5. **Endpoint used by the extension.** On both devices, step 3.6 must show `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms` in the installed `service-worker.js`. That is the same host as the deployed Worker.
 6. **Functional fingerprint (authorized write only).** This writes a synthetic room. Skip it unless the user has explicitly authorized it for this session.
    - Run it from the operator's main checkout, whose `scripts/` match `v0.2.5`, using that checkout's existing dependencies. Do not install packages on test day.
+   - For a session with a newer package (2026-10-16 onward) run the script from a checkout at `05a0d68` or later instead, so the script matches the deployed source. `scripts/smoke-room-service.mjs` is identical at `423b6f7` and `05a0d68` and already answers the host-approval step, so either checkout works; the current script passed against production on 2026-10-16 with synthetic participants.
    ```bash
    npm run smoke:edge -- wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms
    ```
@@ -187,9 +192,9 @@ Record one Gate 0 outcome:
 
 | Outcome | Condition | Action |
 | --- | --- | --- |
-| `G0-PASS` | The newest deploy run succeeded from `423b6f7` (or from runtime-identical `main`, with both commits recorded). Wrangler confirms that run's Version ID is active. Both devices show the production endpoint. The authorized smoke reports `transactionalContractVerified: true`. | Record the Worker target, deployed source commit, Version ID, endpoint, run URL and result in section 1, then proceed. |
+| `G0-PASS` | The newest deploy run succeeded from `423b6f7` (or from runtime-identical `main`, with both commits recorded), or, for a session with a newer package, from `05a0d68` or a later `main` commit the owner authorized (runtime-identical to `05a0d68` by command 4, both commits recorded). Wrangler confirms that run's Version ID is active. Both devices show the production endpoint. The authorized smoke reports `transactionalContractVerified: true`. | Record the Worker target, deployed source commit, Version ID, endpoint, run URL and result in section 1, then proceed. |
 | `G0-IDENTITY-ONLY` | Everything in `G0-PASS` except that the user did not authorize the smoke write. | Proceed only if the deployed source commit and the active Version ID are both proven. Mark the transactional fingerprint NOT RUN, and treat step 8's operation phase as the first functional check. The deployed-coordinator evidence class is not earned. |
-| `G0-MISMATCH` | The active version was built from a different runtime candidate (for example `209278f7-…` from `1ac5b1c`), or the smoke fails the transactional check. | **Stop. Do not run #30.** Get explicit authorization to deploy from the candidate (section 1.3), then repeat Gate 0. |
+| `G0-MISMATCH` | The active version was built from a different runtime candidate (for example `209278f7-…` from `1ac5b1c`), or the smoke fails the transactional check. | **Stop. Do not run #30.** Get explicit authorization to deploy from the candidate (section 1.3), then repeat Gate 0. Never deploy the `v0.2.5` candidate over the hardened coordinator; for a newer package the candidate is `05a0d68` or the owner-authorized later `main` commit. |
 | `G0-AMBIGUOUS` | The target, active version or deployed source cannot be determined unambiguously: Wrangler read access is unavailable, a newer out-of-band deployment exists, or the run log lacks the Version ID. | **Stop.** Proceed only if the user explicitly decides that the workflow-run identity plus an authorized smoke fingerprint is sufficient, and record that decision verbatim. |
 
 ## 2. Pre-test record (non-sensitive only)
