@@ -181,7 +181,7 @@ Run these after the deployment and before the friend starts. Only the operator r
 5. **Endpoint used by the extension.** On both devices, step 3.6 must show `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms` in the installed `service-worker.js`. That is the same host as the deployed Worker.
 6. **Functional fingerprint (authorized write only).** This writes a synthetic room. Skip it unless the user has explicitly authorized it for this session.
    - Run it from the operator's main checkout, whose `scripts/` match `v0.2.5`, using that checkout's existing dependencies. Do not install packages on test day.
-   - For a session with a newer package (2026-10-16 onward) run the script from a checkout at `05a0d68` or later instead: the `v0.2.5` script has no host-approval step and cannot join the hardened coordinator. The current script passed against production on 2026-10-16 with synthetic participants.
+   - For a session with a newer package (2026-10-16 onward) run the script from a checkout at `05a0d68` or later instead, so the script matches the deployed source. `scripts/smoke-room-service.mjs` is identical at `423b6f7` and `05a0d68` and already answers the host-approval step, so either checkout works; the current script passed against production on 2026-10-16 with synthetic participants.
    ```bash
    npm run smoke:edge -- wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms
    ```
