@@ -996,13 +996,29 @@ export class RoomDurableObject extends DurableObject<Env> {
         continue
       // Best effort, socket by socket: one that cannot be read or closed must
       // not stop the member that is joining from being admitted.
+      let attachment: SocketAttachment | null
       try {
-        const attachment = socket.deserializeAttachment() as SocketAttachment | null
+        attachment = socket.deserializeAttachment() as SocketAttachment | null
+      }
+      catch {
+        // It cannot be told whether this is the member's own earlier connection,
+        // and it cannot be served either (every frame would fail to read its
+        // attachment), so it is not left open beside the one being admitted.
+        // Its client reconnects with a fresh attachment.
+        try {
+          socket.close(1011, 'attachment_unreadable')
+        }
+        catch {
+          // Already closing.
+        }
+        continue
+      }
+      try {
         if (attachment?.participantId === participantId)
           socket.close(1000, 'session_replaced')
       }
       catch {
-        // Unreadable or already closing; the next join or close deals with it.
+        // Already closing or closed.
       }
     }
   }

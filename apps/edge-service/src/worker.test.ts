@@ -1271,6 +1271,10 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
 
       expect(back.last()).toMatchObject({ type: 'room_joined' })
+      // A socket that cannot be verified is not left open beside the admitted
+      // one: it may be the member's own earlier connection, and it cannot be
+      // served anyway. It is closed and its client reconnects.
+      expect(unreadable.closed).toMatchObject({ code: 1011 })
 
       // The socket can be read again; the next save derives the recovery that
       // the join could not, so the absent host does not keep control.
