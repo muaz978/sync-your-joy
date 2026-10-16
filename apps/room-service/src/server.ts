@@ -601,10 +601,23 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
 
     recoveryTimers.set(timerKey, setTimeout(() => { // DevSkim: ignore DS172411
       recoveryTimers.delete(timerKey)
+      // The room may have been removed since the plan was made.
+      if (rooms.get(code) !== room)
+        return
       const recovery = room.coordinator.transferDisconnectedController()
       if (recovery?.ok)
         broadcast(room, { type: 'room_snapshot', reason: recovery.reason, snapshot: recovery.snapshot })
     }, graceMs))
+  }
+
+  // A room that is removed takes its recovery plans with it.
+  function clearRecoveryTimers(code: string): void {
+    for (const [key, timer] of recoveryTimers) {
+      if (key.startsWith(`${code}:`)) {
+        clearTimeout(timer)
+        recoveryTimers.delete(key)
+      }
+    }
   }
 
   // Controller recovery is derived from membership, like the empty-room
@@ -653,11 +666,13 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
         // stays up for a room that no longer exists.
         closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
+        clearRecoveryTimers(code)
         releaseRoomIpSlot(room.creatorIp)
       }
       else if (nowMs - room.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
         closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
+        clearRecoveryTimers(code)
         releaseRoomIpSlot(room.creatorIp)
       }
     }
