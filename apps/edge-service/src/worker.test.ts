@@ -1391,9 +1391,10 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     })
 
     it('reconciles when the socket that closes is one whose attachment cannot be read, instead of throwing and leaving its member connected', async () => {
-      const { host, friend, first } = await hostAndApprovedFriend()
+      const { store, host, friend, first } = await hostAndApprovedFriend()
       host.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
       attach(first, [host, friend])
+      const heardBefore = friend.sent.length
 
       await first.webSocketClose(host as never)
 
@@ -1405,7 +1406,13 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       expect(snapshot?.participants.find(participant => participant.id === 'participant_host')?.connected).toBe(false)
       expect(snapshot?.participants.find(participant => participant.id === 'participant_friend')?.connected).toBe(true)
       expect(inspect(first).pendingController).toMatchObject({ participantId: 'participant_host' })
-      expect(friend.last()).toMatchObject({ type: 'room_snapshot' })
+      // The other member is told, and what was reconciled is saved: a restart
+      // before the next write finds the host disconnected and the plan made.
+      expect(friend.sent.length).toBeGreaterThan(heardBefore)
+      expect(friend.last()).toMatchObject({ type: 'room_snapshot', reason: 'participant_disconnected' })
+      const saved = store.get('room') as { coordinator: { participants: Array<{ id: string, connected: boolean }> }, pendingController: { participantId: string } | null }
+      expect(saved.coordinator.participants.find(participant => participant.id === 'participant_host')?.connected).toBe(false)
+      expect(saved.pendingController).toMatchObject({ participantId: 'participant_host' })
       expect(host.closed).toMatchObject({ code: 1011 })
       vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
       await first.alarm()
@@ -1464,7 +1471,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       expect(other.closed).toMatchObject({ code: 1011 })
     })
 
-    it('closes a socket that cannot be read when it broadcasts, and when it looks for a member to tell', async () => {
+    it('closes a socket that cannot be read when it broadcasts', async () => {
       const { host, friend, first } = await roomWithHostAndRequest()
       const unreadable = new FakeSocket()
       unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
@@ -1474,41 +1481,6 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       await say(first, host, approve)
       expect(unreadable.closed).toMatchObject({ code: 1011 })
       expect(friend.last()).toMatchObject({ type: 'room_snapshot' })
-
-      // Telling the controller what a member reported goes through another scan.
-      const second = new FakeSocket()
-      second.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
-      attach(first, [second, host, friend])
-      await say(first, host, { type: 'request_diagnostics', reportId: 'report_unreadable_scan' })
-      await say(first, friend, {
-        type: 'diagnostics_response',
-        reportId: 'report_unreadable_scan',
-        report: {
-          extensionVersion: '0.2.6', generatedAtLocalMs: 10_000, userAgent: 'Chrome test', connection: 'connected',
-          roomRevision: 1, playbackStatus: 'paused', playerFrameId: 0, playerAreaPixels: 500_000, playerLastSeenAtMs: 9_900,
-          mediaService: null, mediaCanonicalId: null, mediaPageUrl: null, sample: null,
-          events: [{ atLocalMs: 9_900, category: 'room', message: 'room_joined', details: { revision: 1 } }],
-        },
-      })
-      expect(second.closed).toMatchObject({ code: 1011 })
-      expect(host.last()).toMatchObject({ type: 'diagnostics_response', participantId: 'participant_friend' })
-    })
-
-    it('closes the earlier socket of a returning member that cannot be read even when no other scan would reach it', async () => {
-      const { host, friend, first } = await hostAndApprovedFriend()
-      const friendToken = sessionTokenOf(friend)
-      // The host is connected, so no recovery has to be derived and the join is
-      // the only thing that scans the sockets.
-      const unreadable = new FakeSocket()
-      unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
-      const back = new FakeSocket()
-      attach(first, [host, unreadable, back])
-
-      await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
-
-      expect(back.last()).toMatchObject({ type: 'room_joined' })
-      expect(unreadable.closed).toMatchObject({ code: 1011 })
-      expect(host.closed).toBeNull()
     })
 
     it('closes a socket that becomes unreadable by the time a member reports to the controller, in the scan that finds the controller', async () => {

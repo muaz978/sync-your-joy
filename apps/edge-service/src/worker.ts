@@ -643,7 +643,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!coordinator)
       return
     const repair: { reason: string | null } = { reason: null }
-    this.healRestoredState(repair)
+    try {
+      this.healRestoredState(repair)
+    }
+    catch (error) {
+      // What it repaired before it threw is kept and announced, as in a restore.
+      console.error('Reconciling room state after an unreadable close failed.', error instanceof Error ? error.name : 'unknown error')
+    }
     await this.persistAndObserve(() => {
       if (repair.reason !== null)
         this.broadcast({ type: 'room_snapshot', reason: repair.reason, snapshot: coordinator.snapshot() })
