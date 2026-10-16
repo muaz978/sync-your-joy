@@ -1,6 +1,6 @@
 # CR-C03 Player and panel waiting/recovery report
 
-Status: implementation candidate on issue #64. This document records the deterministic implementation boundary and the evidence required before the issue can be closed. Update 2026-10-16: the implementation merged as PR #92 and shipped in v0.2.5; #64 stays open for the gates under "Acceptance gates that remain separate".
+Status when written (historical): implementation candidate on issue #64. This document records the deterministic implementation boundary and the evidence required before the issue can be closed. Update 2026-10-16: the implementation merged as PR #92 and shipped in v0.2.5; #64 stays open for the gates under "Acceptance gates that remain separate". The Release decision below is the pre-merge position (historical).
 
 ## Problem
 

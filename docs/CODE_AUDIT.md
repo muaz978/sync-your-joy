@@ -13,7 +13,7 @@ The findings below were recorded against the previously published `v0.1.21` base
 
 _Status note, 2026-10-16 (added after the audit date; the text above and the findings below are the 2026-08-30 assessment and were not re-assessed): the `0.1.22` candidate was published as `v0.1.22` on 2026-08-30, and `CHANGELOG.md` records its remediation slice under 0.1.22. Later releases followed; `main` is at `0.2.6`. After this audit, host approval of new joins (PR #20, `CHANGELOG.md` 0.2.0, SYJ-AUD-003) and removal of the unused invite token (PR #38, `CHANGELOG.md` 0.2.3) were merged. This note does not record production deployment status or two-device or provider verification._
 
-The original findings remain below as an auditable baseline. Their status is therefore: implementation present in the `0.1.22` candidate, local tests passing, production deployment and two-device/provider verification pending.
+The original findings remain below as an auditable baseline. Their status as of the 2026-08-30 assessment (historical; see the status note above for what followed) was: implementation present in the `0.1.22` candidate, local tests passing, production deployment and two-device/provider verification pending.
 
 ## Executive summary
 

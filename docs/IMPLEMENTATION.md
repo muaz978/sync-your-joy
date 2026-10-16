@@ -112,7 +112,7 @@ npm run check
 ## Next production milestone
 
 1. Continue public two-city pilots and record connection, autoplay, buffering, and drift observations.
-2. Add network shaping (latency, jitter, packet loss) to the existing two-profile and three-profile persistent-Chrome automation in `tests/e2e` (PR #18, PR #96), which runs against the local room service. The deterministic `packages/sync-engine/src/network-chaos.test.ts` covers timing jitter and duplicate delivery against the coordinator only, not shaped browser traffic.
+2. Add network shaping (latency, jitter, packet loss) to the existing two-profile and three-profile persistent-context Playwright Chromium automation in `tests/e2e` (PR #18, PR #96), which runs against the local room service. The deterministic `packages/sync-engine/src/network-chaos.test.ts` covers timing jitter and duplicate delivery against the coordinator only, not shaped browser traffic.
 3. Create versioned compatibility fixtures for Crunchyroll, Netflix, Disney+, Animerco, and Qfilm.
 4. Prepare the Chrome Web Store listing, privacy disclosures, store assets, and review package.
 5. Add telemetry consent, retention policy, and adapter kill switches before any production telemetry.

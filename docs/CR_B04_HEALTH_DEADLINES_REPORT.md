@@ -6,7 +6,7 @@ Scope: deterministic sync-engine health deadlines and failure evaluation
 Branch: `codex/issue-58-health-deadlines`
 Base: CR-B03 merge `b36d33dcbd9bab22d14351ec5b50fcd24cd6f157`
 Version when written: `0.2.4`
-Status: implementation and final local verification complete; PR review, merge and downstream acceptance remain separate gates. Update 2026-10-16: merged as PR #86 and shipped in v0.2.5; #58 stays open for acceptance evidence.
+Status when written (historical): implementation and final local verification complete; PR review, merge and downstream acceptance remain separate gates. Update 2026-10-16: merged as PR #86 and shipped in v0.2.5; #58 stays open for acceptance evidence.
 
 ## 1. Problem and acceptance interpretation
 

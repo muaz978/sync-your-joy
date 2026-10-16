@@ -1,6 +1,6 @@
 # CR-B06 Edge Health and Rehydration Report
 
-Status: implementation complete on the issue branch, awaiting pull request review and merge verification. Update 2026-10-16: merged as PR #88 (2026-09-20) and shipped in v0.2.5, so section 7 lists the steps that preceded that merge; #60 stays open.
+Status when written (historical): implementation complete on the issue branch, awaiting pull request review and merge verification. Update 2026-10-16: merged as PR #88 (2026-09-20) and shipped in v0.2.5, so section 7 (merge still pending, #60 moving after it, the package at 0.2.4) is the pre-merge snapshot (historical); #60 stays open.
 
 Issue: [CR-B06, Make edge alarms and rehydration preserve health semantics](https://github.com/muaz978/sync-your-joy/issues/60)
 
@@ -70,7 +70,7 @@ The Durable Object now:
 - persists before sending and broadcasting a successful join result;
 - persists before broadcasting player status, seek acknowledgement, operation acknowledgement, join approval or denial, control, readiness, controller transfer, and link-open results;
 - persists the updated disconnect/controller-recovery metadata before broadcasting a disconnect snapshot;
-- continues to include pending controller, empty-room, seek, operation, and health deadlines when scheduling the next alarm;
+- continues to include pending controller, empty-room, seek, operation, and health deadlines when scheduling the next alarm (on `main`, not yet deployed, the six-hour room lifetime limit is part of this list too; see section 6);
 - clears pending controller state when an empty room is deleted.
 
 If the durable write or alarm scheduling fails, the observation callback is not executed. That keeps a failed storage boundary from being represented to connected peers as a committed state transition.
