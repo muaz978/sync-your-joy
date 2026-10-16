@@ -446,19 +446,15 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
   it('still serves the restored room and schedules its alarm when reconciling it throws', async () => {
     const { store, host } = await roomWithHostAndRequest()
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
-    // Reading one socket's attachment fails once, which is what the
-    // reconciliation reads first.
-    const flaky = new FakeSocket()
-    const read = flaky.deserializeAttachment.bind(flaky)
-    let reads = 0
-    flaky.deserializeAttachment = () => {
-      if (reads++ === 0)
-        throw new Error('attachment storage hiccup')
-      return read()
-    }
+    // The first thing the reconciliation asks the coordinator for fails once,
+    // before anything was repaired.
+    const snapshot = vi.spyOn(RoomCoordinator.prototype, 'snapshot').mockImplementationOnce(() => {
+      throw new Error('snapshot could not be built')
+    })
     const alarms: number[] = []
 
-    const restarted = await restored(objectOver(store, [flaky, host], alarms))
+    const restarted = await restored(objectOver(store, [host], alarms))
+    snapshot.mockRestore()
     // The deadlines are still derived from the state that was restored.
     expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
     await say(restarted, host, approve)
@@ -1276,10 +1272,10 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       // served anyway. It is closed and its client reconnects.
       expect(unreadable.closed).toMatchObject({ code: 1011 })
 
-      // The socket can be read again; the next save derives the recovery that
-      // the join could not, so the absent host does not keep control.
-      const readable = new FakeSocket()
-      unreadable.deserializeAttachment = readable.deserializeAttachment.bind(readable)
+      // The socket stays unreadable (a closed socket is still listed until its
+      // handler returns). It cannot be served, so it is not an attached
+      // participant; the next save derives the recovery that the join could
+      // not, and the absent host does not keep control.
       const joinedAtMs = startMs + CONTROLLER_GRACE_MS + 1_000
       await say(first, back, { type: 'client_metrics', roundTripMs: 20 })
       // The plan is in what was saved, not only in memory, so a restart before

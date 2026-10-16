@@ -318,7 +318,18 @@ export class RoomDurableObject extends DurableObject<Env> {
   private attachedParticipantIds(): Set<string> {
     const attached = new Set<string>()
     for (const socket of this.ctx.getWebSockets()) {
-      const attachment = socket.deserializeAttachment() as SocketAttachment | null
+      let attachment: SocketAttachment | null
+      try {
+        attachment = socket.deserializeAttachment() as SocketAttachment | null
+      }
+      catch {
+        // A socket whose attachment cannot be read cannot be served (every
+        // frame would fail the same way), so it does not count as attached:
+        // counting it, or throwing, would keep a controller that cannot act
+        // in control, or keep recovery from being derived, for as long as it
+        // stays open.
+        continue
+      }
       if (attachment?.participantId)
         attached.add(attachment.participantId)
     }
