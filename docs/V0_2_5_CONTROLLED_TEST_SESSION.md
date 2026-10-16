@@ -108,6 +108,8 @@ Use exactly these values. None of them except `PASS` counts toward acceptance, a
 
 ### 1.3 Same-candidate coordinator deployment
 
+- **Do not deploy `v0.2.5` or `423b6f7` over the production coordinator (2026-10-16).** Production runs the hardened coordinator (Worker `b6ea9ac1`, `main` at `05a0d68`); the `v0.2.5` coordinator hands an unapproved requester the room state. For a session with a newer package, Gate 0 accepts the coordinator that is deployed when the hardened one is identified (deployed source `05a0d68` or a later `main` commit the owner authorized, Version ID confirmed with Wrangler, exposure probe clean) and treats `423b6f7` and the deploy commands in section 1.3 as the history of the `v0.2.5` session only. Rolling back to `681f31dc` or older needs the owner's explicit decision.
+
 **Rule (2026-09-24).** #30 must not run against the old coordinator deployment. The extension package and the coordinator must come from the same runtime candidate, `423b6f7c77dad2b4a14db6932711be025aac8163` (tag `v0.2.5`). Do not proceed with the provider session if the two come from different runtime candidates or if the deployment target is ambiguous.
 
 **Deployment target**, from `apps/edge-service/wrangler.jsonc` and `.github/workflows/deploy-edge.yml` at `v0.2.5`:
@@ -144,6 +146,8 @@ The output must contain no runtime files. At `15680494f939bffbd84f4ab395dc70b8a2
 - Before deploying, record the currently active Version ID (last recorded by a read-only deployments listing on 2026-10-16: `681f31dc-eb31-4ced-a661-1d6304d134ff`, created 2026-09-29, preceded by `6a927c6f-93ea-47dc-b264-a0bc14c9fe1d` of 2026-09-23; the `209278f7-9154-4ad0-974a-3ad565a67581` that this kit was prepared with is no longer current, and the value must be read again immediately before any deploy). There is no rollback workflow, so a rollback needs an operator with Cloudflare access running `npm run rollback:edge -- <version-id> -m "<reason>"` (it passes `--config` and asks for the immediate Durable Object update mode; a bare `npx wrangler rollback` asks for wrangler's deferred mode, a delay of up to five minutes, and on the runtime the explicit request was observed to behave the same as the default: active rooms kept the previous code for about five minutes either way, see docs/RELEASING.md).
 
 ### 1.4 Gate 0: identity verification before the session
+
+- **Do not deploy `v0.2.5` or `423b6f7` over the production coordinator (2026-10-16).** Production runs the hardened coordinator (Worker `b6ea9ac1`, `main` at `05a0d68`); the `v0.2.5` coordinator hands an unapproved requester the room state. For a session with a newer package, Gate 0 accepts the coordinator that is deployed when the hardened one is identified (deployed source `05a0d68` or a later `main` commit the owner authorized, Version ID confirmed with Wrangler, exposure probe clean) and treats `423b6f7` and the deploy commands in section 1.3 as the history of the `v0.2.5` session only. Rolling back to `681f31dc` or older needs the owner's explicit decision.
 
 Run these after the deployment and before the friend starts. Only the operator runs them.
 
