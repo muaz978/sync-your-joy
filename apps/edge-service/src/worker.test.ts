@@ -1287,6 +1287,49 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       expect(controllerOf(first)).toBe('participant_friend')
     })
 
+    it('closes a socket that cannot be read when it restores, so that its client reconnects and is connected again', async () => {
+      const { store, host, friend } = await hostAndApprovedFriend()
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+      friend.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+
+      await restored(objectOver(store, [host, friend]))
+
+      expect(friend.closed).toMatchObject({ code: 1011 })
+      logged.mockRestore()
+    })
+
+    it('still handles a close, and a denial, while another socket cannot be read', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const late = new FakeSocket()
+      const unreadable = new FakeSocket()
+      unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [host, friend, late, unreadable])
+      await say(first, late, { type: 'join_room', protocolVersion: 1, participantId: 'participant_late', name: 'Sam', code: CODE, media: null })
+
+      await say(first, host, { type: 'respond_to_join', participantId: 'participant_late', approve: false, actionId: 'action_deny_late', basedOnRevision: 0, leaseEpoch: 1 })
+      expect(late.last()).toMatchObject({ type: 'command_rejected', code: 'join_denied' })
+
+      await first.webSocketClose(host as never)
+      expect(controllerOf(first)).toBe('participant_host')
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+      expect(controllerOf(first)).toBe('participant_friend')
+    })
+
+    it('accepts a connection while another socket cannot be read', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const unreadable = new FakeSocket()
+      unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [host, friend, unreadable])
+      vi.stubGlobal('WebSocketPair', class {
+        constructor() { throw new Error('pair reached') }
+      })
+
+      await expect(first.fetch(new Request('https://rooms.test/rooms?code=ABCD2345', { headers: { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } })))
+        .rejects.toThrow('pair reached')
+      vi.unstubAllGlobals()
+    })
+
     it('gives the host the re-arm window when the last member\'s close was never delivered and the plan had run out', async () => {
       const { store, host, friend, first } = await hostAndApprovedFriend()
       const friendToken = sessionTokenOf(friend)

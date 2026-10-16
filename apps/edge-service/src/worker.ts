@@ -135,6 +135,9 @@ export class RoomDurableObject extends DurableObject<Env> {
   // (the alarm included) has gone through, and `reason`, the repair that is told
   // to the members once the room is durable, until every member that can be
   // read has been told. Null when there is nothing outstanding.
+  // True while a retry of the restore's save is running, which is the attempt
+  // that the retry interval is claimed for, so its announcement is not held back.
+  private retryingRestore = false
   private unsavedRestore: { reason: string | null, alarmPending: boolean, announcements: number, nextAttemptAtMs: number } | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -315,19 +318,40 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
   }
 
+  /**
+   * A socket's attachment, or undefined when it cannot be read. A socket whose
+   * attachment cannot be read cannot be served either (every frame would fail
+   * the same way), so callers skip it instead of failing for it.
+   */
+  private attachmentOf(socket: WebSocket): SocketAttachment | null | undefined {
+    try {
+      return socket.deserializeAttachment() as SocketAttachment | null
+    }
+    catch {
+      return undefined
+    }
+  }
+
+  /**
+   * The participants that have a socket that can be served. A socket whose
+   * attachment cannot be read does not count (counting it, or throwing, would
+   * keep a controller that cannot act in control, or keep recovery from being
+   * derived, for as long as it stays open) and is closed so that its client
+   * reconnects with a fresh attachment and is connected again: a member that
+   * restore marked disconnected because its socket could not be read would
+   * otherwise stay disconnected on a socket that later reads fine.
+   */
   private attachedParticipantIds(): Set<string> {
     const attached = new Set<string>()
     for (const socket of this.ctx.getWebSockets()) {
-      let attachment: SocketAttachment | null
-      try {
-        attachment = socket.deserializeAttachment() as SocketAttachment | null
-      }
-      catch {
-        // A socket whose attachment cannot be read cannot be served (every
-        // frame would fail the same way), so it does not count as attached:
-        // counting it, or throwing, would keep a controller that cannot act
-        // in control, or keep recovery from being derived, for as long as it
-        // stays open.
+      const attachment = this.attachmentOf(socket)
+      if (attachment === undefined) {
+        try {
+          socket.close(1011, 'attachment_unreadable')
+        }
+        catch {
+          // Already closing.
+        }
         continue
       }
       if (attachment?.participantId)
@@ -361,10 +385,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!roomCode || !/^[A-Z0-9]{8}$/.test(roomCode))
       return new Response('Invalid room code', { status: 400 })
 
-    const pendingConnections = this.ctx.getWebSockets().filter((candidate) => {
-      const attachment = candidate.deserializeAttachment() as SocketAttachment | null
-      return attachment?.participantId === null
-    }).length
+    const pendingConnections = this.ctx.getWebSockets().filter(candidate => this.attachmentOf(candidate)?.participantId === null).length
     if (pendingConnections >= MAX_PENDING_CONNECTIONS_PER_ROOM)
       return new Response('Too many pending room connections', { status: 429 })
 
@@ -389,8 +410,8 @@ export class RoomDurableObject extends DurableObject<Env> {
    * extension's own `client_metrics` does, after each pong; other clients need
    * not) would never make this object save again, so a frame from any client
    * finishes what is outstanding once the previous attempt is
-   * RESTORE_SAVE_RETRY_MS old: the save if it has not gone through, otherwise
-   * the announcement to the members that could not be reached.
+   * RESTORE_SAVE_RETRY_MS old: the save, and with it the announcement to the
+   * members that have not been told.
    *
    * This runs after the frame has been handled and can never fail it: it is a
    * repair, like the restore itself, and the next frame tries again.
@@ -406,16 +427,19 @@ export class RoomDurableObject extends DurableObject<Env> {
     // Claimed before the attempt, so frames that overlap it do not each make
     // one and a failed attempt waits the whole interval.
     pending.nextAttemptAtMs = nowMs + RESTORE_SAVE_RETRY_MS
-    if (!pending.alarmPending) {
-      this.announceWithheldRepair(true)
-      this.finishRestoreIfSettled()
-      return
-    }
+    // Always through a save, even when only an announcement is outstanding:
+    // what is announced is the coordinator's current state, which is told only
+    // once it is durable (the announcement is made by the save's after-write
+    // hook, and a failing save announces nothing).
+    this.retryingRestore = true
     try {
       await this.persistAndSchedule()
     }
     catch (error) {
       console.error('Restoring room state could not be saved.', error instanceof Error ? error.name : 'unknown error')
+    }
+    finally {
+      this.retryingRestore = false
     }
   }
 
@@ -427,7 +451,7 @@ export class RoomDurableObject extends DurableObject<Env> {
    * member whose attachment could not be read is kept and offered again, up to
    * MAX_REPAIR_ANNOUNCEMENTS times.
    */
-  private announceWithheldRepair(force = false): void {
+  private announceWithheldRepair(): void {
     const pending = this.unsavedRestore
     if (!pending?.reason || !this.coordinator)
       return
@@ -435,7 +459,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // same interval as a save retry, so saves that come in quick succession do
     // not use up the attempts while the member is still unreadable.
     const nowMs = Date.now()
-    if (!force && pending.announcements > 0 && nowMs < pending.nextAttemptAtMs && pending.nextAttemptAtMs - nowMs <= RESTORE_SAVE_RETRY_MS)
+    if (!this.retryingRestore && pending.announcements > 0 && nowMs < pending.nextAttemptAtMs && pending.nextAttemptAtMs - nowMs <= RESTORE_SAVE_RETRY_MS)
       return
     pending.announcements += 1
     pending.nextAttemptAtMs = nowMs + RESTORE_SAVE_RETRY_MS
@@ -507,8 +531,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     const stillConnected = this.ctx.getWebSockets().some((candidate) => {
       if (candidate === socket)
         return false
-      const candidateAttachment = candidate.deserializeAttachment() as SocketAttachment | null
-      return candidateAttachment?.participantId === attachment.participantId
+      return this.attachmentOf(candidate)?.participantId === attachment.participantId
     })
     if (stillConnected)
       return
@@ -846,8 +869,7 @@ export class RoomDurableObject extends DurableObject<Env> {
           // after the denial has been persisted. The denied client never also
           // receives a snapshot for a room it is being removed from.
           for (const deniedSocket of this.ctx.getWebSockets()) {
-            const deniedAttachment = deniedSocket.deserializeAttachment() as SocketAttachment | null
-            if (deniedAttachment?.participantId !== message.participantId)
+            if (this.attachmentOf(deniedSocket)?.participantId !== message.participantId)
               continue
             this.send(deniedSocket, {
               type: 'command_rejected',
