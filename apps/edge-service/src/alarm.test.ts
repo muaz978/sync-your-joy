@@ -107,6 +107,38 @@ describe('edge alarm and persistence boundaries', () => {
     expect(events).toEqual(['storage', 'alarm', 'broadcast'])
   })
 
+  it('runs the after-write hook once the room is durable and before the alarm, and when only the alarm fails', async () => {
+    const events: string[] = []
+    const storage = {
+      async put(): Promise<void> { events.push('storage') },
+      async setAlarm(): Promise<void> {
+        events.push('alarm')
+        throw new Error('alarm storage unavailable')
+      },
+    }
+
+    await expect(persistRoomAndSchedule(storage, { createdAtMs: 1 }, [1_000], () => { events.push('hook') }))
+      .rejects.toThrow('alarm storage unavailable')
+
+    expect(events).toEqual(['storage', 'hook', 'alarm'])
+  })
+
+  it('does not run the after-write hook when the durable write fails', async () => {
+    const events: string[] = []
+    const storage = {
+      async put(): Promise<void> {
+        events.push('storage')
+        throw new Error('storage unavailable')
+      },
+      async setAlarm(): Promise<void> { events.push('alarm') },
+    }
+
+    await expect(persistRoomAndSchedule(storage, { createdAtMs: 1 }, [1_000], () => { events.push('hook') }))
+      .rejects.toThrow('storage unavailable')
+
+    expect(events).toEqual(['storage'])
+  })
+
   it('does not expose a transition when the durable write fails', async () => {
     const events: string[] = []
 

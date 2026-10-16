@@ -1,6 +1,6 @@
 import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import type { ServerMessage } from '@syncyourjoy/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { createRoomService, type RoomService } from './server.ts'
 
@@ -1029,6 +1029,210 @@ describe('empty room expiry with unapproved requests', () => {
     await new Promise<void>(resolve => setTimeout(resolve, 80))
     expect(service!.inspectRoom(code)).toMatchObject({ connectedParticipants: true, emptySinceMs: null })
     returning.close()
+  })
+})
+
+describe('controller recovery', () => {
+  const GRACE_MS = 60
+  const media = { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A title', durationSeconds: 600 }
+
+  async function roomWithApprovedFriend(serviceOptions: { controllerGraceMs?: number } = { controllerGraceMs: GRACE_MS }) {
+    service = await createRoomService({ port: 0, cleanupIntervalMs: 10, ...serviceOptions })
+    const host = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'RECV1234', media,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    const code = created.snapshot.code
+
+    const friend = await connect(service.url)
+    const hostNotice = nextMessage(host)
+    friend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null,
+    }))
+    const friendJoined = await nextMessage(friend)
+    if (friendJoined.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    await hostNotice
+    const hostApproved = nextMessage(host)
+    const friendApproved = nextMessage(friend)
+    host.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_friend', approve: true, actionId: 'action_approve_friend', basedOnRevision: 0, leaseEpoch: 1,
+    }))
+    await Promise.all([hostApproved, friendApproved])
+    return { host, friend, code, friendToken: friendJoined.sessionToken }
+  }
+
+  async function until(condition: () => boolean, what: string, timeoutMs = 3_000): Promise<void> {
+    const deadline = AbortSignal.timeout(timeoutMs)
+    while (!condition()) {
+      if (deadline.aborted)
+        throw new Error(`Timed out waiting for ${what}.`)
+      await new Promise<void>(resolve => setTimeout(resolve, 5))
+    }
+  }
+
+  // Recovery timers with one of these delays are captured instead of started:
+  // the test reads the delay each one was given and decides when it fires, so
+  // nothing here waits for a grace period or races one.
+  function captureRecoveryTimers(delaysMs: number[]) {
+    const startTimer = globalThis.setTimeout
+    const planned: Array<{ delayMs: number, fire: () => void }> = []
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: () => void, delay?: number, ...args: unknown[]) => {
+      if (delay === undefined || !delaysMs.includes(delay))
+        return startTimer(handler, delay, ...args)
+      planned.push({ delayMs: delay, fire: handler })
+      return startTimer(() => {}, 0)
+    }) as unknown as typeof setTimeout)
+    return { planned, release: () => spy.mockRestore() }
+  }
+
+  it('hands control to a connected member when the controller does not return in time', async () => {
+    const { host, friend } = await roomWithApprovedFriend()
+
+    host.close()
+    const recovered = await nextRoomSnapshot(friend, 'controller_recovered')
+
+    expect(recovered.snapshot.controller.participantId).toBe('participant_friend')
+    friend.close()
+  })
+
+  it('hands control to a member that returns after the grace period lapsed with nobody connected', async () => {
+    const { host, friend, code, friendToken } = await roomWithApprovedFriend()
+
+    host.close()
+    friend.close()
+    await until(() => service!.inspectRoom(code)?.connectedParticipants === false, 'everyone to be gone')
+    // Long enough for the grace period to run out with nobody to take control.
+    await new Promise<void>(resolve => setTimeout(resolve, GRACE_MS * 4))
+
+    const back = await connect(service!.url)
+    back.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null, sessionToken: friendToken,
+    }))
+    await expect(nextMessage(back)).resolves.toMatchObject({ type: 'room_joined' })
+    const recovered = await nextRoomSnapshot(back, 'controller_recovered')
+
+    expect(recovered.snapshot.controller.participantId).toBe('participant_friend')
+    back.close()
+  })
+
+  describe('with the recovery timers captured', () => {
+    // A value nothing else in the process uses as a timer delay.
+    const CAPTURED_GRACE_MS = 4_321
+
+    it('gives the host a full grace period again when a member returns after the plan lapsed', async () => {
+      const timers = captureRecoveryTimers([CAPTURED_GRACE_MS])
+      try {
+        const { host, friend, code, friendToken } = await roomWithApprovedFriend({ controllerGraceMs: CAPTURED_GRACE_MS })
+        host.close()
+        await until(() => timers.planned.length === 1, 'the recovery to be planned')
+        friend.close()
+        await until(() => service!.inspectRoom(code)?.connectedParticipants === false, 'everyone to be gone')
+        // The grace period runs out with nobody there to hand control to.
+        timers.planned[0]!.fire()
+
+        const back = await connect(service!.url)
+        back.send(JSON.stringify({
+          type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null, sessionToken: friendToken,
+        }))
+        await expect(nextMessage(back)).resolves.toMatchObject({ type: 'room_joined' })
+
+        // A new plan with a full grace period, not control handed over at once.
+        expect(timers.planned).toHaveLength(2)
+        expect(timers.planned[1]!.delayMs).toBe(CAPTURED_GRACE_MS)
+        timers.planned[1]!.fire()
+        const recovered = await nextRoomSnapshot(back, 'controller_recovered')
+        expect(recovered.snapshot.controller.participantId).toBe('participant_friend')
+        back.close()
+      }
+      finally {
+        timers.release()
+      }
+    })
+
+    it('gives a controller that is backing off a longer grace period when a member re-arms the recovery', async () => {
+      // The delays the service uses when it is not given a shorter grace period.
+      const timers = captureRecoveryTimers([10_000, 20_000])
+      try {
+        const { host, friend, code, friendToken } = await roomWithApprovedFriend({})
+        host.close()
+        await until(() => timers.planned.length === 1, 'the recovery to be planned')
+        friend.close()
+        await until(() => service!.inspectRoom(code)?.connectedParticipants === false, 'everyone to be gone')
+        timers.planned[0]!.fire()
+
+        const back = await connect(service!.url)
+        back.send(JSON.stringify({
+          type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null, sessionToken: friendToken,
+        }))
+        await expect(nextMessage(back)).resolves.toMatchObject({ type: 'room_joined' })
+
+        // The host that left while a member was there gets 10 s. One that has
+        // been backing off since an outage is given more than the extension's
+        // longest reconnect delay (15 s plus up to 250 ms of jitter).
+        expect(timers.planned.map(timer => timer.delayMs)).toEqual([10_000, 20_000])
+        back.close()
+      }
+      finally {
+        timers.release()
+      }
+    })
+
+    it('keeps the recovery that is already pending when a member reconnects', async () => {
+      const timers = captureRecoveryTimers([CAPTURED_GRACE_MS])
+      try {
+        const { host, friend, code, friendToken } = await roomWithApprovedFriend({ controllerGraceMs: CAPTURED_GRACE_MS })
+        host.close()
+        await until(() => timers.planned.length === 1, 'the recovery to be planned')
+        friend.close()
+        await until(() => service!.inspectRoom(code)?.connectedParticipants === false, 'everyone to be gone')
+
+        const again = await connect(service!.url)
+        again.send(JSON.stringify({
+          type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null, sessionToken: friendToken,
+        }))
+        await expect(nextMessage(again)).resolves.toMatchObject({ type: 'room_joined' })
+
+        // The member's return starts nothing new: the plan made when the host
+        // left is still the one in force, so a member that keeps reconnecting
+        // cannot keep a host that is gone in control.
+        expect(timers.planned).toHaveLength(1)
+        timers.planned[0]!.fire()
+        const recovered = await nextRoomSnapshot(again, 'controller_recovered')
+        expect(recovered.snapshot.controller.participantId).toBe('participant_friend')
+        again.close()
+      }
+      finally {
+        timers.release()
+      }
+    })
+
+    it('plans no recovery when a member returns while the controller is connected', async () => {
+      const timers = captureRecoveryTimers([CAPTURED_GRACE_MS])
+      try {
+        const { host, friend, code, friendToken } = await roomWithApprovedFriend({ controllerGraceMs: CAPTURED_GRACE_MS })
+        friend.close()
+        await until(() => service!.inspectRoom(code)?.sockets === 1, 'the member to be gone')
+
+        const again = await connect(service!.url)
+        again.send(JSON.stringify({
+          type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null, sessionToken: friendToken,
+        }))
+        await expect(nextMessage(again)).resolves.toMatchObject({ type: 'room_joined' })
+
+        // The host is there, so the member's return starts no timer that
+        // would only wake the room to find nothing to do.
+        expect(timers.planned).toHaveLength(0)
+        host.close()
+        again.close()
+      }
+      finally {
+        timers.release()
+      }
+    })
   })
 })
 

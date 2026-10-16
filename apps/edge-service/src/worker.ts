@@ -9,8 +9,26 @@ import { applyEarliestDueDeadline, persistRoomAndSchedule, persistThenObserve } 
 
 const MAX_MESSAGE_BYTES = 16_384
 const CONTROLLER_GRACE_MS = 10_000
+// A re-armed recovery (a member returned, or the room was restored) waits on a
+// host that has been backing off since an outage: the extension's reconnect
+// delay reaches 15 s plus up to 250 ms of jitter, so it gets more than that.
+// The extension also registers that reconnect as a chrome.alarms alarm for a
+// service worker that was suspended (scheduleReconnect in
+// apps/extension/src/service-worker.ts), and Chrome limits an installed
+// extension's alarms to one every 30 s (an unpacked one is exempt). A host
+// whose service worker was suspended can therefore still come back after this
+// period and find control moved. That is accepted, and the value stays: it is
+// still a member and can be given control back.
+const CONTROLLER_REARM_GRACE_MS = 20_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
 const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
+// A restore whose save failed is tried again on a later frame, at most this
+// often, so a storage outage costs one write attempt per interval and not one
+// per frame from every connected client.
+const RESTORE_SAVE_RETRY_MS = 5_000
+// A repair that could not be told to every member (an attachment that could not
+// be read) is offered again on later frames, this many times in all.
+const MAX_REPAIR_ANNOUNCEMENTS = 3
 const MAX_PENDING_CONNECTIONS_PER_ROOM = 20
 const MAX_UPGRADE_ATTEMPTS_PER_IP = 30
 const UPGRADE_ATTEMPT_WINDOW_MS = 60_000
@@ -57,14 +75,6 @@ interface StoredRoom {
   } | null
   emptySinceMs: number | null
   createdAtMs: number
-}
-
-// What restoring a room changed. `reason` is set only when membership changed
-// (a request withdrawn or a member marked disconnected), which is what the
-// members that are still attached need to be told.
-interface HealOutcome {
-  changed: boolean
-  reason: string | null
 }
 
 export default {
@@ -121,6 +131,14 @@ export class RoomDurableObject extends DurableObject<Env> {
   // persisted: a cold start simply forgets any in-flight diagnostics round.
   private pendingDiagnosticsRequests = new Map<string, Set<string>>()
   private readonly initialized: Promise<void>
+  // What restoring derived and has not finished: `alarmPending` until the save
+  // (the alarm included) has gone through, and `reason`, the repair that is told
+  // to the members once the room is durable, until every member that can be
+  // read has been told. Null when there is nothing outstanding.
+  // True while a retry of the restore's save is running, which is the attempt
+  // that the retry interval is claimed for, so its announcement is not held back.
+  private retryingRestore = false
+  private unsavedRestore: { reason: string | null, alarmPending: boolean, announcements: number, nextAttemptAtMs: number } | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -132,25 +150,48 @@ export class RoomDurableObject extends DurableObject<Env> {
         this.emptySinceMs = stored.emptySinceMs
         this.createdAtMs = stored.createdAtMs ?? Date.now()
 
-        // Reconciling is a repair, never a precondition: if it throws, this
-        // constructor would throw with it, the object would be reset and every
-        // later request for the room would fail the same way. Serving the
-        // restored state as it is (what this code did before it existed) is
-        // better than a room that can no longer be reached.
-        let healed: HealOutcome = { changed: false, reason: null }
+        // Reconciling and saving the result are repairs, never preconditions:
+        // if either throws, this constructor would throw with it, the object
+        // would be reset and every later request for the room would fail the
+        // same way. Serving the restored state as it is (what this code did
+        // before it existed) is better than a room that can no longer be
+        // reached.
+        // What was repaired is recorded as it happens, so a step that throws
+        // afterwards cannot leave a repair that is saved and never announced.
+        const repair: { reason: string | null } = { reason: null }
         try {
-          healed = this.healRestoredState()
+          this.healRestoredState(repair)
         }
         catch (error) {
           console.error('Restoring room state could not be reconciled with its sockets.', error instanceof Error ? error.name : 'unknown error')
         }
-        if (healed.changed) {
+        // Every restore re-derives the alarm, not only one that repaired
+        // something: the alarm that is set belongs to whichever code last wrote
+        // the room and can lack a deadline this code has (the lifetime limit)
+        // or sit after it, and a client that sends nothing that writes would
+        // never make this object write again. The price is one write per wake;
+        // trusting getAlarm() would save it and keep a stale alarm.
+        //
+        // A member that kept its socket across the restart still holds the
+        // picture from before it: it would keep showing a participant as
+        // connected, or a request as waiting, until some unrelated message. The
+        // repair is told as soon as the room is durable (see
+        // announceWithheldRepair), and not before: a repair that was not saved
+        // is not announced as if it were.
+        this.unsavedRestore = {
+          reason: repair.reason,
+          alarmPending: true,
+          announcements: 0,
+          nextAttemptAtMs: Date.now() + RESTORE_SAVE_RETRY_MS,
+        }
+        try {
           await this.persistAndSchedule()
-          // A member that kept its socket across the restart still holds the
-          // picture from before it: it would keep showing a participant as
-          // connected, or a request as waiting, until some unrelated message.
-          if (healed.reason && this.coordinator)
-            this.broadcast({ type: 'room_snapshot', reason: healed.reason, snapshot: this.coordinator.snapshot() })
+        }
+        catch (error) {
+          // What is outstanding stays in unsavedRestore: the next frame from a
+          // client tries it again (retryUnsavedRestore), and so does any later
+          // write or alarm.
+          console.error('Restoring room state could not be saved.', error instanceof Error ? error.name : 'unknown error')
         }
       }
     })
@@ -163,45 +204,46 @@ export class RoomDurableObject extends DurableObject<Env> {
    * its member disconnected; if the previous instance went away before that
    * happened, or never delivered the close, the stored state still describes
    * connections that no longer exist: a request that can be approved into a
-   * member with no connection, a member shown as connected forever, and an
-   * empty room whose expiry clock was never started.
+   * member with no connection, a member shown as connected forever, an empty
+   * room whose expiry clock was never started, and a controller that is gone
+   * with nothing planned to replace it.
    *
    * Hibernating sockets stay attached across a restart with their attachment,
-   * so a participant that still has a socket is never touched. Returns whether
-   * anything changed and needs persisting, and, when the room's membership
-   * changed, the reason to tell the members that are still attached.
+   * so a participant that still has a socket is never touched. The reason to
+   * tell the members that are still attached when the room's membership
+   * changed (a request withdrawn or a member marked disconnected) is recorded
+   * in `repair` as it is made, so a step that throws afterwards does not lose
+   * it; it stays null when nothing changed.
    */
-  private healRestoredState(): HealOutcome {
+  private healRestoredState(repair: { reason: string | null }): void {
     const coordinator = this.coordinator
     if (!coordinator)
-      return { changed: false, reason: null }
+      return
 
-    const attached = new Set<string>()
-    for (const socket of this.ctx.getWebSockets()) {
-      const attachment = socket.deserializeAttachment() as SocketAttachment | null
-      if (attachment?.participantId)
-        attached.add(attachment.participantId)
-    }
+    this.dropLapsedControllerPlan(Date.now(), false)
+    const attached = this.attachedParticipantIds()
 
-    let changed = false
-    let reason: string | null = null
+    // A plan that is stored for a participant that has its socket is stale:
+    // it was made when the host left, and the join that followed was not saved.
+    // alarm() reads the stored connected flag, so it would carry the plan out
+    // against a host that is there.
+    if (this.pendingController && attached.has(this.pendingController.participantId))
+      this.pendingController = null
+
     const snapshot = coordinator.snapshot()
     for (const request of snapshot.pendingJoinRequests) {
       if (attached.has(request.id))
         continue
       const withdrawn = coordinator.cancelPendingJoin(request.id)
-      if (withdrawn?.ok) {
-        changed = true
-        reason = withdrawn.reason
-      }
+      if (withdrawn?.ok)
+        repair.reason = withdrawn.reason
     }
     for (const participant of snapshot.participants) {
       if (!participant.connected || attached.has(participant.id))
         continue
       const disconnected = coordinator.disconnect(participant.id)
       if (disconnected?.ok) {
-        changed = true
-        reason = disconnected.reason
+        repair.reason = disconnected.reason
         if (coordinator.snapshot().controller.participantId === participant.id) {
           this.pendingController = {
             participantId: participant.id,
@@ -210,17 +252,112 @@ export class RoomDurableObject extends DurableObject<Env> {
         }
       }
     }
+    // Derived like the empty-room clock below: a room last written with its
+    // controller gone, a member attached and no recovery pending (a lapsed
+    // plan, saved by code that did not re-arm it) would otherwise leave the
+    // absent controller in control until a member joined.
+    this.dropLapsedControllerPlan(Date.now(), !coordinator.hasConnectedParticipants())
+    this.armControllerRecovery(attached)
 
     const clock = reconcileEmptyClock({
       emptySinceMs: this.emptySinceMs,
       hasConnectedParticipants: coordinator.hasConnectedParticipants(),
       nowMs: Date.now(),
     })
-    if (clock !== this.emptySinceMs) {
-      this.emptySinceMs = clock
-      changed = true
+    this.emptySinceMs = clock
+  }
+
+  /**
+   * Controller recovery is derived from membership, like the empty-room
+   * clock: while the controller is disconnected and somebody is connected, a
+   * recovery must be pending. The plan made when the controller left is
+   * dropped by the alarm if its grace period ran out with nobody connected, so
+   * one is made again when a member comes back, and when a room is restored;
+   * otherwise a host that is no longer there would keep control of the room
+   * for as long as the members stay.
+   */
+  /**
+   * A recovery plan whose time ran out while nobody was connected has lapsed,
+   * which is how alarm() treats it when it is delivered on time: there was
+   * nobody to hand control to. When the alarm is late and a member comes back
+   * first, the plan must not survive to hand control away the moment the alarm
+   * runs, with the host given no window at all: the room was empty from before
+   * the deadline until now, so it is dropped and a new one is made for the
+   * member that returned.
+   */
+  private dropLapsedControllerPlan(nowMs: number, roomEmptyNow: boolean): void {
+    const plan = this.pendingController
+    if (!plan || nowMs < plan.recoverAtMs)
+      return
+    // Empty from before the deadline (the clock says so), or found empty when
+    // restoring after it: a close that was never delivered leaves no clock to
+    // say when the room emptied, but nobody is there now to hand control to.
+    if (roomEmptyNow || (this.emptySinceMs !== null && this.emptySinceMs <= plan.recoverAtMs))
+      this.pendingController = null
+  }
+
+  private armControllerRecovery(attachedNow?: Set<string>): void {
+    const coordinator = this.coordinator
+    if (!coordinator || this.pendingController)
+      return
+
+    const snapshot = coordinator.snapshot()
+    const controller = snapshot.participants.find(participant => participant.id === snapshot.controller.participantId)
+    if (!controller || controller.connected || !coordinator.hasConnectedParticipants())
+      return
+    // A controller that still has its socket is not gone, whatever the stored
+    // flag says (a join whose write was lost): handing its control away would
+    // take it from a host that is there. Asked on every call, so a member that
+    // returns is held to it as well as a restore.
+    if ((attachedNow ?? this.attachedParticipantIds()).has(controller.id))
+      return
+
+    this.pendingController = {
+      participantId: controller.id,
+      recoverAtMs: Date.now() + CONTROLLER_REARM_GRACE_MS,
     }
-    return { changed, reason }
+  }
+
+  /**
+   * A socket's attachment, or undefined when it cannot be read. A socket whose
+   * attachment cannot be read cannot be served either (every frame would fail
+   * the same way), so callers skip it instead of failing for it.
+   */
+  private attachmentOf(socket: WebSocket): SocketAttachment | null | undefined {
+    try {
+      return socket.deserializeAttachment() as SocketAttachment | null
+    }
+    catch {
+      return undefined
+    }
+  }
+
+  /**
+   * The participants that have a socket that can be served. A socket whose
+   * attachment cannot be read does not count (counting it, or throwing, would
+   * keep a controller that cannot act in control, or keep recovery from being
+   * derived, for as long as it stays open) and is closed so that its client
+   * reconnects with a fresh attachment and is connected again: a member that
+   * restore marked disconnected because its socket could not be read would
+   * otherwise stay disconnected on a socket that later reads fine.
+   */
+  private attachedParticipantIds(): Set<string> {
+    const attached = new Set<string>()
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = this.attachmentOf(socket)
+      if (attachment === undefined) {
+        try {
+          socket.close(1011, 'attachment_unreadable')
+        }
+        catch {
+          // Already closing.
+        }
+        continue
+      }
+      if (attachment?.participantId)
+        attached.add(attachment.participantId)
+    }
+    return attached
   }
 
   /**
@@ -248,10 +385,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!roomCode || !/^[A-Z0-9]{8}$/.test(roomCode))
       return new Response('Invalid room code', { status: 400 })
 
-    const pendingConnections = this.ctx.getWebSockets().filter((candidate) => {
-      const attachment = candidate.deserializeAttachment() as SocketAttachment | null
-      return attachment?.participantId === null
-    }).length
+    const pendingConnections = this.ctx.getWebSockets().filter(candidate => this.attachmentOf(candidate)?.participantId === null).length
     if (pendingConnections >= MAX_PENDING_CONNECTIONS_PER_ROOM)
       return new Response('Too many pending room connections', { status: 429 })
 
@@ -269,8 +403,95 @@ export class RoomDurableObject extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client })
   }
 
+  /**
+   * Restoring that could not finish leaves the room without the alarm that
+   * carries its lifetime limit and controller recovery, and with a repair the
+   * members were not told. A client that sends nothing that writes (the
+   * extension's own `client_metrics` does, after each pong; other clients need
+   * not) would never make this object save again, so a frame from any client
+   * finishes what is outstanding once the previous attempt is
+   * RESTORE_SAVE_RETRY_MS old: the save, and with it the announcement to the
+   * members that have not been told.
+   *
+   * This runs after the frame has been handled and can never fail it: it is a
+   * repair, like the restore itself, and the next frame tries again.
+   */
+  private async retryUnsavedRestore(): Promise<void> {
+    const pending = this.unsavedRestore
+    if (!pending || !this.coordinator)
+      return
+    const nowMs = Date.now()
+    // A clock that has stepped back must not hold the retry until it catches up.
+    if (nowMs < pending.nextAttemptAtMs && pending.nextAttemptAtMs - nowMs <= RESTORE_SAVE_RETRY_MS)
+      return
+    // Claimed before the attempt, so frames that overlap it do not each make
+    // one and a failed attempt waits the whole interval.
+    pending.nextAttemptAtMs = nowMs + RESTORE_SAVE_RETRY_MS
+    // Always through a save, even when only an announcement is outstanding:
+    // what is announced is the coordinator's current state, which is told only
+    // once it is durable (the announcement is made by the save's after-write
+    // hook, and a failing save announces nothing).
+    this.retryingRestore = true
+    try {
+      await this.persistAndSchedule()
+    }
+    catch (error) {
+      console.error('Restoring room state could not be saved.', error instanceof Error ? error.name : 'unknown error')
+    }
+    finally {
+      this.retryingRestore = false
+    }
+  }
+
+  /**
+   * Tells the attached members the repair that restoring withheld. Called once
+   * the room is durable: right after the write, whether or not the alarm could
+   * be set after it, because a restart before a retry would otherwise find the
+   * repaired state and nothing left to announce. A repair that could not reach a
+   * member whose attachment could not be read is kept and offered again, up to
+   * MAX_REPAIR_ANNOUNCEMENTS times.
+   */
+  private announceWithheldRepair(): void {
+    const pending = this.unsavedRestore
+    if (!pending?.reason || !this.coordinator)
+      return
+    // After an attempt that could not reach everyone, the next one waits the
+    // same interval as a save retry, so saves that come in quick succession do
+    // not use up the attempts while the member is still unreadable.
+    const nowMs = Date.now()
+    if (!this.retryingRestore && pending.announcements > 0 && nowMs < pending.nextAttemptAtMs && pending.nextAttemptAtMs - nowMs <= RESTORE_SAVE_RETRY_MS)
+      return
+    pending.announcements += 1
+    pending.nextAttemptAtMs = nowMs + RESTORE_SAVE_RETRY_MS
+    let complete = false
+    try {
+      complete = this.broadcast({ type: 'room_snapshot', reason: pending.reason, snapshot: this.coordinator.snapshot() })
+    }
+    catch {
+      complete = false
+    }
+    if (complete || pending.announcements >= MAX_REPAIR_ANNOUNCEMENTS)
+      pending.reason = null
+  }
+
+  /** Clears what restoring had outstanding once nothing of it is left. */
+  private finishRestoreIfSettled(): void {
+    const pending = this.unsavedRestore
+    if (pending && !pending.alarmPending && pending.reason === null)
+      this.unsavedRestore = null
+  }
+
   async webSocketMessage(socket: WebSocket, rawMessage: string | ArrayBuffer): Promise<void> {
     await this.initialized
+    try {
+      await this.handleFrame(socket, rawMessage)
+    }
+    finally {
+      await this.retryUnsavedRestore()
+    }
+  }
+
+  private async handleFrame(socket: WebSocket, rawMessage: string | ArrayBuffer): Promise<void> {
     const attachment = socket.deserializeAttachment() as SocketAttachment
     const nowMs = Date.now()
     if (nowMs - attachment.messageWindowStartedAt > 10_000) {
@@ -310,8 +531,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     const stillConnected = this.ctx.getWebSockets().some((candidate) => {
       if (candidate === socket)
         return false
-      const candidateAttachment = candidate.deserializeAttachment() as SocketAttachment | null
-      return candidateAttachment?.participantId === attachment.participantId
+      return this.attachmentOf(candidate)?.participantId === attachment.participantId
     })
     if (stillConnected)
       return
@@ -335,8 +555,22 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     const result = this.coordinator.disconnect(attachment.participantId)
-    if (!result?.ok)
+    if (!result?.ok) {
+      // A controller already stored as disconnected (a join whose write was
+      // lost across a restart) has nothing left to disconnect, but its socket
+      // going away still leaves a room that nobody is acting for. The local
+      // service plans the recovery on every close of the controller, so do
+      // the same here.
+      const gone = this.coordinator.snapshot().controller.participantId === attachment.participantId
+      if (gone && !this.pendingController && this.coordinator.hasConnectedParticipants()) {
+        this.pendingController = {
+          participantId: attachment.participantId,
+          recoverAtMs: Date.now() + CONTROLLER_GRACE_MS,
+        }
+        await this.persistAndSchedule()
+      }
       return
+    }
 
     if (this.coordinator.snapshot().controller.participantId === attachment.participantId) {
       this.pendingController = {
@@ -368,6 +602,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.coordinator = null
       this.pendingController = null
       this.emptySinceMs = null
+      this.unsavedRestore = null
       return
     }
 
@@ -392,6 +627,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.coordinator = null
       this.pendingController = null
       this.emptySinceMs = null
+      this.unsavedRestore = null
       return
     }
 
@@ -508,8 +744,19 @@ export class RoomDurableObject extends DurableObject<Env> {
       // empty-room expiry: otherwise one unapproved request keeps an
       // otherwise empty room alive.
       const pendingRequest = result.reason === 'join_pending'
-      if (!pendingRequest)
+      if (!pendingRequest) {
+        this.dropLapsedControllerPlan(Date.now(), false)
         this.emptySinceMs = null
+        try {
+          this.armControllerRecovery()
+        }
+        catch (error) {
+          // Derived like the empty-room clock, so it is made again at the next
+          // join or restore; a socket that cannot be read must not stop this
+          // member from being admitted.
+          console.error('Controller recovery could not be derived for a join.', error instanceof Error ? error.name : 'unknown error')
+        }
+      }
       await this.persistAndObserve(() => {
         this.send(socket, {
           type: 'room_joined',
@@ -622,8 +869,7 @@ export class RoomDurableObject extends DurableObject<Env> {
           // after the denial has been persisted. The denied client never also
           // receives a snapshot for a room it is being removed from.
           for (const deniedSocket of this.ctx.getWebSockets()) {
-            const deniedAttachment = deniedSocket.deserializeAttachment() as SocketAttachment | null
-            if (deniedAttachment?.participantId !== message.participantId)
+            if (this.attachmentOf(deniedSocket)?.participantId !== message.participantId)
               continue
             this.send(deniedSocket, {
               type: 'command_rejected',
@@ -662,6 +908,16 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!this.coordinator)
       return
 
+    // Derived like the empty-room clock, so that any save settles it: a plan
+    // that a join could not make (a socket that could not be read) is made by
+    // the next save, and the alarm below is derived from it.
+    try {
+      this.armControllerRecovery()
+    }
+    catch {
+      // Tried again by the next save.
+    }
+
     const storedRoom: StoredRoom = {
       coordinator: this.coordinator.exportState(),
       pendingController: this.pendingController,
@@ -689,7 +945,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (healthDeadlineMs !== null)
       alarmCandidates.push(healthDeadlineMs)
 
-    await persistRoomAndSchedule(this.ctx.storage, storedRoom, alarmCandidates)
+    await persistRoomAndSchedule(this.ctx.storage, storedRoom, alarmCandidates, () => this.announceWithheldRepair())
+    // Any save does what a retried restore save would: it writes the room as it
+    // is now and derives the alarm from it.
+    if (this.unsavedRestore) {
+      this.unsavedRestore.alarmPending = false
+      this.finishRestoreIfSettled()
+    }
   }
 
   private async persistAndObserve(observe: () => void): Promise<void> {
@@ -705,7 +967,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
   }
 
-  private broadcast(message: ServerMessage, except?: WebSocket): void {
+  /** Returns false when a socket was skipped because its attachment could not be read. */
+  private broadcast(message: ServerMessage, except?: WebSocket): boolean {
+    let complete = true
     for (const socket of this.ctx.getWebSockets()) {
       if (socket === except)
         continue
@@ -713,16 +977,32 @@ export class RoomDurableObject extends DurableObject<Env> {
       // joined at all (participantId null) or whose join request is still
       // pending must learn nothing about the room: the controller's
       // approval is the only thing that grants access to its state.
-      const attachment = socket.deserializeAttachment() as SocketAttachment | null
+      let attachment: SocketAttachment | null
+      try {
+        attachment = socket.deserializeAttachment() as SocketAttachment | null
+      }
+      catch {
+        // One socket whose attachment cannot be read is skipped; the others
+        // still hear it, and the caller can tell that one did not.
+        complete = false
+        continue
+      }
       if (!attachment?.participantId || !this.coordinator?.hasParticipant(attachment.participantId))
         continue
       this.send(socket, message)
     }
+    return complete
   }
 
   private sendToParticipant(participantId: string, message: ServerMessage): void {
     for (const socket of this.ctx.getWebSockets()) {
-      const attachment = socket.deserializeAttachment() as SocketAttachment | null
+      let attachment: SocketAttachment | null
+      try {
+        attachment = socket.deserializeAttachment() as SocketAttachment | null
+      }
+      catch {
+        continue
+      }
       if (attachment?.participantId === participantId) {
         this.send(socket, message)
         return
@@ -747,9 +1027,32 @@ export class RoomDurableObject extends DurableObject<Env> {
     for (const socket of this.ctx.getWebSockets()) {
       if (socket === current)
         continue
-      const attachment = socket.deserializeAttachment() as SocketAttachment | null
-      if (attachment?.participantId === participantId)
-        socket.close(1000, 'session_replaced')
+      // Best effort, socket by socket: one that cannot be read or closed must
+      // not stop the member that is joining from being admitted.
+      let attachment: SocketAttachment | null
+      try {
+        attachment = socket.deserializeAttachment() as SocketAttachment | null
+      }
+      catch {
+        // It cannot be told whether this is the member's own earlier connection,
+        // and it cannot be served either (every frame would fail to read its
+        // attachment), so it is not left open beside the one being admitted.
+        // Its client reconnects with a fresh attachment.
+        try {
+          socket.close(1011, 'attachment_unreadable')
+        }
+        catch {
+          // Already closing.
+        }
+        continue
+      }
+      try {
+        if (attachment?.participantId === participantId)
+          socket.close(1000, 'session_replaced')
+      }
+      catch {
+        // Already closing or closed.
+      }
     }
   }
 }

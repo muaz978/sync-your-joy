@@ -11,6 +11,10 @@ import { WebSocket, WebSocketServer } from 'ws'
 
 const MAX_MESSAGE_BYTES = 16_384
 const CONTROLLER_GRACE_MS = 10_000
+// A re-armed recovery (a member returned) waits on a host that has been
+// backing off since an outage: the extension's reconnect delay reaches 15 s
+// plus up to 250 ms of jitter, so it gets more than that.
+const CONTROLLER_REARM_GRACE_MS = 20_000
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
 const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
 // Scoped per remote IP, not per room: an unauthenticated socket has not yet
@@ -77,6 +81,13 @@ export interface RoomServiceOptions {
   now?: () => number
   /** How often rooms are checked for deadlines and expiry. Defaults to 100 ms. */
   cleanupIntervalMs?: number
+  /**
+   * How long a disconnected controller is given to come back before control
+   * passes to a connected member, both when it leaves and when a returning
+   * member re-arms a recovery that lapsed. Defaults to 10 and 20 seconds;
+   * tests shorten it.
+   */
+  controllerGraceMs?: number
 }
 
 export async function createRoomService(options: RoomServiceOptions = {}): Promise<RoomService> {
@@ -288,19 +299,8 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
         broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
 
       const snapshot = room.coordinator.snapshot()
-      if (snapshot.controller.participantId === client.participantId) {
-        const timerKey = `${client.roomCode}:${client.participantId}`
-        const priorTimer = recoveryTimers.get(timerKey)
-        if (priorTimer)
-          clearTimeout(priorTimer)
-
-        recoveryTimers.set(timerKey, setTimeout(() => {
-          recoveryTimers.delete(timerKey)
-          const recovery = room.coordinator.transferDisconnectedController()
-          if (recovery?.ok)
-            broadcast(room, { type: 'room_snapshot', reason: recovery.reason, snapshot: recovery.snapshot })
-        }, CONTROLLER_GRACE_MS))
-      }
+      if (snapshot.controller.participantId === client.participantId)
+        scheduleControllerRecovery(room, client.roomCode, client.participantId, options.controllerGraceMs ?? CONTROLLER_GRACE_MS)
 
       if (room.emptySinceMs === null && !room.coordinator.hasConnectedParticipants())
         room.emptySinceMs = now()
@@ -407,10 +407,13 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
 
       const pendingRequest = result.reason === 'join_pending'
       entry.sockets.add(socket)
-      if (pendingRequest)
+      if (pendingRequest) {
         entry.pending.add(socket)
-      else
+      }
+      else {
         entry.emptySinceMs = null
+        armControllerRecovery(entry, message.code)
+      }
       clients.set(socket, { socket, participantId: message.participantId, roomCode: message.code })
       for (const priorSocket of entry.sockets) {
         if (priorSocket === socket)
@@ -586,6 +589,53 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
     }
   }
 
+  // Gives a disconnected controller a grace period to come back, then hands
+  // control to the longest-connected member. If nobody is connected when the
+  // period runs out there is nobody to hand control to and the plan lapses;
+  // armControllerRecovery() makes a new one when somebody returns.
+  function scheduleControllerRecovery(room: RoomEntry, code: string, controllerId: string, graceMs: number): void {
+    const timerKey = `${code}:${controllerId}`
+    const priorTimer = recoveryTimers.get(timerKey)
+    if (priorTimer)
+      clearTimeout(priorTimer)
+
+    recoveryTimers.set(timerKey, setTimeout(() => { // DevSkim: ignore DS172411
+      recoveryTimers.delete(timerKey)
+      // The room may have been removed since the plan was made.
+      if (rooms.get(code) !== room)
+        return
+      const recovery = room.coordinator.transferDisconnectedController()
+      if (recovery?.ok)
+        broadcast(room, { type: 'room_snapshot', reason: recovery.reason, snapshot: recovery.snapshot })
+    }, graceMs))
+  }
+
+  // A room that is removed takes its recovery plans with it.
+  function clearRecoveryTimers(code: string): void {
+    for (const [key, timer] of recoveryTimers) {
+      if (key.startsWith(`${code}:`)) {
+        clearTimeout(timer)
+        recoveryTimers.delete(key)
+      }
+    }
+  }
+
+  // Controller recovery is derived from membership, like the empty-room
+  // clock: while the controller is disconnected and somebody is connected, a
+  // recovery must be pending. The plan made when the controller left lapses if
+  // its grace period ran out with nobody connected, so one is made again when
+  // a member comes back; otherwise a host that is no longer there would keep
+  // control of the room for as long as the members stay.
+  function armControllerRecovery(room: RoomEntry, code: string): void {
+    const snapshot = room.coordinator.snapshot()
+    const controller = snapshot.participants.find(participant => participant.id === snapshot.controller.participantId)
+    if (!controller || controller.connected || !room.coordinator.hasConnectedParticipants())
+      return
+    if (recoveryTimers.has(`${code}:${controller.id}`))
+      return
+    scheduleControllerRecovery(room, code, controller.id, options.controllerGraceMs ?? CONTROLLER_REARM_GRACE_MS)
+  }
+
   const cleanupTimer = setInterval(() => {
     const nowMs = now()
     for (const [code, room] of rooms) {
@@ -616,11 +666,13 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
         // stays up for a room that no longer exists.
         closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
+        clearRecoveryTimers(code)
         releaseRoomIpSlot(room.creatorIp)
       }
       else if (nowMs - room.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
         closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
+        clearRecoveryTimers(code)
         releaseRoomIpSlot(room.creatorIp)
       }
     }
