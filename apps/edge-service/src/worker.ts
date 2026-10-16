@@ -217,7 +217,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!coordinator)
       return
 
-    this.dropLapsedControllerPlan(Date.now())
+    this.dropLapsedControllerPlan(Date.now(), false)
     const attached = this.attachedParticipantIds()
 
     // A plan that is stored for a participant that has its socket is stale:
@@ -253,6 +253,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // controller gone, a member attached and no recovery pending (a lapsed
     // plan, saved by code that did not re-arm it) would otherwise leave the
     // absent controller in control until a member joined.
+    this.dropLapsedControllerPlan(Date.now(), !coordinator.hasConnectedParticipants())
     this.armControllerRecovery(attached)
 
     const clock = reconcileEmptyClock({
@@ -281,11 +282,14 @@ export class RoomDurableObject extends DurableObject<Env> {
    * the deadline until now, so it is dropped and a new one is made for the
    * member that returned.
    */
-  private dropLapsedControllerPlan(nowMs: number): void {
+  private dropLapsedControllerPlan(nowMs: number, roomEmptyNow: boolean): void {
     const plan = this.pendingController
     if (!plan || nowMs < plan.recoverAtMs)
       return
-    if (this.emptySinceMs !== null && this.emptySinceMs <= plan.recoverAtMs)
+    // Empty from before the deadline (the clock says so), or found empty when
+    // restoring after it: a close that was never delivered leaves no clock to
+    // say when the room emptied, but nobody is there now to hand control to.
+    if (roomEmptyNow || (this.emptySinceMs !== null && this.emptySinceMs <= plan.recoverAtMs))
       this.pendingController = null
   }
 
@@ -392,7 +396,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     // one and a failed attempt waits the whole interval.
     pending.nextAttemptAtMs = nowMs + RESTORE_SAVE_RETRY_MS
     if (!pending.alarmPending) {
-      this.announceWithheldRepair()
+      this.announceWithheldRepair(true)
       this.finishRestoreIfSettled()
       return
     }
@@ -412,11 +416,18 @@ export class RoomDurableObject extends DurableObject<Env> {
    * member whose attachment could not be read is kept and offered again, up to
    * MAX_REPAIR_ANNOUNCEMENTS times.
    */
-  private announceWithheldRepair(): void {
+  private announceWithheldRepair(force = false): void {
     const pending = this.unsavedRestore
     if (!pending?.reason || !this.coordinator)
       return
+    // After an attempt that could not reach everyone, the next one waits the
+    // same interval as a save retry, so saves that come in quick succession do
+    // not use up the attempts while the member is still unreadable.
+    const nowMs = Date.now()
+    if (!force && pending.announcements > 0 && nowMs < pending.nextAttemptAtMs && pending.nextAttemptAtMs - nowMs <= RESTORE_SAVE_RETRY_MS)
+      return
     pending.announcements += 1
+    pending.nextAttemptAtMs = nowMs + RESTORE_SAVE_RETRY_MS
     let complete = false
     try {
       complete = this.broadcast({ type: 'room_snapshot', reason: pending.reason, snapshot: this.coordinator.snapshot() })
@@ -700,9 +711,17 @@ export class RoomDurableObject extends DurableObject<Env> {
       // otherwise empty room alive.
       const pendingRequest = result.reason === 'join_pending'
       if (!pendingRequest) {
-        this.dropLapsedControllerPlan(Date.now())
+        this.dropLapsedControllerPlan(Date.now(), false)
         this.emptySinceMs = null
-        this.armControllerRecovery()
+        try {
+          this.armControllerRecovery()
+        }
+        catch (error) {
+          // Derived like the empty-room clock, so it is made again at the next
+          // join or restore; a socket that cannot be read must not stop this
+          // member from being admitted.
+          console.error('Controller recovery could not be derived for a join.', error instanceof Error ? error.name : 'unknown error')
+        }
       }
       await this.persistAndObserve(() => {
         this.send(socket, {
@@ -934,7 +953,13 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   private sendToParticipant(participantId: string, message: ServerMessage): void {
     for (const socket of this.ctx.getWebSockets()) {
-      const attachment = socket.deserializeAttachment() as SocketAttachment | null
+      let attachment: SocketAttachment | null
+      try {
+        attachment = socket.deserializeAttachment() as SocketAttachment | null
+      }
+      catch {
+        continue
+      }
       if (attachment?.participantId === participantId) {
         this.send(socket, message)
         return
@@ -959,9 +984,16 @@ export class RoomDurableObject extends DurableObject<Env> {
     for (const socket of this.ctx.getWebSockets()) {
       if (socket === current)
         continue
-      const attachment = socket.deserializeAttachment() as SocketAttachment | null
-      if (attachment?.participantId === participantId)
-        socket.close(1000, 'session_replaced')
+      // Best effort, socket by socket: one that cannot be read or closed must
+      // not stop the member that is joining from being admitted.
+      try {
+        const attachment = socket.deserializeAttachment() as SocketAttachment | null
+        if (attachment?.participantId === participantId)
+          socket.close(1000, 'session_replaced')
+      }
+      catch {
+        // Unreadable or already closing; the next join or close deals with it.
+      }
     }
   }
 }

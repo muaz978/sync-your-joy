@@ -781,6 +781,37 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       logged.mockRestore()
     })
 
+    it('does not use up its announcement attempts on saves that come in quick succession', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      const late = new FakeSocket()
+      ;(first as unknown as { ctx: { getWebSockets: () => FakeSocket[] } }).ctx.getWebSockets = () => [host, friend, late]
+      await say(first, late, { type: 'join_room', protocolVersion: 1, participantId: 'participant_late', name: 'Sam', code: CODE, media: null })
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const set = store.set.bind(store)
+      store.set = () => { throw new Error('storage is unavailable') }
+      let unreadable = false
+      const real = friend.deserializeAttachment.bind(friend)
+      friend.deserializeAttachment = () => {
+        if (unreadable)
+          throw new Error('attachment storage hiccup')
+        return real()
+      }
+      const restarted = await restored(objectOver(store, [host, friend]))
+      store.set = set
+      const friendBefore = friend.sent.length
+
+      // The friend cannot be read for a moment, and several saves land in it.
+      unreadable = true
+      for (let i = 0; i < 6; i += 1)
+        await say(restarted, host, { type: 'client_metrics', roundTripMs: 20 + i })
+      unreadable = false
+      vi.setSystemTime(startMs + 5_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_friend_readable', sentAtLocalMs: 1 })
+
+      expect(friend.sent.slice(friendBefore)).toContainEqual(expect.objectContaining({ type: 'room_snapshot', reason: 'join_cancelled' }))
+      logged.mockRestore()
+    })
+
     it('retries a failed save that had nothing to announce, once, and then stops writing', async () => {
       const alarms: number[] = []
       const { store, host, friend, first } = await hostAndApprovedFriend()
@@ -1223,6 +1254,47 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       vi.setSystemTime(returnedAtMs + CONTROLLER_REARM_GRACE_MS + 1_000)
       await first.alarm()
       expect(controllerOf(first)).toBe('participant_friend')
+    })
+
+    it('admits a returning member although another socket cannot be read, and leaves the recovery to be made later', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const friendToken = sessionTokenOf(friend)
+      await first.webSocketClose(host as never)
+      await first.webSocketClose(friend as never)
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+
+      const back = new FakeSocket()
+      const unreadable = new FakeSocket()
+      unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [unreadable, back])
+      await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+
+      expect(back.last()).toMatchObject({ type: 'room_joined' })
+    })
+
+    it('gives the host the re-arm window when the last member\'s close was never delivered and the plan had run out', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      const friendToken = sessionTokenOf(friend)
+      // The host leaves, and the object is lost before the friend's close is
+      // delivered: nobody is attached when it is rebuilt after the plan's time.
+      await first.webSocketClose(host as never)
+      const restoredAtMs = startMs + CONTROLLER_GRACE_MS + 5_000
+      vi.setSystemTime(restoredAtMs)
+      const restarted = await restored(objectOver(store, []))
+
+      const back = new FakeSocket()
+      attach(restarted, [back])
+      await say(restarted, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      expect(back.last()).toMatchObject({ type: 'room_joined' })
+
+      // The alarm that was due is delivered now: the plan ran out with nobody
+      // there, so the host keeps control for the re-arm window.
+      await restarted.alarm()
+      expect(controllerOf(restarted)).toBe('participant_host')
+      vi.setSystemTime(restoredAtMs + CONTROLLER_REARM_GRACE_MS + 1_000)
+      await restarted.alarm()
+      expect(controllerOf(restarted)).toBe('participant_friend')
     })
 
     it('schedules an alarm for the recovery it re-arms and gives the host a full grace period', async () => {
