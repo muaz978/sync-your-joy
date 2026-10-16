@@ -3,7 +3,7 @@
 Issue: [#56](https://github.com/muaz978/sync-your-joy/issues/56)
 Depends on: [CR-B01 / #55](https://github.com/muaz978/sync-your-joy/issues/55)
 Scope: coordinator and backend persistence/scheduling only
-Status: implementation and repository verification complete locally; review, merge, release and issue-closure decisions remain separate gates.
+Status: implementation and repository verification complete locally; review, merge, release and issue-closure decisions remain separate gates. Update 2026-10-16: merged as PR #84 and shipped in v0.2.5; #56 stays open for acceptance evidence. The statements below that the extension service worker does not advertise `CURRENT_CLIENT_CAPABILITIES` and that no wire message for operation acknowledgements exists describe this change only: CR-B03 (PR #85) added the `operation_ack` message, and the service worker now sends the capabilities on create, join and reconnect.
 
 ## 1. Problem and acceptance interpretation
 

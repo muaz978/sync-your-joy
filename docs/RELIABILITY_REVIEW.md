@@ -41,6 +41,8 @@ Review date: 2026-08-12.
 
 ## Recommended next work
 
+_Status note, 2026-10-16: the lists below are the 2026-08-12 snapshot and are not edited. Since then: a controller-opened shared link became a media transaction that pauses the room at position zero and clears readiness (PR #93, `docs/CR_C04_NAVIGATION_TRANSACTION_REPORT.md`), while automatic next-episode following stays disabled by default; a new join needs the controller's approval (PR #20); and two-profile and three-profile persistent-Chrome automation exists in `tests/e2e` against the local room service (PR #18, PR #96), still without network shaping. No real two-device or authenticated-provider acceptance is recorded (`CHANGELOG.md`, 0.2.6 Known limits)._
+
 ### P0 — before expanding the private pilot
 
 1. **Automated two-browser tests with network shaping.** Run two persistent Chrome profiles against the deployed coordinator and test 50–300 ms latency, jitter, packet loss, reconnects, tab reloads, and host closure. Record command-to-application time and steady-state drift.

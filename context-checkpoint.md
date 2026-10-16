@@ -10020,3 +10020,53 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, tracking issue #119: correcting statements in the repository documents that went stale after the 0.2.x releases and the remediation pull requests (part of the issue and board audit of 2026-10-16).
+- Checkpoint number: 118.
+- Date and time: 2026-10-16, Europe/Istanbul.
+- Coverage period: Since checkpoint 117 (`main` at `126ddb2`, after #133).
+- Current context status: Documentation only. Edits applied on branch `docs/stale-statements-2026-10`, which starts at `126ddb2`. Not merged. The typecheck and unit tests were not run in the session that prepared it (see below).
+
+## User Objective and Requirements
+- Update the project's documents so they stop describing finished work as planned, unmerged or undeployed, without rewriting dated records, and without touching any issue's acceptance state.
+
+## Complete Chronological Activity Log
+
+### Method
+- A first pass proposed 58 exact-replacement edits in four clusters (README and guides; Crunchyroll plans and handoffs; architecture, beta, store and audit documents; per-issue reports and templates).
+- One independent skeptic per cluster re-read each edit against `main` at `126ddb2` (old text occurs once, every fact in the new text is true, the edit is needed and minimal, no dated record is rewritten). Result: 33 kept, 21 corrected, 4 dropped.
+- Dropped: a dependency-bump sentence in `CHANGELOG.md` (not needed), two edits inside `docs/GATE_1_3_CLOSEOUT.md` and one table header in `docs/CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md` (historical records; `GATE_1_3_CLOSEOUT.md` and its 1.8 s figure are named in checkpoint 100 as to be left unchanged).
+- 54 edits applied in 27 files by a script that requires each old text to occur exactly once at the moment it is applied.
+
+### Checks run on the result
+- Every relative link and every backticked path in the added lines resolves in the checkout; no closing keyword next to an issue number, no attribution wording, no em dash in the added lines.
+- `tests/store-readiness.test.ts` reads four of the edited documents and asserts eleven strings; all eleven are still present (checked by the apply script before writing).
+- Every pull request cited as "shipped in v0.2.5" or "in v0.2.6" was checked as an ancestor of the corresponding tag with the GitHub compare API (#18, #20, #38, #70, #76, #82, #84 to #94, #96 and #97 are in both tags; #103 and #120 are cited without a release claim).
+- Spot checks against `main` and GitHub: the manifest lists `alarms` and the service worker uses it; `packages/` holds only `protocol` and `sync-engine`; no `PlayerAdapter` interface is defined; the side panel labels written into the beta guide exist (`Request to join`, `Waiting to join`, `Approve`, `Leave room`, `Redetect player`, `Start a synced room`) and `Recheck this tab` no longer does; #48 is closed; the release version script stops when the version differs; the rules on `main` require a pull request and the two checks `Analyze (javascript-typescript)` and `Typecheck, test, and build`.
+
+## Confirmed Successful Results
+- The checks above, and a script run that applied 54 of 54 selected edits with no failure.
+
+## Failed, Incomplete, or Unresolved Work
+- The typecheck and the unit tests were not run before this change: the dependencies could not be installed in the session that prepared it. Only `tests/store-readiness.test.ts` reads documents, and its eleven strings were checked by script. The required check `Typecheck, test, and build` runs on the pull request.
+- Not checked: statements that depend on state outside the repository (the coordinator redeployed from the `v0.2.6` tag on 2026-09-29 comes from the comment on #69 and checkpoint 101).
+
+## Decisions and Rationale
+- Dated reports and audits keep their content; a short dated status note or a minimal correction is added only where a reader would be misled.
+- The `Last updated` date of `docs/PRIVACY_POLICY.md` is moved to 2026-09-26, the date of the last change to its text (commit `156b3ea`). A published policy's date is the owner's declaration, so this is the one edit to confirm or revert at review.
+
+## Files and Artifacts
+- 27 documents under the repository root and `docs/`, `CHANGELOG.md` (one bullet under Unreleased, Changed), and this file.
+
+## Open Questions, Blockers, and Dependencies
+- Documentation only: no deploy, release or Project change is involved. The issue comments, body edits and board values from the same audit are applied separately.
+
+## Next Steps
+1. Exact-head review, required checks green on that head, then merge pinned to the head SHA.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.

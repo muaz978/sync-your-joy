@@ -1,6 +1,6 @@
 # CR-B06 Edge Health and Rehydration Report
 
-Status: implementation complete on the issue branch, awaiting pull request review and merge verification.
+Status: implementation complete on the issue branch, awaiting pull request review and merge verification. Update 2026-10-16: merged as PR #88 (2026-09-20) and shipped in v0.2.5, so section 7 lists the steps that preceded that merge; #60 stays open.
 
 Issue: [CR-B06, Make edge alarms and rehydration preserve health semantics](https://github.com/muaz978/sync-your-joy/issues/60)
 
@@ -132,7 +132,7 @@ The Wrangler dry run confirms that the edge Worker bundles with the Durable Obje
 
 ## 6. Storage, scheduling, and security notes
 
-The durable room record remains one `storage.put('room', ...)` containing the coordinator export and the three room lifecycle fields. Health evidence is already part of each internal participant record. Each state-changing commit then computes the next alarm as the minimum of the currently applicable controller recovery, empty-room, seek, operation, and health deadlines, and calls `setAlarm()` only when at least one finite deadline exists.
+The durable room record remains one `storage.put('room', ...)` containing the coordinator export and the three room lifecycle fields. Health evidence is already part of each internal participant record. Each state-changing commit then computes the next alarm as the minimum of the currently applicable controller recovery, empty-room, seek, operation, and health deadlines, and calls `setAlarm()` only when at least one finite deadline exists. Update 2026-10-16: on `main` (not yet deployed) the candidates also include the six-hour room lifetime limit, here and in section 3.2, so every save sets an alarm; see `persistAndSchedule()` in `apps/edge-service/src/worker.ts` and the entry on the six-hour room lifetime limit in `CHANGELOG.md`.
 
 The new ordering adds no extra write for a normal state transition. It changes the point at which the existing write and alarm scheduling complete relative to the send or broadcast. Alarm transitions are coalesced to one coordinator transition per invocation, which reduces duplicate or stale snapshots when Cloudflare delivers an alarm late or repeats a callback.
 

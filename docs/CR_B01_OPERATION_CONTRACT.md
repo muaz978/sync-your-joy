@@ -2,7 +2,7 @@
 
 Issue: [#55](https://github.com/muaz978/sync-your-joy/issues/55)
 Purpose: define the shared contract required by CR-B02 coordinator transactions and CR-B03 extension application.
-Status: contract implementation complete locally; coordinator preparation, extension transaction application, deployment and live-provider acceptance remain separate follow-up work.
+Status: contract implementation complete locally; coordinator preparation, extension transaction application, deployment and live-provider acceptance remain separate follow-up work. Update 2026-10-16: coordinator preparation (CR-B02, PR #84) and extension transaction application (CR-B03, PR #85) have since merged and, with this contract (PR #82), shipped in the v0.2.5 test release. The coordinator was redeployed from the v0.2.6 tag on 2026-09-29. Live-provider acceptance has not been done and #55 stays open.
 
 ## Scope and decision
 
@@ -59,7 +59,7 @@ The existing create/join messages accept an optional capabilities advertisement 
 - binding identity defaults to `null`;
 - source generation and sample sequence default to `0`.
 
-An invalid operation inside an otherwise transactional-looking record is discarded. A structurally valid operation is retained only when the normalized contract still has all transactional capabilities and the operation's `mediaEpoch` matches the room's `mediaEpoch`. This means an old pending seek, a cross-epoch operation or a partially written record cannot satisfy a new prepare/start transaction after restart. CR-B07 will add cross-version transport, coordinator restoration and rollback fixtures that exercise this policy end to end.
+An invalid operation inside an otherwise transactional-looking record is discarded. A structurally valid operation is retained only when the normalized contract still has all transactional capabilities and the operation's `mediaEpoch` matches the room's `mediaEpoch`. This means an old pending seek, a cross-epoch operation or a partially written record cannot satisfy a new prepare/start transaction after restart. CR-B07 (PR #89) later added `stateVersion: 2` with the migration of pre-contract stored state and a release smoke that exercises the transactional contract, and records the mixed-version policy; see [the CR-B07 report](CR_B07_MIXED_VERSION_MIGRATION_REPORT.md).
 
 ## Verification performed for this issue
 

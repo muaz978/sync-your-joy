@@ -17,7 +17,7 @@ Local deployment requires an authenticated Wrangler session (`npx wrangler login
 
 Wrangler 4.141.0 and later send a deferred Durable Object code update with a 300 second maximum delay on every deploy, `versions deploy` and rollback unless told otherwise. `apps/edge-service/wrangler.jsonc` therefore pins `durable_objects.code_update_strategy` to `{ "mode": "immediate" }`, and `tests/deploy-config.test.ts` fails if the pin, the commands that must read it, or wrangler's own behavior drift.
 
-What is verified is what wrangler sends. What the platform does with it was observed once, on a throwaway Worker, and did not differ from the default (see [`DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`](DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md)): a room that was active when the deploy ran kept serving the previous code for about 300 seconds, in both modes, and was then reset once with its connections dropped; an object that was hibernating at deploy time ran the new code at its next wake and kept its sockets (checked for about two minutes; whether they survive the five-minute mark is not known). Plan a deploy, and a rollback, as: rooms created after it run the new code at once; rooms that were active run the previous code for about five minutes (observed in two runs, not a bound), then every connection in them drops once and the extension reconnects (the restore step in the coordinator repairs the room state, see `docs/ARCHITECTURE.md`).
+What is verified is what wrangler sends. What the platform does with it was observed once, on a throwaway Worker, and did not differ from the default (see [`DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`](DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md)): a room that was active when the deploy ran kept serving the previous code for about 300 seconds, in both modes, and was then reset once with its connections dropped; an object that was hibernating at deploy time ran the new code at its next wake and kept its sockets (checked for about two minutes; whether they survive the five-minute mark is not known). Plan a deploy, and a rollback, as: rooms created after it run the new code at once; rooms that were active run the previous code for about five minutes (observed in two runs, not a bound), then every connection in them drops once and the extension reconnects (the restore step in the coordinator repairs the room state, see `docs/ARCHITECTURE.md`; that step was added after `0.2.6`, so a deploy of `main` brings it and a rollback to a Version ID built from `0.2.6` or earlier removes it).
 
 Treat five minutes as the observed planning figure, not as a guarantee: it comes from one run per mode on one account, and nothing here shows when the last active room has been reset. A security fix is therefore not in force at the moment the deploy finishes, and it should not be declared in force at the five-minute mark either. Decide the margin before the deploy, and remember what a check can show: the exposure baseline probe exercises a new room, which runs the new code at once, so it shows the new code and cannot show that a room that was already active has been reset. Record what is seen on the real deploy here.
 
@@ -58,20 +58,20 @@ npm ci
 npm run release:check-version
 npm run check
 npm audit --omit=dev --audit-level=high
-RELEASE_VERSION=0.1.22 npm run release:package
+RELEASE_VERSION=X.Y.Z npm run release:package # X.Y.Z is the version set above; the script stops if it differs from package.json
 ```
 
 The local packaging command writes ignored artifacts under `release/`. Inspect the ZIP and checksum before tagging.
 
-Update `CHANGELOG.md` with only completed and verified behavior. Commit and push the version and documentation changes to `main`, then wait for continuous integration to pass.
+Update `CHANGELOG.md` with only completed and verified behavior. Open a pull request with the version and documentation changes, wait for the required checks to pass, then merge it to `main`.
 
 ## Publish the GitHub Release
 
 Create an annotated tag on the verified commit and push only that tag:
 
 ```bash
-git tag -a v0.1.22 -m "SyncYourJoy v0.1.22"
-git push origin v0.1.22
+git tag -a vX.Y.Z -m "SyncYourJoy vX.Y.Z"
+git push origin vX.Y.Z
 ```
 
 The release workflow creates the GitHub Release. Do not upload a different hand-built ZIP under the same version. After it completes:
@@ -105,7 +105,7 @@ Issue and pull-request completion does not automatically authorize a release. Us
 
 ### Release after a verified issue group
 
-After a coherent group of issues is fixed and its required source, test, browser, deployment and user-acceptance gates are verified, publish the next compatible semantic version. Starting from the current `0.2.4` line, a compatible bug-fix group should use `0.2.5`; a backward-compatible user-facing capability may use the next minor version instead. The exact version must be chosen in the release PR and recorded in `CHANGELOG.md`.
+After a coherent group of issues is fixed and its required source, test, browser, deployment and user-acceptance gates are verified, publish the next compatible semantic version. Starting from the current `0.2.6` line, a compatible bug-fix group should use `0.2.7`; a backward-compatible user-facing capability may use the next minor version instead. The exact version must be chosen in the release PR and recorded in `CHANGELOG.md`.
 
 Before tagging the group release:
 

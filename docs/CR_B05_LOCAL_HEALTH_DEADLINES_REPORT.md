@@ -4,9 +4,9 @@ Issue: [#59](https://github.com/muaz978/sync-your-joy/issues/59)
 Dependency: [CR-B04 / #58](https://github.com/muaz978/sync-your-joy/issues/58)
 Branch: `codex/issue-59-local-health-deadlines`
 Base: CR-B04 merge `c9149219c86a2c2c995c72e42a699640ed13b51f`
-Current version: `0.2.4`
+Version when written: `0.2.4`
 Scope: local Node room-service deadline evaluation, timer-driven health recovery, WebSocket broadcast behavior and regression evidence
-Status: implementation and final local verification complete; PR review, merge and post-merge issue verification remain separate gates
+Status: implementation and final local verification complete; PR review, merge and post-merge issue verification remain separate gates. Update 2026-10-16: merged as PR #87 and shipped in v0.2.5; #59 stays open for acceptance evidence.
 
 This report is intentionally specific about what was verified. It covers the local room service and its WebSocket contract. It does not claim authenticated Crunchyroll visible-output acceptance, a second account, a second physical device, deployment, migration, or final user acceptance.
 

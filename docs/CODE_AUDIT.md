@@ -11,6 +11,8 @@ This is an engineering audit, not a store approval or a claim that every commerc
 
 The findings below were recorded against the previously published `v0.1.21` baseline. The working tree now contains an implementation of the first remediation slice: bounded diagnostics responses, per-participant reconnect capabilities, Firefox/Safari WebExtension origin handling, reviewed media-identity query-key redaction, pending-connection and maximum-room-lifetime limits, source-map-free release packages, browser-package verification cleanup, and expanded CI/release checks. These changes are covered by the current local check and package verification, but they are not yet a published release and the updated Worker still requires deployment before production behavior changes.
 
+_Status note, 2026-10-16 (added after the audit date; the text above and the findings below are the 2026-08-30 assessment and were not re-assessed): the `0.1.22` candidate was published as `v0.1.22` on 2026-08-30, and `CHANGELOG.md` records its remediation slice under 0.1.22. Later releases followed; `main` is at `0.2.6`. After this audit, host approval of new joins (PR #20, `CHANGELOG.md` 0.2.0, SYJ-AUD-003) and removal of the unused invite token (PR #38, `CHANGELOG.md` 0.2.3) were merged. This note does not record production deployment status or two-device or provider verification._
+
 The original findings remain below as an auditable baseline. Their status is therefore: implementation present in the `0.1.22` candidate, local tests passing, production deployment and two-device/provider verification pending.
 
 ## Executive summary

@@ -1,9 +1,9 @@
 # SyncYourJoy Gates 1-3 Friend Test Guide
 
-**Test build:** SyncYourJoy `0.1.22` beta
-**Download:** https://github.com/muaz978/sync-your-joy/releases/download/v0.1.22/sync-your-joy-extension.zip
+**Test build:** SyncYourJoy `0.2.6` beta
+**Download:** https://github.com/muaz978/sync-your-joy/releases/download/v0.2.6/sync-your-joy-extension.zip
 **Room service:** `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`
-**Production coordinator:** deployed and smoke-verified on 2026-08-30
+**Production coordinator:** the `0.2.6` coordinator, deployed on 2026-09-29 and smoke-verified with synthetic participants that day. The coordinator hardening merged to `main` since (see the Unreleased section of `CHANGELOG.md`) is not deployed
 
 This guide is for two or more people testing the extension on separate devices and separate streaming accounts. It covers the remaining real-device evidence for Gates 1-3 after the production coordinator deployment. The extension synchronizes playback state only. It does not share a screen, video, audio, password, cookie, subscription, or DRM key.
 
@@ -70,7 +70,7 @@ Participants do not need Node.js, Wrangler, or a Cloudflare account. They only n
 
 1. The host opens the intended video page, pauses it near the beginning, and opens the SyncYourJoy side panel.
 2. The host selects **Start a synced room**.
-3. The friend opens SyncYourJoy and enters the eight-character room code. The friend does not paste a video URL.
+3. The friend opens SyncYourJoy, enters the eight-character room code and selects **Request to join**. The friend does not paste a video URL. The host selects **Approve** for the friend in the **Waiting to join** list; until then the friend sees **Waiting for the host to let you in**.
 4. The host enters the page URL under **Video page link** and selects **Open link for everyone**. Guests do not paste a video URL. If a new tab is blocked, allow popups for the current page and retry once.
 5. Wait for each side to show the intended player, a moving or controllable native timeline, and **Video matches**.
 6. Each participant selects **I'm ready**.

@@ -1,6 +1,6 @@
 # CR-C01 stalled play recovery report
 
-Status: implementation complete locally on branch `codex/issue-62-sync-recovery`; pull-request review, hosted checks, merge, deployment and external acceptance remain separate gates.
+Status: implementation complete locally on branch `codex/issue-62-sync-recovery`; pull-request review, hosted checks, merge, deployment and external acceptance remain separate gates. Update 2026-10-16: merged as PR #90 and shipped in v0.2.5; #62 stays open for the external acceptance gates (live provider, installation, two accounts or devices, user acceptance) under "Remaining gates".
 
 Issue: [#62, CR-C01: Make explicit Sync recover stalled play attempts safely](https://github.com/muaz978/sync-your-joy/issues/62)
 
