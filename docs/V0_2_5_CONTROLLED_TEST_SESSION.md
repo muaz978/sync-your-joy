@@ -8,6 +8,13 @@
 **Reused for:** [#34](https://github.com/muaz978/sync-your-joy/issues/34), [#35](https://github.com/muaz978/sync-your-joy/issues/35)
 **Related:** [#33](https://github.com/muaz978/sync-your-joy/issues/33), [#69](https://github.com/muaz978/sync-your-joy/issues/69)
 
+**Revision notice (2026-10-16).** This kit was written for the published `v0.2.5` package and has not been rewritten. What changed since, and what it means for using the kit:
+
+- `v0.2.6` is the current test release. A join request now needs the host's approval, and an unapproved requester is shown no room state; a session with this kit must expect the waiting view and the host's approve or deny step, which the steps below do not describe.
+- `main` contains coordinator hardening that is **not deployed**: the production coordinator still sent an unapproved requester the room's media and participant names in a baseline probe on 2026-10-15 (every measure red). "Same-candidate coordinator" in Gate 0 must be checked against the commit that is actually deployed, and a deployment needs the owner's authorization for that exact commit.
+- A deploy or a rollback is a five-minute window, not an instant: see [`RELEASING.md`](RELEASING.md) and [`DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`](DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md).
+- Package versions, hashes and counters below are the `v0.2.5` ones and must be replaced for any other package.
+
 This kit prepares one controlled two-device session using the published `v0.2.5` package. It records no results.
 
 - It closes no issue.
@@ -133,7 +140,7 @@ The output must contain no runtime files. At `15680494f939bffbd84f4ab395dc70b8a2
 
 - A deployment changes the production coordinator for every current user and room. It needs explicit user authorization for that specific run.
 - Never paste, request or print a Cloudflare token. The workflow uses the repository secret.
-- Before deploying, record the currently active Version ID (last recorded: `209278f7-9154-4ad0-974a-3ad565a67581`). There is no rollback workflow, so a rollback needs an operator with Cloudflare access running `npm run rollback:edge -- <version-id> -m "<reason>"` (it passes `--config` and the immediate Durable Object update mode; a bare `npx wrangler rollback` is deferred by up to five minutes, see docs/RELEASING.md).
+- Before deploying, record the currently active Version ID (last recorded by a read-only deployments listing on 2026-10-16: `681f31dc-eb31-4ced-a661-1d6304d134ff`, created 2026-09-29, preceded by `6a927c6f-93ea-47dc-b264-a0bc14c9fe1d` of 2026-09-23; the `209278f7-9154-4ad0-974a-3ad565a67581` that this kit was prepared with is no longer current, and the value must be read again immediately before any deploy). There is no rollback workflow, so a rollback needs an operator with Cloudflare access running `npm run rollback:edge -- <version-id> -m "<reason>"` (it passes `--config` and asks for the immediate Durable Object update mode; a bare `npx wrangler rollback` asks for wrangler's deferred mode, a delay of up to five minutes, and on the runtime the explicit request was observed to behave the same as the default: active rooms kept the previous code for about five minutes either way, see docs/RELEASING.md).
 
 ### 1.4 Gate 0: identity verification before the session
 

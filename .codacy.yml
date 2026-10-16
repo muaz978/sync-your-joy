@@ -1,0 +1,15 @@
+---
+# Test files are long on purpose: they hold the fake Durable Object and the
+# fixtures their cases share. Keep their issues (security, style) in the
+# analysis, and leave them out of the complexity and duplication metrics, which
+# otherwise fail the pull request check for every growth of a test file.
+# Codacy reads this file from the default branch.
+engines:
+  metric:
+    exclude_paths:
+      - "**/*.test.ts"
+      - "tests/**"
+  duplication:
+    exclude_paths:
+      - "**/*.test.ts"
+      - "tests/**"
