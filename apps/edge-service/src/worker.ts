@@ -875,13 +875,6 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!this.coordinator)
       return
 
-    const storedRoom: StoredRoom = {
-      coordinator: this.coordinator.exportState(),
-      pendingController: this.pendingController,
-      emptySinceMs: this.emptySinceMs,
-      createdAtMs: this.createdAtMs,
-    }
-
     // Derived like the empty-room clock, so that any save settles it: a plan
     // that a join could not make (a socket that could not be read) is made by
     // the next save, and the alarm below is derived from it.
@@ -890,6 +883,13 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
     catch {
       // Tried again by the next save.
+    }
+
+    const storedRoom: StoredRoom = {
+      coordinator: this.coordinator.exportState(),
+      pendingController: this.pendingController,
+      emptySinceMs: this.emptySinceMs,
+      createdAtMs: this.createdAtMs,
     }
 
     const alarmCandidates: Array<number | null | undefined> = []

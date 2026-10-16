@@ -1257,7 +1257,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     })
 
     it('admits a returning member although another socket cannot be read, and leaves the recovery to be made later', async () => {
-      const { host, friend, first } = await hostAndApprovedFriend()
+      const { store, host, friend, first } = await hostAndApprovedFriend()
       const friendToken = sessionTokenOf(friend)
       await first.webSocketClose(host as never)
       await first.webSocketClose(friend as never)
@@ -1282,6 +1282,10 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       unreadable.deserializeAttachment = readable.deserializeAttachment.bind(readable)
       const joinedAtMs = startMs + CONTROLLER_GRACE_MS + 1_000
       await say(first, back, { type: 'client_metrics', roundTripMs: 20 })
+      // The plan is in what was saved, not only in memory, so a restart before
+      // another write keeps its deadline instead of starting a new window.
+      const savedPlan = (store.get('room') as { pendingController: { participantId: string, recoverAtMs: number } | null }).pendingController
+      expect(savedPlan).toMatchObject({ participantId: 'participant_host', recoverAtMs: startMs + CONTROLLER_GRACE_MS + 1_000 + CONTROLLER_REARM_GRACE_MS })
       vi.setSystemTime(joinedAtMs + CONTROLLER_REARM_GRACE_MS + 1_000)
       await first.alarm()
       expect(controllerOf(first)).toBe('participant_friend')
