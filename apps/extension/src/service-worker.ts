@@ -1004,7 +1004,7 @@ function leaveRoom(): void {
     intentionallyClosed = false
   }, 0)
   if (previousPlayerTabId !== null && previousPlayerFrameId !== null)
-    void sendToTab(previousPlayerTabId, { type: 'APPLY_ROOM_STATE', state }, previousPlayerFrameId, previousPlayerDocumentId)
+    void sendToTab(previousPlayerTabId, { type: 'APPLY_ROOM_STATE', state, bindingReleased: true }, previousPlayerFrameId, previousPlayerDocumentId)
 }
 
 function acceptMediaSender(sender: chrome.runtime.MessageSender, areaPixels: number, media: MediaFingerprint, bindingId?: string): boolean {
@@ -1081,7 +1081,12 @@ function isNavigationShellSender(sender: chrome.runtime.MessageSender): boolean 
 async function selectActivePlayerTab(): Promise<boolean> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
   if (tab?.id === undefined) {
-    clearPlayerTab()
+    // There is no player to be had, so the room is told this participant is not
+    // ready, as it is when another tab is looked at below, and the bound page,
+    // if it is still there, is told it is not bound.
+    if (state.snapshot)
+      sendToServer({ type: 'set_ready', ready: false, media: null })
+    await unbindPlayerContext()
     return false
   }
 
@@ -1093,7 +1098,13 @@ async function selectActivePlayerTab(): Promise<boolean> {
 
   if (state.snapshot)
     sendToServer({ type: 'set_ready', ready: false, media: null })
-  await unbindPlayerContext()
+  // Another tab is about to be asked to report, so the page that was bound is
+  // detached without being released: a released page reports again within a
+  // second, and with no room, or between this and the other tab's report, it
+  // would take the binding straight back from the tab the user just selected.
+  // It keeps its token and is freed by the request to report if it is the tab
+  // that is asked, which is the only time it should compete again.
+  await unbindPlayerContext(false)
   try {
     await chrome.tabs.sendMessage(tab.id, { type: 'REPORT_PLAYER_CONTEXT' } satisfies ContentRequest)
   }
@@ -1123,7 +1134,9 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
     if (state.playerTabId !== tabId || state.playerFrameId !== frameId || (playerBinding?.id ?? null) !== bindingId || playerContextGeneration !== contextGeneration)
       return false
     if (!context?.media) {
-      clearPlayerTab()
+      // The page answered, so it is alive and still holds its token; it is told
+      // the binding is gone so that it can be bound again when it has media.
+      await unbindPlayerContext()
       return false
     }
     const tab = await chrome.tabs.get(tabId)
@@ -1240,13 +1253,13 @@ async function bindPlayerContext(tabId: number, frameId: number | null, areaPixe
     await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, 0)
 }
 
-async function unbindPlayerContext(): Promise<void> {
+async function unbindPlayerContext(release = true): Promise<void> {
   const previousTabId = state.playerTabId
   const previousFrameId = state.playerFrameId
   const previousDocumentId = playerBinding?.documentId ?? undefined
   clearPlayerTab()
   if (previousTabId !== null && previousFrameId !== null)
-    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, previousFrameId, previousDocumentId)
+    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState(), ...(release ? { bindingReleased: true } : {}) }, previousFrameId, previousDocumentId)
 }
 
 function isController(): boolean {

@@ -292,6 +292,162 @@ describe('adaptive player lifecycle', () => {
     expect(status?.bindingId).toBe('binding_content_document')
   })
 
+  describe('the worker binding token once the worker has no bound player', () => {
+    // The worker clears the binding when the room is left or the player is
+    // unbound, and refuses a media report that carries a token it does not
+    // know (acceptMediaBinding): a page that kept the token would be locked out
+    // of the next room until it was reloaded. A page that another document
+    // replaced is deliberately kept out. This stand-in answers like the worker.
+    let workerToken: string | null = null
+    let joined: ExtensionState
+
+    async function reportMedia(): Promise<void> {
+      video.dispatchEvent(new Event('loadstart'))
+      await Promise.resolve()
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(1_000)
+    }
+
+    async function bindAs(token: string): Promise<void> {
+      workerToken = token
+      await reportMedia()
+    }
+
+    function detached(): ExtensionState {
+      const left = structuredClone(state)
+      left.snapshot = null
+      left.playerTabId = null
+      left.playerFrameId = null
+      left.playerAreaPixels = 0
+      left.playerLastSeenAtMs = 0
+      left.currentMedia = null
+      return left
+    }
+
+    function mediaReports(): Array<Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }>> {
+      return messages.filter((message): message is Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }> => message.type === 'MEDIA_DETECTED')
+    }
+
+    beforeEach(() => {
+      workerToken = null
+      joined = structuredClone(state)
+      const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+      sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+        messages.push(request)
+        if (request.type !== 'MEDIA_DETECTED')
+          return { ok: true, state }
+        const accepted = workerToken !== null && (request.bindingId === undefined || request.bindingId === workerToken)
+        return accepted ? { ok: true, state, playerBindingId: workerToken } : { ok: true, state }
+      })
+    })
+
+    it('reports media without the old token once the room is left', async () => {
+      await bindAs('binding_before_leaving')
+      expect(statuses().at(-1)?.bindingId).toBe('binding_before_leaving')
+      workerToken = null
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state, bindingReleased: true })
+      messages.length = 0
+
+      await reportMedia()
+
+      expect(mediaReports().length).toBeGreaterThan(0)
+      for (const report of mediaReports())
+        expect(report.bindingId).toBeUndefined()
+    })
+
+    it('is bound again for the next room, with the token the worker issues then', async () => {
+      await bindAs('binding_before_leaving')
+      workerToken = null
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state, bindingReleased: true })
+      await reportMedia()
+      state = structuredClone(joined)
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      messages.length = 0
+
+      await bindAs('binding_for_the_next_room')
+
+      expect(statuses().length).toBeGreaterThan(0)
+      expect(statuses().every(status => status.bindingId === 'binding_for_the_next_room')).toBe(true)
+    })
+
+    it('keeps the token while the worker still has this player bound, even with no room', async () => {
+      await bindAs('binding_while_roomless')
+      const roomless = structuredClone(state)
+      roomless.snapshot = null
+      state = roomless
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      messages.length = 0
+
+      await reportMedia()
+
+      expect(mediaReports().length).toBeGreaterThan(0)
+      expect(mediaReports().every(report => report.bindingId === 'binding_while_roomless')).toBe(true)
+    })
+
+    it('keeps the token of a page that another document replaced, so the worker keeps refusing it', async () => {
+      await bindAs('binding_that_was_replaced')
+      // The binding now belongs to another document; this page is told it is
+      // detached, without a release.
+      workerToken = 'binding_of_the_other_document'
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      messages.length = 0
+
+      await reportMedia()
+
+      expect(mediaReports().length).toBeGreaterThan(0)
+      expect(mediaReports().every(report => report.bindingId === 'binding_that_was_replaced')).toBe(true)
+    })
+
+    it('ignores a token that arrives after the worker told the page to release it', async () => {
+      let letResponseThrough: () => void = () => {}
+      const gate = new Promise<void>((resolve) => { letResponseThrough = resolve })
+      const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+      sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+        messages.push(request)
+        if (request.type !== 'MEDIA_DETECTED')
+          return { ok: true, state }
+        await gate
+        return { ok: true, state, playerBindingId: 'binding_issued_before_the_release' }
+      })
+      video.dispatchEvent(new Event('loadstart'))
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(mediaReports().length).toBeGreaterThan(0)
+
+      // The worker releases the page while its report is still in flight.
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state, bindingReleased: true })
+      letResponseThrough()
+      await vi.advanceTimersByTimeAsync(10)
+      messages.length = 0
+
+      await reportMedia()
+
+      expect(mediaReports().length).toBeGreaterThan(0)
+      expect(mediaReports()[0]!.bindingId).toBeUndefined()
+    })
+
+    it('is invited to bind afresh when the worker asks it to report after unbinding', async () => {
+      await bindAs('binding_that_was_replaced')
+      workerToken = 'binding_of_the_other_document'
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      // The user comes back to this page: the worker unbinds the other
+      // document and asks this one to report.
+      workerToken = null
+      messages.length = 0
+      listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mediaReports().length).toBeGreaterThan(0)
+      expect(mediaReports().every(report => report.bindingId === undefined)).toBe(true)
+    })
+  })
+
   describe('a player stuck at metadata during a transactional prepare', () => {
     const target = 197.442125
 

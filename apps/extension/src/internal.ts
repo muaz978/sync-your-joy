@@ -168,7 +168,13 @@ export interface PlayerContext {
 
 export type RuntimeEvent =
   | { type: 'ROOM_STATE_UPDATED'; state: ExtensionState }
-  | { type: 'APPLY_ROOM_STATE'; state: ExtensionState }
+  // `bindingReleased` is the worker saying it has no bound player at all (the
+  // room was left, no tab could be found, or the page reported no media): a
+  // page that is told so drops its binding token. The same state sent because
+  // another document took the binding over, or to look at another tab, does
+  // not carry it, and that page keeps its token and stays refused until it is
+  // asked to report.
+  | { type: 'APPLY_ROOM_STATE'; state: ExtensionState; bindingReleased?: boolean }
   | { type: 'PAUSE_LOCAL' }
   | { type: 'FORCE_SYNC' }
   /**

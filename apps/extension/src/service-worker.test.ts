@@ -675,6 +675,88 @@ describe('service worker observed episode identity', () => {
     expect(response.state.currentMedia).toBeNull()
   })
 
+  describe('what a page is told when the worker stops binding it', () => {
+    // A page keeps the token the worker issued it and is refused with it once
+    // it is stale; it drops the token only when told the worker has no bound
+    // player at all (`bindingReleased`). A page that another document replaced
+    // is detached without it, which keeps it refused.
+    const pageEvents = (fake: Awaited<ReturnType<typeof resumeAtPage>>['fake']) =>
+      vi.mocked(fake.chrome.tabs.sendMessage).mock.calls
+        .filter(([, message]) => (message as { type?: string }).type === 'APPLY_ROOM_STATE')
+        .map(([tabId, message, options]) => ({ tabId, message: message as { state: { snapshot: unknown }, bindingReleased?: boolean }, options }))
+
+    it('releases the page when the room is left', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      vi.mocked(fake.chrome.tabs.sendMessage).mockClear()
+
+      await request({ type: 'LEAVE_ROOM' })
+
+      const detach = pageEvents(fake).find(event => event.message.state.snapshot === null)
+      expect(detach?.tabId).toBe(42)
+      expect(detach?.message.bindingReleased).toBe(true)
+    })
+
+    it('detaches the page without releasing it when another tab is asked to report, so it cannot take the binding straight back', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      ;(fake.chrome.tabs.query as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 43, active: true, url: 'https://other.example.test/watch' }])
+      vi.mocked(fake.chrome.tabs.sendMessage).mockClear()
+
+      await request({ type: 'RECHECK_MEDIA' })
+
+      const detach = pageEvents(fake).find(event => event.tabId === 42)
+      expect(detach?.message.state.snapshot).toBeNull()
+      expect(detach?.message.bindingReleased).toBeUndefined()
+      expect(vi.mocked(fake.chrome.tabs.sendMessage)).toHaveBeenCalledWith(43, { type: 'REPORT_PLAYER_CONTEXT' })
+    })
+
+    it('releases the page when its context reports no media and the worker lets the binding go', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const sendToTab = fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>
+      sendToTab.mockClear()
+      sendToTab.mockImplementation(async (_tabId: number, message: RuntimeEvent | ContentRequest) => {
+        if (message.type === 'GET_PLAYER_CONTEXT')
+          return { media: null, diagnostics: null, sample: null }
+        return undefined
+      })
+
+      await request({ type: 'UNLOCK_PLAYER' })
+
+      const detach = pageEvents(fake).find(event => event.tabId === 42)
+      expect(detach?.message.state.snapshot).toBeNull()
+      expect(detach?.message.bindingReleased).toBe(true)
+    })
+
+    it('releases the page, and tells the room it is not ready, when no tab can be found to bind', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      ;(fake.chrome.tabs.query as ReturnType<typeof vi.fn>).mockResolvedValue([])
+      vi.mocked(fake.chrome.tabs.sendMessage).mockClear()
+      const socket = FakeWebSocket.instances[0]!
+      const sentBefore = socket.sentMessages.length
+
+      await request({ type: 'RECHECK_MEDIA' })
+
+      const detach = pageEvents(fake).find(event => event.tabId === 42)
+      expect(detach?.message.bindingReleased).toBe(true)
+      expect(socket.sentMessages.slice(sentBefore)).toContainEqual({ type: 'set_ready', ready: false, media: null })
+    })
+
+    it('does not release a page that another document replaced', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const tab = { id: 42, active: true, url: sharedUrl }
+      await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: undefined }, { tab, frameId: 0, url: sharedUrl, documentId: 'document_old' } as chrome.runtime.MessageSender)
+      vi.mocked(fake.chrome.tabs.sendMessage).mockClear()
+
+      // The replacement is a new document in the same frame, with no token.
+      const replacement = await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: undefined }, { tab, frameId: 0, url: sharedUrl, documentId: 'document_new' } as chrome.runtime.MessageSender)
+      expect(replacement.playerBindingId).toBeDefined()
+
+      const detach = pageEvents(fake).find(event => (event.options as { documentId?: string } | undefined)?.documentId === 'document_old')
+      expect(detach).toBeDefined()
+      expect(detach!.message.state.snapshot).toBeNull()
+      expect(detach!.message.bindingReleased).toBeUndefined()
+    })
+  })
+
   it('does not clear a replacement binding when an old context read returns no media', async () => {
     const { fake, request } = await resumeAtPage(sharedUrl)
     const sendToTab = fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>
