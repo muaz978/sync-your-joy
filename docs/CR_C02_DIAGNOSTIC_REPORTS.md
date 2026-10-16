@@ -1,6 +1,6 @@
 # CR-C02 diagnostic report implementation record
 
-Status: implemented and locally verified on the `codex/issue-63-diagnostic-reports` branch. This record documents the source-level change for issue #63. It does not claim authenticated Crunchyroll acceptance, deployment, or release readiness.
+Status when written (historical): implemented and locally verified on the `codex/issue-63-diagnostic-reports` branch. This record documents the source-level change for issue #63. It does not claim authenticated Crunchyroll acceptance, deployment, or release readiness. Update 2026-10-16: merged as PR #91 and shipped in v0.2.5; the addendum at the end covers the 0.2.6 additions. #63 stays open.
 
 Related tracker: [CR-C02: Make diagnostic reports explain operation failures](https://github.com/muaz978/sync-your-joy/issues/63)
 

@@ -5,7 +5,7 @@
 - Chrome Manifest V3 extension with a persistent side panel.
 - Floating Shadow DOM status pill that does not modify proprietary player controls, can be hidden without stopping synchronization, and leaves a small top-edge restore handle.
 - Generic `HTMLVideoElement` detection on HTTP/HTTPS pages, including embedded video frames.
-- Room creation and joining with an eight-character code.
+- Room creation and joining with an eight-character code; a new participant's join is a request that the controller approves or denies, while a known participant reconnecting is admitted directly.
 - Two to ten participants with persistent participant identity for reconnects.
 - One authoritative controller with a server-issued lease epoch.
 - Pass-the-remote control transfer.
@@ -21,7 +21,7 @@
 - Shared-page identity propagation through arbitrarily nested players, preventing per-client signed iframe URLs from causing false mismatches.
 - Related-frame injection for `about:`, `data:`, and `blob:` player documents through Manifest V3 `match_origin_as_fallback`.
 - Same-normalized-link matching as a strong media identity signal, including generic platforms and localized page metadata.
-- A **Recheck this tab** recovery action when the active player does not match the room.
+- A **Redetect player** recovery action when the active player does not match the room.
 - Automatic controller intent capture from the native player's play, pause, and completed seek events.
 - Scrub protection that lets the controller drag freely, then broadcasts the final progress position after release.
 - Operation-specific feedback-loop suppression so a real controller action is not mistaken for a programmatic correction.
@@ -36,7 +36,7 @@
 - Finite-duration VOD seeks target the requested time even when a provider temporarily exposes only a partial `seekable` range; live/unknown timelines remain range-clamped.
 - Fast seek completion: 60 ms final-drag debounce, native `seeked` acknowledgement without an extra decoded-frame gate, 80 ms fallback probes for providers that omit the event, and 250 ms retries until the room—not merely the local worker—confirms receipt.
 - Scrub-first capture: controller targets are broadcast from the stabilized `currentTime` during `seeking`/`timeupdate`, without waiting for a provider's optional or delayed `seeked` event; a later duplicate completion is suppressed.
-- A 1.8-second authoritative barrier ceiling gives slower backward decoding time to finish. If any participant still cannot confirm, the room stays paused at the fixed target instead of creating a moving catch-up loop.
+- A 3-second authoritative barrier ceiling gives slower backward decoding time to finish. If any participant still cannot confirm, the room stays paused at the fixed target instead of creating a moving catch-up loop.
 - Immediate local controller pause followed by an immediate room broadcast.
 - Latency-aware scheduled play and seek.
 - Server clock-offset estimation from low round-trip samples.
@@ -112,7 +112,7 @@ npm run check
 ## Next production milestone
 
 1. Continue public two-city pilots and record connection, autoplay, buffering, and drift observations.
-2. Add browser automation across two persistent Chrome profiles with network shaping.
+2. Add network shaping (latency, jitter, packet loss) to the existing two-profile and three-profile persistent-context Playwright Chromium automation in `tests/e2e` (PR #18, PR #96), which runs against the local room service. The deterministic `packages/sync-engine/src/network-chaos.test.ts` covers timing jitter and duplicate delivery against the coordinator only, not shaped browser traffic.
 3. Create versioned compatibility fixtures for Crunchyroll, Netflix, Disney+, Animerco, and Qfilm.
 4. Prepare the Chrome Web Store listing, privacy disclosures, store assets, and review package.
 5. Add telemetry consent, retention policy, and adapter kill switches before any production telemetry.

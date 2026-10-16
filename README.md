@@ -39,7 +39,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-Version `0.2.0` includes:
+The current beta includes the following, introduced in `0.2.0` and extended by later releases (`0.2.5`, `0.2.6` and the changes on `main` that are not released yet are described in the [Changelog](CHANGELOG.md)):
 
 - host-approval join: a new join request waits for the controller to approve it before that person can see or use the room;
 - automatic room-wide play, pause, forward seek, and backward seek;
@@ -95,7 +95,7 @@ Firefox builds can be generated with `npm run build:extension:firefox`. The buil
 
 ## Privacy and permissions
 
-SyncYourJoy requests `sidePanel`, `storage`, `tabs`, `downloads`, and HTTP/HTTPS content-script access. All-sites access lets the generic adapter discover a controllable video on arbitrary pages. The script does nothing when it cannot find a video.
+SyncYourJoy requests `sidePanel`, `storage`, `tabs`, `downloads`, `alarms` (to retry a dropped room connection after Chrome suspends the extension's service worker), and HTTP/HTTPS content-script access. All-sites access lets the generic adapter discover a controllable video on arbitrary pages. The script does nothing when it cannot find a video.
 
 The extension does not request:
 

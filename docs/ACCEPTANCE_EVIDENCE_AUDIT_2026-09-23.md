@@ -6,6 +6,7 @@
 - **Status: Audit snapshot — no issue is closed or accepted by this document.**
 - **No provider, two-device, deployed-coordinator or user-acceptance gate has passed for any issue.**
 - **Revised:** 2026-09-24 (review-history wording, result vocabulary, historical-CI wording, follow-up decisions in §8).
+- **Superseded in part, 2026-10-16:** this is a snapshot of 2026-09-23. The coordinator deployment recorded in §2, §4 item 1 and §7 item 2 (last deployed from `1ac5b1c`) is out of date: the coordinator was redeployed from the `v0.2.5` tag (checkpoint 101, Gate 0 pass) and again from `v0.2.6` on 2026-09-29 (comment on #69). The `storageState` harness defect (recorded in §3, §6, §7 and §8) was corrected by PR #103. Changes merged after v0.2.6 (from PR #120 onward) are on `main` but not deployed or released. Read the 'Next action' column of §3 as history; current state is in `context-checkpoint.md`, `CHANGELOG.md` and the issue comments. This notice changes no criterion state and does not accept or close any issue.
 
 ## 1. Method
 

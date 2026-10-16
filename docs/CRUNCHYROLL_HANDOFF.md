@@ -2,6 +2,8 @@
 
 Prepared: 2026-09-19. Updated: 2026-09-20. Repository: `muaz978/sync-your-joy`.
 
+> Status note, 2026-10-16: this handoff records the state of 2026-09-20 and is not the current state. The candidate branch was merged to `main` as PR #70 (rebased first, so the candidate commit hashes below are not in `main`) and tasks CR-A02 to CR-D03 followed as PRs #76 to #97. They shipped in the v0.2.5 and v0.2.6 test releases, and `main` is at package version 0.2.6. Treat as history the statements below that the candidate is unmerged, undeployed or at version 0.2.4; that the planned work is unimplemented; the shared-`dist` E2E hazard in section 9, which CR-D01 (PR #94) removed; and the continuation procedure in section 11. Issues #49 to #69 and #33 stay open, and what each still needs is recorded in the issue; no authenticated or two-account Crunchyroll acceptance has been recorded. Live task state is on GitHub, and [the issue map](CRUNCHYROLL_ISSUE_MAP.md) only indexes the task IDs.
+
 ## 1. Read this first
 
 The latest instruction is to commit and push the existing candidate fixes, tests, and documents to a dedicated branch so remote contributors can inspect them. That publication instruction does not mark the 23 remediation issues complete and does not authorize a production release.

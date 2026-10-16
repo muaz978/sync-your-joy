@@ -2,6 +2,8 @@
 
 Prepared: 2026-09-19. Tracker and branch status updated: 2026-09-20. Status: durable design plan for an open GitHub initiative. This document does not authorize a production release.
 
+> Update 2026-10-16: the candidate branch was merged as PR #70 and tasks CR-A02 to CR-D03 as PRs #76 to #97. They shipped in the v0.2.5 and v0.2.6 test releases, and `main` is at package version 0.2.6. The CR issues (#49 to #69 and #33) stay open, and what each still needs is recorded in the issue, including CR-D04 (#33, live acceptance) and CR-D05 (#69, release). Sections 2, 3 and 5 describe the 0.2.4 candidate of 2026-09-20, so their baseline, exposures, file and line references and timing values are not those of `main`. The identity contract that section 4.2 proposes is defined in [the CR-B01 contract](CR_B01_OPERATION_CONTRACT.md).
+
 The user first requested a deeper plan and handoff without further implementation. The user later authorized preserving the existing candidate fixes, tests, and documents on `codex/crunchyroll-sync-hardening`. This plan identifies further work; publishing the candidate branch does not declare those changes complete or release-ready.
 
 Related documents:
@@ -37,7 +39,7 @@ The existing source fixes are a starting candidate. Passing their current tests 
 
 These findings come from source review and timing analysis during planning. Unless explicitly described in the handoff as an earlier failing test, they are not newly reproduced runtime failures. Each implementation task begins with a failing regression or a controlled observation that confirms the suspected path.
 
-| ID | Priority | Remaining exposure | Current evidence and required response |
+| ID | Priority | Exposure at planning | Evidence at planning and required response |
 | --- | --- | --- | --- |
 | G01 | P0 | Local identity guard can reject supported generic/nested embeds | `content-script.ts:1014` compares all providers locally, but `containerPageUrl` at 1502 may see only a referrer origin or intermediate frame. Worker identity at `service-worker.ts:211` uses the outer tab. Only Crunchyroll has an unknown-identity exception. Establish one authoritative binding and distinguish unknown identity from mismatch. |
 | G02 | P0 | Late ACK can resume an expired seek | `room.ts:356` checks revision, readiness and position but does not check the deadline. An ACK can beat a delayed alarm after the nominal deadline. Check expiry inside every ACK and commit transition. |
@@ -182,7 +184,7 @@ Expose participant-level causes: Preparing video, Seeking, Waiting for permissio
 
 These are proposed initial engineering values, not measured Crunchyroll guarantees. Keep them centralized and test boundaries. Change them from evidence, not by merely increasing every timeout.
 
-| Policy | Current candidate | Proposed experiment |
+| Policy | Candidate at planning (2026-09-20) | Proposed experiment |
 | --- | --- | --- |
 | Local seek slow indicator | 1.5-second completion timeout | Keep 1.5 seconds as a progress/status threshold; preserve observation after it. |
 | Shared seek preparation | 1.8-second hard expiry | Trial a fixed 10-second maximum for Crunchyroll preparation, with visible slow-state feedback. Healthy ACKs still release immediately. Do not extend forever with heartbeats. |

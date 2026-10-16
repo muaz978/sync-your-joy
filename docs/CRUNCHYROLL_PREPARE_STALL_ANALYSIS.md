@@ -1,6 +1,6 @@
 # Crunchyroll prepare stall: analysis and fix record
 
-Status: source-level change with synthetic and local-browser evidence only. This record does not claim live authenticated Crunchyroll behavior, two-device behavior, deployment, or release readiness. It does not fix the stall in the diagnostic report it analyzes; it fixes two defects found on the way and adds the evidence needed to settle what remains.
+Status: source-level change with synthetic and local-browser evidence only. This record does not claim live authenticated Crunchyroll behavior, two-device behavior, deployment acceptance, or release readiness (the coordinator in production has included the change since its redeploy from `v0.2.6` on 2026-09-29, which is a deployment fact and not acceptance evidence). It does not fix the stall in the diagnostic report it analyzes; it fixes two defects found on the way and adds the evidence needed to settle what remains.
 
 Related trackers: [CR-B03 (#57)](https://github.com/muaz978/sync-your-joy/issues/57), [CR-C01 (#62)](https://github.com/muaz978/sync-your-joy/issues/62), [CR-C02 (#63)](https://github.com/muaz978/sync-your-joy/issues/63) and [two-account acceptance (#33)](https://github.com/muaz978/sync-your-joy/issues/33). All stay open.
 
@@ -113,7 +113,7 @@ Mixed-version note for that redeploy: a 0.2.5 extension applies a committed paus
 
 ## 7. Manual validation with two Crunchyroll profiles
 
-Use two profiles with the extension built from this change, both signed in with their own authorized accounts, on the same `/watch/` episode, in one room, both ready. The coordinator has to include the change: a local `npm run dev:server`, or a deployment after release approval. Record versions and the exact URL kind, never a room code.
+Use two profiles with the extension built from this change, both signed in with their own authorized accounts, on the same `/watch/` episode, in one room, both ready. The coordinator has to include the change: a local `npm run dev:server`, a deployment after release approval, or the production coordinator, which has included it since it was redeployed from `v0.2.6` on 2026-09-29. Record versions and the exact URL kind, never a room code.
 
 1. On each profile, before doing anything else, run this in the Console with the context dropdown set to the frame that matches the panel's Binding and Origin. It prints numbers and one boolean. It reads the first video in the frame, which is the player on a Crunchyroll watch page; `undefined` means the frame has no video. Do not print `src` or `currentSrc`.
 

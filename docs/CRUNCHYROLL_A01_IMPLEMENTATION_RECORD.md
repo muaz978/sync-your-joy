@@ -6,6 +6,8 @@ This record accompanies the issue-specific pull request for GitHub issue [#48](h
 
 Relates to #48. Related implementation evidence is also relevant to #49, #50, #51, #52, #54 and the missing-report portion of #58; those issues are not claimed closed by this pull request.
 
+Update 2026-10-16: this record was the body of pull request #70, which was merged to `main` on 2026-09-20 and is part of the v0.2.5 test release. The commit hashes named below (for example `e5abcec`) are those of the branch before it was rebased onto `main` (`context-checkpoint.md`, checkpoint 37), so they do not identify commits on `main`. #48 has since been closed on GitHub; this record does not evidence the authenticated provider and multi-device gates named above. #49, #50, #51, #52, #54, #58, #30, #33, #34 and #35 are still open.
+
 ## Scope
 
 CR-A01 required a reproducible baseline for the slow-loading adaptive-player path, followed by fixes for the uncovered deterministic failures. The work preserved the state-only boundary. No media bytes, screenshots of protected playback, cookies, credentials, signed stream URLs, license traffic or private provider APIs were used.

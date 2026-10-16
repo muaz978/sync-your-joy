@@ -1,6 +1,6 @@
 # SyncYourJoy Privacy Policy
 
-**Last updated:** 2026-08-29  
+**Last updated:** 2026-09-26  
 **Status:** Draft for owner review before store submission
 
 This policy describes the SyncYourJoy browser extension and its room coordinator. SyncYourJoy synchronizes playback controls while each person watches through their own authorized streaming account. It does not share or transmit the video or audio itself.

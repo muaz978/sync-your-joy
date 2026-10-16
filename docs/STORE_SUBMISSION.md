@@ -6,7 +6,7 @@ This document is the store-facing preparation checklist for Gate 4. It is intent
 
 - Product name: SyncYourJoy
 - Single purpose: synchronize play, pause, and seeking for people watching the same video through their own authorized accounts.
-- Current beta: `0.1.22`
+- Current beta: `0.2.6`
 - Repository: https://github.com/muaz978/sync-your-joy
 - Support and bug reports: https://github.com/muaz978/sync-your-joy/issues
 - Privacy policy draft: [docs/PRIVACY_POLICY.md](PRIVACY_POLICY.md)
@@ -20,6 +20,7 @@ The final listing must explain:
 - `storage`: stores the display name, theme, privacy acknowledgement, and resumable local session state.
 - `tabs`: identifies the bound video tab, opens the controller's shared page, and recovers after navigation.
 - `downloads`: downloads the user-requested beta diagnostic JSON report.
+- `alarms`: wakes the service worker to retry the room reconnection after Chrome has suspended it.
 - HTTP/HTTPS content-script access: detects and controls a script-controllable HTML video on arbitrary pages because the generic adapter is a user-facing feature.
 
 The extension does not request screen capture, cookies, web-request interception, debugger access, credentials, DRM keys, video bytes, or audio bytes. All production room transport uses WSS. The dashboard disclosure, the first-run in-extension disclosure, the privacy policy, and the listing description must remain consistent.

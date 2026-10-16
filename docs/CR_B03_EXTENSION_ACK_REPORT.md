@@ -3,7 +3,7 @@
 Issue: [#57](https://github.com/muaz978/sync-your-joy/issues/57)
 Dependencies: [#55 / CR-B01](https://github.com/muaz978/sync-your-joy/issues/55), [#56 / CR-B02](https://github.com/muaz978/sync-your-joy/issues/56)
 Scope: extension capability advertisement, player-side preparation, current-play-attempt tracking, started evidence, operation acknowledgement transport, and backend wire dispatch
-Current status: implementation and final branch verification complete; PR review, PR metadata, merge and issue-closure gates remain separate
+Status when written (historical): implementation and final branch verification complete; PR review, PR metadata, merge and issue-closure gates remain separate. Update 2026-10-16: merged as PR #85 and shipped in v0.2.5, so sections 7 and 8 are the pre-merge snapshot (historical), including the package still at 0.2.4 and no release claimed; #57 stays open for acceptance evidence.
 
 ## 1. Problem statement and acceptance interpretation
 

@@ -21,15 +21,15 @@ After replacing or reloading the extension, refresh the open streaming tab so Ch
 
 ## Run a two-city test
 
-1. Both testers sign in to the chosen service with their own accounts. The host opens the intended title, pauses near the beginning, opens SyncYourJoy, and selects **Start synced room**.
-2. The friend joins with the eight-character code immediately. They do not need a video or link open first.
+1. Both testers sign in to the chosen service with their own accounts. The host opens the intended title, pauses near the beginning, opens SyncYourJoy, and selects **Start a synced room**.
+2. The friend enters the eight-character code and selects **Request to join**; the host then selects **Approve** under **Waiting to join** in the side panel. The friend does not need a video or link open first.
 3. The host can paste the exact video-page URL under **Video page link** and select **Open link for everyone**. Chrome opens that normalized HTTP/HTTPS link in a new tab for every connected participant at the same scheduled time.
 4. Navigation clears readiness. Wait for both sides to show **Video matches**, then each participant selects **I'm ready**.
 5. After both people show **Ready**, the host tests the streaming player's native play, pause, and progress-bar drag controls. The side-panel remote remains available as a fallback.
 6. Test a short buffer or network interruption, then verify that the room pauses and recovers.
-7. Finally, close the host's tab for more than ten seconds and verify that control passes to the connected participant.
+7. Finally, have the host select **Leave room** (or quit Chrome) and stay away for more than ten seconds, then verify that control passes to the connected participant. Closing only the host's video tab does not drop the host's room connection, so it does not hand over control.
 
-If SyncYourJoy reports **Wrong video**, focus the tab containing the intended episode and select **Recheck this tab**. Equal normalized page links are treated as a strong match. After a room binds to a player tab and frame, unrelated videos, ads, and background tabs cannot control or overwrite that room.
+If SyncYourJoy reports **Wrong video**, focus the tab containing the intended episode and select **Redetect player**. Equal normalized page links are treated as a strong match. After a room binds to a player tab and frame, unrelated videos, ads, and background tabs cannot control or overwrite that room.
 
 Normal media heartbeats never cancel readiness. A streaming site may briefly hide or replace its video while seeking or changing quality; a ready participant now receives a ten-second replacement grace period, and a mismatching fingerprint must remain stable before it can revoke readiness. A brief WebSocket reconnect preserves readiness when the same participant returns with the same matching video. Confirmed navigation, a lasting player or media change, or the participant's own Ready button can still change readiness.
 
@@ -51,11 +51,11 @@ Dragging the controller's progress bar now creates a room-wide alignment barrier
 
 The fast path responds to the final drag within 60 ms and releases as soon as each player reports that seeking ended at the target. Providers that omit `seeked` are probed every 80 ms, while any unconfirmed network acknowledgement retries automatically.
 
-The controller no longer waits for its streaming site to emit `seeked` before notifying the room. The stabilized scrub target is sent directly, and successful providers still resume as soon as everyone confirms. A 1.8-second safety ceiling covers slower backward decoding; if a player still cannot confirm, the room remains paused at the fixed target instead of releasing that participant into a moving timeline.
+The controller no longer waits for its streaming site to emit `seeked` before notifying the room. The stabilized scrub target is sent directly, and successful providers still resume as soon as everyone confirms. A 3-second safety ceiling covers slower backward decoding; if a player still cannot confirm, the room remains paused at the fixed target instead of releasing that participant into a moving timeline.
 
 ## Download a beta diagnostic report
 
-The controller can select **Download detailed report** under **Beta diagnostics**. SyncYourJoy immediately includes the controller's local report, asks every connected participant for its bounded in-memory playback log up to three times, waits up to 2.5 seconds, and downloads one JSON file on the controller's device. The file records room revisions, sanitized player binding changes, play and seek positions, paused or buffering states, connection events, extension versions, collection attempt counts, and any participants that did not respond.
+The controller can select **Download detailed report** under **Beta diagnostics**. SyncYourJoy immediately includes the controller's local report, asks every connected participant for its bounded in-memory playback log, repeats the request after 1, 3 and 6 seconds while any participant has not yet answered, waits up to 8 seconds, and downloads one JSON file on the controller's device. The file records room revisions, sanitized player binding changes, play and seek positions, paused or buffering states, connection events, extension versions, collection attempt counts, and any participants that did not respond.
 
 This testing-only report does not contain video, audio, screenshots, cookies, passwords, subscription data, session capabilities, or page query parameters. Reports are relayed directly through the active room and are not stored as a report archive by the room coordinator. Reports are kept below the room transport message budget by retaining the newest events first. Send the JSON file with the bug description when a synchronization issue needs investigation.
 

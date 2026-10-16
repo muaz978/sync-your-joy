@@ -1,6 +1,6 @@
 # CR-B06 Edge Health and Rehydration Report
 
-Status: implementation complete on the issue branch, awaiting pull request review and merge verification.
+Status when written (historical): implementation complete on the issue branch, awaiting pull request review and merge verification. Update 2026-10-16: merged as PR #88 (2026-09-20) and shipped in v0.2.5, so section 7 (merge still pending, #60 moving after it, the package at 0.2.4) is the pre-merge snapshot (historical); #60 stays open.
 
 Issue: [CR-B06, Make edge alarms and rehydration preserve health semantics](https://github.com/muaz978/sync-your-joy/issues/60)
 
@@ -70,7 +70,7 @@ The Durable Object now:
 - persists before sending and broadcasting a successful join result;
 - persists before broadcasting player status, seek acknowledgement, operation acknowledgement, join approval or denial, control, readiness, controller transfer, and link-open results;
 - persists the updated disconnect/controller-recovery metadata before broadcasting a disconnect snapshot;
-- continues to include pending controller, empty-room, seek, operation, and health deadlines when scheduling the next alarm;
+- continues to include pending controller, empty-room, seek, operation, and health deadlines when scheduling the next alarm (on `main`, not yet deployed, the six-hour room lifetime limit is part of this list too; see section 6);
 - clears pending controller state when an empty room is deleted.
 
 If the durable write or alarm scheduling fails, the observation callback is not executed. That keeps a failed storage boundary from being represented to connected peers as a committed state transition.
@@ -132,7 +132,7 @@ The Wrangler dry run confirms that the edge Worker bundles with the Durable Obje
 
 ## 6. Storage, scheduling, and security notes
 
-The durable room record remains one `storage.put('room', ...)` containing the coordinator export and the three room lifecycle fields. Health evidence is already part of each internal participant record. Each state-changing commit then computes the next alarm as the minimum of the currently applicable controller recovery, empty-room, seek, operation, and health deadlines, and calls `setAlarm()` only when at least one finite deadline exists.
+The durable room record remains one `storage.put('room', ...)` containing the coordinator export and the three room lifecycle fields. Health evidence is already part of each internal participant record. Each state-changing commit then computes the next alarm as the minimum of the currently applicable controller recovery, empty-room, seek, operation, and health deadlines, and calls `setAlarm()` only when at least one finite deadline exists. Update 2026-10-16: on `main` (not yet deployed) the candidates also include the six-hour room lifetime limit, here and in section 3.2, so every save sets an alarm; see `persistAndSchedule()` in `apps/edge-service/src/worker.ts` and the entry on the six-hour room lifetime limit in `CHANGELOG.md`.
 
 The new ordering adds no extra write for a normal state transition. It changes the point at which the existing write and alarm scheduling complete relative to the send or broadcast. Alarm transitions are coalesced to one coordinator transition per invocation, which reduces duplicate or stale snapshots when Cloudflare delivers an alarm late or repeats a callback.
 

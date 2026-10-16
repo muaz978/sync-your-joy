@@ -12,9 +12,9 @@ As of v0.2.2, real friend testing surfaced and closed a genuine playback-desync 
 
 As of the next patch after v0.2.2, the concurrently-open-room cap has been added to `room-service`'s local dev server (matching the edge Worker's own protections), and the unused `inviteToken` has been removed entirely from the protocol, both backends, and the extension -- it was generated and returned but never validated by anything, and host-approval join already covers the access-control gap it was meant to close.
 
-The remaining concrete work is tracked as GitHub issues under the [M3/M5: reliability and real-device validation](https://github.com/muaz978/sync-your-joy/milestone/1) milestone, since all of it needs real devices, real provider accounts, or a headed browser rather than more code in this repository: real multi-device/multi-provider acceptance testing (including verifying the v0.2.2 autoplay-block fix against a real provider), real two-device network-chaos and reconnect testing, extending real E2E coverage to a commercial provider, and a headed-browser cross-platform pass (Shadow DOM/SPA lifecycle, the player-lock UI, and real Firefox/Safari runs).
+As of v0.2.3, the remaining concrete work was tracked as GitHub issues under the [M3/M5: reliability and real-device validation](https://github.com/muaz978/sync-your-joy/milestone/1) milestone, since all of it needed real devices, real provider accounts, or a headed browser rather than more code in this repository: real multi-device/multi-provider acceptance testing (including verifying the v0.2.2 autoplay-block fix against a real provider), real two-device network-chaos and reconnect testing, extending real E2E coverage to a commercial provider, and a headed-browser cross-platform pass (Shadow DOM/SPA lifecycle, the player-lock UI, and real Firefox/Safari runs).
 
-The deeper Crunchyroll-specific investigation and candidate branch are indexed in [the remediation plan](CRUNCHYROLL_REMEDIATION_PLAN.md), [the GitHub issue map](CRUNCHYROLL_ISSUE_MAP.md), and [the investigation handoff](CRUNCHYROLL_HANDOFF.md). The live GitHub issues remain the source of truth for task state and acceptance.
+The deeper Crunchyroll-specific investigation is indexed in [the remediation plan](CRUNCHYROLL_REMEDIATION_PLAN.md), [the GitHub issue map](CRUNCHYROLL_ISSUE_MAP.md), and [the investigation handoff](CRUNCHYROLL_HANDOFF.md). Its candidate branch was merged as PR #70 and the remediation tasks CR-A02 to CR-D03 as PRs #76 to #97, and they shipped in the v0.2.5 and v0.2.6 test releases. The CR issues stay open: no authenticated two-account Crunchyroll, two-device or user acceptance has been recorded, and what else each still needs is recorded in the issue. The live GitHub issues remain the source of truth for task state and acceptance.
 
 ## 1. Product promise
 
@@ -49,13 +49,13 @@ Do not inject buttons into Netflix, Disney+, or Crunchyroll control bars in the 
 
 1. The host opens a supported title and clicks the extension icon.
 2. The side panel recognizes the service and title, then offers **Start synced room**.
-3. The server creates a short-lived room with an unguessable invite link and an eight-character human code.
-4. The host shares either the link or code.
+3. The server creates a short-lived room with an eight-character human code. There is no invite link: the unused `inviteToken` was removed in v0.2.3, and host approval (v0.2.0) controls who joins.
+4. The host shares the code.
 5. The host is paused locally while the room waits for members to become ready.
 
 ### Join a room
 
-1. A member opens the invite link or enters the code in the side panel.
+1. A member enters the code in the side panel. The join is a request that the controller must approve (host-approval join, v0.2.0).
 2. SyncYourJoy identifies the intended service and canonical title/episode without copying credentials or media.
 3. The member signs into their own subscription and opens the title. If a safe canonical link is available, the extension can offer an explicit **Open title** button.
 4. The member presses **I'm ready**. This deliberate interaction also reduces autoplay-policy failures.
@@ -89,7 +89,7 @@ Never silently pretend a participant is synchronized. The status pill should use
 
 - Chrome desktop, Manifest V3;
 - two to ten participants;
-- ephemeral rooms with invite link and human code;
+- ephemeral rooms with a human code and host-approved joins;
 - guest nickname, no required account;
 - host-only play, pause, and seek;
 - pass-the-remote control transfer;
@@ -105,7 +105,7 @@ Never silently pretend a participant is synchronized. The status pill should use
 
 - reactions and lightweight text chat;
 - co-hosts and configurable control policy;
-- episode-transition coordination;
+- episode-transition coordination (a manual shared-link navigation transaction shipped in v0.2.5, PR #93; the optional controller-follow mode is disabled and #65 stays open);
 - Firefox/Edge portability assessment;
 - optional accounts for stable identity and room history;
 - adapter health dashboard and remote feature flags containing data only, not executable extension logic;

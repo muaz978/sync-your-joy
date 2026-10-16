@@ -43,7 +43,7 @@ interface PlayerAdapter {
 }
 ```
 
-The generic adapter observes `HTMLMediaElement` state and events. Platform adapters add safe media identification, navigation awareness, buffering semantics, and capability checks. They must not inspect credentials, cookies, DRM keys, decoded media, network responses containing protected content, or unrelated page data.
+The generic adapter observes `HTMLMediaElement` state and events. Platform adapters add safe media identification, navigation awareness, buffering semantics, and capability checks (as built, the extension does not define this `PlayerAdapter` interface: generic `HTMLVideoElement` discovery and control live in `apps/extension/src/content-script.ts` and `video-discovery.ts`, and provider-specific handling is a set of separate helpers rather than adapters, mainly media identity in `media-fingerprint.ts` and `packages/protocol` plus click-to-load and advertising-frame helpers in `site-adapter.ts`; see `docs/IMPLEMENTATION.md`). They must not inspect credentials, cookies, DRM keys, decoded media, network responses containing protected content, or unrelated page data.
 
 When a site's player requires page-world access, use a small packaged bridge and explicit `window.postMessage` schema. All executable logic ships inside the extension; the server may send feature flags and thresholds, but never code or selectors that are evaluated as code.
 
@@ -179,3 +179,5 @@ docs/
 ```
 
 Keep the room state machine independent of Chrome and Cloudflare so it can be tested deterministically and reused if the infrastructure choice changes.
+
+As built (2026-10-16): `apps/extension`, `apps/room-service` (local Node service) and `apps/edge-service` (Cloudflare Worker and Durable Object); `packages/protocol` and `packages/sync-engine` (the room state machine, which has no Chrome or Cloudflare dependency); `tests/` with Playwright specs in `tests/e2e`; and `fixtures/` for the generic and adaptive player pages. `packages/room-state`, `packages/adapters`, `packages/test-player` and `tests/network` were not created; the local test player is `apps/room-service/static/test-player.html`.

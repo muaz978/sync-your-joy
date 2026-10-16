@@ -1,6 +1,7 @@
 # Gate 1-3 Closeout and Gate 4 Entry Criteria
 
 **Current candidate:** `0.1.22` (not yet published from this working tree)
+**Status note, 2026-10-16:** this closeout is kept as the `0.1.22`-era record and the checklists below were not updated for 0.2.x. `v0.1.22` was published on 2026-08-30 and later releases followed (the latest at the time of this note is `v0.2.6`). The server safety ceiling named in the Gate 1 list is 3 seconds since PR #96 (see `docs/CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md`). The user-side acceptance items remain unchecked in this file.
 **Purpose:** record what can be completed by the repository and what requires two real people, real provider accounts, or marketplace accounts.
 
 ## Verified in the repository and production workflow

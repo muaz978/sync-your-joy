@@ -1,6 +1,6 @@
 # CR-B07 mixed-version and stored-state migration report
 
-Status: implementation complete on branch `codex/issue-61-mixed-version-migration`; PR and merge are intentionally separate gates.
+Status when written (historical): implementation complete on branch `codex/issue-61-mixed-version-migration`; PR and merge are intentionally separate gates. Update 2026-10-16: merged as PR #89 and shipped in v0.2.5; #61 stays open, and "Evidence limits and remaining gates" below still lists what this report does not establish.
 
 Issue: [#61, CR-B07: Verify mixed versions and stored-state migration](https://github.com/muaz978/sync-your-joy/issues/61)
 
