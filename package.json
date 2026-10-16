@@ -35,11 +35,11 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261003.1",
-    "@playwright/test": "^1.63.0",
+    "@cloudflare/workers-types": "^5.20261009.1",
+    "@playwright/test": "^1.64.0",
     "@types/chrome": "^0.3.4",
     "@types/node": "^26.6.4",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "@unocss/preset-wind4": "^66.10.5",
     "esbuild": "^0.28.2",
     "playwright": "^1.63.0",
@@ -47,6 +47,6 @@
     "typescript": "^7.0.2",
     "unocss": "^66.10.5",
     "vitest": "^5.0.3",
-    "wrangler": "^4.147.0"
+    "wrangler": "^4.149.0"
   }
 }
