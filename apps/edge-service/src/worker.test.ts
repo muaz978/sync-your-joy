@@ -1271,6 +1271,16 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
 
       expect(back.last()).toMatchObject({ type: 'room_joined' })
+
+      // The socket can be read again; the next save derives the recovery that
+      // the join could not, so the absent host does not keep control.
+      const readable = new FakeSocket()
+      unreadable.deserializeAttachment = readable.deserializeAttachment.bind(readable)
+      const joinedAtMs = startMs + CONTROLLER_GRACE_MS + 1_000
+      await say(first, back, { type: 'client_metrics', roundTripMs: 20 })
+      vi.setSystemTime(joinedAtMs + CONTROLLER_REARM_GRACE_MS + 1_000)
+      await first.alarm()
+      expect(controllerOf(first)).toBe('participant_friend')
     })
 
     it('gives the host the re-arm window when the last member\'s close was never delivered and the plan had run out', async () => {
