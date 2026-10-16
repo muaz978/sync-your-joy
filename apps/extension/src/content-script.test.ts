@@ -401,6 +401,35 @@ describe('adaptive player lifecycle', () => {
       expect(mediaReports().every(report => report.bindingId === 'binding_that_was_replaced')).toBe(true)
     })
 
+    it('ignores a token that arrives after the worker told the page to release it', async () => {
+      let letResponseThrough: () => void = () => {}
+      const gate = new Promise<void>((resolve) => { letResponseThrough = resolve })
+      const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+      sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+        messages.push(request)
+        if (request.type !== 'MEDIA_DETECTED')
+          return { ok: true, state }
+        await gate
+        return { ok: true, state, playerBindingId: 'binding_issued_before_the_release' }
+      })
+      video.dispatchEvent(new Event('loadstart'))
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(mediaReports().length).toBeGreaterThan(0)
+
+      // The worker releases the page while its report is still in flight.
+      state = detached()
+      listener({ type: 'APPLY_ROOM_STATE', state, bindingReleased: true })
+      letResponseThrough()
+      await vi.advanceTimersByTimeAsync(10)
+      messages.length = 0
+
+      await reportMedia()
+
+      expect(mediaReports().length).toBeGreaterThan(0)
+      expect(mediaReports()[0]!.bindingId).toBeUndefined()
+    })
+
     it('is invited to bind afresh when the worker asks it to report after unbinding', async () => {
       await bindAs('binding_that_was_replaced')
       workerToken = 'binding_of_the_other_document'

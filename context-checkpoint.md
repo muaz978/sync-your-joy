@@ -9816,7 +9816,7 @@
 - Tests: `apps/extension/src/content-script.test.ts` (a stand-in that refuses like the worker; the replaced-page case is the one the first version failed), `apps/extension/src/service-worker.test.ts` (the flag on leave and on unbind, not on replacement), `tests/e2e/rejoin-after-leaving.spec.ts` (new; skips itself on an extension built from another tree), `CHANGELOG.md`.
 
 ### Verification
-- `npm test`: 44 files, 588 tests (578 on `main`), strict typecheck; `npm run test:e2e`: 15 passed, 1 skipped (the authenticated provider run), with the change as pushed.
+- `npm test`: 44 files, 589 tests (578 on `main`), strict typecheck; `npm run test:e2e`: 15 passed, 1 skipped (the authenticated provider run), with the change as pushed.
 - The new content-script tests: 3 of 5 fail against the content script of `main` (the other two are negative controls), and the replaced-page test fails against the first version of this change. The two worker tests that check the flag fail without it. The E2E spec failed without the first version of the change (20 s) and passes with it.
 
 ## Confirmed Successful Results
@@ -9824,7 +9824,7 @@
 
 ## Failed, Incomplete, or Unresolved Work
 - Only macOS and one profile. The authenticated provider flows, two devices and a real streaming page were not run.
-- Not covered: the paths that still clear the binding without telling the page keep the page refused. Navigation (`onUpdated` loading) is intended. A delivery failure (`sendToPlayerTab()`) means there was no page to tell. Accepted, not changed (S3, from the independent review): without `sender.documentId` (not in Chrome) a page re-bound inside the one round trip between an unbind and `REPORT_PLAYER_CONTEXT` could lose its token and be refused until the next release; and a `MEDIA_DETECTED` response that reaches the page after a later release could restore a token the worker has cleared (the worker answers with no token once it has cleared it, so this needs the two message channels to reorder).
+- Not covered: the paths that still clear the binding without telling the page keep the page refused. Navigation (`onUpdated` loading) is intended. A delivery failure (`sendToPlayerTab()`) means there was no page to tell. Accepted, not changed (S3, from the independent review): where `sender.documentId` is absent (the field is optional; this extension targets Chrome 116 and later, which provides it) a page re-bound inside the one round trip between an unbind and `REPORT_PLAYER_CONTEXT` could lose its token and be refused until the next release; and a recheck, which is sent to every frame of the tab, invites a frame that another player displaced to report again and compete under the usual policy, as a freshly loaded frame would (declined: a recheck is explicit, and acceptance is the same policy as for any frame that has no token).
 - A page another document replaced stays refused until the worker unbinds and asks it to report (the user switches back to it). That is the existing behaviour for a replaced page.
 
 ## Decisions and Rationale

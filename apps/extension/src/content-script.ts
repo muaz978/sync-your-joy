@@ -41,6 +41,10 @@ let activeState: ExtensionState | null = null
 // media report. It is intentionally local to this content-script instance and
 // is attached automatically to subsequent sender-bound messages.
 let playerBindingId: string | null = null
+// Counts the times the worker told this page to drop its token. A report that
+// was in flight when that happened is answered with a token for the binding the
+// worker has since let go of, and must not bring it back.
+let bindingReleases = 0
 let runtimeInvalidated = false
 let scheduledPlayTimer: ReturnType<typeof setTimeout> | null = null
 let bufferingTimer: ReturnType<typeof setTimeout> | null = null
@@ -314,6 +318,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     // (selectActivePlayerTab), so this page is being invited to bind afresh;
     // a token it kept from a binding another document replaced is no use.
     playerBindingId = null
+    bindingReleases += 1
     if (video) {
       void reportMedia(video)
       void reportPlayerStatus(false)
@@ -342,8 +347,10 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     // which keeps its token (the refusal stops a retired document from taking
     // the binding back), and the worker also clears its binding without telling
     // the page when a navigation starts, which is intended.
-    if (message.bindingReleased)
+    if (message.bindingReleased) {
       playerBindingId = null
+      bindingReleases += 1
+    }
     if (pendingSeekSuperseded || commandChanged || controllerChanged || roomDetached) {
       // The room may release a shared barrier before the browser finishes its
       // native seek. Keep a short-lived attribution window for that target so
@@ -2083,8 +2090,9 @@ async function sendRuntime(request: RuntimeRequest): Promise<RuntimeResponse> {
     throw new Error('SyncYourJoy extension context is gone.')
   }
   try {
+    const releasesBefore = bindingReleases
     const response = await chrome.runtime.sendMessage(withPlayerBinding(request)) as RuntimeResponse
-    if (request.type === 'MEDIA_DETECTED' && response.playerBindingId)
+    if (request.type === 'MEDIA_DETECTED' && response.playerBindingId && releasesBefore === bindingReleases)
       playerBindingId = response.playerBindingId
     return response
   }
