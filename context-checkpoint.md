@@ -10070,3 +10070,44 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, tracking issue #119: production coordinator deploy record, verification campaign on `main`, and the 0.2.7 version bump.
+- Checkpoint number: 119.
+- Date and time: 2026-10-16, Europe/Istanbul.
+- Coverage period: Since checkpoint 118 (`main` at `05a0d68`, after #134).
+- Current context status: Version bump on branch `release/0.2.7`, starting at `05a0d68`. Not merged. No tag, no release, no extension publication.
+
+## User Objective and Requirements
+- Deploy the reviewed coordinator, verify `main`, and bump the extension version so the owner-only runs (authenticated provider, two accounts, two devices, user acceptance) can use one build that contains #130 to #132.
+
+## Complete Chronological Activity Log
+- Production coordinator deployed from `main` at `05a0d68` through the repository deploy workflow, after the owner's explicit go for that exact commit. Active Worker version `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`; rollback target `681f31dc-eb31-4ced-a661-1d6304d134ff`; before that `6a927c6f-93ea-47dc-b264-a0bc14c9fe1d`.
+- The production exposure probe, red before the deploy, found no exposure after it. The production smoke test with synthetic participants passed.
+- Verification on `main`: `npm test` 659 passed; `npm run test:e2e` 15 passed and 1 skipped (the opt-in authenticated run) under Playwright 1.64 with Chromium 1248; 20 sequential matrix runs, 19 passed; the local edge smoke test passed.
+- Version moved from 0.2.6 to 0.2.7 in `package.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json` and `package-lock.json`. `CHANGELOG.md`, `README.md` and `docs/TEST_GUIDE.md` updated; a dated status note added to `docs/V0_2_5_CONTROLLED_TEST_SESSION.md` and one phrase corrected in `docs/CR_B06_EDGE_HEALTH_REHYDRATION_REPORT.md`.
+
+## Confirmed Successful Results
+- The results listed above, as measured. Matrix run 12 failed ("A player paused during the sustained window"); it is a load signature already seen before this work, is not the missing "Playback blocked" notice, and is unexplained. It is recorded here and not hidden.
+
+## Failed, Incomplete, or Unresolved Work
+- The Linux Node 22 container run is not done yet. Nothing here accepts or closes an acceptance issue. Authenticated provider, two accounts, two devices and user acceptance remain open under their own issues.
+- A deploy window: an active room may keep the previous code for about five minutes and is then reset once (#131).
+
+## Decisions and Rationale
+- The version is bumped, not tagged: tagging triggers the release workflow and needs its own approval.
+
+## Files and Artifacts
+- The seven version and documentation files named above, plus the two dated-document edits and this file.
+
+## Open Questions, Blockers, and Dependencies
+- Owner approval to tag `v0.2.7` and publish.
+
+## Next Steps
+1. Exact-head review, required checks green on that head, merge pinned to the head SHA.
+2. Linux Node 22 run; record it.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.

@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-10-16
+
+This is a compatible test release. The extension fixes below take effect when each participant loads this package. The coordinator fixes were deployed to production on 2026-10-16 (Worker version `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`, from `main` at `05a0d68`; previous version `681f31dc-eb31-4ced-a661-1d6304d134ff`): after that deploy the production exposure probe found no exposure and the production smoke test with synthetic participants passed. Where an entry below says a coordinator fix takes effect when the coordinator is deployed, that has now been done for production.
+
 Where an entry applies: unmarked entries are coordinator changes and take effect when the room coordinator is redeployed. Deployed extensions need no update for them (checked in a real browser with the 0.2.5 and 0.2.6 builds; older releases were not checked), because the coordinator now answers an unapproved request with a placeholder that already-installed content scripts leave alone. Entries marked *(local service)* apply to the local room service and local test runs only, entries marked *(local test runs)* apply to the repository's own tests and how they are run and ship nothing, and entries marked *(extension)* ship with the next extension release as a second line of defence. They close gaps found while reviewing the host-approval join (tracking issue #119).
 
 ### Fixed
