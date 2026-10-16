@@ -9969,46 +9969,54 @@
 # Context Checkpoint
 
 ## Session Metadata
-- Task or project: SyncYourJoy review coverage remediation, follow-up to R4b (#130): two review threads on the merged head that were still open, tracking issue #119.
+- Task or project: SyncYourJoy review coverage remediation, follow-up to R4b (#130): the review threads still open when it merged, and what answering them turned up, tracking issue #119.
 - Checkpoint number: 117.
 - Date and time: 2026-10-16, Europe/Istanbul.
 - Coverage period: Since checkpoint 116 (`main` at `b9552e4`, after #130, #131, #132 and the three Dependabot pull requests).
-- Current context status: Implemented on branch `fix/upgrade-guard-unreadable-sockets`, failing test first, verified on macOS. Not merged.
+- Current context status: Implemented on branch `fix/upgrade-guard-unreadable-sockets` (#133), failing tests first, mutation-checked, verified on macOS. Not merged.
 
 ## User Objective and Requirements
-- Answer the two cubic threads on #130 that were open when it merged (`worker.ts:388`, `worker.test.ts:1297`), fixing what is valid.
+- Answer the two review threads on #130 that were open when it merged (`worker.ts:388`, `worker.test.ts:1297`), fixing what is valid, and the review of this follow-up.
 
 ## Complete Chronological Activity Log
 
 ### Findings
-- `worker.ts:388` (cubic, P2), valid as an inconsistency, small in practice: `fetch()` counted pending connections with `attachmentOf(...)?.participantId === null`, so a socket whose attachment cannot be read was skipped, left open and left uncounted, while every other scan (`attachedParticipantIds()`, the join's earlier-connection scan) closes such a socket with 1011 so that its client reconnects. A socket becomes unreadable only through a runtime fault, never through anything a client sends, so the cap cannot be pushed past 20 by a client; the fix is for consistency, and so that an unreadable socket does not outlive the next upgrade.
-- `worker.test.ts:1297` (cubic, P3), valid: the restore test promised a reconnect and a connected member and checked only the close.
+- `worker.ts:388` (valid, small): `fetch()` counted pending connections with a filter on `attachmentOf(...)`, so a socket whose attachment cannot be read was skipped, left open and left uncounted. A socket gets into that state only through a runtime fault, never through anything a client sends, so a client cannot push the room past the cap of 20.
+- `worker.test.ts:1297` (valid): the restore test promised a reconnect and a connected member and checked only the close.
+- Found by the review of this follow-up and by an independent read-only review of its first commit, and fixed here (S2, degraded conditions only): `webSocketClose()` read its socket's attachment without a guard. Closing an unreadable socket (which restore, the join and now the upgrade guard all do) delivers a close event for exactly that socket, so the handler threw before recording the departure: the member stayed shown as connected, and a controller that was gone had no recovery planned, until the next restore. The same read in `handleFrame()` threw for a frame from an unreadable socket and left the client waiting for a reply; a socket with no attachment at all (`deserializeAttachment()` returning null) was skipped by the scans but dereferenced by `handleFrame()`.
+- `broadcast()`, `sendToParticipant()`, the denial loop and the close handler's still-connected scan skipped an unreadable socket without closing it.
+
+### Policy
+- Commit `ef88227` chose to skip an unreadable socket in the upgrade guard, the close check and the denial loop, and to close it only in restore (the join scan closed it from `a0c2886`). This change reverses that choice for the upgrade guard, the close check and the denial loop and makes one rule: a socket whose attachment cannot be read, or that has none, is closed wherever it is found (`closeUnreadable`), and a close whose own attachment cannot say whose it was reconciles the members against the sockets that can be read (`reconcileAfterUnreadableClose`, the restore routine `healRestoredState`). Reason: a skipped socket stays open and unservable, and its client waits; closed, it reconnects with its session token and is connected again.
 
 ### Fix
-- `apps/edge-service/src/worker.ts`: one `closeUnreadable(socket)` helper used by the three scans; the pending-connection count in `fetch()` is now a loop that closes an unreadable socket and counts the rest. The closed socket is not counted toward the cap (it is closed, not pending); the alternative of counting it would refuse upgrades while the runtime fault lasts, which closing does not.
-- `apps/edge-service/src/worker.test.ts`: the restore test now keeps the friend's session token, checks the friend is recorded disconnected, reconnects on a fresh socket and checks the friend is connected; a new test fails against `main` ("expected null to match object { code: 1011 }") and passes with the change.
-- `CHANGELOG.md`: one sentence.
+- `apps/edge-service/src/worker.ts`: `attachmentOf()` returns undefined for a missing attachment as well; one `closeUnreadable()` helper used by `attachedParticipantIds()`, the pending-connection count in `fetch()`, `handleFrame()`, the still-connected scan in `webSocketClose()`, the denial loop, `broadcast()`, `sendToParticipant()` and the join's earlier-connection scan; `webSocketClose()` calls `reconcileAfterUnreadableClose()` when its own socket's attachment cannot be read. The closed socket is not counted toward the cap (closed, not pending); counting it would refuse upgrades while a runtime fault lasts.
+- `apps/edge-service/src/worker.test.ts`: the restore test keeps the friend's session token, checks the friend is recorded disconnected and, after reconnecting on a fresh socket, connected; new tests for the pending count and the cap (19 pending plus an unreadable one proceeds, the 20th pending one gets 429), the close handler (member disconnected, controller recovery planned, the other member told), a frame from an unreadable socket, a socket with no attachment (frame and upgrade), broadcast and the diagnostics path, and the join scan.
+- `CHANGELOG.md`: one bullet.
 
 ### Verification
-- `npm run typecheck`, `npm test`: 44 files, 649 tests (648 on `main`).
+- `npm run typecheck`, `npm test`: 44 files, 655 tests (648 on `main`).
+- Mutation checks (one change each, then the file restored): not closing in the pending count, not reconciling in the close handler, not closing in the frame handler, not closing in `broadcast()`, treating a missing attachment as readable, and counting the unreadable socket toward the cap are each caught by a test. Four mutants survive: no close in `sendToParticipant()`, in the join scan, in the close handler's still-connected scan, or in the denial loop. In every flow that reaches them, `broadcast()` closes the same socket right afterwards, so no test can tell the sites apart. They stay as defence in depth and are not individually pinned.
+- Independent read-only review of the first commit: no finding above S3; its S3 items (the cap decision unprotected, the restore test's comment overstating, the join-scan close masked, the "every scan" wording, and the unguarded close handler as a pre-existing gap) are adopted above.
 
 ## Confirmed Successful Results
-- The new fetch test distinguishes the old and the new scan; the strengthened restore test passes on both (it covers behaviour restore already had).
+- The new tests distinguish the old and the new code (four of them fail against the previous commit of this branch).
 
 ## Failed, Incomplete, or Unresolved Work
-- Not covered: a real Durable Object runtime fault that makes `deserializeAttachment()` throw; it is simulated with a socket stub, as in the existing tests.
+- Not covered: a real Durable Object runtime fault that makes `deserializeAttachment()` throw (simulated with socket stubs, as in the existing tests); whether the runtime delivers `webSocketClose` for a socket the object closed itself, whether a closed socket stays listed, and whether a second `close()` throws were not observed on the real runtime.
+- The four surviving mutants above.
 
 ## Decisions and Rationale
-- Close, not count: closing matches the policy decided in `ef88227` for the other scans, and it does not turn a runtime fault into refused upgrades.
+- Close, not count, and close everywhere: one rule that is easy to state and test, and that does not turn a runtime fault into refused upgrades.
 
 ## Files and Artifacts
 - `apps/edge-service/src/worker.ts`, `apps/edge-service/src/worker.test.ts`, `CHANGELOG.md`.
 
 ## Open Questions, Blockers, and Dependencies
-- None for this change. Coordinator change: it takes effect only with a coordinator deploy, which is not approved.
+- Coordinator change: it takes effect only with a coordinator deploy, which is not approved.
 
 ## Next Steps
-1. Exact-head review, required checks green, merge pinned to the head SHA; reply to and resolve the two threads (`PRRT_kwDOTzrIvM6tD5Sg`, `PRRT_kwDOTzrIvM6tD5Sk`).
+1. Exact-head review, required checks green, merge pinned to the head SHA; reply to and resolve the open threads.
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.

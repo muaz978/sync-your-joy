@@ -319,13 +319,14 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   /**
-   * A socket's attachment, or undefined when it cannot be read. A socket whose
-   * attachment cannot be read cannot be served either (every frame would fail
-   * the same way), so callers skip it instead of failing for it.
+   * A socket's attachment, or undefined when it cannot be read or there is none
+   * (every socket is given one when it is accepted, so none means it was lost).
+   * Such a socket cannot be served either (every frame would fail the same
+   * way), so callers close it with closeUnreadable and go on.
    */
-  private attachmentOf(socket: WebSocket): SocketAttachment | null | undefined {
+  private attachmentOf(socket: WebSocket): SocketAttachment | undefined {
     try {
-      return socket.deserializeAttachment() as SocketAttachment | null
+      return (socket.deserializeAttachment() as SocketAttachment | null) ?? undefined
     }
     catch {
       return undefined
@@ -335,8 +336,9 @@ export class RoomDurableObject extends DurableObject<Env> {
   /**
    * Closes a socket whose attachment cannot be read, so that its client
    * reconnects with a fresh attachment instead of sitting on a socket that
-   * cannot be served. Every place that finds one does this, so that none is
-   * left open and uncounted.
+   * cannot be served. Every place that reads a socket's attachment does this
+   * when it finds one, so that none is left open: the closing socket's own
+   * close handler then reconciles membership (see webSocketClose).
    */
   private closeUnreadable(socket: WebSocket): void {
     try {
@@ -364,7 +366,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         this.closeUnreadable(socket)
         continue
       }
-      if (attachment?.participantId)
+      if (attachment.participantId)
         attached.add(attachment.participantId)
     }
     return attached
@@ -404,7 +406,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       const attachment = this.attachmentOf(candidate)
       if (attachment === undefined)
         this.closeUnreadable(candidate)
-      else if (attachment?.participantId === null)
+      else if (attachment.participantId === null)
         pendingConnections += 1
     }
     if (pendingConnections >= MAX_PENDING_CONNECTIONS_PER_ROOM)
@@ -513,7 +515,13 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   private async handleFrame(socket: WebSocket, rawMessage: string | ArrayBuffer): Promise<void> {
-    const attachment = socket.deserializeAttachment() as SocketAttachment
+    const attachment = this.attachmentOf(socket)
+    if (attachment === undefined) {
+      // Every frame would fail the same way and the client would wait for a
+      // reply that never comes; closed, it reconnects with a fresh attachment.
+      this.closeUnreadable(socket)
+      return
+    }
     const nowMs = Date.now()
     if (nowMs - attachment.messageWindowStartedAt > 10_000) {
       attachment.messageWindowStartedAt = nowMs
@@ -545,15 +553,28 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   async webSocketClose(socket: WebSocket): Promise<void> {
     await this.initialized
-    const attachment = socket.deserializeAttachment() as SocketAttachment | null
-    if (!attachment?.participantId || !this.coordinator)
+    const attachment = this.attachmentOf(socket)
+    if (attachment === undefined) {
+      // Which participant this socket belonged to cannot be told from it, so
+      // the members are compared with the sockets that can be read instead:
+      // throwing here would leave its member shown as connected, with no
+      // recovery planned if it was the controller, until the next restore.
+      await this.reconcileAfterUnreadableClose()
+      return
+    }
+    if (!attachment.participantId || !this.coordinator)
       return
 
-    const stillConnected = this.ctx.getWebSockets().some((candidate) => {
+    let stillConnected = false
+    for (const candidate of this.ctx.getWebSockets()) {
       if (candidate === socket)
-        return false
-      return this.attachmentOf(candidate)?.participantId === attachment.participantId
-    })
+        continue
+      const other = this.attachmentOf(candidate)
+      if (other === undefined)
+        this.closeUnreadable(candidate)
+      else if (other.participantId === attachment.participantId)
+        stillConnected = true
+    }
     if (stillConnected)
       return
 
@@ -604,6 +625,25 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     await this.persistAndObserve(() => {
       this.broadcast({ type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
+    })
+  }
+
+  /**
+   * Membership against the sockets that can be read, as a restore does it:
+   * a request or a member with no readable socket is withdrawn or marked
+   * disconnected, a controller that is gone gets its recovery planned, and the
+   * members that are still attached are told if anything changed. Used when a
+   * socket closes and its own attachment cannot say whose it was.
+   */
+  private async reconcileAfterUnreadableClose(): Promise<void> {
+    const coordinator = this.coordinator
+    if (!coordinator)
+      return
+    const repair: { reason: string | null } = { reason: null }
+    this.healRestoredState(repair)
+    await this.persistAndObserve(() => {
+      if (repair.reason !== null)
+        this.broadcast({ type: 'room_snapshot', reason: repair.reason, snapshot: coordinator.snapshot() })
     })
   }
 
@@ -890,7 +930,12 @@ export class RoomDurableObject extends DurableObject<Env> {
           // after the denial has been persisted. The denied client never also
           // receives a snapshot for a room it is being removed from.
           for (const deniedSocket of this.ctx.getWebSockets()) {
-            if (this.attachmentOf(deniedSocket)?.participantId !== message.participantId)
+            const deniedAttachment = this.attachmentOf(deniedSocket)
+            if (deniedAttachment === undefined) {
+              this.closeUnreadable(deniedSocket)
+              continue
+            }
+            if (deniedAttachment.participantId !== message.participantId)
               continue
             this.send(deniedSocket, {
               type: 'command_rejected',
@@ -998,17 +1043,16 @@ export class RoomDurableObject extends DurableObject<Env> {
       // joined at all (participantId null) or whose join request is still
       // pending must learn nothing about the room: the controller's
       // approval is the only thing that grants access to its state.
-      let attachment: SocketAttachment | null
-      try {
-        attachment = socket.deserializeAttachment() as SocketAttachment | null
-      }
-      catch {
-        // One socket whose attachment cannot be read is skipped; the others
-        // still hear it, and the caller can tell that one did not.
+      const attachment = this.attachmentOf(socket)
+      if (attachment === undefined) {
+        // One socket whose attachment cannot be read is closed (its client
+        // reconnects); the others still hear it, and the caller can tell that
+        // one did not.
+        this.closeUnreadable(socket)
         complete = false
         continue
       }
-      if (!attachment?.participantId || !this.coordinator?.hasParticipant(attachment.participantId))
+      if (!attachment.participantId || !this.coordinator?.hasParticipant(attachment.participantId))
         continue
       this.send(socket, message)
     }
@@ -1017,14 +1061,12 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   private sendToParticipant(participantId: string, message: ServerMessage): void {
     for (const socket of this.ctx.getWebSockets()) {
-      let attachment: SocketAttachment | null
-      try {
-        attachment = socket.deserializeAttachment() as SocketAttachment | null
-      }
-      catch {
+      const attachment = this.attachmentOf(socket)
+      if (attachment === undefined) {
+        this.closeUnreadable(socket)
         continue
       }
-      if (attachment?.participantId === participantId) {
+      if (attachment.participantId === participantId) {
         this.send(socket, message)
         return
       }
@@ -1050,11 +1092,8 @@ export class RoomDurableObject extends DurableObject<Env> {
         continue
       // Best effort, socket by socket: one that cannot be read or closed must
       // not stop the member that is joining from being admitted.
-      let attachment: SocketAttachment | null
-      try {
-        attachment = socket.deserializeAttachment() as SocketAttachment | null
-      }
-      catch {
+      const attachment = this.attachmentOf(socket)
+      if (attachment === undefined) {
         // It cannot be told whether this is the member's own earlier connection,
         // and it cannot be served either (every frame would fail to read its
         // attachment), so it is not left open beside the one being admitted.
@@ -1063,7 +1102,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         continue
       }
       try {
-        if (attachment?.participantId === participantId)
+        if (attachment.participantId === participantId)
           socket.close(1000, 'session_replaced')
       }
       catch {
