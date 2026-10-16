@@ -48,12 +48,19 @@ export function earliestAlarmAtMs(deadlines: Array<number | null | undefined>): 
   return validDeadlines.length > 0 ? Math.min(...validDeadlines) : null
 }
 
+/**
+ * Writes the room and sets the earliest alarm. `afterWrite` runs once the room
+ * is durable and before the alarm is set, so what has to be observed only
+ * after the state is saved does not wait for, or depend on, the alarm.
+ */
 export async function persistRoomAndSchedule<T>(
   storage: DurableRoomStorage,
   room: T,
   deadlines: Array<number | null | undefined>,
+  afterWrite?: () => void,
 ): Promise<void> {
   await storage.put('room', room)
+  afterWrite?.()
   const alarmAtMs = earliestAlarmAtMs(deadlines)
   if (alarmAtMs !== null)
     await storage.setAlarm(alarmAtMs)

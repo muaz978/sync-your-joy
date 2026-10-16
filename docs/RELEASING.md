@@ -13,14 +13,19 @@ The Worker is deployed separately from extension releases. Add a GitHub Actions 
 
 Local deployment requires an authenticated Wrangler session (`npx wrangler login`) or a `CLOUDFLARE_API_TOKEN` environment variable. The account must own the Cloudflare Worker configured in `apps/edge-service/wrangler.jsonc`.
 
-### Durable Object code updates are immediate
+### Durable Object code updates
 
-Wrangler 4.141.0 and later send a deferred Durable Object code update with a 300 second maximum delay on every deploy, `versions deploy` and rollback unless told otherwise. For the coordinator that would leave old code serving live rooms for up to five minutes after a security fix, or after a rollback of a bad build. `apps/edge-service/wrangler.jsonc` therefore pins `durable_objects.code_update_strategy` to `{ "mode": "immediate" }`, and `tests/deploy-config.test.ts` fails if the pin, the commands that must read it, or wrangler's own behavior drift.
+Wrangler 4.141.0 and later send a deferred Durable Object code update with a 300 second maximum delay on every deploy, `versions deploy` and rollback unless told otherwise. `apps/edge-service/wrangler.jsonc` therefore pins `durable_objects.code_update_strategy` to `{ "mode": "immediate" }`, and `tests/deploy-config.test.ts` fails if the pin, the commands that must read it, or wrangler's own behavior drift.
+
+What is verified is what wrangler sends. What the platform does with it was observed once, on a throwaway Worker, and did not differ from the default (see [`DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`](DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md)): a room that was active when the deploy ran kept serving the previous code for about 300 seconds, in both modes, and was then reset once with its connections dropped; an object that was hibernating at deploy time ran the new code at its next wake and kept its sockets (checked for about two minutes; whether they survive the five-minute mark is not known). Plan a deploy, and a rollback, as: rooms created after it run the new code at once; rooms that were active run the previous code for about five minutes (observed in two runs, not a bound), then every connection in them drops once and the extension reconnects (the restore step in the coordinator repairs the room state, see `docs/ARCHITECTURE.md`).
+
+Treat five minutes as the observed planning figure, not as a guarantee: it comes from one run per mode on one account, and nothing here shows when the last active room has been reset. A security fix is therefore not in force at the moment the deploy finishes, and it should not be declared in force at the five-minute mark either. Decide the margin before the deploy, and remember what a check can show: the exposure baseline probe exercises a new room, which runs the new code at once, so it shows the new code and cannot show that a room that was already active has been reset. Record what is seen on the real deploy here.
 
 - Deploy with `npm run deploy:edge` or the **Deploy room coordinator** workflow; both pass `--config apps/edge-service/wrangler.jsonc`.
 - Before a deploy, record the active Version ID (`npx wrangler deployments status --config apps/edge-service/wrangler.jsonc`) so there is a rollback target.
 - Roll back with `npm run rollback:edge -- <version-id> -m "<reason>"`. It passes `--config` and `--durable-objects-code-update-mode immediate`. A rollback run without `--config` (for example only `--name sync-your-joy-rooms`, or from the Cloudflare dashboard) does not read the pin and may be deferred by up to five minutes; the explicit flag also makes a wrangler that does not know the option fail loudly instead of silently deferring.
 - The pin is silently ignored by wrangler releases older than 4.141.0. The lockfile resolves a newer one; keep it that way.
+- Whether the platform records the pin as the deployment's strategy was not verified server-side. Check it after a real deploy and record the result here.
 
 ## What the workflow verifies
 

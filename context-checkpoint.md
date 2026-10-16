@@ -9792,6 +9792,125 @@
 # Context Checkpoint
 
 ## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R4b (controller recovery derived from membership, and a restored room always gets its alarms), tracking issue #119.
+- Checkpoint number: 114.
+- Date and time: 2026-10-16, Europe/Istanbul.
+- Coverage period: Since checkpoint 113 (R7b is #129; R5 merged as #128, `f30df71`; R4 as #127, `fbe3279`).
+- Current context status: Implemented and verified locally on branch `fix/coordinator-controller-recovery`, carried from the reviewed branch built on `fbe3279`. Not merged, released or deployed.
+
+## User Objective and Requirements
+- Close the controller-recovery gap found by the independent review of #127 and the restore-scheduling finding of the Codex review of #127, in both coordinators, before any coordinator deploy. Rules unchanged.
+
+## Complete Chronological Activity Log
+
+### Findings
+- Controller recovery was planned only when the controller's connection was seen to close. If every connection dropped at once (a deploy, an outage), the grace period ran out with nobody connected and the plan lapsed; a member that came back later found the disconnected host still in control with nothing planned, for as long as the members stayed. Same shape in the local service (independent review of #127, probe P4).
+- A restore that had nothing to repair persisted nothing, so a room written by the previous version kept no six-hour lifetime alarm until its next write (Codex review of #127, reproduced as the reviewer's probe P6).
+- Found in the reviews of this branch: a controller stored as disconnected while its socket is attached (a join whose write was lost) must not have control handed away, a stored plan for such a controller must not be carried out, and when that socket later closes a recovery must still be planned (the local service already did).
+
+### Fix
+- Both coordinators re-arm the recovery when a member joins while the controller is disconnected and no plan is pending (`armControllerRecovery`); the edge also derives it on restore.
+- Edge restore always calls `persistAndSchedule()` (one write and one alarm per wake) instead of only when something was repaired; the write is guarded so a failing save serves the restored state and announces nothing; the repair is announced to the attached members only once it is durable. A save that failed is tried again on a later frame from any client, at most every 5 s and after the frame has been handled (`retryUnsavedRestore`, added after the Codex review of `ef18c26` found that a client that sends nothing that writes would never save again and the alarm would stay unset); any successful save settles it and announces the withheld repair once (`settleUnsavedRestore`), because the extension's `client_metrics` after each pong saves without a broadcast of its own and would otherwise have dropped it (found by the independent review of the retry commit, which also found the missing re-throttle assertion and that a deleted room kept the flag).
+- A plan re-armed this way waits `CONTROLLER_REARM_GRACE_MS` = 20 s, longer than the extension's reconnect backoff ceiling (15 s plus jitter); the 10 s grace for a plan made when the host's close is seen is unchanged (a product decision).
+- A controller that still has its socket is never planned against on any caller (the attached set is read from `ctx.getWebSockets()` on every call); a stored plan for such a controller is dropped on restore; a stale-flagged controller whose socket closes gets a plan.
+- The local service takes a test-only `controllerGraceMs` option.
+
+### Verification (local)
+- On the reviewed branch (`fbe3279` base): `npm run check` 41 files, 500 tests; the edge-service and room-service test files five times in a row with no flake. Red first for each behaviour change; the reviewer tests were mutation-checked (51 mutants in one round, 24 in another; survivors listed as equivalent).
+- After the rebase onto `fcf6049` (#128 and #129 merged): `npm run check` 44 files, 611 tests; the edge-service and room-service test files five times in a row, 97 tests each, no flake; `npm run test:e2e` 14 passed, 1 skipped.
+- Independent reviews: one round found two S2 test gaps (the restore alarm not anchored to creation time, and the re-armed plan's alarm and full grace period not pinned), both fixed; two further rounds rated it sound with S3 findings only.
+- After the Codex review of `ef18c26` (a P2: a failed restore save is never retried for a client that only pings): `npm run check` 44 files, 615 tests (four new, written red first: retried on the next ping after the 5 s delay and the withheld repair announced; not on every frame; stays pending while the save keeps failing; settled by any other save); edge-service and room-service files five times, 101 tests each, no flake. Independent review of `ef18c26..844637b` found an S1 (the withheld repair was dropped by a save that has no broadcast of its own, which is the extension's usual case), an S2 (no test for the re-throttle after a failed attempt) and three S3 (flag outliving the room, throttle claimed after the attempt, retry running before the frame and able to fail it); all fixed with mutation-checked tests (a further 4 tests, 619 in the suite). The fixes are not re-reviewed independently. Two further Codex findings on that head were fixed the same way (failing test first, mutation-checked): a broadcast stopped at the first socket whose attachment could not be read, so the withheld repair could be cleared and never reach the later members (the pending repair is now kept until its announcement has gone out and `broadcast()` skips an unreadable socket); and a restore that threw part-way through reconciling saved the repair and lost its announcement (the repair is recorded as it is made, the sockets are read once, `healRestoredState()` takes an accumulator). Then the findings of the independent reviews and the last Codex round on `7e0846f` were closed, each with a failing test first and its mutants killed: the withheld repair is announced as soon as the write is durable, before the alarm is set (`persistRoomAndSchedule` takes an `afterWrite` hook), so a restart between the write and a retry cannot lose it; a member whose attachment could not be read keeps the repair outstanding, offered again up to three times (`broadcast()` reports whether every attached member could be reached); a recovery plan whose time ran out while the room was empty is dropped when a member returns before a late alarm, so the host gets the re-arm window (`dropLapsedControllerPlan`, in the join path and at restore); the retry is not held by a clock that stepped back; and the test gaps (null-reason failed restore, frame answered before the retry's write, overlapping frames, both deletion branches with a later room) are covered. The review of `552804b` by the cubic bot (cubic-dev-ai) then raised five findings, four fixed with tests first and mutants killed: deriving recovery in the join path could abort an admission when another socket's attachment could not be read (the derivation is isolated, and closing a prior socket and sending to a participant skip an unreadable socket); announcement attempts were not gated by the retry interval, so quick saves could use all three up (gated, the first attempt is not); a plan that ran out is dropped when a restore finds the room empty, so a close that was never delivered no longer leaves it to hand control away at once; the documents now name the gates of the 20 s re-arm at restore and the Chrome alarm limit for a suspended service worker. Greptile then pointed out that a derivation the join could not make was never retried: every save now derives controller recovery before it builds the stored room and computes the alarm, so the next save makes the plan and the plan is in what is saved (a first version derived it after the stored room was built, which Greptile also caught). cubic then pointed out that while an unreadable socket stays open every save's derivation would throw and recovery would never be armed: such a socket cannot be served (every frame fails to read its attachment), so `attachedParticipantIds()` no longer counts it, instead of throwing. Greptile and cubic then pointed at what an unreadable socket still did: at restore it marked a member disconnected on a socket that could later read fine, and `fetch()`, the close check and the denial loop still threw on it. A socket whose attachment cannot be read cannot be served, so `attachmentOf()` skips it in all of them and `attachedParticipantIds()` closes it (1011) so that its client reconnects and is connected again. The final-head correctness review (sound, S3 only) also showed that a retry whose announcement was the only thing outstanding could announce unsaved state; the retry now always goes through a save and the save's after-write hook announces. The final-head review ran with seeded model-based fuzzing over close/join/crash/evict/alarm with and without storage faults and found the persist-before-observe and derived-recovery invariants held. Accepted, not changed (S3): a reconnecting member can receive the withheld repair snapshot just before its own `room_joined` (the extension takes the higher revision and `reason` is diagnostic only). Suite after these fixes: 44 files, 631 tests, the edge-service and room-service files five times in a row with 117 tests each and no flake.
+
+## Confirmed Successful Results
+- The behaviours above are pinned in the fake Durable Object harness and in the real local service with an injected grace.
+
+## Failed, Incomplete, or Unresolved Work
+- Not evidenced on a deployed coordinator. A throwaway Worker on the real runtime (single runs, compatibility date 2026-08-08) supports the restore design: after a hibernation wake the constructor sees all sockets and attachments; a closing socket is still listed inside `webSocketClose`; `getAlarm()` in the constructor returns the due alarm and null inside `alarm()`; `deleteAll()` cancels a pending alarm; an active object kept the old code for about 300 s after a deploy in both code-update modes and was then reset with its sockets dropped and no `webSocketClose` delivered. The observation that the `immediate` pin changed nothing is recorded separately.
+- Accepted and not changed (S3): a put that succeeded followed by a failing `setAlarm` is logged as not saved and not announced; `alarm()` broadcasts are lost if the persist fails and the alarm is retried (pre-existing); the extension's reconnect fallback is a `chrome.alarms` alarm that Chrome may clamp to about 30 s, so a host whose service worker was suspended can miss the 20 s window; the local cleanup-tick reconcile has no behavioural test (defence in depth).
+
+## Decisions and Rationale
+- Unconditional write on restore rather than a `getAlarm() === null` guard: the stored alarm may be later than a deadline this version has, and a ping-only connection never makes the object write again.
+- 20 s for a re-armed plan, because a host that is merely backing off after an outage would otherwise lose control to the first member that returns.
+
+## Files and Artifacts
+- `apps/edge-service/src/worker.ts`, `worker.test.ts`; `apps/room-service/src/server.ts`, `server.test.ts`; `docs/ARCHITECTURE.md`, `docs/IMPLEMENTATION.md`; `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- That `ctx.getWebSockets()` is complete inside the constructor holds for a hibernation wake (observed); across a real code update on production it is not evidenced.
+
+## Open Questions, Blockers, and Dependencies
+- A production deploy needs the owner's approval for the exact commit and a recorded rollback target.
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA; then the documentation and runbook revision, the Dependabot pull requests, and a final Linux run on `main`.
+
+## Historical Checkpoint Notes
+- Checkpoint 113 recorded the side-panel window in the E2E harness. This checkpoint supersedes nothing.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, phase R8d (record what the real Durable Object runtime was observed to do, and correct the deploy documentation that assumed otherwise), tracking issue #119.
+- Checkpoint number: 115.
+- Date and time: 2026-10-16, Europe/Istanbul.
+- Coverage period: Since checkpoint 113 (R7b merged as #129, `fcf6049`). Checkpoint 114 (controller recovery, #130) is on its own branch and is not merged at the time of writing.
+- Current context status: Documentation and one config comment, on branch `docs/runtime-observations-and-runbook-revision`. Not merged. No deploy and no Cloudflare change is part of it.
+
+## User Objective and Requirements
+- Close the gaps found by the review systematically, in phases that can be tracked. For R8: observe on the real runtime before any production coordinator deploy, and do not deploy without a fresh explicit go for the exact commit and a recorded rollback target.
+
+## Complete Chronological Activity Log
+
+### Findings
+- A throwaway Worker on the real runtime (compatibility date 2026-08-08, wrangler 4.147.0, one account, SQLite-backed object) was driven with synthetic sockets and then deleted. The first write-up of its results was audited against the retained raw data; the audit corrected several statements, among them a close-handshake timing that was mis-attributed, a retry count and a "no further attempt" claim that no retained file supports, a lag figure that was measured from the wrong instant, and a wording of the hibernation result that was wider than its evidence. Those corrections are what the new record carries.
+- The finding that matters for operations: with `durable_objects.code_update_strategy: { mode: "immediate" }` and with the default, an object that was active at deploy time kept serving the previous code for about 300 s and was then reset once, its sockets dropped with code 1006 and no `webSocketClose` delivered to any instance. The repository's statement that the pin applies code to running rooms immediately was therefore not borne out. What wrangler sends is verified; the platform's handling of it was not.
+
+### Changes
+- New `docs/DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`: method and limits, the observations E1 to E7 with the audit's caveats, what they mean for the coordinator, what is not established.
+- `docs/RELEASING.md`: the "code updates are immediate" section now says what is verified and what was observed, and gives the plan window (previous code up to about five minutes on active rooms, then one connection drop per room).
+- `docs/ARCHITECTURE.md` section 6: a paragraph describing the restore step the other documents refer to.
+- `docs/V0_2_5_CONTROLLED_TEST_SESSION.md`: a revision notice (the kit is for v0.2.5; v0.2.6 is current; hardening on `main` is not deployed and production was exposed in the 2026-10-15 baseline probe) and the stale "last recorded" Version ID replaced with the one a read-only deployments listing showed (`681f31dc-eb31-4ced-a661-1d6304d134ff`, previous `6a927c6f-93ea-47dc-b264-a0bc14c9fe1d`), to be read again before any deploy.
+- `apps/edge-service/wrangler.jsonc` comment, `README.md` comment and a `CHANGELOG.md` entry reworded to match. The configuration value is unchanged.
+
+### Verification
+- `tests/deploy-config.test.ts` (3 tests) passes with the edited `wrangler.jsonc` (run in this worktree against another worktree's `node_modules`, so only this file). The full `npm run check` was not run here: the change touches no source, and CI runs it. Each statement in the new documents about the coordinator was compared with `apps/edge-service/src/worker.ts` on this base (identity exclusion in `webSocketClose`, `cancelPendingJoin`, the empty-room clock reconcile, `persistAndSchedule`, the lifetime alarm, the guarded `close()` and `send()`).
+
+## Confirmed Successful Results
+- The restore design's central assumptions (all sockets and attachments visible in the constructor after a wake; a closing socket still listed inside `webSocketClose`; the alarm visible in the constructor and null inside `alarm()`; `deleteAll()` cancels a pending alarm) were observed, each in a single run.
+
+## Failed, Incomplete, or Unresolved Work
+- Not established: whether the `immediate` pin has any effect on the real runtime (one run per mode, no control without a deploy for a connection older than 330 s, mode not verified server-side); whether sockets that survive a wake survive past the five-minute mark (checked for at most 123 s, and the platform documentation says a code update disconnects all WebSockets); the close handshake with `web_socket_auto_reply_to_close` set explicitly and against the real extension client.
+- The probe scripts and the throwaway Worker no longer exist, so none of this can be re-run from the record. The Durable Object namespace and its data were not listed separately and are inferred gone with the script.
+- The v0.2.5 runbook's steps still describe the v0.2.5 flow; only a notice was added, not a rewrite.
+
+## Decisions and Rationale
+- A separate observations record instead of statements spread over the runbook, so the caveats travel with the numbers and the runbook can say "see" without repeating them.
+- The pin stays in `wrangler.jsonc`: it is what the platform documentation describes as the way to ask for an immediate update, and removing it on one observation would be as unsupported as keeping the claim. The comment and the runbook now say what is known.
+
+## Files and Artifacts
+- `docs/DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`, `docs/RELEASING.md`, `docs/ARCHITECTURE.md`, `docs/V0_2_5_CONTROLLED_TEST_SESSION.md`, `apps/edge-service/wrangler.jsonc`, `README.md`, `CHANGELOG.md`.
+
+## Assumptions and Uncertainties
+- The five-minute figure is two runs on one account on one day; treat it as the order of magnitude to plan for, not a platform guarantee.
+- No Cloudflare account identifier, hostname, token or room code is recorded in the new document.
+
+## Open Questions, Blockers, and Dependencies
+- Whether the owner wants the coordinator hardening on `main` deployed, and when. That needs an explicit go for the exact commit and a recorded rollback target; this change does not ask for it.
+- After a real deploy: re-run the production exposure baseline (expect every measure green), run the edge smoke, and record whether the platform shows the pin as the deployment's strategy.
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA (after #130, which also appends a checkpoint, so this one is renumbered or rebased as needed).
+2. Dependabot #123 and #125, then #124 once it targets wrangler 4.149 or later.
+3. R5b: the stale `playerBindingId` after leaving a room.
+
+## Historical Checkpoint Notes
+- Checkpoint 111 listed the real-runtime observations as a precondition of any deploy; this checkpoint records the first set. It supersedes the sentence in earlier documents that the pin applies code to running rooms immediately.
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes, account identifiers or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
 - Task or project: SyncYourJoy review coverage remediation, phase R5b (a page that left a room keeps a binding token the worker has dropped), tracking issue #119.
 - Checkpoint number: 116.
 - Date and time: 2026-10-16, Europe/Istanbul.
