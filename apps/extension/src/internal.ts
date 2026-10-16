@@ -169,9 +169,10 @@ export interface PlayerContext {
 export type RuntimeEvent =
   | { type: 'ROOM_STATE_UPDATED'; state: ExtensionState }
   // `bindingReleased` is the worker saying it has no bound player at all (the
-  // room was left, or the player was unbound), as opposed to the same state
-  // sent because another document took the binding over: a page that is told
-  // so drops its binding token, the second does not (it stays refused).
+  // room was left, the player was unbound, or the page reported no media): a
+  // page that is told so drops its binding token. The same state sent because
+  // another document took the binding over does not carry it, and that page
+  // keeps its token and stays refused.
   | { type: 'APPLY_ROOM_STATE'; state: ExtensionState; bindingReleased?: boolean }
   | { type: 'PAUSE_LOCAL' }
   | { type: 'FORCE_SYNC' }

@@ -324,7 +324,7 @@ describe('adaptive player lifecycle', () => {
       return left
     }
 
-    function detachedReports(): Array<Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }>> {
+    function mediaReports(): Array<Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }>> {
       return messages.filter((message): message is Extract<RuntimeRequest, { type: 'MEDIA_DETECTED' }> => message.type === 'MEDIA_DETECTED')
     }
 
@@ -351,8 +351,8 @@ describe('adaptive player lifecycle', () => {
 
       await reportMedia()
 
-      expect(detachedReports().length).toBeGreaterThan(0)
-      for (const report of detachedReports())
+      expect(mediaReports().length).toBeGreaterThan(0)
+      for (const report of mediaReports())
         expect(report.bindingId).toBeUndefined()
     })
 
@@ -372,7 +372,7 @@ describe('adaptive player lifecycle', () => {
       expect(statuses().every(status => status.bindingId === 'binding_for_the_next_room')).toBe(true)
     })
 
-    it('keeps the token while the worker still has this player bound, with or without a room', async () => {
+    it('keeps the token while the worker still has this player bound, even with no room', async () => {
       await bindAs('binding_while_roomless')
       const roomless = structuredClone(state)
       roomless.snapshot = null
@@ -382,8 +382,8 @@ describe('adaptive player lifecycle', () => {
 
       await reportMedia()
 
-      expect(detachedReports().length).toBeGreaterThan(0)
-      expect(detachedReports().every(report => report.bindingId === 'binding_while_roomless')).toBe(true)
+      expect(mediaReports().length).toBeGreaterThan(0)
+      expect(mediaReports().every(report => report.bindingId === 'binding_while_roomless')).toBe(true)
     })
 
     it('keeps the token of a page that another document replaced, so the worker keeps refusing it', async () => {
@@ -397,8 +397,8 @@ describe('adaptive player lifecycle', () => {
 
       await reportMedia()
 
-      expect(detachedReports().length).toBeGreaterThan(0)
-      expect(detachedReports().every(report => report.bindingId === 'binding_that_was_replaced')).toBe(true)
+      expect(mediaReports().length).toBeGreaterThan(0)
+      expect(mediaReports().every(report => report.bindingId === 'binding_that_was_replaced')).toBe(true)
     })
 
     it('is invited to bind afresh when the worker asks it to report after unbinding', async () => {
@@ -414,8 +414,8 @@ describe('adaptive player lifecycle', () => {
       await Promise.resolve()
       await Promise.resolve()
 
-      expect(detachedReports().length).toBeGreaterThan(0)
-      expect(detachedReports().every(report => report.bindingId === undefined)).toBe(true)
+      expect(mediaReports().length).toBeGreaterThan(0)
+      expect(mediaReports().every(report => report.bindingId === undefined)).toBe(true)
     })
   })
 

@@ -82,6 +82,10 @@ test.describe('a page that was bound to a room and then left it', () => {
     await profile.panel.click('#open-shared-link')
     // The page takes part in the room: it is the player the room is about.
     await profile.panel.waitForSelector('#ready-button', { timeout: 20_000 })
+    // The extension opens a shared link at most NAVIGATION_DELAY_CAP_MS (2 s)
+    // after it hears of it (see pending-approval.spec.ts), so a page it was
+    // going to open for this room is open by the end of the wait.
+    await profile.panel.waitForTimeout(3_000)
     const playerPages = profile.context.pages().filter(page => new URL(page.url()).pathname === '/test-player')
     expect(playerPages).toHaveLength(1)
   })

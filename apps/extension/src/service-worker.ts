@@ -1081,7 +1081,8 @@ function isNavigationShellSender(sender: chrome.runtime.MessageSender): boolean 
 async function selectActivePlayerTab(): Promise<boolean> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
   if (tab?.id === undefined) {
-    clearPlayerTab()
+    // The bound page, if it is still there, is told it is not bound.
+    await unbindPlayerContext()
     return false
   }
 
@@ -1123,7 +1124,9 @@ async function refreshBoundPlayerTab(): Promise<boolean> {
     if (state.playerTabId !== tabId || state.playerFrameId !== frameId || (playerBinding?.id ?? null) !== bindingId || playerContextGeneration !== contextGeneration)
       return false
     if (!context?.media) {
-      clearPlayerTab()
+      // The page answered, so it is alive and still holds its token; it is told
+      // the binding is gone so that it can be bound again when it has media.
+      await unbindPlayerContext()
       return false
     }
     const tab = await chrome.tabs.get(tabId)

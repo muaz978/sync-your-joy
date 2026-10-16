@@ -9810,12 +9810,13 @@
 
 ### Fix
 - `apps/extension/src/internal.ts`, `apps/extension/src/service-worker.ts`: `APPLY_ROOM_STATE` has an optional `bindingReleased`, set in the two flows that clear the binding and tell the page: `leaveRoom()` and `unbindPlayerContext()` (the player is unbound to look at another tab). The detach that `bindPlayerContext()` sends to a page another document replaced does not carry it.
+- `apps/extension/src/service-worker.ts` also uses `unbindPlayerContext()` (which tells the page) instead of a silent `clearPlayerTab()` when `refreshBoundPlayerTab()` finds that the page reports no media and when `selectActivePlayerTab()` finds no tab (found by the independent review: these left a live page with a token the worker had dropped).
 - `apps/extension/src/content-script.ts`: the page drops its token on `bindingReleased`, and on `REPORT_PLAYER_CONTEXT`, which the worker sends only to a tab right after unbinding its player (`selectActivePlayerTab`), so a page that was replaced earlier is invited to bind afresh when the user comes back to it.
 - First version (89c5844) dropped the token on any state with `playerTabId === null`. The Codex review pointed out that this also frees a page another document replaced, which the worker deliberately keeps refused (a retired document must not take the binding back); it was changed to the explicit release.
 - Tests: `apps/extension/src/content-script.test.ts` (a stand-in that refuses like the worker; the replaced-page case is the one the first version failed), `apps/extension/src/service-worker.test.ts` (the flag on leave and on unbind, not on replacement), `tests/e2e/rejoin-after-leaving.spec.ts` (new; skips itself on an extension built from another tree), `CHANGELOG.md`.
 
 ### Verification
-- `npm test`: 44 files, 586 tests (578 on `main`), strict typecheck; `npm run test:e2e`: 15 passed, 1 skipped (the authenticated provider run), with the change as pushed.
+- `npm test`: 44 files, 588 tests (578 on `main`), strict typecheck; `npm run test:e2e`: 15 passed, 1 skipped (the authenticated provider run), with the change as pushed.
 - The new content-script tests: 3 of 5 fail against the content script of `main` (the other two are negative controls), and the replaced-page test fails against the first version of this change. The two worker tests that check the flag fail without it. The E2E spec failed without the first version of the change (20 s) and passes with it.
 
 ## Confirmed Successful Results
@@ -9823,7 +9824,7 @@
 
 ## Failed, Incomplete, or Unresolved Work
 - Only macOS and one profile. The authenticated provider flows, two devices and a real streaming page were not run.
-- Not covered, as before: the paths that clear the binding without telling the page keep the page refused. Navigation (`onUpdated` loading) is intended; `refreshBoundPlayerTab()` clearing the binding when the page reports no media, or cannot be reached, is not, and a page that later has a video again stays refused until it is reloaded or asked to report. Rare; recorded here, not changed.
+- Not covered: the paths that still clear the binding without telling the page keep the page refused. Navigation (`onUpdated` loading) is intended. A delivery failure (`sendToPlayerTab()`) means there was no page to tell. Accepted, not changed (S3, from the independent review): without `sender.documentId` (not in Chrome) a page re-bound inside the one round trip between an unbind and `REPORT_PLAYER_CONTEXT` could lose its token and be refused until the next release; and a `MEDIA_DETECTED` response that reaches the page after a later release could restore a token the worker has cleared (the worker answers with no token once it has cleared it, so this needs the two message channels to reorder).
 - A page another document replaced stays refused until the worker unbinds and asks it to report (the user switches back to it). That is the existing behaviour for a replaced page.
 
 ## Decisions and Rationale

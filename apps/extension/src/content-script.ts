@@ -334,12 +334,14 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
         ? message.state.snapshot?.seek?.revision !== pendingSeek.roomRevision
         : commandChanged)
     activeState = message.state
-    // The worker has no bound player at all (the room was left, or the player
-    // was unbound), so this token means nothing and the worker refuses a report
-    // that still carries it (acceptMediaBinding). Keeping it would lock the
-    // page out of the next room until a reload. A page that another document
-    // replaced is detached without this flag and keeps its token: the refusal
-    // is what stops a retired document from taking the binding back.
+    // The worker says it has no bound player at all (the room was left, or the
+    // player was unbound), so this token means nothing and the worker refuses
+    // a report that still carries it (acceptMediaBinding). Keeping it would
+    // lock the page out of the next room until a reload. A detach without this
+    // flag is not that: it is sent to a page that another document replaced,
+    // which keeps its token (the refusal stops a retired document from taking
+    // the binding back), and the worker also clears its binding without telling
+    // the page when a navigation starts, which is intended.
     if (message.bindingReleased)
       playerBindingId = null
     if (pendingSeekSuperseded || commandChanged || controllerChanged || roomDetached) {
