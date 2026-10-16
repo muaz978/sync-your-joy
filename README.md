@@ -73,6 +73,8 @@ Version `0.2.3` caps how many rooms one IP or the whole process can have open at
 
 Version `0.2.4` fixes three real bugs found during live friend testing: opening a new video link now always starts at position zero instead of carrying over the previous video's position; the extension no longer sends routine messages on a socket that has reconnected but not yet finished rejoining its room; and the stall detector now recognizes a video stuck at a low `readyState` as a real problem even when its own `play()` retries make the `paused` flag flicker.
 
+Version `0.2.5` adds transactional playback: Play and seek are prepared and committed by the coordinator before the room plays, with player-health deadlines and diagnostics that explain operation failures (see the Changelog). Version `0.2.6` fixes the paused-seek failure about three seconds after a scrub, keeps "Playback blocked" visible until the browser accepts playback, and stops a racing progress report from pausing the room. Version `0.2.7` lets a page that left a room join the next one without a reload, ends a waiting join request when its room is gone, and ships the coordinator hardening: an unapproved requester receives no room state, controller recovery after an outage, and healing of stored state after a restart.
+
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
 ## Platform compatibility

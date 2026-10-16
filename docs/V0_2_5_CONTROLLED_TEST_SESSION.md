@@ -11,6 +11,7 @@
 **Revision notice (2026-10-16).** This kit was written for the published `v0.2.5` package and has not been rewritten. What changed since, and what it means for using the kit:
 
 - `v0.2.6` is the current test release. A join request now needs the host's approval, and an unapproved requester is shown no room state; a session with this kit must expect the waiting view and the host's approve or deny step, which the steps below do not describe.
+- **Status note, 2026-10-16:** the coordinator hardening was deployed that day (Worker version `b6ea9ac1`, from `main` at `05a0d68`) and the production exposure probe then found nothing; the sentence below describes the state of 2026-10-15.
 - `main` contains coordinator hardening that is **not deployed**: the production coordinator still sent an unapproved requester the room's media and participant names in a baseline probe on 2026-10-15 (every measure red). "Same-candidate coordinator" in Gate 0 must be checked against the commit that is actually deployed, and a deployment needs the owner's authorization for that exact commit.
 - A deploy or a rollback is a five-minute window, not an instant: see [`RELEASING.md`](RELEASING.md) and [`DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md`](DURABLE_OBJECT_RUNTIME_OBSERVATIONS_2026-10-15.md).
 - Package versions, hashes and counters below are the `v0.2.5` ones and must be replaced for any other package.

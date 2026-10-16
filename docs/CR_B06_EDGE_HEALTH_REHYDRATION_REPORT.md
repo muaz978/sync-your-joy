@@ -70,7 +70,7 @@ The Durable Object now:
 - persists before sending and broadcasting a successful join result;
 - persists before broadcasting player status, seek acknowledgement, operation acknowledgement, join approval or denial, control, readiness, controller transfer, and link-open results;
 - persists the updated disconnect/controller-recovery metadata before broadcasting a disconnect snapshot;
-- continues to include pending controller, empty-room, seek, operation, and health deadlines when scheduling the next alarm (on `main`, not yet deployed, the six-hour room lifetime limit is part of this list too; see section 6);
+- continues to include pending controller, empty-room, seek, operation, and health deadlines when scheduling the next alarm (on `main` and deployed to production on 2026-10-16, the six-hour room lifetime limit is part of this list too; see section 6);
 - clears pending controller state when an empty room is deleted.
 
 If the durable write or alarm scheduling fails, the observation callback is not executed. That keeps a failed storage boundary from being represented to connected peers as a committed state transition.
