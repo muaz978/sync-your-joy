@@ -51,6 +51,32 @@ class FakeSocket {
   }
 }
 
+/** A socket that reads fine until `breakIt()` is called, then fails every read like an unreadable one. */
+function socketThatBreaksLater() {
+  const socket = new FakeSocket()
+  const read = socket.deserializeAttachment.bind(socket)
+  let broken = false
+  socket.deserializeAttachment = () => {
+    if (broken)
+      throw new Error('attachment storage hiccup')
+    return read()
+  }
+  return { socket, breakIt: () => { broken = true } }
+}
+
+/** Runs `probe` the first time the socket is closed, so a test can tell which code path closed it. */
+function onFirstClose(socket: FakeSocket, probe: () => void): void {
+  const close = socket.close.bind(socket)
+  let seen = false
+  socket.close = (code?: number, reason?: string) => {
+    if (!seen) {
+      seen = true
+      probe()
+    }
+    close(code, reason)
+  }
+}
+
 function createRoomObject(sockets: FakeSocket[]) {
   const store = new Map<string, unknown>()
   const ctx = {
@@ -1289,12 +1315,26 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
 
     it('closes a socket that cannot be read when it restores, so that its client reconnects and is connected again', async () => {
       const { store, host, friend } = await hostAndApprovedFriend()
+      const friendToken = sessionTokenOf(friend)
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
       friend.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
 
-      await restored(objectOver(store, [host, friend]))
+      const restarted = await restored(objectOver(store, [host, friend]))
 
+      // Restore cannot tell that the friend has a socket, so the friend is
+      // recorded as disconnected, and the socket that cannot be served is closed.
       expect(friend.closed).toMatchObject({ code: 1011 })
+      const connectedOf = (id: string) => inspect(restarted).coordinator?.snapshot().participants.find(participant => participant.id === id)?.connected
+      expect(connectedOf('participant_friend')).toBe(false)
+
+      // The client reconnects on a fresh socket with its session token and is
+      // connected again: the room accepts the member back after a restore that
+      // could not see its socket.
+      const back = new FakeSocket()
+      attach(restarted, [host, back])
+      await say(restarted, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      expect(back.last()).toMatchObject({ type: 'room_joined' })
+      expect(connectedOf('participant_friend')).toBe(true)
       logged.mockRestore()
     })
 
@@ -1327,6 +1367,219 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
 
       await expect(first.fetch(new Request('https://rooms.test/rooms?code=ABCD2345', { headers: { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } })))
         .rejects.toThrow('pair reached')
+      vi.unstubAllGlobals()
+    })
+
+    it('closes a socket that cannot be read when it counts the pending connections, instead of leaving it uncounted and open', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const unreadable = new FakeSocket()
+      unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [host, friend, unreadable])
+      vi.stubGlobal('WebSocketPair', class {
+        constructor() { throw new Error('pair reached') }
+      })
+
+      await expect(first.fetch(new Request('https://rooms.test/rooms?code=ABCD2345', { headers: { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } })))
+        .rejects.toThrow('pair reached')
+      vi.unstubAllGlobals()
+
+      // It cannot be served, so it is not allowed to sit beside the pending
+      // connections the cap counts; its client reconnects with a fresh attachment.
+      expect(unreadable.closed).toMatchObject({ code: 1011 })
+      expect(host.closed).toBeNull()
+      expect(friend.closed).toBeNull()
+    })
+
+    it('reconciles when the socket that closes is one whose attachment cannot be read, instead of throwing and leaving its member connected', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      host.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [host, friend])
+      const heardBefore = friend.sent.length
+
+      await first.webSocketClose(host as never)
+
+      // Which participant the socket belonged to cannot be read from it, so the
+      // members are compared with the sockets that can be read: the host has
+      // none, the friend has one. The host was the controller, so its absence
+      // is planned for like any other departure.
+      const snapshot = inspect(first).coordinator?.snapshot()
+      expect(snapshot?.participants.find(participant => participant.id === 'participant_host')?.connected).toBe(false)
+      expect(snapshot?.participants.find(participant => participant.id === 'participant_friend')?.connected).toBe(true)
+      expect(inspect(first).pendingController).toMatchObject({ participantId: 'participant_host' })
+      // The other member is told, and what was reconciled is saved: a restart
+      // before the next write finds the host disconnected and the plan made.
+      expect(friend.sent.length).toBeGreaterThan(heardBefore)
+      expect(friend.last()).toMatchObject({ type: 'room_snapshot', reason: 'participant_disconnected' })
+      const saved = store.get('room') as { coordinator: { participants: Array<{ id: string, connected: boolean }> }, pendingController: { participantId: string } | null }
+      expect(saved.coordinator.participants.find(participant => participant.id === 'participant_host')?.connected).toBe(false)
+      expect(saved.pendingController).toMatchObject({ participantId: 'participant_host' })
+      expect(host.closed).toMatchObject({ code: 1011 })
+      vi.setSystemTime(startMs + CONTROLLER_GRACE_MS + 1_000)
+      await first.alarm()
+      expect(controllerOf(first)).toBe('participant_friend')
+    })
+
+    it('does the same when the runtime reports an error on a socket that cannot be read, and closes it even if the room is gone', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      host.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [host, friend])
+
+      await first.webSocketError(host as never)
+
+      expect(host.closed).toMatchObject({ code: 1011 })
+      const snapshot = inspect(first).coordinator?.snapshot()
+      expect(snapshot?.participants.find(participant => participant.id === 'participant_host')?.connected).toBe(false)
+
+      // With no room to reconcile (it expired), the socket is still not left open.
+      const stray = new FakeSocket()
+      stray.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      const empty = createRoomObject([stray])
+      await empty.webSocketError(stray as never)
+      expect(stray.closed).toMatchObject({ code: 1011 })
+    })
+
+    it('closes a socket that cannot be read when a frame arrives on it, so its client reconnects instead of waiting for a reply', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const unreadable = new FakeSocket()
+      unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [host, friend, unreadable])
+
+      await say(first, unreadable, { type: 'ping', id: 'ping_unreadable', sentAtLocalMs: 1 })
+
+      expect(unreadable.closed).toMatchObject({ code: 1011 })
+      expect(unreadable.sent).toEqual([])
+    })
+
+    it('treats a socket with no attachment at all like one that cannot be read', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const bare = new FakeSocket()
+      bare.attachment = null
+      attach(first, [host, friend, bare])
+
+      await say(first, bare, { type: 'ping', id: 'ping_bare', sentAtLocalMs: 1 })
+      expect(bare.closed).toMatchObject({ code: 1011 })
+
+      const other = new FakeSocket()
+      other.attachment = null
+      attach(first, [host, friend, other])
+      vi.stubGlobal('WebSocketPair', class {
+        constructor() { throw new Error('pair reached') }
+      })
+      await expect(first.fetch(new Request('https://rooms.test/rooms?code=ABCD2345', { headers: { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } })))
+        .rejects.toThrow('pair reached')
+      vi.unstubAllGlobals()
+      expect(other.closed).toMatchObject({ code: 1011 })
+    })
+
+    it('closes a socket that cannot be read when it broadcasts', async () => {
+      const { host, friend, first } = await roomWithHostAndRequest()
+      const unreadable = new FakeSocket()
+      unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [unreadable, host, friend])
+
+      // Approving the request broadcasts to the members.
+      await say(first, host, approve)
+      expect(unreadable.closed).toMatchObject({ code: 1011 })
+      expect(friend.last()).toMatchObject({ type: 'room_snapshot' })
+    })
+
+    it('closes a socket that becomes unreadable by the time a member reports to the controller, in the scan that finds the controller', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const { socket: flaky, breakIt } = socketThatBreaksLater()
+      attach(first, [flaky, host, friend])
+      await say(first, host, { type: 'request_diagnostics', reportId: 'report_flaky_scan' })
+      breakIt()
+
+      // The response is delivered to the controller and nothing is broadcast
+      // afterwards, so only the scan for the controller can close it.
+      await say(first, friend, {
+        type: 'diagnostics_response',
+        reportId: 'report_flaky_scan',
+        report: {
+          extensionVersion: '0.2.6', generatedAtLocalMs: 10_000, userAgent: 'Chrome test', connection: 'connected',
+          roomRevision: 1, playbackStatus: 'paused', playerFrameId: 0, playerAreaPixels: 500_000, playerLastSeenAtMs: 9_900,
+          mediaService: null, mediaCanonicalId: null, mediaPageUrl: null, sample: null,
+          events: [{ atLocalMs: 9_900, category: 'room', message: 'room_joined', details: { revision: 1 } }],
+        },
+      })
+      expect(flaky.closed).toMatchObject({ code: 1011 })
+      expect(host.last()).toMatchObject({ type: 'diagnostics_response', participantId: 'participant_friend' })
+    })
+
+    it('closes the earlier socket of a returning member before it admits the new one, not only when the room is announced afterwards', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const friendToken = sessionTokenOf(friend)
+      const { socket: flaky, breakIt } = socketThatBreaksLater()
+      const back = new FakeSocket()
+      attach(first, [host, flaky, back])
+      breakIt()
+      const heardBefore = host.sent.length
+      let heardWhenClosed = -1
+      onFirstClose(flaky, () => { heardWhenClosed = host.sent.length })
+
+      await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+
+      expect(back.last()).toMatchObject({ type: 'room_joined' })
+      expect(flaky.closed).toMatchObject({ code: 1011 })
+      // The room's announcement to the host comes after the join scan.
+      expect(heardWhenClosed).toBe(heardBefore)
+    })
+
+    it('closes a socket that cannot be read in the close handler\'s own scan, before the departure is announced', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const { socket: flaky, breakIt } = socketThatBreaksLater()
+      attach(first, [flaky, host, friend])
+      breakIt()
+      let friendConnectedWhenClosed: boolean | undefined
+      onFirstClose(flaky, () => {
+        friendConnectedWhenClosed = inspect(first).coordinator?.snapshot().participants.find(participant => participant.id === 'participant_friend')?.connected
+      })
+
+      await first.webSocketClose(friend as never)
+
+      expect(flaky.closed).toMatchObject({ code: 1011 })
+      // The scan runs before the friend is recorded as disconnected; the
+      // announcement that follows would find it already recorded.
+      expect(friendConnectedWhenClosed).toBe(true)
+    })
+
+    it('closes a socket that cannot be read in the denial loop, before the denied request is announced', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const { socket: flaky, breakIt } = socketThatBreaksLater()
+      const late = new FakeSocket()
+      attach(first, [flaky, host, friend, late])
+      await say(first, late, { type: 'join_room', protocolVersion: 1, participantId: 'participant_late', name: 'Sam', code: CODE, media: null })
+      breakIt()
+      let deniedClosedWhenClosed: unknown = 'not recorded'
+      onFirstClose(flaky, () => { deniedClosedWhenClosed = late.closed })
+
+      await say(first, host, { type: 'respond_to_join', participantId: 'participant_late', approve: false, actionId: 'action_deny_late_scan', basedOnRevision: 0, leaseEpoch: 1 })
+
+      expect(flaky.closed).toMatchObject({ code: 1011 })
+      // The loop reaches the unreadable socket first; the denied socket is
+      // closed after it, and the broadcast that follows the loop after both.
+      expect(deniedClosedWhenClosed).toBeNull()
+    })
+
+    it('counts only the connections that can be served toward the pending cap, and closes the one that cannot be read', async () => {
+      const { first } = await hostAndApprovedFriend()
+      const pending = Array.from({ length: 19 }, () => new FakeSocket())
+      const unreadable = new FakeSocket()
+      unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [...pending, unreadable])
+      vi.stubGlobal('WebSocketPair', class {
+        constructor() { throw new Error('pair reached') }
+      })
+      const upgrade = () => first.fetch(new Request('https://rooms.test/rooms?code=ABCD2345', { headers: { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } }))
+
+      // 19 pending connections and one that cannot be read: not at the cap.
+      await expect(upgrade()).rejects.toThrow('pair reached')
+      expect(unreadable.closed).toMatchObject({ code: 1011 })
+
+      // The 20th pending connection reaches the cap; the unreadable one did not count.
+      attach(first, [...pending, new FakeSocket()])
+      const refused = await upgrade()
+      expect(refused.status).toBe(429)
       vi.unstubAllGlobals()
     })
 
