@@ -322,6 +322,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
   }
 
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.useRealTimers()
   })
 
@@ -660,7 +661,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       logged.mockRestore()
     })
 
-    it('is tried again when the write went through and only the alarm could not be set', async () => {
+    it('sets the alarm on a later frame when the write went through and only the alarm could not be set, without telling the members again', async () => {
       const alarms: number[] = []
       let alarmsAvailable = false
       const flakyAlarms = Object.assign([] as number[], {
@@ -674,84 +675,203 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
 
       const restarted = await restored(objectOver(store, [host], flakyAlarms))
-      // The room was written; the alarm is the only thing missing.
-      expect(store.get('room')).toBeDefined()
       expect(alarms).toEqual([])
-      const before = host.sent.length
+      const told = host.sent.filter(message => message.type === 'room_snapshot' && message.reason === 'join_cancelled').length
+      expect(told).toBe(1)
 
       alarmsAvailable = true
       vi.setSystemTime(startMs + 5_000)
       await say(restarted, host, { type: 'ping', id: 'ping_alarm_back', sentAtLocalMs: 1 })
 
       expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
-      expect(host.sent.slice(before)).toContainEqual(expect.objectContaining({ type: 'room_snapshot', reason: 'join_cancelled' }))
+      expect(host.sent.filter(message => message.type === 'room_snapshot' && message.reason === 'join_cancelled')).toHaveLength(told)
       logged.mockRestore()
     })
 
-    it('tells every member that can be read when one socket cannot be, and keeps the repair until it has', async () => {
+    it('announces at once when the write went through and only the alarm could not be set, so a restart before the retry cannot lose it', async () => {
       const alarms: number[] = []
+      let alarmsAvailable = false
+      const flakyAlarms = Object.assign([] as number[], {
+        push: (at: number) => {
+          if (!alarmsAvailable)
+            throw new Error('alarm storage is unavailable')
+          return alarms.push(at)
+        },
+      })
       const { store, host } = await roomWithHostAndRequest()
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const before = host.sent.length
+
+      await restored(objectOver(store, [host], flakyAlarms))
+
+      // The room was written, so the repair is durable and is told now; only
+      // the alarm is outstanding.
+      expect(host.sent.slice(before)).toContainEqual(expect.objectContaining({ type: 'room_snapshot', reason: 'join_cancelled' }))
+      // A restart before any retry finds nothing to repair, and nothing is lost.
+      const afterAnnounce = host.sent.length
+      alarmsAvailable = true
+      await restored(objectOver(store, [host], alarms))
+      expect(host.sent).toHaveLength(afterAnnounce)
+      logged.mockRestore()
+    })
+
+    it('keeps the repair for a member whose attachment could not be read, and tells it on a later save', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      const late = new FakeSocket()
+      ;(first as unknown as { ctx: { getWebSockets: () => FakeSocket[] } }).ctx.getWebSockets = () => [host, friend, late]
+      await say(first, late, { type: 'join_room', protocolVersion: 1, participantId: 'participant_late', name: 'Sam', code: CODE, media: null })
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
       const set = store.set.bind(store)
       store.set = () => { throw new Error('storage is unavailable') }
-      // A socket whose attachment cannot be read once it is asked to, ahead of
-      // the host in the order the runtime lists them.
-      const unreadable = new FakeSocket()
-      let unreadableNow = false
-      const readable = unreadable.deserializeAttachment.bind(unreadable)
-      unreadable.deserializeAttachment = () => {
-        if (unreadableNow)
+      // The friend's attachment cannot be read for now.
+      let readable = false
+      const real = friend.deserializeAttachment.bind(friend)
+      friend.deserializeAttachment = () => {
+        if (!readable && inspectUnreadable)
           throw new Error('attachment storage hiccup')
-        return readable()
+        return real()
       }
-      const restarted = await restored(objectOver(store, [unreadable, host], alarms))
+      let inspectUnreadable = false
+      const restarted = await restored(objectOver(store, [host, friend]))
       store.set = set
-      const before = host.sent.length
+      const hostBefore = host.sent.length
+      const friendBefore = friend.sent.length
 
-      unreadableNow = true
+      inspectUnreadable = true
       vi.setSystemTime(startMs + 5_000)
-      await say(restarted, host, { type: 'ping', id: 'ping_with_unreadable_socket', sentAtLocalMs: 1 })
+      await say(restarted, host, { type: 'ping', id: 'ping_unreadable_member', sentAtLocalMs: 1 })
+      expect(host.sent.slice(hostBefore)).toContainEqual(expect.objectContaining({ type: 'room_snapshot', reason: 'join_cancelled' }))
+      expect(friend.sent.slice(friendBefore)).toEqual([])
 
-      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
-      expect(host.sent.slice(before)).toContainEqual(expect.objectContaining({ type: 'room_snapshot', reason: 'join_cancelled' }))
+      readable = true
+      vi.setSystemTime(startMs + 10_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_member_readable', sentAtLocalMs: 2 })
+      expect(friend.sent.slice(friendBefore)).toContainEqual(expect.objectContaining({ type: 'room_snapshot', reason: 'join_cancelled' }))
       logged.mockRestore()
     })
 
-    it('keeps the repair when announcing it fails, and announces it with the next save', async () => {
-      const { host, restarted, alarms, logged } = await failedRestore()
-      const snapshot = RoomCoordinator.prototype.snapshot
-      let failures = 1
-      const spy = vi.spyOn(RoomCoordinator.prototype, 'snapshot').mockImplementation(function (this: InstanceType<typeof RoomCoordinator>) {
-        if (failures > 0) {
-          failures -= 1
-          throw new Error('snapshot could not be built')
-        }
-        return snapshot.call(this)
-      })
-      const before = host.sent.length
+    it('gives up announcing to a member that stays unreadable, after a few tries', async () => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      const late = new FakeSocket()
+      ;(first as unknown as { ctx: { getWebSockets: () => FakeSocket[] } }).ctx.getWebSockets = () => [host, friend, late]
+      await say(first, late, { type: 'join_room', protocolVersion: 1, participantId: 'participant_late', name: 'Sam', code: CODE, media: null })
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const set = store.set.bind(store)
+      store.set = () => { throw new Error('storage is unavailable') }
+      let armed = false
+      const real = friend.deserializeAttachment.bind(friend)
+      friend.deserializeAttachment = () => {
+        if (armed)
+          throw new Error('attachment storage hiccup')
+        return real()
+      }
+      const restarted = await restored(objectOver(store, [host, friend]))
+      store.set = set
+      armed = true
+      const hostBefore = host.sent.length
 
-      vi.setSystemTime(startMs + 5_000)
-      await say(restarted, host, { type: 'ping', id: 'ping_announce_fails', sentAtLocalMs: 1 })
-      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
-      expect(host.sent.slice(before).some(message => message.type === 'room_snapshot')).toBe(false)
+      for (let i = 1; i <= 8; i += 1) {
+        vi.setSystemTime(startMs + i * 5_000)
+        await say(restarted, host, { type: 'ping', id: `ping_${i}`, sentAtLocalMs: i })
+      }
 
-      vi.setSystemTime(startMs + 6_000)
-      await say(restarted, host, { type: 'client_metrics', roundTripMs: 20 })
-      expect(host.sent.slice(before)).toContainEqual(expect.objectContaining({ type: 'room_snapshot', reason: 'join_cancelled' }))
-      spy.mockRestore()
+      const repairs = host.sent.slice(hostBefore).filter(message => message.type === 'room_snapshot' && message.reason === 'join_cancelled')
+      expect(repairs.length).toBeGreaterThan(0)
+      expect(repairs.length).toBeLessThanOrEqual(3)
       logged.mockRestore()
     })
 
-    it('forgets the repair when the room is deleted, so a later room is not told about it', async () => {
+    it('retries a failed save that had nothing to announce, once, and then stops writing', async () => {
+      const alarms: number[] = []
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      void first
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const set = store.set.bind(store)
+      let writes = 0
+      store.set = () => { throw new Error('storage is unavailable') }
+      // Both sockets are attached: restoring finds nothing to repair.
+      const restarted = await restored(objectOver(store, [host, friend], alarms))
+      store.set = (key, value) => {
+        writes += 1
+        return set(key, value)
+      }
+
+      vi.setSystemTime(startMs + 5_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_nothing_to_repair', sentAtLocalMs: 1 })
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+      expect(writes).toBe(1)
+
+      for (const at of [10_000, 15_000, 20_000]) {
+        vi.setSystemTime(startMs + at)
+        await say(restarted, host, { type: 'ping', id: `ping_${at}`, sentAtLocalMs: at })
+      }
+      expect(writes).toBe(1)
+      logged.mockRestore()
+    })
+
+    it('answers the frame before it spends the interval on a write, and makes one attempt for overlapping frames', async () => {
       const { host, restarted, logged } = await failedRestore()
-      const withheld = (restarted as unknown as { unsavedRestore: unknown }).unsavedRestore
-      expect(withheld).toMatchObject({ reason: 'join_cancelled' })
+      let releaseWrite: () => void = () => {}
+      const gate = new Promise<void>((resolve) => { releaseWrite = resolve })
+      const storage = (restarted as unknown as { ctx: { storage: { put: (key: string, value: unknown) => Promise<void> } } }).ctx.storage
+      const put = storage.put.bind(storage)
+      let writes = 0
+      storage.put = async (key, value) => {
+        writes += 1
+        await gate
+        return put(key, value)
+      }
 
-      vi.setSystemTime(startMs + MAX_ROOM_LIFETIME_MS + 1_000)
+      vi.setSystemTime(startMs + 5_000)
+      const first = say(restarted, host, { type: 'ping', id: 'ping_first', sentAtLocalMs: 1 })
+      const second = say(restarted, host, { type: 'ping', id: 'ping_second', sentAtLocalMs: 2 })
+      await Promise.resolve()
+      await Promise.resolve()
+
+      // Both pongs went out while the retry's write is still waiting.
+      expect(host.sent.filter(message => message.type === 'pong' && (message.id === 'ping_first' || message.id === 'ping_second'))).toHaveLength(2)
+      releaseWrite()
+      await Promise.all([first, second])
+      expect(writes).toBe(1)
+      logged.mockRestore()
+    })
+
+    it('retries when the clock has stepped back, instead of waiting for it to catch up', async () => {
+      const { host, restarted, alarms, logged } = await failedRestore()
+
+      vi.setSystemTime(startMs - 60 * 60_000)
+      await say(restarted, host, { type: 'ping', id: 'ping_clock_back', sentAtLocalMs: 1 })
+
+      expect(alarms).toEqual([startMs + MAX_ROOM_LIFETIME_MS])
+      logged.mockRestore()
+    })
+
+    it.each([
+      ['the six-hour lifetime limit', MAX_ROOM_LIFETIME_MS + 1_000],
+      ['the empty-room expiry', 31 * 60_000],
+    ])('does not tell a later room about a repair of a room deleted by %s', async (_name, afterMs) => {
+      const { store, host, friend, first } = await hostAndApprovedFriend()
+      const late = new FakeSocket()
+      ;(first as unknown as { ctx: { getWebSockets: () => FakeSocket[] } }).ctx.getWebSockets = () => [host, friend, late]
+      await say(first, late, { type: 'join_room', protocolVersion: 1, participantId: 'participant_late', name: 'Sam', code: CODE, media: null })
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const set = store.set.bind(store)
+      store.set = () => { throw new Error('storage is unavailable') }
+      // Nobody is attached, so the room is repaired and then empty.
+      const sockets: FakeSocket[] = []
+      const restarted = await restored(objectOver(store, sockets))
+      store.set = set
+
+      vi.setSystemTime(startMs + afterMs)
       await restarted.alarm()
+      expect(inspect(restarted).coordinator).toBeNull()
 
-      expect((restarted as unknown as { unsavedRestore: unknown }).unsavedRestore).toBeNull()
-      void host
+      // A new room on the same object.
+      const creator = new FakeSocket()
+      sockets.push(creator)
+      await say(restarted, creator, { type: 'create_room', protocolVersion: 1, participantId: 'participant_new_host', name: 'New', code: CODE, media: MEDIA })
+
+      expect(creator.sent.map(message => message.type)).toEqual(['room_joined'])
       logged.mockRestore()
     })
 
@@ -1078,6 +1198,31 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
 
       expect(controllerOf(first)).toBe('participant_friend')
       expect(back.last()).toMatchObject({ type: 'room_snapshot', reason: 'controller_recovered' })
+    })
+
+    it('gives the host the full re-arm window when its plan ran out while nobody was connected and the alarm was late', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const friendToken = sessionTokenOf(friend)
+
+      // Every connection drops at once and the alarm for the host's plan is
+      // delivered late, after a member has come back.
+      await first.webSocketClose(host as never)
+      await first.webSocketClose(friend as never)
+      const returnedAtMs = startMs + CONTROLLER_GRACE_MS + 5_000
+      vi.setSystemTime(returnedAtMs)
+      const back = new FakeSocket()
+      attach(first, [back])
+      await say(first, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      expect(back.last()).toMatchObject({ type: 'room_joined' })
+
+      // The late alarm runs now: the plan ran out with nobody there, so it has
+      // lapsed and the host keeps control for the re-arm window.
+      await first.alarm()
+      expect(controllerOf(first)).toBe('participant_host')
+
+      vi.setSystemTime(returnedAtMs + CONTROLLER_REARM_GRACE_MS + 1_000)
+      await first.alarm()
+      expect(controllerOf(first)).toBe('participant_friend')
     })
 
     it('schedules an alarm for the recovery it re-arms and gives the host a full grace period', async () => {
