@@ -41,6 +41,10 @@ let activeState: ExtensionState | null = null
 // media report. It is intentionally local to this content-script instance and
 // is attached automatically to subsequent sender-bound messages.
 let playerBindingId: string | null = null
+// Counts the times the worker told this page to drop its token. A report that
+// was in flight when that happened is answered with a token for the binding the
+// worker has since let go of, and must not bring it back.
+let bindingReleases = 0
 let runtimeInvalidated = false
 let scheduledPlayTimer: ReturnType<typeof setTimeout> | null = null
 let bufferingTimer: ReturnType<typeof setTimeout> | null = null
@@ -310,6 +314,11 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
   }
 
   if (message.type === 'REPORT_PLAYER_CONTEXT') {
+    // Only asked of a tab right after the worker has unbound its player
+    // (selectActivePlayerTab), so this page is being invited to bind afresh;
+    // a token it kept from a binding another document replaced is no use.
+    playerBindingId = null
+    bindingReleases += 1
     if (video) {
       void reportMedia(video)
       void reportPlayerStatus(false)
@@ -330,6 +339,20 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
         ? message.state.snapshot?.seek?.revision !== pendingSeek.roomRevision
         : commandChanged)
     activeState = message.state
+    // The worker says it has no bound player at all (the room was left, or the
+    // player was unbound), so this token means nothing and the worker refuses
+    // a report that still carries it (acceptMediaBinding). Keeping it would
+    // lock the page out of the next room until a reload. A detach without this
+    // flag is not that: it is sent to a page that another document replaced,
+    // or that the worker unbound to look at another tab, and it keeps its token
+    // (the refusal stops a retired document from taking the binding back).
+    // Some paths clear the binding without telling the page at all: a
+    // navigation starting (intended), a refresh that could not reach the page
+    // and a failed delivery. A request to report frees a page that was kept.
+    if (message.bindingReleased) {
+      playerBindingId = null
+      bindingReleases += 1
+    }
     if (pendingSeekSuperseded || commandChanged || controllerChanged || roomDetached) {
       // The room may release a shared barrier before the browser finishes its
       // native seek. Keep a short-lived attribution window for that target so
@@ -2069,8 +2092,9 @@ async function sendRuntime(request: RuntimeRequest): Promise<RuntimeResponse> {
     throw new Error('SyncYourJoy extension context is gone.')
   }
   try {
+    const releasesBefore = bindingReleases
     const response = await chrome.runtime.sendMessage(withPlayerBinding(request)) as RuntimeResponse
-    if (request.type === 'MEDIA_DETECTED' && response.playerBindingId)
+    if (request.type === 'MEDIA_DETECTED' && response.playerBindingId && releasesBefore === bindingReleases)
       playerBindingId = response.playerBindingId
     return response
   }
