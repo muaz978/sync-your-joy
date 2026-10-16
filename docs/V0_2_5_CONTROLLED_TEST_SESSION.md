@@ -98,9 +98,10 @@ Use exactly these values. None of them except `PASS` counts toward acceptance, a
 
 ### 1.2 Coordinator deployment identity: last record and gap
 
+- **Superseded on 2026-10-16.** The production coordinator is Worker version `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f` (from `main` at `05a0d68`; rollback target `681f31dc-eb31-4ced-a661-1d6304d134ff`). The bullets in this section are the record of 2026-09-24 and are kept as history; for a session, fill in the test-day identity from Gate 0 and treat any deployment after this date as needing the owner's authorization for that exact commit.
 - **Last deployment on record.** The `Deploy room coordinator` workflow run `35387667519` ran on 2026-09-18T19:45Z from source commit `1ac5b1c` (which is `v0.2.4`). Its log reports `Current Version ID: 209278f7-9154-4ad0-974a-3ad565a67581`. This ID exists only in the Actions log; no repository doc records it.
 - **Stale records in the docs.** The newest version ID in the repository docs is `11de04d9-f41d-4563-bdda-08136016777e`, from 2026-08-30 (`context-checkpoint.md`, Checkpoint 24). `TEST_GUIDE.md` still says the coordinator was "deployed and smoke-verified on 2026-08-30".
-- **No later deployment.** No deploy workflow run exists after the `v0.2.5` tag. No local `npm run deploy:edge` after 2026-09-18 is recorded.
+- **No later deployment (as of 2026-09-24).** No deploy workflow run exists after the `v0.2.5` tag. No local `npm run deploy:edge` after 2026-09-18 is recorded.
 - **Coordinator code changed.** Between `1ac5b1c` and `423b6f7`, `apps/edge-service`, `packages/protocol` and `packages/sync-engine` changed substantially. The changes include #84 (coordinator prepare/commit), #82 (the operation contract), and alarm and health rehydration.
 - **Risk.** If the running Worker still has the `v0.2.4` source, the 0.2.5 extension falls back to `legacy` room mode, because capability negotiation fails closed (see CR-B07). The session would then not exercise the 0.2.5 transactional behavior.
 - **How to spot legacy mode in the panel.** After the controller presses Play or seeks, **Operation phase** stays `none` and the acknowledgement counters stay `—`.
