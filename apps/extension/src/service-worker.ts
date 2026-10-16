@@ -1081,7 +1081,11 @@ function isNavigationShellSender(sender: chrome.runtime.MessageSender): boolean 
 async function selectActivePlayerTab(): Promise<boolean> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
   if (tab?.id === undefined) {
-    // The bound page, if it is still there, is told it is not bound.
+    // There is no player to be had, so the room is told this participant is not
+    // ready, as it is when another tab is looked at below, and the bound page,
+    // if it is still there, is told it is not bound.
+    if (state.snapshot)
+      sendToServer({ type: 'set_ready', ready: false, media: null })
     await unbindPlayerContext()
     return false
   }
@@ -1094,7 +1098,13 @@ async function selectActivePlayerTab(): Promise<boolean> {
 
   if (state.snapshot)
     sendToServer({ type: 'set_ready', ready: false, media: null })
-  await unbindPlayerContext()
+  // Another tab is about to be asked to report, so the page that was bound is
+  // detached without being released: a released page reports again within a
+  // second, and with no room, or between this and the other tab's report, it
+  // would take the binding straight back from the tab the user just selected.
+  // It keeps its token and is freed by the request to report if it is the tab
+  // that is asked, which is the only time it should compete again.
+  await unbindPlayerContext(false)
   try {
     await chrome.tabs.sendMessage(tab.id, { type: 'REPORT_PLAYER_CONTEXT' } satisfies ContentRequest)
   }
@@ -1243,13 +1253,13 @@ async function bindPlayerContext(tabId: number, frameId: number | null, areaPixe
     await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState() }, 0)
 }
 
-async function unbindPlayerContext(): Promise<void> {
+async function unbindPlayerContext(release = true): Promise<void> {
   const previousTabId = state.playerTabId
   const previousFrameId = state.playerFrameId
   const previousDocumentId = playerBinding?.documentId ?? undefined
   clearPlayerTab()
   if (previousTabId !== null && previousFrameId !== null)
-    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState(), bindingReleased: true }, previousFrameId, previousDocumentId)
+    await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState(), ...(release ? { bindingReleased: true } : {}) }, previousFrameId, previousDocumentId)
 }
 
 function isController(): boolean {

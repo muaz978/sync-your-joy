@@ -696,7 +696,7 @@ describe('service worker observed episode identity', () => {
       expect(detach?.message.bindingReleased).toBe(true)
     })
 
-    it('releases the page when the player is unbound to look at another tab', async () => {
+    it('detaches the page without releasing it when another tab is asked to report, so it cannot take the binding straight back', async () => {
       const { fake, request } = await resumeAtPage(sharedUrl)
       ;(fake.chrome.tabs.query as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: 43, active: true, url: 'https://other.example.test/watch' }])
       vi.mocked(fake.chrome.tabs.sendMessage).mockClear()
@@ -704,7 +704,8 @@ describe('service worker observed episode identity', () => {
       await request({ type: 'RECHECK_MEDIA' })
 
       const detach = pageEvents(fake).find(event => event.tabId === 42)
-      expect(detach?.message.bindingReleased).toBe(true)
+      expect(detach?.message.state.snapshot).toBeNull()
+      expect(detach?.message.bindingReleased).toBeUndefined()
       expect(vi.mocked(fake.chrome.tabs.sendMessage)).toHaveBeenCalledWith(43, { type: 'REPORT_PLAYER_CONTEXT' })
     })
 
@@ -725,15 +726,18 @@ describe('service worker observed episode identity', () => {
       expect(detach?.message.bindingReleased).toBe(true)
     })
 
-    it('releases the page when no tab can be found to bind', async () => {
+    it('releases the page, and tells the room it is not ready, when no tab can be found to bind', async () => {
       const { fake, request } = await resumeAtPage(sharedUrl)
       ;(fake.chrome.tabs.query as ReturnType<typeof vi.fn>).mockResolvedValue([])
       vi.mocked(fake.chrome.tabs.sendMessage).mockClear()
+      const socket = FakeWebSocket.instances[0]!
+      const sentBefore = socket.sentMessages.length
 
       await request({ type: 'RECHECK_MEDIA' })
 
       const detach = pageEvents(fake).find(event => event.tabId === 42)
       expect(detach?.message.bindingReleased).toBe(true)
+      expect(socket.sentMessages.slice(sentBefore)).toContainEqual({ type: 'set_ready', ready: false, media: null })
     })
 
     it('does not release a page that another document replaced', async () => {

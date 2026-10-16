@@ -344,9 +344,11 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     // a report that still carries it (acceptMediaBinding). Keeping it would
     // lock the page out of the next room until a reload. A detach without this
     // flag is not that: it is sent to a page that another document replaced,
-    // which keeps its token (the refusal stops a retired document from taking
-    // the binding back), and the worker also clears its binding without telling
-    // the page when a navigation starts, which is intended.
+    // or that the worker unbound to look at another tab, and it keeps its token
+    // (the refusal stops a retired document from taking the binding back).
+    // Some paths clear the binding without telling the page at all: a
+    // navigation starting (intended), a refresh that could not reach the page
+    // and a failed delivery. A request to report frees a page that was kept.
     if (message.bindingReleased) {
       playerBindingId = null
       bindingReleases += 1
