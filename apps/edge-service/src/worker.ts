@@ -559,6 +559,9 @@ export class RoomDurableObject extends DurableObject<Env> {
       // the members are compared with the sockets that can be read instead:
       // throwing here would leave its member shown as connected, with no
       // recovery planned if it was the controller, until the next restore.
+      // It is closed first: webSocketError also arrives here, for a socket
+      // that may still be open, and there may be no room left to reconcile.
+      this.closeUnreadable(socket)
       await this.reconcileAfterUnreadableClose()
       return
     }

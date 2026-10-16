@@ -9995,8 +9995,8 @@
 - `CHANGELOG.md`: one bullet.
 
 ### Verification
-- `npm run typecheck`, `npm test`: 44 files, 655 tests (648 on `main`).
-- Mutation checks (one change each, then the file restored): not closing in the pending count, not reconciling in the close handler, not closing in the frame handler, not closing in `broadcast()`, treating a missing attachment as readable, and counting the unreadable socket toward the cap are each caught by a test. Four mutants survive: no close in `sendToParticipant()`, in the join scan, in the close handler's still-connected scan, or in the denial loop. In every flow that reaches them, `broadcast()` closes the same socket right afterwards, so no test can tell the sites apart. They stay as defence in depth and are not individually pinned.
+- `npm run typecheck`, `npm test`: 44 files, 660 tests (648 on `main`).
+- Mutation checks (one change each, then the file restored), eleven in all, each caught by a test: not closing in the pending count, not reconciling in the close handler, not closing the close handler's own socket (also when there is no room), not closing in the frame handler, in `broadcast()`, in `sendToParticipant()`, in the join scan, in the close handler's still-connected scan or in the denial loop, reading a missing attachment as readable, and counting the unreadable socket toward the cap. The last four closing sites were first found to survive because `broadcast()` closes the same socket in the same flow; they are pinned by tests that make a socket unreadable only just before the operation, and that observe what had already happened when the socket was closed (the host not yet told, the departure not yet recorded, the denied socket not yet closed).
 - Independent read-only review of the first commit: no finding above S3; its S3 items (the cap decision unprotected, the restore test's comment overstating, the join-scan close masked, the "every scan" wording, and the unguarded close handler as a pre-existing gap) are adopted above.
 
 ## Confirmed Successful Results
@@ -10004,7 +10004,6 @@
 
 ## Failed, Incomplete, or Unresolved Work
 - Not covered: a real Durable Object runtime fault that makes `deserializeAttachment()` throw (simulated with socket stubs, as in the existing tests); whether the runtime delivers `webSocketClose` for a socket the object closed itself, whether a closed socket stays listed, and whether a second `close()` throws were not observed on the real runtime.
-- The four surviving mutants above.
 
 ## Decisions and Rationale
 - Close, not count, and close everywhere: one rule that is easy to state and test, and that does not turn a runtime fault into refused upgrades.
