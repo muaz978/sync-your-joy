@@ -9965,3 +9965,50 @@
 ## Historical Checkpoint Notes
 - Checkpoint 112 recorded the review that found this as "pre-existing at v0.2.6". This checkpoint closes it.
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy review coverage remediation, follow-up to R4b (#130): two review threads on the merged head that were still open, tracking issue #119.
+- Checkpoint number: 117.
+- Date and time: 2026-10-16, Europe/Istanbul.
+- Coverage period: Since checkpoint 116 (`main` at `b9552e4`, after #130, #131, #132 and the three Dependabot pull requests).
+- Current context status: Implemented on branch `fix/upgrade-guard-unreadable-sockets`, failing test first, verified on macOS. Not merged.
+
+## User Objective and Requirements
+- Answer the two cubic threads on #130 that were open when it merged (`worker.ts:388`, `worker.test.ts:1297`), fixing what is valid.
+
+## Complete Chronological Activity Log
+
+### Findings
+- `worker.ts:388` (cubic, P2), valid as an inconsistency, small in practice: `fetch()` counted pending connections with `attachmentOf(...)?.participantId === null`, so a socket whose attachment cannot be read was skipped, left open and left uncounted, while every other scan (`attachedParticipantIds()`, the join's earlier-connection scan) closes such a socket with 1011 so that its client reconnects. A socket becomes unreadable only through a runtime fault, never through anything a client sends, so the cap cannot be pushed past 20 by a client; the fix is for consistency, and so that an unreadable socket does not outlive the next upgrade.
+- `worker.test.ts:1297` (cubic, P3), valid: the restore test promised a reconnect and a connected member and checked only the close.
+
+### Fix
+- `apps/edge-service/src/worker.ts`: one `closeUnreadable(socket)` helper used by the three scans; the pending-connection count in `fetch()` is now a loop that closes an unreadable socket and counts the rest. The closed socket is not counted toward the cap (it is closed, not pending); the alternative of counting it would refuse upgrades while the runtime fault lasts, which closing does not.
+- `apps/edge-service/src/worker.test.ts`: the restore test now keeps the friend's session token, checks the friend is recorded disconnected, reconnects on a fresh socket and checks the friend is connected; a new test fails against `main` ("expected null to match object { code: 1011 }") and passes with the change.
+- `CHANGELOG.md`: one sentence.
+
+### Verification
+- `npm run typecheck`, `npm test`: 44 files, 649 tests (648 on `main`).
+
+## Confirmed Successful Results
+- The new fetch test distinguishes the old and the new scan; the strengthened restore test passes on both (it covers behaviour restore already had).
+
+## Failed, Incomplete, or Unresolved Work
+- Not covered: a real Durable Object runtime fault that makes `deserializeAttachment()` throw; it is simulated with a socket stub, as in the existing tests.
+
+## Decisions and Rationale
+- Close, not count: closing matches the policy decided in `ef88227` for the other scans, and it does not turn a runtime fault into refused upgrades.
+
+## Files and Artifacts
+- `apps/edge-service/src/worker.ts`, `apps/edge-service/src/worker.test.ts`, `CHANGELOG.md`.
+
+## Open Questions, Blockers, and Dependencies
+- None for this change. Coordinator change: it takes effect only with a coordinator deploy, which is not approved.
+
+## Next Steps
+1. Exact-head review, required checks green, merge pinned to the head SHA; reply to and resolve the two threads (`PRRT_kwDOTzrIvM6tD5Sg`, `PRRT_kwDOTzrIvM6tD5Sk`).
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.

@@ -1289,12 +1289,25 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
 
     it('closes a socket that cannot be read when it restores, so that its client reconnects and is connected again', async () => {
       const { store, host, friend } = await hostAndApprovedFriend()
+      const friendToken = sessionTokenOf(friend)
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
       friend.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
 
-      await restored(objectOver(store, [host, friend]))
+      const restarted = await restored(objectOver(store, [host, friend]))
 
+      // Restore cannot tell that the friend has a socket, so the friend is
+      // recorded as disconnected, and the socket that cannot be served is closed.
       expect(friend.closed).toMatchObject({ code: 1011 })
+      const connectedOf = (id: string) => inspect(restarted).coordinator?.snapshot().participants.find(participant => participant.id === id)?.connected
+      expect(connectedOf('participant_friend')).toBe(false)
+
+      // The client reconnects on a fresh socket with its session token and is
+      // connected again, which it would not be on a socket left open.
+      const back = new FakeSocket()
+      attach(restarted, [host, back])
+      await say(restarted, back, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: null, sessionToken: friendToken })
+      expect(back.last()).toMatchObject({ type: 'room_joined' })
+      expect(connectedOf('participant_friend')).toBe(true)
       logged.mockRestore()
     })
 
@@ -1328,6 +1341,26 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
       await expect(first.fetch(new Request('https://rooms.test/rooms?code=ABCD2345', { headers: { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } })))
         .rejects.toThrow('pair reached')
       vi.unstubAllGlobals()
+    })
+
+    it('closes a socket that cannot be read when it counts the pending connections, instead of leaving it uncounted and open', async () => {
+      const { host, friend, first } = await hostAndApprovedFriend()
+      const unreadable = new FakeSocket()
+      unreadable.deserializeAttachment = () => { throw new Error('attachment storage hiccup') }
+      attach(first, [host, friend, unreadable])
+      vi.stubGlobal('WebSocketPair', class {
+        constructor() { throw new Error('pair reached') }
+      })
+
+      await expect(first.fetch(new Request('https://rooms.test/rooms?code=ABCD2345', { headers: { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' } })))
+        .rejects.toThrow('pair reached')
+      vi.unstubAllGlobals()
+
+      // It cannot be served, so it is not allowed to sit beside the pending
+      // connections the cap counts; its client reconnects with a fresh attachment.
+      expect(unreadable.closed).toMatchObject({ code: 1011 })
+      expect(host.closed).toBeNull()
+      expect(friend.closed).toBeNull()
     })
 
     it('gives the host the re-arm window when the last member\'s close was never delivered and the plan had run out', async () => {

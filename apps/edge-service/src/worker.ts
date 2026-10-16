@@ -333,6 +333,21 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   /**
+   * Closes a socket whose attachment cannot be read, so that its client
+   * reconnects with a fresh attachment instead of sitting on a socket that
+   * cannot be served. Every place that finds one does this, so that none is
+   * left open and uncounted.
+   */
+  private closeUnreadable(socket: WebSocket): void {
+    try {
+      socket.close(1011, 'attachment_unreadable')
+    }
+    catch {
+      // Already closing.
+    }
+  }
+
+  /**
    * The participants that have a socket that can be served. A socket whose
    * attachment cannot be read does not count (counting it, or throwing, would
    * keep a controller that cannot act in control, or keep recovery from being
@@ -346,12 +361,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = this.attachmentOf(socket)
       if (attachment === undefined) {
-        try {
-          socket.close(1011, 'attachment_unreadable')
-        }
-        catch {
-          // Already closing.
-        }
+        this.closeUnreadable(socket)
         continue
       }
       if (attachment?.participantId)
@@ -385,7 +395,18 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!roomCode || !/^[A-Z0-9]{8}$/.test(roomCode))
       return new Response('Invalid room code', { status: 400 })
 
-    const pendingConnections = this.ctx.getWebSockets().filter(candidate => this.attachmentOf(candidate)?.participantId === null).length
+    // A socket whose attachment cannot be read is not a pending connection that
+    // can be counted, and it cannot be served: it is closed here, like
+    // everywhere else that finds one, so it cannot sit beside the connections
+    // the cap counts without being counted.
+    let pendingConnections = 0
+    for (const candidate of this.ctx.getWebSockets()) {
+      const attachment = this.attachmentOf(candidate)
+      if (attachment === undefined)
+        this.closeUnreadable(candidate)
+      else if (attachment?.participantId === null)
+        pendingConnections += 1
+    }
     if (pendingConnections >= MAX_PENDING_CONNECTIONS_PER_ROOM)
       return new Response('Too many pending room connections', { status: 429 })
 
@@ -1038,12 +1059,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         // and it cannot be served either (every frame would fail to read its
         // attachment), so it is not left open beside the one being admitted.
         // Its client reconnects with a fresh attachment.
-        try {
-          socket.close(1011, 'attachment_unreadable')
-        }
-        catch {
-          // Already closing.
-        }
+        this.closeUnreadable(socket)
         continue
       }
       try {
