@@ -822,6 +822,32 @@ describe('RoomCoordinator', () => {
       expect(room.snapshot().playback.status).toBe('playing')
     })
 
+    it('pauses only when one participant\'s own run reaches the grace period, not the room\'s combined buffering', () => {
+      const { room, report, at } = playingRoom(true)
+      const friendReport = (ms: number) => room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering: true,
+        progressed: false,
+        sampledAtLocalMs: ms,
+      })
+      // The two take turns: someone is always buffering, but neither for three seconds yet.
+      report(true)
+      at(14_000)
+      friendReport(14_000)
+      at(15_000)
+      report(true)
+      at(16_000)
+      friendReport(16_000)
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      // The host's own run now spans 13 s to 17 s.
+      at(17_000)
+      const result = report(true)
+      expect(result).toMatchObject({ ok: true, reason: 'participant_buffering' })
+    })
+
     it('tracks each participant separately', () => {
       const { room, report, at } = playingRoom(true)
       const friendReport = (buffering: boolean, ms: number) => room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
