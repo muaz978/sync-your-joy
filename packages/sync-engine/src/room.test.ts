@@ -1839,6 +1839,49 @@ describe('RoomCoordinator', () => {
       expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastSample?.positionSeconds).not.toBe(41.6)
     })
 
+    it('lets an in-run stale recovery report end a buffering run, while stale buffering never extends one (#141)', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+      const startAtMs = committed.snapshot.contract.operation.effectiveAtServerMs
+      const hostReport = (revision: number, buffering: boolean) => room.updatePlayerStatus('participant_host', revision, {
+        positionSeconds: 41,
+        durationSeconds: 600,
+        paused: false,
+        buffering,
+        progressed: !buffering,
+        sampledAtLocalMs: nowMs,
+      })
+
+      nowMs = startAtMs + 500
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+      const hostRevision = room.snapshot().revision
+      // The host buffers for a while, reported at the current revision.
+      nowMs = startAtMs + 2_600
+      hostReport(hostRevision, true)
+      nowMs = startAtMs + 3_600
+      hostReport(hostRevision, true)
+      // The friend's start acknowledgement advances the revision.
+      nowMs = startAtMs + 3_700
+      room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 43.7, 2))
+      const currentRevision = room.snapshot().revision
+      expect(currentRevision).toBeGreaterThan(hostRevision)
+      // An in-flight report from before that, saying the host recovered, is still accepted.
+      nowMs = startAtMs + 3_800
+      hostReport(hostRevision, false)
+      // A new rebuffer starts; it has lasted well under three seconds.
+      nowMs = startAtMs + 4_500
+      hostReport(currentRevision, true)
+      nowMs = startAtMs + 5_600
+      hostReport(currentRevision, true)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
     it('accepts an in-run stale report as progress but never lets it trip failure classification', () => {
       // The run tolerates a report that only missed a start acknowledgement,
       // but its own doc comment and the commit message both promise that

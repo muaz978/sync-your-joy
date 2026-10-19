@@ -1069,8 +1069,14 @@ export class RoomCoordinator {
     const freshSample = priorSample === null || sample.sampledAtLocalMs > priorSample.sampledAtLocalMs
     const countsAsBuffering = sample.buffering === true && this.playback.status === 'playing'
       && participant.connected && participant.ready && participant.mediaMatches
-    if (freshSample && basedOnRevision === this.revision)
-      this.observeBuffering(participantId, countsAsBuffering, nowMs)
+    if (freshSample) {
+      // A recovery report ends a run even when it is only tolerated for an
+      // older revision; only a report for the current revision can extend one.
+      if (!countsAsBuffering)
+        this.bufferingRuns.delete(participantId)
+      else if (basedOnRevision === this.revision)
+        this.observeBuffering(participantId, true, nowMs)
+    }
     if (progressed || participant.lastProgressAtServerMs === undefined)
       participant.lastProgressAtServerMs = nowMs
     // The extension keeps reporting a permission rejection until its browser
