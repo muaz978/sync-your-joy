@@ -1061,7 +1061,9 @@ export class RoomCoordinator {
       && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= 0.12)
     participant.lastSample = sample
     participant.lastSampleReceivedAtMs = nowMs
-    this.observeBuffering(participantId, sample.buffering === true, nowMs)
+    // Only buffering that happens while the room plays counts towards the
+    // grace period; a run reported while paused never carries into the next play.
+    this.observeBuffering(participantId, sample.buffering === true && this.playback.status === 'playing', nowMs)
     if (progressed || participant.lastProgressAtServerMs === undefined)
       participant.lastProgressAtServerMs = nowMs
     // The extension keeps reporting a permission rejection until its browser

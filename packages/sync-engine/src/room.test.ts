@@ -690,6 +690,34 @@ describe('RoomCoordinator', () => {
       expect(result).toMatchObject({ ok: true, reason: 'participant_buffering' })
     })
 
+    it('does not carry buffering reported while the room was paused into the next play', () => {
+      const { room, report, at } = playingRoom()
+      room.control('participant_host', {
+        actionId: 'action_pause_before_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'pause',
+        positionSeconds: 21,
+      })
+      // The participant keeps reporting buffering while paused.
+      report(true)
+      at(14_000)
+      report(true)
+      at(15_000)
+      report(true)
+      room.control('participant_host', {
+        actionId: 'action_play_after_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'play',
+        positionSeconds: 21,
+      })
+      at(19_000)
+      report(true)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
     it('does not count a gap in the reports as buffering time', () => {
       const { room, report, at } = playingRoom()
       report(true)
