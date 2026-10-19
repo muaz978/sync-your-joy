@@ -25,7 +25,7 @@ import {
   supportsTransactionalOperations,
 } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSettledPausedSeek } from './operation-state.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
@@ -1061,6 +1061,7 @@ export class RoomCoordinator {
       && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= 0.12)
     participant.lastSample = sample
     participant.lastSampleReceivedAtMs = nowMs
+    this.observeBuffering(participantId, sample.buffering === true, nowMs)
     if (progressed || participant.lastProgressAtServerMs === undefined)
       participant.lastProgressAtServerMs = nowMs
     // The extension keeps reporting a permission rejection until its browser
@@ -1095,7 +1096,8 @@ export class RoomCoordinator {
       && participant.ready
       && participant.mediaMatches
       && (explicitPlaybackFailure
-        || (sample.buffering && sample.playbackStarted !== false && isPlaybackPastStartupGrace(this.playback, nowMs))
+        || (sample.buffering && sample.playbackStarted !== false && isPlaybackPastStartupGrace(this.playback, nowMs)
+          && this.bufferedPastGrace(participantId, nowMs))
         || stalled
         || startupTimedOut)) {
       const failedSeekTarget = this.pendingSeek?.revision === basedOnRevision
@@ -1144,6 +1146,31 @@ export class RoomCoordinator {
       return this.success('participant_status_changed')
 
     return null
+  }
+
+  /**
+   * Coordinator-local record of when each participant's current run of
+   * buffering reports began. Kept apart from the participant so it never
+   * reaches a snapshot or the persisted export; a restored room simply starts
+   * the grace period again.
+   */
+  private readonly bufferingRuns = new Map<string, { sinceMs: number; lastMs: number }>()
+
+  private observeBuffering(participantId: string, buffering: boolean, nowMs: number): void {
+    if (!buffering) {
+      this.bufferingRuns.delete(participantId)
+      return
+    }
+    const run = this.bufferingRuns.get(participantId)
+    if (run === undefined || nowMs - run.lastMs > PLAYBACK_BUFFERING_REPORT_GAP_MS)
+      this.bufferingRuns.set(participantId, { sinceMs: nowMs, lastMs: nowMs })
+    else
+      run.lastMs = nowMs
+  }
+
+  private bufferedPastGrace(participantId: string, nowMs: number): boolean {
+    const run = this.bufferingRuns.get(participantId)
+    return run !== undefined && nowMs - run.sinceMs >= PLAYBACK_BUFFERING_GRACE_MS
   }
 
   recordLatency(participantId: string, roundTripMs: number): void {

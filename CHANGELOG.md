@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Coordinator: a participant's buffering no longer pauses the whole room at the first report. The room pauses for everyone only after that participant has reported buffering continuously for 3 seconds; a short rebuffer, such as an adaptive-stream quality change, lets the others keep playing and the participant catches up on its own. A gap of more than 2.5 seconds in the reports starts the period again. Takes effect when the room coordinator is redeployed; it is not deployed yet. The room still does not resume by itself after a pause (#141 stays open for that).
+
 ## [0.2.8] - 2026-10-19
 
 This is a compatible test release; it changes the extension only, and the production coordinator (Worker `b6ea9ac1`) needs no redeploy. It is meant for the next live Crunchyroll session.

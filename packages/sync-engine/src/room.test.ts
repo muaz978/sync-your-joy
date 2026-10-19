@@ -621,29 +621,84 @@ describe('RoomCoordinator', () => {
     expect(friend).toMatchObject({ ready: false, mediaMatches: false })
   })
 
-  it('pauses the room when a connected participant buffers', () => {
-    let nowMs = 10_000
-    const room = createRoom(() => nowMs)
-    room.setReady('participant_host', true, media)
-    room.control('participant_host', {
-      actionId: 'action_play123',
-      basedOnRevision: room.snapshot().revision,
-      leaseEpoch: room.snapshot().controller.leaseEpoch,
-      kind: 'play',
-      positionSeconds: 20,
-    })
-    nowMs = 13_000
-    const sample: PlayerSample = {
-      positionSeconds: 21.8,
-      durationSeconds: 600,
-      paused: false,
-      buffering: true,
-      sampledAtLocalMs: nowMs,
+  describe('a participant that buffers while the room plays (#141)', () => {
+    function playingRoom() {
+      let nowMs = 10_000
+      const room = createRoom(() => nowMs)
+      room.setReady('participant_host', true, media)
+      room.control('participant_host', {
+        actionId: 'action_play123',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'play',
+        positionSeconds: 20,
+      })
+      nowMs = 13_000
+      const report = (buffering: boolean) => room.updatePlayerStatus('participant_host', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering,
+        progressed: !buffering,
+        sampledAtLocalMs: nowMs,
+      })
+      return { room, report, at: (ms: number) => { nowMs = ms } }
     }
-    const result = room.updatePlayerStatus('participant_host', room.snapshot().revision, sample)
 
-    expect(result?.snapshot.playback.status).toBe('paused')
-    expect(result?.snapshot.playback.positionSeconds).toBeGreaterThan(21)
+    it('keeps the room playing through a short rebuffer', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(true)
+      at(14_900)
+      const recovered = report(false)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+      expect(recovered).not.toMatchObject({ reason: 'participant_buffering' })
+    })
+
+    it('pauses the room once the same participant has buffered continuously past the grace period', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(true)
+      at(15_000)
+      report(true)
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      at(16_100)
+      const result = report(true)
+
+      expect(result).toMatchObject({ ok: true, reason: 'participant_buffering' })
+      expect(room.snapshot().playback.status).toBe('paused')
+      expect(room.snapshot().playback.positionSeconds).toBeGreaterThan(21)
+    })
+
+    it('starts the grace period again after the participant recovered in between', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(false)
+      at(15_000)
+      report(true)
+      at(17_500)
+      report(true)
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      at(18_100)
+      const result = report(true)
+      expect(result).toMatchObject({ ok: true, reason: 'participant_buffering' })
+    })
+
+    it('does not count a gap in the reports as buffering time', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      // Nothing was heard for four seconds; the next report starts a new period.
+      at(17_000)
+      report(true)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
   })
 
   it('ignores a stale buffering report that arrives after a newer play command', () => {
