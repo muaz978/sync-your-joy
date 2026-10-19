@@ -1063,9 +1063,14 @@ export class RoomCoordinator {
     participant.lastSampleReceivedAtMs = nowMs
     // Only buffering that happens while the room plays counts towards the
     // grace period; a run reported while paused never carries into the next play.
-    this.observeBuffering(participantId,
-      sample.buffering === true && this.playback.status === 'playing'
-      && participant.connected && participant.ready && participant.mediaMatches, nowMs)
+    // Only evidence that is new, current and from an eligible participant counts:
+    // a duplicate delivery of a sample, or a report that only missed a start
+    // acknowledgement, must not extend a buffering run.
+    const freshSample = priorSample === null || sample.sampledAtLocalMs > priorSample.sampledAtLocalMs
+    const countsAsBuffering = sample.buffering === true && this.playback.status === 'playing'
+      && participant.connected && participant.ready && participant.mediaMatches
+    if (freshSample && basedOnRevision === this.revision)
+      this.observeBuffering(participantId, countsAsBuffering, nowMs)
     if (progressed || participant.lastProgressAtServerMs === undefined)
       participant.lastProgressAtServerMs = nowMs
     // The extension keeps reporting a permission rejection until its browser
@@ -1101,7 +1106,7 @@ export class RoomCoordinator {
       && participant.mediaMatches
       && (explicitPlaybackFailure
         || (sample.buffering && sample.playbackStarted !== false && isPlaybackPastStartupGrace(this.playback, nowMs)
-          && this.bufferedPastGrace(participantId, nowMs))
+          && freshSample && this.bufferedPastGrace(participantId, nowMs))
         || stalled
         || startupTimedOut)) {
       const failedSeekTarget = this.pendingSeek?.revision === basedOnRevision

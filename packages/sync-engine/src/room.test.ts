@@ -668,9 +668,13 @@ describe('RoomCoordinator', () => {
       report(true)
       at(15_000)
       report(true)
+      at(15_500)
+      report(true)
+      at(15_900)
+      report(true)
       expect(room.snapshot().playback.status).toBe('playing')
 
-      at(16_100)
+      at(16_000)
       const result = report(true)
 
       expect(result).toMatchObject({ ok: true, reason: 'participant_buffering' })
@@ -774,6 +778,48 @@ describe('RoomCoordinator', () => {
 
       expect(result).not.toMatchObject({ reason: 'participant_buffering' })
       expect(restored.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not count a duplicate delivery of the same sample as more buffering', () => {
+      const { room, at } = playingRoom()
+      const send = (sampledAtLocalMs: number) => room.updatePlayerStatus('participant_host', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering: true,
+        progressed: false,
+        sampledAtLocalMs,
+      })
+      send(13_000)
+      at(14_000)
+      send(14_000)
+      // The same sample arrives again later; it is not fresh evidence.
+      at(16_100)
+      send(14_000)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not count reports for an older revision towards the grace period', () => {
+      const { room, at } = playingRoom()
+      const stale = room.snapshot().revision - 1
+      const sendAt = (revision: number, ms: number) => {
+        at(ms)
+        return room.updatePlayerStatus('participant_host', revision, {
+          positionSeconds: 21.8,
+          durationSeconds: 600,
+          paused: false,
+          buffering: true,
+          progressed: false,
+          sampledAtLocalMs: ms,
+        })
+      }
+      sendAt(stale, 13_000)
+      sendAt(stale, 14_000)
+      sendAt(stale, 15_000)
+      sendAt(room.snapshot().revision, 16_100)
+
+      expect(room.snapshot().playback.status).toBe('playing')
     })
 
     it('tracks each participant separately', () => {
