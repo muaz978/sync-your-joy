@@ -1839,7 +1839,7 @@ describe('RoomCoordinator', () => {
       expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastSample?.positionSeconds).not.toBe(41.6)
     })
 
-    it('lets an in-run stale recovery report end a buffering run, while stale buffering never extends one (#141)', () => {
+    it('lets an in-run stale recovery report end a buffering run (#141)', () => {
       let nowMs = 10_000
       const room = createTransactionalRoom(() => nowMs)
       controlTransactional(room, 'play', 40)
@@ -1878,6 +1878,45 @@ describe('RoomCoordinator', () => {
       hostReport(currentRevision, true)
       nowMs = startAtMs + 5_600
       hostReport(currentRevision, true)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not let an in-run stale buffering report extend a buffering run (#141)', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+      const startAtMs = committed.snapshot.contract.operation.effectiveAtServerMs
+      const hostBuffering = (revision: number) => room.updatePlayerStatus('participant_host', revision, {
+        positionSeconds: 41,
+        durationSeconds: 600,
+        paused: false,
+        buffering: true,
+        progressed: false,
+        sampledAtLocalMs: nowMs,
+      })
+
+      nowMs = startAtMs + 500
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+      const hostRevision = room.snapshot().revision
+      nowMs = startAtMs + 2_600
+      hostBuffering(hostRevision)
+      nowMs = startAtMs + 3_600
+      hostBuffering(hostRevision)
+      nowMs = startAtMs + 3_700
+      room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 43.7, 2))
+      const currentRevision = room.snapshot().revision
+      expect(currentRevision).toBeGreaterThan(hostRevision)
+      // A buffering report from before the revision change is still accepted, but it is not evidence for the run.
+      nowMs = startAtMs + 5_000
+      hostBuffering(hostRevision)
+      // The next current report is more than 2.5 s after the last counted one, so a new run starts.
+      nowMs = startAtMs + 6_200
+      hostBuffering(currentRevision)
 
       expect(room.snapshot().playback.status).toBe('playing')
     })
