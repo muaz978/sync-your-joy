@@ -10272,3 +10272,42 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy, release 0.2.9 (extension) after the #141 buffering work.
+- Checkpoint number: 124.
+- Date and time: 2026-10-19, Europe/Istanbul.
+- Coverage period: Since checkpoint 123 (`main` at `09ce7ce`, #146 merged).
+- Current context status: Branch `release/0.2.9` from `09ce7ce`. Not merged, not tagged.
+
+## User Objective and Requirements
+- Publish an extension release that carries the #146 fix and the new notice wording so the owner can test it with a friend; update the README and repository docs to match.
+
+## Complete Chronological Activity Log
+- #146 merged as `09ce7ce` after two review rounds (9 threads fixed), `npm run check` 686 tests, matrix 20 of 20 and 19 of 20; the one failure was the known "Playback blocked" notice miss (X1, #119), not the sustained-window pause.
+- Versions bumped to 0.2.9 in the root, extension and manifest files and the lockfile; the changelog moves the unreleased entries under 0.2.9 and records the coordinator deploy (Worker `b640977c-5e4b-4ee3-a923-f2e65e362df7`, 2026-10-19, `main` at `c8675f1`); the README gains a 0.2.9 paragraph.
+
+## Confirmed Successful Results
+- The coordinator with the 3-second buffering grace is already in production, so 0.2.9 needs no coordinator deploy.
+
+## Failed, Incomplete, or Unresolved Work
+- No live Crunchyroll session on 0.2.8 or 0.2.9 yet; the cause of the original wedge is not proven. #138 and #141 stay open.
+- Not built: automatic resume after a system-caused pause (buffering or stall); a deliberate pause must never be overridden.
+
+## Decisions and Rationale
+- No wire change since 0.2.8: a 0.2.9 extension works against the deployed coordinator, and older extensions still get the grace period.
+
+## Files and Artifacts
+- `package.json`, `package-lock.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json`, `CHANGELOG.md`, `README.md`, this file.
+
+## Open Questions, Blockers, and Dependencies
+- Automatic resume needs a design (see Decisions) and another explicit-go coordinator deploy.
+
+## Next Steps
+1. Merge, tag `v0.2.9`, verify the release asset and checksum.
+2. A live session on 0.2.9 with a diagnostics report right after any stall or unexplained pause.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.

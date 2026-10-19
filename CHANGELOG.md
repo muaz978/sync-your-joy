@@ -4,13 +4,17 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-10-19
+
+This is a compatible test release. The coordinator change below was deployed to production on 2026-10-19 (Worker version `b640977c-5e4b-4ee3-a923-f2e65e362df7`, from `main` at `c8675f1`; previous version `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`), so the coordinator already waits for 3 seconds of continuous buffering reports before pausing the room. An extension older than 0.2.9 drops its buffering flag at the next one-second report, so a stall on that participant's side can still pause the room through the coordinator's existing no-progress rule; the extension changes below, which make the participant keep reporting buffering until frames advance, take effect when each participant loads this package, so every tester should be on 0.2.9. It is meant for the next live Crunchyroll session. The room still does not resume by itself after a pause; that is tracked in #141, which stays open.
+
 ### Fixed
 
-- Extension: a player that is waiting for data no longer gets paused and re-seeked by its own drift correction, and keeps reporting buffering until frames advance again. Before, the first one-second heartbeat after a `waiting` event cleared the buffering flag, and about a second into the stall the extension paused the player and sought it forward to the room position, which aborted the load it was waiting for and could make the coordinator treat the stall as a failed player (#141, which stays open). The drift is corrected once frames advance again. Takes effect with the next extension release.
+- Extension: a player that is waiting for data no longer gets paused and re-seeked by its own drift correction, and keeps reporting buffering until frames advance again. Before, the first one-second heartbeat after a `waiting` event cleared the buffering flag, and about a second into the stall the extension paused the player and sought it forward to the room position, which aborted the load it was waiting for and could make the coordinator treat the stall as a failed player (#141, which stays open). The drift is corrected once frames advance again. Takes effect when participants load this package.
 
 ### Changed
 
-- Coordinator: a participant's buffering no longer pauses the whole room at the first report. The room pauses for everyone only after that participant has reported buffering continuously for 3 seconds; a short rebuffer, such as an adaptive-stream quality change, lets the others keep playing and the participant catches up on its own. A gap of more than 2.5 seconds in the reports starts the period again. Takes effect when the room coordinator is redeployed; it is not deployed yet. The room still does not resume by itself after a pause (#141 stays open for that). Extension: the notice shown when a player stops now says the room pauses for everyone only if the player does not recover within a few seconds, instead of saying the room is already pausing (takes effect with the next extension release).
+- Coordinator: a participant's buffering no longer pauses the whole room at the first report. The room pauses for everyone only after that participant has reported buffering continuously for 3 seconds; a short rebuffer, such as an adaptive-stream quality change, lets the others keep playing and the participant catches up on its own. A gap of more than 2.5 seconds in the reports starts the period again. Deployed to production on 2026-10-19. The room still does not resume by itself after a pause (#141 stays open for that). Extension: the notice shown when a player stops now says the room pauses for everyone only if the player does not recover within a few seconds, instead of saying the room is already pausing (takes effect when participants load this package).
 
 ## [0.2.8] - 2026-10-19
 

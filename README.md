@@ -39,7 +39,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-The current beta includes the following, introduced in `0.2.0` and extended by later releases (`0.2.5`, `0.2.6`, `0.2.7` and `0.2.8` are described in the [Changelog](CHANGELOG.md)):
+The current beta includes the following, introduced in `0.2.0` and extended by later releases (`0.2.5`, `0.2.6`, `0.2.7`, `0.2.8` and `0.2.9` are described in the [Changelog](CHANGELOG.md)):
 
 - host-approval join: a new join request waits for the controller to approve it before that person can see or use the room;
 - automatic room-wide play, pause, forward seek, and backward seek;
@@ -76,6 +76,8 @@ Version `0.2.4` fixes three real bugs found during live friend testing: opening 
 Version `0.2.5` adds transactional playback: Play and seek are prepared and committed by the coordinator before the room plays, with player-health deadlines and diagnostics that explain operation failures (see the Changelog). Version `0.2.6` fixes the paused-seek failure about three seconds after a scrub, keeps "Playback blocked" visible until the browser accepts playback, and stops a racing progress report from pausing the room. Version `0.2.7` lets a page that left a room join the next one without a reload, ends a waiting join request when its room is gone, and ships the coordinator hardening: an unapproved requester receives no room state, controller recovery after an outage, and healing of stored state after a restart.
 
 Version `0.2.8` lets Sync re-ask a player that never finished a synchronized seek, and advises reloading the tab when two attempts also fail (a mitigation for a Crunchyroll stall; the cause is not established).
+
+Version `0.2.9` makes a short rebuffer stop pausing the room for everyone: the coordinator now pauses the room only after a participant has reported buffering for 3 seconds in a row (deployed on 2026-10-19), and a player that is only waiting for data is no longer paused and re-seeked by the extension's own drift correction. The room still does not resume by itself after a real pause: the controller presses Play (Sync only realigns a player and leaves the room paused). Every tester should be on `0.2.9`, because an older extension drops its buffering flag after one report and can still pause the room during a stall (tracked in #141).
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
