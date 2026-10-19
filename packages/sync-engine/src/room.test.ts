@@ -698,6 +698,30 @@ describe('RoomCoordinator', () => {
       expect(result).toMatchObject({ ok: true, reason: 'participant_buffering' })
     })
 
+    it('lets a recovery report end the run even when it carries the same timestamp as the last report', () => {
+      const { room, at } = playingRoom()
+      const send = (buffering: boolean, sampledAtLocalMs: number) => room.updatePlayerStatus('participant_host', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering,
+        progressed: !buffering,
+        sampledAtLocalMs,
+      })
+      send(true, 13_000)
+      at(14_000)
+      send(true, 14_000)
+      // The participant recovers within the same millisecond as its last report.
+      send(false, 14_000)
+      at(15_500)
+      send(true, 15_500)
+      at(16_100)
+      send(true, 16_100)
+
+      // The new rebuffer has lasted 0.6 s, not the 3.1 s since the first run began.
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
     it('does not carry buffering reported while the room was paused into the next play', () => {
       const { room, report, at } = playingRoom()
       room.control('participant_host', {
