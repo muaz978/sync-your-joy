@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-10-19
+
+This is a compatible test release; it changes the extension only, and the production coordinator (Worker `b6ea9ac1`) needs no redeploy. It is meant for the next live Crunchyroll session.
+
 ### Fixed
 
 - Extension: pressing Sync on a participant whose player never finished a synchronized seek now asks the player for the position again. Before, the element reported the target as its position while it was still seeking, so Sync adopted the stuck seek and did nothing. After two re-issues that also time out the page says to reload the tab, which the room survives. This is a mitigation for a Crunchyroll stall seen on 0.2.7 (#138, which stays open); the cause is not established.
