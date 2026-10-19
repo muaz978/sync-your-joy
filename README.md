@@ -35,7 +35,7 @@ Unpacked extensions do not update automatically. Normal one-click installation a
 6. Everyone waits for **Video matches**, then selects **I'm ready**.
 7. The controller uses the streaming player's normal play, pause, and progress-bar controls. SyncYourJoy sends those actions to the room automatically.
 
-If a provider blocks autoplay, click its video once. Use **Sync me now** for one participant or **Sync everyone** for the whole room if a player drifts. A refresh is not normally required; if a stuck player does not recover after Sync, the page says so and advises reloading that tab, and the room keeps your place.
+If a provider blocks autoplay, click its video once. Use **Sync me now** for one participant or **Sync everyone** for the whole room if a player drifts. A refresh is not normally required. Only when a player stays stuck on a synchronized seek after Sync has been pressed twice does the page advise reloading that tab; the room keeps your place.
 
 ## Current public beta
 
