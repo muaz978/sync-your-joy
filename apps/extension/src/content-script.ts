@@ -1842,12 +1842,7 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
   if (!video || video.readyState === HTMLMediaElement.HAVE_NOTHING)
     return false
 
-  const durationSeconds = Number.isFinite(video.duration) ? video.duration : null
-  const ranges = Array.from({ length: video.seekable.length }, (_, index) => ({
-    start: video?.seekable.start(index) ?? 0,
-    end: video?.seekable.end(index) ?? 0,
-  }))
-  const target = resolveSeekTarget(positionSeconds, durationSeconds, ranges)
+  const target = resolveProgrammaticTarget(video, positionSeconds)
   if (target === null)
     return false
   const now = performance.now()
@@ -1891,8 +1886,24 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
   }
   if (stuck)
     stuck.reissues++
+  if (writeSeekTarget(video, target))
+    scheduleSeekCompletionProbe()
+  return false
+}
+
+function resolveProgrammaticTarget(target: HTMLVideoElement, positionSeconds: number): number | null {
+  const durationSeconds = Number.isFinite(target.duration) ? target.duration : null
+  const ranges = Array.from({ length: target.seekable.length }, (_, index) => ({
+    start: target.seekable.start(index),
+    end: target.seekable.end(index),
+  }))
+  return resolveSeekTarget(positionSeconds, durationSeconds, ranges)
+}
+
+function writeSeekTarget(target: HTMLVideoElement, seconds: number): boolean {
   try {
-    video.currentTime = target
+    target.currentTime = seconds
+    return true
   }
   catch {
     playerOperations.retireSeek(performance.now())
@@ -1903,8 +1914,6 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
     void reportPlayerStatus(true)
     return false
   }
-  scheduleSeekCompletionProbe()
-  return false
 }
 
 function trackPendingSeek(target: number, roomRevision: number | null, now: number, matchingPending: NonNullable<typeof pendingSeek> | null): void {
