@@ -77,7 +77,7 @@ Version `0.2.5` adds transactional playback: Play and seek are prepared and comm
 
 Version `0.2.8` lets Sync re-ask a player that never finished a synchronized seek, and advises reloading the tab when two attempts also fail (a mitigation for a Crunchyroll stall; the cause is not established).
 
-Version `0.2.9` makes a short rebuffer stop pausing the room for everyone: the coordinator now pauses the room only after a participant has reported buffering for 3 seconds in a row (deployed on 2026-10-19), and a player that is only waiting for data is no longer paused and re-seeked by the extension's own drift correction. The room still does not resume by itself after a real pause; press Play or Sync (tracked in #141).
+Version `0.2.9` makes a short rebuffer stop pausing the room for everyone: the coordinator now pauses the room only after a participant has reported buffering for 3 seconds in a row (deployed on 2026-10-19), and a player that is only waiting for data is no longer paused and re-seeked by the extension's own drift correction. The room still does not resume by itself after a real pause: the controller presses Play (Sync only realigns a player and leaves the room paused). Every tester should be on `0.2.9`, because an older extension drops its buffering flag after one report and can still pause the room during a stall (tracked in #141).
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 
