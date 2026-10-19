@@ -10153,3 +10153,42 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy, version 0.2.8 test release (the #138 mitigation merged in #140).
+- Checkpoint number: 121.
+- Date and time: 2026-10-19, Europe/Istanbul.
+- Coverage period: Since checkpoint 120 (`main` at `a69b62b`, after #140).
+- Current context status: Version bump on branch `release/0.2.8`. Not merged. Tagging follows the merge on the owner's instruction ("go, publish 0.2.8").
+
+## User Objective and Requirements
+- Publish a build that contains the Sync re-issue fix so the owner can test it live, as with 0.2.7.
+
+## Complete Chronological Activity Log
+- #140 merged as `a69b62b` after an exact-head review: `npm run check` 664 tests, browser suite 15 passed and 1 skipped (Chromium 1248 downloaded with the owner's approval), required checks and Codacy green, 11 review threads resolved.
+- Version moved from 0.2.7 to 0.2.8 in `package.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json` and `package-lock.json`; `CHANGELOG.md` gets a dated 0.2.8 section (the Unreleased entry moved); README names 0.2.8.
+- #141 filed for the second live symptom (the room pausing by itself, buffering path), with a read-only trace requested from a separate cloud session.
+
+## Confirmed Successful Results
+- See the verification in #140; this change touches version and documentation only.
+
+## Failed, Incomplete, or Unresolved Work
+- The #138 mitigation has not been tried on a live Crunchyroll session and the cause of the wedge is not established; #138 and #141 stay open. No coordinator change: the pause-on-buffering behaviour (#141) would need a deploy and the owner's decision.
+
+## Decisions and Rationale
+- Extension-only release; the production coordinator stays at Worker `b6ea9ac1` (rollback `681f31dc`).
+
+## Files and Artifacts
+- The four version files, `CHANGELOG.md`, `README.md`, this file.
+
+## Open Questions, Blockers, and Dependencies
+- Whether to add a buffering grace period or auto-resume (#141, product call and a coordinator deploy).
+
+## Next Steps
+1. Merge, tag `v0.2.8`, verify the release asset and checksum.
+2. A live session on 0.2.8 with a diagnostics report right after any stall or unexplained pause.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
