@@ -57,6 +57,12 @@ let expectedPlayUntil = 0
 let playAttemptTimer: ReturnType<typeof setTimeout> | null = null
 let expectedPauseUntil = 0
 let expectedSeek: { positionSeconds: number; until: number } | null = null
+// How many times an explicit Sync re-issued a seek that never finished (#138).
+// Two failed attempts mean the page's own player is wedged, which only a
+// reload of the tab clears.
+let stuckSeekReissues = 0
+const STUCK_SEEK_RELOAD_AFTER = 2
+
 let pendingSeek: { token: OperationToken; positionSeconds: number; since: number; lastAttemptAt: number; roomRevision: number | null; timedOut?: boolean } | null = null
 let seekRecoveryUntil = 0
 let hardCorrectionAttempted = false
@@ -681,8 +687,10 @@ function invalidatePlayRequest(): void {
 
 function invalidateRoomOperations(sourceChanged = false): void {
   const retiredTarget = pendingSeek?.positionSeconds
-  if (sourceChanged)
+  if (sourceChanged) {
     playerOperations.invalidateSource(performance.now())
+    stuckSeekReissues = 0
+  }
   else
     playerOperations.invalidateCommand(performance.now())
   pendingSeek = null
@@ -1561,14 +1569,21 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
   localIntentHoldUntil = 0
   localSeeking = false
   // An explicit Sync is the retry boundary for a timed-out operation.
-  if (pendingSeek?.timedOut) {
+  const reissueStuckSeek = pendingSeek?.timedOut === true
+  if (reissueStuckSeek) {
     playerOperations.retireSeek(performance.now())
     pendingSeek = null
     clearSeekCompletionTimer()
+    stuckSeekReissues++
   }
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
   const expectedSeconds = expectedPosition(activeState.snapshot.playback, estimatedServerNowMs)
-  const seekApplied = trySetProgrammaticPosition(expectedSeconds, activeState.snapshot.seek?.revision ?? null)
+  const seekApplied = trySetProgrammaticPosition(expectedSeconds, activeState.snapshot.seek?.revision ?? null, reissueStuckSeek)
+  if (!seekApplied && stuckSeekReissues >= STUCK_SEEK_RELOAD_AFTER) {
+    showNotice('This player is stuck loading the shared position. Reload this tab to recover; the room keeps your place.')
+    void reportPlayerStatus(true)
+    return
+  }
   if (!seekApplied && !fromUserGesture) {
     showNotice('Waiting for this player to make the room position seekable…')
     return
@@ -1822,7 +1837,7 @@ function consumeExpectedPause(): boolean {
   return expected
 }
 
-function trySetProgrammaticPosition(positionSeconds: number, roomRevision: number | null = null): boolean {
+function trySetProgrammaticPosition(positionSeconds: number, roomRevision: number | null = null, reissueStuckSeek = false): boolean {
   if (!video || video.readyState === HTMLMediaElement.HAVE_NOTHING)
     return false
 
@@ -1874,9 +1889,12 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
     }
   }
   expectedSeek = { positionSeconds: target, until: now + 4_000 }
-  if (video.seeking && isSeekAligned(video.currentTime, target)) {
+  if (!reissueStuckSeek && video.seeking && isSeekAligned(video.currentTime, target)) {
     // The controller may already be seeking natively when its room barrier
     // arrives. Adopt that operation instead of restarting the provider load.
+    // A seek that already timed out is the exception: the element reports the
+    // target as its position while it is stuck, so adopting it again would
+    // leave an explicit Sync with nothing to retry.
     scheduleSeekCompletionProbe()
     return false
   }
@@ -1929,6 +1947,7 @@ function maybeAcknowledgeRoomSeek(): void {
 }
 
 function completePendingSeek(completed: NonNullable<typeof pendingSeek>): void {
+  stuckSeekReissues = 0
   playerOperations.completeSeek(completed.token)
   if (completed.roomRevision !== null)
     completedRoomSeekRevision = completed.roomRevision
