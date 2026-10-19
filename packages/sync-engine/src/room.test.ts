@@ -622,10 +622,14 @@ describe('RoomCoordinator', () => {
   })
 
   describe('a participant that buffers while the room plays (#141)', () => {
-    function playingRoom() {
+    function playingRoom(withFriend = false) {
       let nowMs = 10_000
       const room = createRoom(() => nowMs)
       room.setReady('participant_host', true, media)
+      if (withFriend) {
+        joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
+        room.setReady('participant_friend', true, media)
+      }
       room.control('participant_host', {
         actionId: 'action_play123',
         basedOnRevision: room.snapshot().revision,
@@ -714,6 +718,80 @@ describe('RoomCoordinator', () => {
       })
       at(19_000)
       report(true)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('starts the grace period again for a new play command', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(true)
+      at(14_100)
+      room.control('participant_host', {
+        actionId: 'action_pause_mid_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'pause',
+        positionSeconds: 21,
+      })
+      at(14_200)
+      room.control('participant_host', {
+        actionId: 'action_play_mid_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'play',
+        positionSeconds: 21,
+      })
+      // Buffering reports carry on once a second across the new command.
+      const pastStartupGraceMs = room.snapshot().playback.effectiveAtServerMs + 2_600
+      for (let ms = 15_000; ms < pastStartupGraceMs; ms += 1_000) {
+        at(ms)
+        report(true)
+      }
+      at(pastStartupGraceMs)
+      report(true)
+
+      // Under three seconds into the new play, so the earlier buffering does not count.
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not carry a buffering run into a restored room', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(true)
+      at(15_500)
+      const restored = RoomCoordinator.fromState(room.exportState(), () => 16_100)
+      const result = restored.updatePlayerStatus('participant_host', restored.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering: true,
+        progressed: false,
+        sampledAtLocalMs: 16_100,
+      })
+
+      expect(result).not.toMatchObject({ reason: 'participant_buffering' })
+      expect(restored.snapshot().playback.status).toBe('playing')
+    })
+
+    it('tracks each participant separately', () => {
+      const { room, report, at } = playingRoom(true)
+      const friendReport = (buffering: boolean, ms: number) => room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering,
+        progressed: !buffering,
+        sampledAtLocalMs: ms,
+      })
+      report(true)
+      at(14_000)
+      report(true)
+      // The friend's first buffering report must not inherit the host's older run.
+      at(16_000)
+      friendReport(true, 16_000)
 
       expect(room.snapshot().playback.status).toBe('playing')
     })

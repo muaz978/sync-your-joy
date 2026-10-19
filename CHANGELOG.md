@@ -6,7 +6,7 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ### Changed
 
-- Coordinator: a participant's buffering no longer pauses the whole room at the first report. The room pauses for everyone only after that participant has reported buffering continuously for 3 seconds; a short rebuffer, such as an adaptive-stream quality change, lets the others keep playing and the participant catches up on its own. A gap of more than 2.5 seconds in the reports starts the period again. Takes effect when the room coordinator is redeployed; it is not deployed yet. The room still does not resume by itself after a pause (#141 stays open for that).
+- Coordinator: a participant's buffering no longer pauses the whole room at the first report. The room pauses for everyone only after that participant has reported buffering continuously for 3 seconds; a short rebuffer, such as an adaptive-stream quality change, lets the others keep playing and the participant catches up on its own. A gap of more than 2.5 seconds in the reports starts the period again. Takes effect when the room coordinator is redeployed; it is not deployed yet. The room still does not resume by itself after a pause (#141 stays open for that). Extension: the notice shown when a player stops now says the room pauses for everyone only if the player does not recover within a few seconds, instead of saying the room is already pausing (takes effect with the next extension release).
 
 ## [0.2.8] - 2026-10-19
 

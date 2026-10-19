@@ -1063,7 +1063,9 @@ export class RoomCoordinator {
     participant.lastSampleReceivedAtMs = nowMs
     // Only buffering that happens while the room plays counts towards the
     // grace period; a run reported while paused never carries into the next play.
-    this.observeBuffering(participantId, sample.buffering === true && this.playback.status === 'playing', nowMs)
+    this.observeBuffering(participantId,
+      sample.buffering === true && this.playback.status === 'playing'
+      && participant.connected && participant.ready && participant.mediaMatches, nowMs)
     if (progressed || participant.lastProgressAtServerMs === undefined)
       participant.lastProgressAtServerMs = nowMs
     // The extension keeps reporting a permission rejection until its browser
@@ -1485,6 +1487,9 @@ export class RoomCoordinator {
   }
 
   private resetPlaybackHealth(effectiveAtServerMs: number): void {
+    // A new command starts a new period: buffering reported before it must not
+    // count towards the grace period of the play that follows.
+    this.bufferingRuns.clear()
     for (const participant of this.participants.values()) {
       participant.lastSample = null
       participant.lastSampleReceivedAtMs = effectiveAtServerMs
