@@ -448,6 +448,76 @@ describe('adaptive player lifecycle', () => {
     })
   })
 
+  describe('a rebuffer while the room plays (#141)', () => {
+    it('keeps reporting buffering on the heartbeat after the element said it is waiting, so a short stall is not a no-progress failure', async () => {
+      video.paused = false
+      video.readyState = FakeVideo.HAVE_CURRENT_DATA
+      state.snapshot!.playback = { status: 'playing', positionSeconds: 100, effectiveAtServerMs: Date.now() - 10_000, playbackRate: 1 }
+      video.position = 110
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await vi.advanceTimersByTimeAsync(100)
+      // Healthy playback: the position and the frame counter advance each second.
+      for (let second = 0; second < 3; second++) {
+        video.position += 1
+        video.totalFrames += 30
+        await vi.advanceTimersByTimeAsync(1_000)
+      }
+
+      // The element stalls: no new frames, then `waiting`.
+      messages.length = 0
+      video.dispatchEvent(new Event('waiting'))
+      await vi.advanceTimersByTimeAsync(1_900)
+
+      // The report after the 700 ms debounce and the heartbeat that follows it are
+      // both inside the first 2.5 s of the stall; both must say buffering.
+      const samples = statuses().map(message => message.sample)
+      expect(samples.length).toBeGreaterThanOrEqual(2)
+      expect(samples.every(sample => sample.buffering === true)).toBe(true)
+      // ...and the extension does not pause and re-seek a player that is only waiting for data.
+      expect(video.pause).not.toHaveBeenCalled()
+      expect(video.writes).toEqual([])
+    })
+
+    it('corrects the drift again once frames advance after the stall', async () => {
+      video.paused = false
+      video.readyState = FakeVideo.HAVE_CURRENT_DATA
+      state.snapshot!.playback = { status: 'playing', positionSeconds: 100, effectiveAtServerMs: Date.now() - 10_000, playbackRate: 1 }
+      video.position = 110
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await vi.advanceTimersByTimeAsync(100)
+      for (let second = 0; second < 3; second++) {
+        video.position += 1
+        video.totalFrames += 30
+        await vi.advanceTimersByTimeAsync(1_000)
+      }
+      video.dispatchEvent(new Event('waiting'))
+      await vi.advanceTimersByTimeAsync(1_900)
+      expect(video.writes).toEqual([])
+
+      // The player recovers: frames advance, the flag clears and the accumulated drift is corrected.
+      video.position += 0.5
+      video.totalFrames += 30
+      await vi.advanceTimersByTimeAsync(1_100)
+
+      expect(video.writes.length).toBeGreaterThan(0)
+    })
+
+    it('still asks a paused player that is marked buffering to play, because only drift correction is skipped', async () => {
+      video.paused = true
+      video.readyState = FakeVideo.HAVE_CURRENT_DATA
+      video.position = 2.6
+      video.dispatchEvent(new Event('waiting'))
+      video.play.mockClear()
+      // The room has been playing for 2.6 s, so the player is past the startup window.
+      state.snapshot!.playback = { status: 'playing', positionSeconds: 0, effectiveAtServerMs: Date.now() - 2_600, playbackRate: 1 }
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(video.play).toHaveBeenCalled()
+    })
+  })
+
   describe('a player stuck at metadata during a transactional prepare', () => {
     const target = 197.442125
 

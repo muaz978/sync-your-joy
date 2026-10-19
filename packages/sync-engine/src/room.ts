@@ -1170,6 +1170,12 @@ export class RoomCoordinator {
    */
   private readonly bufferingRuns = new Map<string, { sinceMs: number; lastMs: number }>()
 
+  /**
+   * Record one fresh status report for the buffering grace period: a report
+   * that is not buffering ends the participant's run, a buffering report
+   * extends it, and a buffering report after a gap longer than
+   * `PLAYBACK_BUFFERING_REPORT_GAP_MS` starts a new one.
+   */
   private observeBuffering(participantId: string, buffering: boolean, nowMs: number): void {
     if (!buffering) {
       this.bufferingRuns.delete(participantId)
@@ -1182,6 +1188,7 @@ export class RoomCoordinator {
       run.lastMs = nowMs
   }
 
+  /** Whether the participant's current run of buffering reports has lasted at least `PLAYBACK_BUFFERING_GRACE_MS`. */
   private bufferedPastGrace(participantId: string, nowMs: number): boolean {
     const run = this.bufferingRuns.get(participantId)
     return run !== undefined && nowMs - run.sinceMs >= PLAYBACK_BUFFERING_GRACE_MS

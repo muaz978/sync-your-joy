@@ -120,7 +120,8 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
 
   if (observation.roomPlaying && !observation.playShouldHaveStarted) {
     next.unexpectedPauseSinceMs = 0
-    next.buffering = false
+    // A waiting latch survives the startup window; only advancing frames clear it.
+    next.buffering = previous.buffering
     // A transactional player can render real frames before the server's
     // startup grace boundary. Keep that evidence so the extension can send
     // its started acknowledgement before the coordinator's first bounded
@@ -132,6 +133,7 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
       next.progressEvidence = evidence.quality
       if (evidence.advanced) {
         next.progressed = true
+        next.buffering = false
         next.lastProgressAtMs = observation.nowMs
         next.lastProgressPositionSeconds = observation.positionSeconds
         next.lastProgressFrames = observation.frames
@@ -151,6 +153,7 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
     if (next.unexpectedPauseSinceMs === 0)
       next.unexpectedPauseSinceMs = observation.nowMs
     next.buffering = observation.explicitlyBuffering
+      || previous.buffering
       || observation.nowMs - next.unexpectedPauseSinceMs >= 1_500
     return next
   }
@@ -169,7 +172,7 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
   const evidence = compareProgress(previous, observation)
   next.progressEvidence = evidence.quality
   if (evidence.counterReset) {
-    next.buffering = observation.explicitlyBuffering
+    next.buffering = observation.explicitlyBuffering || previous.buffering
     return next
   }
 
@@ -182,7 +185,13 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
     next.hasRealPlaybackProgress = true
   }
   else {
+    // Once the element has said it is waiting, keep saying so until frames
+    // advance again. Recomputing the flag from each heartbeat dropped it for the
+    // first 2.5 s of a stall, which is shorter than the coordinator's 1.8 s
+    // no-progress deadline plus a report interval, so the room was paused as a
+    // failed player instead of waiting for the buffering grace period.
     next.buffering = observation.explicitlyBuffering
+      || previous.buffering
       || observation.nowMs - next.lastProgressAtMs >= 2_500
   }
   return next

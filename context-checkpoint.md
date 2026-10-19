@@ -10233,3 +10233,42 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy, #141 (the room pauses by itself during Crunchyroll playback): the extension side of a stall.
+- Checkpoint number: 123.
+- Date and time: 2026-10-19, Europe/Istanbul.
+- Coverage period: Since checkpoint 122 (`main` at `c8675f1`, after #145).
+- Current context status: Branch `fix/sticky-element-buffering` from `c8675f1`. Not merged. Extension only; the coordinator grace period from #145 is merged but not deployed (active Worker `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`, previous `681f31dc-eb31-4ced-a661-1d6304d134ff`).
+
+## User Objective and Requirements
+- "Investigate first" (the second pause path found in matrix run 13 on `c8675f1`), then open the PR once the 20 matrix runs on the fix have finished.
+
+## Complete Chronological Activity Log
+- Matrix on `c8675f1`: 19 of 20 passed; run 13 failed with "A player paused during the sustained window". The trace shows `waiting` on all three players, then a `pause` event with `seeking: true` on two of them about 1.4 s later, under the 3 s coordinator grace.
+- Cause found in the extension: (1) `observePlayerHealth` recomputed `buffering` from each heartbeat, so the flag set by `markPlayerHealthBuffering` and the one debounced report was dropped on the next one-second heartbeat for the first 2.5 s of a stall, which is shorter than the coordinator's 1.8 s no-progress deadline plus a report interval; (2) `applyAuthoritativeState` ran drift correction while the player was stalled; the stall makes the player fall behind by its own length, soft correction is refused while buffering, so it fell through to the hard correction that pauses the player and seeks it forward past unfetched data.
+- Tests first: a health unit test (flag stays on until frames advance; a short pause in frames with no element event is still not buffering) and a content-script test (a stall mid-play: every heartbeat says buffering, `pause()` is not called, `currentTime` is not written). Mutation checks: removing the sticky flag fails both, removing the drift guard fails the content-script test.
+- Changes: `player-health.ts` keeps `buffering` while no frames advance after the element reported waiting; `content-script.ts` skips drift correction while `playerHealth.buffering`.
+
+## Confirmed Successful Results
+- Extension suite 286 passed (2 new).
+
+## Failed, Incomplete, or Unresolved Work
+- The matrix run numbers are in the pull request. Not shown: a live Crunchyroll session, and that this is what the owner saw live (no diagnostics report was taken then). The coordinator 1.8 s no-progress rule is unchanged. Automatic resume after a pause is not built.
+
+## Decisions and Rationale
+- Fixed in the extension because the failing pause was the extension's own correction, and because a coordinator change to the 1.8 s deadline would touch the transactional start windows. Needs an extension release (0.2.9); the coordinator grace from #145 needs a deploy to matter.
+
+## Files and Artifacts
+- `apps/extension/src/player-health.ts`, `player-health.test.ts`, `content-script.ts`, `content-script.test.ts`, `CHANGELOG.md`, this file.
+
+## Open Questions, Blockers, and Dependencies
+- The owner's go for the coordinator deploy (commit `c8675f1` or later, rollback targets above) and for a 0.2.9 release.
+
+## Next Steps
+1. Review and merge; release 0.2.9 and deploy the coordinator on the owner's go; a live session with a diagnostics report right after any unexplained pause.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
