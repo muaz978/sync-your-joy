@@ -12,6 +12,14 @@ export const PLAYBACK_STARTUP_TIMEOUT_MS = 10_000
 // Keep this separate from the shorter progress deadline, which is evaluated
 // only while status reports are still arriving.
 export const PLAYBACK_REPORT_SILENCE_TIMEOUT_MS = 5_000
+// A participant's player can rebuffer for a moment while an adaptive stream
+// changes quality or a segment is slow. The room pauses for everyone only when
+// one participant has reported buffering continuously for this long, so a
+// short rebuffer does not stop the others (#141). Reports arrive about once a
+// second, so a gap longer than the second constant means the buffering was not
+// observed in between and the period starts again.
+export const PLAYBACK_BUFFERING_GRACE_MS = 3_000
+export const PLAYBACK_BUFFERING_REPORT_GAP_MS = 2_500
 
 export function playbackStartupDeadlineMs(playback: PlaybackState): number {
   return playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS

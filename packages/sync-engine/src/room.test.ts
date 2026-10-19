@@ -621,29 +621,317 @@ describe('RoomCoordinator', () => {
     expect(friend).toMatchObject({ ready: false, mediaMatches: false })
   })
 
-  it('pauses the room when a connected participant buffers', () => {
-    let nowMs = 10_000
-    const room = createRoom(() => nowMs)
-    room.setReady('participant_host', true, media)
-    room.control('participant_host', {
-      actionId: 'action_play123',
-      basedOnRevision: room.snapshot().revision,
-      leaseEpoch: room.snapshot().controller.leaseEpoch,
-      kind: 'play',
-      positionSeconds: 20,
-    })
-    nowMs = 13_000
-    const sample: PlayerSample = {
-      positionSeconds: 21.8,
-      durationSeconds: 600,
-      paused: false,
-      buffering: true,
-      sampledAtLocalMs: nowMs,
+  describe('a participant that buffers while the room plays (#141)', () => {
+    function playingRoom(withFriend = false) {
+      let nowMs = 10_000
+      const room = createRoom(() => nowMs)
+      room.setReady('participant_host', true, media)
+      if (withFriend) {
+        joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
+        room.setReady('participant_friend', true, media)
+      }
+      room.control('participant_host', {
+        actionId: 'action_play123',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'play',
+        positionSeconds: 20,
+      })
+      nowMs = 13_000
+      const report = (buffering: boolean) => room.updatePlayerStatus('participant_host', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering,
+        progressed: !buffering,
+        sampledAtLocalMs: nowMs,
+      })
+      return { room, report, at: (ms: number) => { nowMs = ms } }
     }
-    const result = room.updatePlayerStatus('participant_host', room.snapshot().revision, sample)
 
-    expect(result?.snapshot.playback.status).toBe('paused')
-    expect(result?.snapshot.playback.positionSeconds).toBeGreaterThan(21)
+    it('keeps the room playing through a short rebuffer', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(true)
+      at(14_900)
+      const recovered = report(false)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+      expect(recovered).not.toMatchObject({ reason: 'participant_buffering' })
+    })
+
+    it('pauses the room once the same participant has buffered continuously past the grace period', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(true)
+      at(15_000)
+      report(true)
+      at(15_500)
+      report(true)
+      at(15_900)
+      report(true)
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      at(16_000)
+      const result = report(true)
+
+      expect(result).toMatchObject({ ok: true, reason: 'participant_buffering' })
+      expect(room.snapshot().playback.status).toBe('paused')
+      expect(room.snapshot().playback.positionSeconds).toBeGreaterThan(21)
+    })
+
+    it('starts the grace period again after the participant recovered in between', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(false)
+      at(15_000)
+      report(true)
+      at(17_500)
+      report(true)
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      at(18_100)
+      const result = report(true)
+      expect(result).toMatchObject({ ok: true, reason: 'participant_buffering' })
+    })
+
+    it('lets a recovery report end the run even when it carries the same timestamp as the last report', () => {
+      const { room, at } = playingRoom()
+      const send = (buffering: boolean, sampledAtLocalMs: number) => room.updatePlayerStatus('participant_host', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering,
+        progressed: !buffering,
+        sampledAtLocalMs,
+      })
+      send(true, 13_000)
+      at(14_000)
+      send(true, 14_000)
+      // The participant recovers within the same millisecond as its last report.
+      send(false, 14_000)
+      at(15_500)
+      send(true, 15_500)
+      at(16_100)
+      send(true, 16_100)
+
+      // The new rebuffer has lasted 0.6 s, not the 3.1 s since the first run began.
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not carry buffering reported while the room was paused into the next play', () => {
+      const { room, report, at } = playingRoom()
+      room.control('participant_host', {
+        actionId: 'action_pause_before_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'pause',
+        positionSeconds: 21,
+      })
+      // The participant keeps reporting buffering while paused.
+      report(true)
+      at(14_000)
+      report(true)
+      at(15_000)
+      report(true)
+      room.control('participant_host', {
+        actionId: 'action_play_after_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'play',
+        positionSeconds: 21,
+      })
+      at(19_000)
+      report(true)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('starts the grace period again for a new play command', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(true)
+      at(14_100)
+      room.control('participant_host', {
+        actionId: 'action_pause_mid_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'pause',
+        positionSeconds: 21,
+      })
+      at(14_200)
+      room.control('participant_host', {
+        actionId: 'action_play_mid_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'play',
+        positionSeconds: 21,
+      })
+      // Buffering reports carry on once a second across the new command.
+      const pastStartupGraceMs = room.snapshot().playback.effectiveAtServerMs + 2_600
+      for (let ms = 15_000; ms < pastStartupGraceMs; ms += 1_000) {
+        at(ms)
+        report(true)
+      }
+      at(pastStartupGraceMs)
+      report(true)
+
+      // Under three seconds into the new play, so the earlier buffering does not count.
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not carry a buffering run into a restored room', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      at(14_000)
+      report(true)
+      at(15_500)
+      const restored = RoomCoordinator.fromState(room.exportState(), () => 16_100)
+      const result = restored.updatePlayerStatus('participant_host', restored.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering: true,
+        progressed: false,
+        sampledAtLocalMs: 16_100,
+      })
+
+      expect(result).not.toMatchObject({ reason: 'participant_buffering' })
+      expect(restored.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not count a duplicate delivery of the same sample as more buffering', () => {
+      const { room, at } = playingRoom()
+      const send = (sampledAtLocalMs: number) => room.updatePlayerStatus('participant_host', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering: true,
+        progressed: false,
+        sampledAtLocalMs,
+      })
+      send(13_000)
+      at(14_000)
+      send(14_000)
+      // The same sample arrives again later; it is not fresh evidence.
+      at(16_100)
+      send(14_000)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not count reports for an older revision towards the grace period', () => {
+      const { room, at } = playingRoom()
+      const stale = room.snapshot().revision - 1
+      const sendAt = (revision: number, ms: number) => {
+        at(ms)
+        return room.updatePlayerStatus('participant_host', revision, {
+          positionSeconds: 21.8,
+          durationSeconds: 600,
+          paused: false,
+          buffering: true,
+          progressed: false,
+          sampledAtLocalMs: ms,
+        })
+      }
+      sendAt(stale, 13_000)
+      sendAt(stale, 14_000)
+      sendAt(stale, 15_000)
+      sendAt(room.snapshot().revision, 16_100)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('starts the grace period again when a seek resumes playback', () => {
+      const { room, report, at } = playingRoom(true)
+      report(true)
+      at(14_000)
+      report(true)
+      at(14_100)
+      const sought = room.control('participant_host', {
+        actionId: 'action_seek_mid_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'seek',
+        positionSeconds: 120,
+      })
+      const seekRevision = sought.ok ? sought.snapshot.revision : room.snapshot().revision
+      at(14_300)
+      room.acknowledgeSeek('participant_host', seekRevision, 120)
+      room.acknowledgeSeek('participant_friend', seekRevision, 120)
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      const pastStartupGraceMs = room.snapshot().playback.effectiveAtServerMs + 2_600
+      for (let ms = 15_000; ms < pastStartupGraceMs; ms += 1_000) {
+        at(ms)
+        report(true)
+      }
+      at(pastStartupGraceMs)
+      report(true)
+
+      // Under three seconds into the resumed play, so the earlier buffering does not count.
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('pauses only when one participant\'s own run reaches the grace period, not the room\'s combined buffering', () => {
+      const { room, report, at } = playingRoom(true)
+      const friendReport = (ms: number) => room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering: true,
+        progressed: false,
+        sampledAtLocalMs: ms,
+      })
+      // The two take turns: someone is always buffering, but neither for three seconds yet.
+      report(true)
+      at(14_000)
+      friendReport(14_000)
+      at(15_000)
+      report(true)
+      at(16_000)
+      friendReport(16_000)
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      // The host's own run now spans 13 s to 17 s.
+      at(17_000)
+      const result = report(true)
+      expect(result).toMatchObject({ ok: true, reason: 'participant_buffering' })
+    })
+
+    it('tracks each participant separately', () => {
+      const { room, report, at } = playingRoom(true)
+      const friendReport = (buffering: boolean, ms: number) => room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
+        positionSeconds: 21.8,
+        durationSeconds: 600,
+        paused: false,
+        buffering,
+        progressed: !buffering,
+        sampledAtLocalMs: ms,
+      })
+      report(true)
+      at(14_000)
+      report(true)
+      // The friend's first buffering report must not inherit the host's older run.
+      at(16_000)
+      friendReport(true, 16_000)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not count a gap in the reports as buffering time', () => {
+      const { room, report, at } = playingRoom()
+      report(true)
+      // Nothing was heard for four seconds; the next report starts a new period.
+      at(17_000)
+      report(true)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
   })
 
   it('ignores a stale buffering report that arrives after a newer play command', () => {
@@ -1573,6 +1861,88 @@ describe('RoomCoordinator', () => {
       expect(delayed).toBeNull()
       expect(room.snapshot()).toMatchObject({ revision: paused.revision, playback: { status: 'paused' } })
       expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastSample?.positionSeconds).not.toBe(41.6)
+    })
+
+    it('lets an in-run stale recovery report end a buffering run (#141)', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+      const startAtMs = committed.snapshot.contract.operation.effectiveAtServerMs
+      const hostReport = (revision: number, buffering: boolean) => room.updatePlayerStatus('participant_host', revision, {
+        positionSeconds: 41,
+        durationSeconds: 600,
+        paused: false,
+        buffering,
+        progressed: !buffering,
+        sampledAtLocalMs: nowMs,
+      })
+
+      nowMs = startAtMs + 500
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+      const hostRevision = room.snapshot().revision
+      // The host buffers for a while, reported at the current revision.
+      nowMs = startAtMs + 2_600
+      hostReport(hostRevision, true)
+      nowMs = startAtMs + 3_600
+      hostReport(hostRevision, true)
+      // The friend's start acknowledgement advances the revision.
+      nowMs = startAtMs + 3_700
+      room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 43.7, 2))
+      const currentRevision = room.snapshot().revision
+      expect(currentRevision).toBeGreaterThan(hostRevision)
+      // An in-flight report from before that, saying the host recovered, is still accepted.
+      nowMs = startAtMs + 3_800
+      hostReport(hostRevision, false)
+      // A new rebuffer starts; it has lasted well under three seconds.
+      nowMs = startAtMs + 4_500
+      hostReport(currentRevision, true)
+      nowMs = startAtMs + 5_600
+      hostReport(currentRevision, true)
+
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not let an in-run stale buffering report extend a buffering run (#141)', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+        throw new Error('Expected a committed transactional operation.')
+      const startAtMs = committed.snapshot.contract.operation.effectiveAtServerMs
+      const hostBuffering = (revision: number) => room.updatePlayerStatus('participant_host', revision, {
+        positionSeconds: 41,
+        durationSeconds: 600,
+        paused: false,
+        buffering: true,
+        progressed: false,
+        sampledAtLocalMs: nowMs,
+      })
+
+      nowMs = startAtMs + 500
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+      const hostRevision = room.snapshot().revision
+      nowMs = startAtMs + 2_600
+      hostBuffering(hostRevision)
+      nowMs = startAtMs + 3_600
+      hostBuffering(hostRevision)
+      nowMs = startAtMs + 3_700
+      room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 43.7, 2))
+      const currentRevision = room.snapshot().revision
+      expect(currentRevision).toBeGreaterThan(hostRevision)
+      // A buffering report from before the revision change is still accepted, but it is not evidence for the run.
+      nowMs = startAtMs + 5_000
+      hostBuffering(hostRevision)
+      // The next current report is more than 2.5 s after the last counted one, so a new run starts.
+      nowMs = startAtMs + 6_200
+      hostBuffering(currentRevision)
+
+      expect(room.snapshot().playback.status).toBe('playing')
     })
 
     it('accepts an in-run stale report as progress but never lets it trip failure classification', () => {

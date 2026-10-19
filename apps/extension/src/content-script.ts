@@ -968,8 +968,8 @@ async function reportPlayerStatus(buffering: boolean): Promise<void> {
   })
   if (playerHealth.buffering && !previousBuffering) {
     showNotice(video.paused || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
-      ? 'This player stopped. The room is pausing, press Sync to recover without refreshing.'
-      : 'Playback stopped advancing. The room is pausing, press Sync to recover.')
+      ? 'This player stopped. If it does not recover within a few seconds the room pauses for everyone; press Sync to recover without refreshing.'
+      : 'Playback stopped advancing. If it does not recover within a few seconds the room pauses for everyone; press Sync to recover.')
   }
   const sample = currentPlayerSample(video)
   renderPill()

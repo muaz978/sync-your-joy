@@ -10192,3 +10192,44 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy, #141 (the room pauses by itself during Crunchyroll playback): buffering grace period in the coordinator.
+- Checkpoint number: 122.
+- Date and time: 2026-10-19, Europe/Istanbul.
+- Coverage period: Since checkpoint 121 (`main` at `4fcfc0c`, v0.2.8 published).
+- Current context status: Branch `fix/buffering-pause-grace` from `4fcfc0c`. Not merged. Not deployed: a coordinator deploy needs the owner's explicit go for the exact commit and a recorded rollback target (active `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`, previous `681f31dc-eb31-4ced-a661-1d6304d134ff`).
+
+## User Objective and Requirements
+- Stop one participant's short rebuffer from pausing the room for everyone, and check that no older pull request needs anything before #141.
+
+## Complete Chronological Activity Log
+- Read from the code: the extension reports buffering 0.7 s after a `waiting` event and every second after, and `updatePlayerStatus` in `packages/sync-engine/src/room.ts` paused the room at the first buffering report past the startup grace, with no minimum duration.
+- Four tests added first (all failed): a short rebuffer keeps the room playing; continuous buffering past 3 s pauses with `participant_buffering`; the period restarts after a recovered sample; a gap of more than 2.5 s in the reports does not count.
+- Change: `PLAYBACK_BUFFERING_GRACE_MS` (3,000) and `PLAYBACK_BUFFERING_REPORT_GAP_MS` (2,500) in `playback-health.ts`; the room keeps a coordinator-local map of when each participant's current run of buffering reports began (not in the snapshot, not in the persisted export). The `buffering: pause-all` policy in the snapshot is unchanged.
+
+## Confirmed Successful Results
+- `packages/sync-engine` tests pass (142).
+
+## Failed, Incomplete, or Unresolved Work
+- Cause of the live pause is a hypothesis; no diagnostics report was taken at the time. #141 stays open.
+- Not done: automatic resume after a buffering pause; a pause caused by the 1.8 s progress timeout (position not advancing while not reported as buffering) is unchanged.
+
+## Decisions and Rationale
+- The grace period lives in the coordinator because the extension's report cadence and the coordinator's own 1.8 s progress timeout would defeat a longer debounce in the extension alone.
+- Mixed versions: no wire change; old extensions behave as before against a new coordinator, only with the grace period.
+
+## Files and Artifacts
+- `packages/sync-engine/src/playback-health.ts`, `packages/sync-engine/src/room.ts`, `packages/sync-engine/src/room.test.ts`, `CHANGELOG.md`, this file.
+
+## Open Questions, Blockers, and Dependencies
+- Owner's go to deploy the coordinator (exact commit, rollback target as above, a roughly five-minute window for active rooms per #131).
+
+## Next Steps
+1. Full check and browser suite, exact-head review, merge pinned to the head.
+2. Deploy only on the owner's explicit go; production smoke and exposure probe afterwards.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
