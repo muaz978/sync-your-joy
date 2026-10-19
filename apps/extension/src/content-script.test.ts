@@ -477,6 +477,21 @@ describe('adaptive player lifecycle', () => {
       expect(video.pause).not.toHaveBeenCalled()
       expect(video.writes).toEqual([])
     })
+
+    it('still asks a paused player that is marked buffering to play, because only drift correction is skipped', async () => {
+      video.paused = true
+      video.readyState = FakeVideo.HAVE_CURRENT_DATA
+      video.position = 2.6
+      video.dispatchEvent(new Event('waiting'))
+      video.play.mockClear()
+      // The room has been playing for 2.6 s, so the player is past the startup window.
+      state.snapshot!.playback = { status: 'playing', positionSeconds: 0, effectiveAtServerMs: Date.now() - 2_600, playbackRate: 1 }
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(video.play).toHaveBeenCalled()
+    })
   })
 
   describe('a player stuck at metadata during a transactional prepare', () => {

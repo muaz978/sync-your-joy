@@ -193,4 +193,37 @@ describe('player health evidence', () => {
 
     expect(state.buffering).toBe(false)
   })
+
+  it('keeps the waiting latch when the element drops below current data, until frames advance (#141)', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = markPlayerHealthBuffering(state)
+    // readyState fell below HAVE_CURRENT_DATA: the first 1.5 s of that used to clear the flag.
+    state = playing(state, { nowMs: 1_500, positionSeconds: 1, frames: 10, lacksPlayableData: true })
+    expect(state.buffering).toBe(true)
+    state = playing(state, { nowMs: 2_000, positionSeconds: 1, frames: 10, lacksPlayableData: true })
+    expect(state.buffering).toBe(true)
+
+    state = playing(state, { nowMs: 3_000, positionSeconds: 2, frames: 20 })
+    expect(state.buffering).toBe(false)
+  })
+
+  it('keeps the waiting latch through a frame counter reset', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = markPlayerHealthBuffering(state)
+    state = playing(state, { nowMs: 1_500, positionSeconds: 1, frames: 2 })
+
+    expect(state.buffering).toBe(true)
+  })
+
+  it('keeps the waiting latch across the startup grace window', () => {
+    let state = createPlayerHealthState(baseline)
+    state = markPlayerHealthBuffering(state)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 0, frames: 0, playShouldHaveStarted: false })
+    expect(state.buffering).toBe(true)
+    // Grace is over and frames are still stalled.
+    state = playing(state, { nowMs: 3_000, positionSeconds: 0, frames: 0, playShouldHaveStarted: true })
+    expect(state.buffering).toBe(true)
+  })
 })

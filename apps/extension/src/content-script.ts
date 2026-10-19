@@ -1109,14 +1109,6 @@ function applyAuthoritativeState(): void {
     return
   if (playbackRecoveryRequested)
     return
-  // A player that is waiting for data falls behind the room clock by exactly
-  // the length of its stall. Correcting that drift now would pause it and seek
-  // it past data it has not fetched, which aborts the load it is waiting for
-  // (#141); the coordinator decides whether the room waits, and the drift is
-  // corrected once frames advance again.
-  if (playerHealth.buffering)
-    return
-
   const timeUntilPlayMs = snapshot.playback.effectiveAtServerMs - estimatedServerNowMs
   if (timeUntilPlayMs > 12) {
     restorePlaybackRate()
@@ -1128,6 +1120,18 @@ function applyAuthoritativeState(): void {
     if (!controllerAlreadyPlaying && Math.abs(video.currentTime - snapshot.playback.positionSeconds) > 0.12)
       trySetProgrammaticPosition(snapshot.playback.positionSeconds)
     schedulePlay(timeUntilPlayMs)
+    return
+  }
+
+  // A player that is waiting for data falls behind the room clock by exactly
+  // the length of its stall. Correcting that drift now would pause it and seek
+  // it past data it has not fetched, which aborts the load it is waiting for
+  // (#141); the coordinator decides whether the room waits, and the drift is
+  // corrected once frames advance again. Only the correction is skipped: a
+  // paused player is still asked to play.
+  if (playerHealth.buffering) {
+    if (video.paused && !video.seeking && pendingSeek === null && !playbackRecoveryRequested)
+      playVideo()
     return
   }
 
