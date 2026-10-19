@@ -822,6 +822,37 @@ describe('RoomCoordinator', () => {
       expect(room.snapshot().playback.status).toBe('playing')
     })
 
+    it('starts the grace period again when a seek resumes playback', () => {
+      const { room, report, at } = playingRoom(true)
+      report(true)
+      at(14_000)
+      report(true)
+      at(14_100)
+      const sought = room.control('participant_host', {
+        actionId: 'action_seek_mid_buffer',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'seek',
+        positionSeconds: 120,
+      })
+      const seekRevision = sought.ok ? sought.snapshot.revision : room.snapshot().revision
+      at(14_300)
+      room.acknowledgeSeek('participant_host', seekRevision, 120)
+      room.acknowledgeSeek('participant_friend', seekRevision, 120)
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      const pastStartupGraceMs = room.snapshot().playback.effectiveAtServerMs + 2_600
+      for (let ms = 15_000; ms < pastStartupGraceMs; ms += 1_000) {
+        at(ms)
+        report(true)
+      }
+      at(pastStartupGraceMs)
+      report(true)
+
+      // Under three seconds into the resumed play, so the earlier buffering does not count.
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
     it('pauses only when one participant\'s own run reaches the grace period, not the room\'s combined buffering', () => {
       const { room, report, at } = playingRoom(true)
       const friendReport = (ms: number) => room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
