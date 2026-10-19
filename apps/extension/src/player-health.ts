@@ -182,7 +182,13 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
     next.hasRealPlaybackProgress = true
   }
   else {
+    // Once the element has said it is waiting, keep saying so until frames
+    // advance again. Recomputing the flag from each heartbeat dropped it for the
+    // first 2.5 s of a stall, which is shorter than the coordinator's 1.8 s
+    // no-progress deadline plus a report interval, so the room was paused as a
+    // failed player instead of waiting for the buffering grace period.
     next.buffering = observation.explicitlyBuffering
+      || previous.buffering
       || observation.nowMs - next.lastProgressAtMs >= 2_500
   }
   return next

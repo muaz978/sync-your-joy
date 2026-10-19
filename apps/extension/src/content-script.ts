@@ -1109,6 +1109,13 @@ function applyAuthoritativeState(): void {
     return
   if (playbackRecoveryRequested)
     return
+  // A player that is waiting for data falls behind the room clock by exactly
+  // the length of its stall. Correcting that drift now would pause it and seek
+  // it past data it has not fetched, which aborts the load it is waiting for
+  // (#141); the coordinator decides whether the room waits, and the drift is
+  // corrected once frames advance again.
+  if (playerHealth.buffering)
+    return
 
   const timeUntilPlayMs = snapshot.playback.effectiveAtServerMs - estimatedServerNowMs
   if (timeUntilPlayMs > 12) {

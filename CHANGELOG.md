@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Extension: a player that is waiting for data no longer gets paused and re-seeked by its own drift correction, and keeps reporting buffering until frames advance again. Before, the first one-second heartbeat after a `waiting` event cleared the buffering flag, and about a second into the stall the extension paused the player and sought it forward to the room position, which aborted the load it was waiting for and could make the coordinator treat the stall as a failed player (#141, which stays open). The drift is corrected once frames advance again. Takes effect with the next extension release.
+
 ### Changed
 
 - Coordinator: a participant's buffering no longer pauses the whole room at the first report. The room pauses for everyone only after that participant has reported buffering continuously for 3 seconds; a short rebuffer, such as an adaptive-stream quality change, lets the others keep playing and the participant catches up on its own. A gap of more than 2.5 seconds in the reports starts the period again. Takes effect when the room coordinator is redeployed; it is not deployed yet. The room still does not resume by itself after a pause (#141 stays open for that). Extension: the notice shown when a player stops now says the room pauses for everyone only if the player does not recover within a few seconds, instead of saying the room is already pausing (takes effect with the next extension release).

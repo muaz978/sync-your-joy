@@ -166,4 +166,31 @@ describe('player health evidence', () => {
     expect(state.buffering).toBe(true)
     expect(state.progressed).toBe(false)
   })
+
+  it('keeps reporting buffering after the element said it is waiting, until frames advance again (#141)', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    expect(state.progressed).toBe(true)
+
+    // The element fires `waiting`; the heartbeat that follows has no new frames
+    // and carries no explicit flag, but the coordinator must keep hearing
+    // `buffering`, otherwise it classifies the same stall as a no-progress failure.
+    state = markPlayerHealthBuffering(state)
+    state = playing(state, { nowMs: 2_000, positionSeconds: 1, frames: 10 })
+    expect(state.buffering).toBe(true)
+    state = playing(state, { nowMs: 2_400, positionSeconds: 1, frames: 10 })
+    expect(state.buffering).toBe(true)
+
+    state = playing(state, { nowMs: 3_000, positionSeconds: 2, frames: 20 })
+    expect(state.buffering).toBe(false)
+    expect(state.progressed).toBe(true)
+  })
+
+  it('does not call a short pause in frames buffering when the element reported nothing', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = playing(state, { nowMs: 2_000, positionSeconds: 1, frames: 10 })
+
+    expect(state.buffering).toBe(false)
+  })
 })
