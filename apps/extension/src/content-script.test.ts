@@ -516,6 +516,96 @@ describe('adaptive player lifecycle', () => {
       expect(video.writes).toEqual([target])
     })
 
+    describe('and the participant presses Sync after the local seek has timed out (#138)', () => {
+      async function stickSeek(): Promise<void> {
+        video.readyState = FakeVideo.HAVE_METADATA
+        video.networkState = 2
+        Object.assign(video, { buffered: { length: 1, start: () => 396.4, end: () => 404.4 } })
+        await beginPlayPrepare()
+        expect(video.writes).toEqual([target])
+        await vi.advanceTimersByTimeAsync(2_500)
+      }
+
+      it('asks the player for the position again instead of adopting the seek that never finished', async () => {
+        await stickSeek()
+        expect(video.seeking).toBe(true)
+
+        listener({ type: 'FORCE_SYNC' })
+        await Promise.resolve()
+
+        // The element still reports the target as its position while it is
+        // seeking, so adopting that seek again would leave Sync with no effect.
+        expect(video.writes).toEqual([target, target])
+      })
+
+      it('does not restart a seek that is still inside its local window', async () => {
+        video.readyState = FakeVideo.HAVE_METADATA
+        video.networkState = 2
+        await beginPlayPrepare()
+        await vi.advanceTimersByTimeAsync(500)
+
+        listener({ type: 'FORCE_SYNC' })
+        await Promise.resolve()
+
+        expect(video.writes).toEqual([target])
+      })
+
+      const RELOAD_NOTICE = 'This player is stuck loading the shared position. Reload this tab to recover; the room keeps your place.'
+
+      it('tells the participant to reload the tab only once the second attempt has also timed out', async () => {
+        await stickSeek()
+        listener({ type: 'FORCE_SYNC' })
+        await vi.advanceTimersByTimeAsync(2_500)
+        // One failed attempt: Sync can still retry without a refresh.
+        expect(pill('#syj-notice').textContent).not.toContain('Reload this tab')
+
+        listener({ type: 'FORCE_SYNC' })
+        await Promise.resolve()
+        // The second attempt has only just started, so it is not called failed yet.
+        expect(video.writes).toEqual([target, target, target])
+        expect(pill('#syj-notice').textContent).not.toContain('Reload this tab')
+
+        await vi.advanceTimersByTimeAsync(2_500)
+        expect(pill('#syj-notice').textContent).toBe(RELOAD_NOTICE)
+      })
+
+      it('still re-issues after a room command retired the pending seek', async () => {
+        await stickSeek()
+        // A new room revision retires the pending seek but not the stuck element.
+        apply('paused', target)
+        await vi.advanceTimersByTimeAsync(2_500)
+        const before = video.writes.length
+
+        listener({ type: 'FORCE_SYNC' })
+        await Promise.resolve()
+
+        expect(video.writes.length).toBeGreaterThan(before)
+        expect(video.writes.at(-1)).toBe(target)
+      })
+
+      it('starts counting again once the seek has completed', async () => {
+        await stickSeek()
+        listener({ type: 'FORCE_SYNC' })
+        await vi.advanceTimersByTimeAsync(2_500)
+
+        // The element finally finishes the seek.
+        video.seeking = false
+        video.readyState = FakeVideo.HAVE_CURRENT_DATA
+        video.dispatchEvent(new Event('seeked'))
+        await vi.advanceTimersByTimeAsync(200)
+
+        // The same position sticks again: one failed attempt is not yet a reload.
+        video.readyState = FakeVideo.HAVE_METADATA
+        video.seeking = true
+        apply('paused', target)
+        await vi.advanceTimersByTimeAsync(2_500)
+        listener({ type: 'FORCE_SYNC' })
+        await vi.advanceTimersByTimeAsync(2_500)
+
+        expect(pill('#syj-notice').textContent).not.toContain('Reload this tab')
+      })
+    })
+
     it('reports the element state that separates a stalled fetch from a refused stream', async () => {
       video.readyState = FakeVideo.HAVE_METADATA
       video.networkState = 2

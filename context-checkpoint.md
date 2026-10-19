@@ -10111,3 +10111,45 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy, #138 (a participant's player never finishes a synchronized seek on Crunchyroll and the room waits on it).
+- Checkpoint number: 120.
+- Date and time: 2026-10-19, Europe/Istanbul.
+- Coverage period: Since checkpoint 119 (`main` at `61620df`, v0.2.7 published).
+- Current context status: Branch `fix/crunchyroll-stuck-seek-recovery` from `61620df`. Not merged. The full browser E2E suite was not run: Chromium 1248 is missing from the Playwright cache (all 14 specs failed at browser launch, none at an assertion), and a download needs the owner's approval.
+
+## User Objective and Requirements
+- Fix what the 2026-10-16 live session showed: one participant's element stayed `seeking` at the room position with nothing buffered there, so every Play timed out; the same episode played with the extension turned off.
+
+## Complete Chronological Activity Log
+- Reading `trySetProgrammaticPosition` showed that an element stuck in a seek reports the target as its `currentTime`, so the branch that adopts a native seek already in flight was taken every time, including after the local seek had timed out and the participant pressed Sync. Sync therefore never re-issued the seek.
+- Three tests added first: Sync after a timed-out seek writes the position again (failed), Sync inside the local window does not (passed), a second failed attempt tells the participant to reload the tab (failed).
+- Change in `content-script.ts`: the seek that timed out is remembered as `stuckSeek` (target and number of re-issues), separate from the pending seek, so a room command that retires the pending seek does not lose it. Each Sync re-issues it once while the element is still seeking; the reload advice is shown from the timeout of the attempt that follows the second re-issue (and after the status report's own notice, which would otherwise replace it). `stuckSeek` ends when a seek completes, the source changes or the player is detached, and is keyed to its target.
+- Review round on the PR (Codacy, Sourcery, cubic, Greptile, Qodo): reload advice shown at the start of the second attempt instead of its failure (valid, fixed); counter surviving detach or a different seek (valid, fixed by keying and resets); retired pending state lost before the retry was issued (valid, fixed by the separate state); the status report's "player stopped" notice replacing the reload advice (found by the new test); complexity of `trySetProgrammaticPosition` (pending-seek bookkeeping extracted).
+
+## Confirmed Successful Results
+- `npm run check`: typecheck, 662 tests (3 new), build, exit 0.
+
+## Failed, Incomplete, or Unresolved Work
+- The cause of the wedge is not established, so #138 stays open. Re-issuing the seek may not unwedge a provider player; the reload advice is the fallback. Not tried: a nudge to a buffered position and back, the muted play kick (option (b) in `docs/CRUNCHYROLL_PREPARE_STALL_ANALYSIS.md`).
+- No live Crunchyroll run after this change.
+- Full E2E not run (browser missing, see above).
+
+## Decisions and Rationale
+- Only an explicit Sync re-issues. An automatic re-issue at the 1.5 s timeout would restart slow but progressing loads, which the existing "does not thrash the element" test protects.
+
+## Files and Artifacts
+- `apps/extension/src/content-script.ts`, `apps/extension/src/content-script.test.ts`, `CHANGELOG.md`, this file.
+
+## Open Questions, Blockers, and Dependencies
+- Owner approval to download Chromium 1248 for the E2E run.
+
+## Next Steps
+1. E2E on this branch, exact-head review, required checks, merge pinned to the head.
+2. A new extension build for the owner's next live session; capture a diagnostics report right after any stall.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.

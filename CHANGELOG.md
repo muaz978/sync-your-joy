@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Extension: pressing Sync on a participant whose player never finished a synchronized seek now asks the player for the position again. Before, the element reported the target as its position while it was still seeking, so Sync adopted the stuck seek and did nothing. After two re-issues that also time out the page says to reload the tab, which the room survives. This is a mitigation for a Crunchyroll stall seen on 0.2.7 (#138, which stays open); the cause is not established.
+
 ## [0.2.7] - 2026-10-16
 
 This is a compatible test release. The extension fixes below take effect when each participant loads this package. The coordinator fixes were deployed to production on 2026-10-16 (Worker version `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`, from `main` at `05a0d68`; previous version `681f31dc-eb31-4ced-a661-1d6304d134ff`): after that deploy the production exposure probe found no exposure and the production smoke test with synthetic participants passed. Where an entry below says a coordinator fix takes effect when the coordinator is deployed, that has now been done for production.
