@@ -10394,3 +10394,41 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy, coordinator deploy for 0.2.10 (automatic resume).
+- Checkpoint number: 127.
+- Date and time: 2026-10-21, Europe/Istanbul.
+- Coverage period: Since checkpoint 126 (`main` at `2b96d13`, v0.2.10 published).
+- Current context status: The coordinator from `2b96d13` is deployed. This branch only records that.
+
+## User Objective and Requirements
+- Deploy the coordinator and update the release so the owner can test automatic resume with a friend today ("Let's deploy it and update the release").
+
+## Complete Chronological Activity Log
+- Owner's explicit go given in chat. Before: production exposure probe clean. Deploy workflow run 39581426838 from `main` at `2b96d13`: new Worker version `01829323-1eea-4153-90e9-869ec6e22c6b`; rollback target `b640977c-5e4b-4ee3-a923-f2e65e362df7`, then `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`. Active rooms may keep the previous behaviour for about five minutes and are then reset once (#131).
+- After: health ok; `npm run smoke:edge` passed (round trip 58 ms, seek barrier protected, transactional contract verified); exposure probe clean; a real-time probe with one synthetic participant: the room paused itself after buffering, did not start while the player reported it could not play, and started a Play 4 s after it could.
+
+## Confirmed Successful Results
+- The above. The probe scripts are scratch files, not in the repository.
+
+## Failed, Incomplete, or Unresolved Work
+- No live Crunchyroll session with two people yet. #138 and #141 stay open.
+
+## Decisions and Rationale
+- The release tag stays v0.2.10: the extension asset is unchanged; the release notes and docs now say the coordinator is deployed.
+
+## Files and Artifacts
+- `CHANGELOG.md`, `README.md`, `docs/AUTOMATIC_RESUME_DESIGN.md`, this file; GitHub release notes of v0.2.10.
+
+## Open Questions, Blockers, and Dependencies
+- The owner's live test with a friend, with a diagnostics report after any stall.
+
+## Next Steps
+1. Read the report of the live session; decide what is still missing.
+2. Dependabot #149 (vite 8.3.5) after a few days.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.

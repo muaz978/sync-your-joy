@@ -3,7 +3,7 @@
 **Test build:** SyncYourJoy `0.2.6` beta
 **Download:** https://github.com/muaz978/sync-your-joy/releases/download/v0.2.6/sync-your-joy-extension.zip
 **Room service:** `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`
-**Production coordinator:** the `0.2.7` coordinator, deployed on 2026-10-16 (Worker version `b6ea9ac1`) and smoke-verified with synthetic participants that day; it includes the coordinator hardening listed under 0.2.7 in `CHANGELOG.md`, among it that a join requester receives no room state before the host approves
+**Production coordinator:** the coordinator from `main` at `2b96d13`, deployed on 2026-10-21 (Worker version `01829323`) and smoke-verified with synthetic participants that day. It includes automatic resume (listed under 0.2.10 in `CHANGELOG.md`) and the hardening deployed on 2026-10-16 (Worker version `b6ea9ac1`, listed under 0.2.7), including the rule that a join requester receives no room state before the host approves
 
 This guide is for two or more people testing the extension on separate devices and separate streaming accounts. It covers the remaining real-device evidence for Gates 1-3 after the production coordinator deployment. The extension synchronizes playback state only. It does not share a screen, video, audio, password, cookie, subscription, or DRM key.
 

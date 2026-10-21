@@ -1,6 +1,6 @@
 # Automatic resume and stuck-seek recovery: design
 
-Status: the extension part (recovery ladder, diagnostics, `canPlay`, notices) shipped in extension 0.2.10; the coordinator part (automatic resume) is merged but not deployed, so it does not run in production yet. Tracking issue: #141 (resume), #138 (stuck seek). Written 2026-10-19 after a live 0.2.9 session (diagnostics report `report_29f1ddf6…`, screenshot of the side panel). Section 7 records the decisions that were taken; section 9 says what was built.
+Status: built and released. The extension part (recovery ladder, diagnostics, `canPlay`, notices) shipped in extension 0.2.10; the coordinator part (automatic resume) is deployed to production (Worker `01829323-1eea-4153-90e9-869ec6e22c6b`, 2026-10-21). Not confirmed on a live Crunchyroll session. Tracking issue: #141 (resume), #138 (stuck seek). Written 2026-10-19 after a live 0.2.9 session (diagnostics report `report_29f1ddf6…`, screenshot of the side panel). Section 7 records the decisions that were taken; section 9 says what was built.
 
 ## 1. What the 0.2.9 session actually shows
 
@@ -146,7 +146,7 @@ The owner delegated these ("use your best reasoning"); each is the recommendatio
 1. **Automatic reload of a stuck tab: on, behind a visible 20 s countdown that Sync cancels, at most once per tab in ten minutes.** The cooldown is kept in the tab's `sessionStorage`; a tab whose storage is unavailable is never reloaded automatically (a reload that recurs would loop), and the page says to reload instead.
 2. **A player that never becomes ready: the room waits for the two-minute window and stops.** There is no "continue without <name>".
 3. **A member's own pause of a playing room: unchanged.** It is handled by the existing stall rules; changing who may pause the room is a separate decision that needs its own look at the unexpected-pause branch.
-4. **Deploy: not done.** The coordinator part needs the owner's explicit go for the exact commit and a recorded rollback target (active `b640977c-5e4b-4ee3-a923-f2e65e362df7`, previous `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`).
+4. **Deploy: done on the owner's go, 2026-10-21,** from `main` at `2b96d13` (Worker `01829323-1eea-4153-90e9-869ec6e22c6b`; rollback target `b640977c-5e4b-4ee3-a923-f2e65e362df7`, then `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`).
 
 ## 8. Test plan
 
