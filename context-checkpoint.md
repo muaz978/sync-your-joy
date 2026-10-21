@@ -10311,3 +10311,45 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy, #141 and #138: automatic resume and recovery of a seek that never completes.
+- Checkpoint number: 125.
+- Date and time: 2026-10-21, Europe/Istanbul.
+- Coverage period: Since checkpoint 124 (`main` at `989fba9`, v0.2.9 published).
+- Current context status: Branch `feat/auto-recovery` from `989fba9`. Not merged, not released, coordinator not deployed (needs the owner's explicit go for the exact commit; active Worker `b640977c-5e4b-4ee3-a923-f2e65e362df7`, previous `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`).
+
+## User Objective and Requirements
+- Design the automatic resume and check the screenshot and the diagnostics report of a live 0.2.9 session; then, with the decisions delegated ("use your best reasoning"), build it.
+
+## Complete Chronological Activity Log
+- Report read: both players (macOS Edge, Windows Chrome, extension 0.2.9) had `readyState` 1 and `seeking` true for at least 150 s with the buffer at 672 to 736 s and the room paused at 395.6 s; seven Play presses each ended by `operation_timeout_paused` about 3.3 s later. The report had dropped about 2,800 events per player, so what moved the room to 395.6 s is unknown. The panel showed both as Ready.
+- Built, each with tests that fail without the change: diagnostics eviction ranking and `room_position_changed`; Buffering instead of Ready for a paused player that waits for data; the recovery ladder (`stuck-seek.ts`, content script, worker handlers); `canPlay` sample field; coordinator automatic resume (`armAutoResume`, `evaluateAutoResume`, `autoResumeDeadlineMs`) wired into the local service and the edge alarm; notices on the player page; a local-service and an edge-object integration test.
+
+## Confirmed Successful Results
+- `npm run check` exit 0 (45 files, 736 tests); full browser suite 15 passed, 1 skipped (before the last test-only commit).
+
+## Failed, Incomplete, or Unresolved Work
+- Cause of the 6:35 jump and of the wedge is unproven; hypothesis H1 (a long backward seek through `currentTime` outside the buffer is not loaded by Crunchyroll's player) is untested. The experiment needs a stuck tab kept open.
+- No live Crunchyroll session on this branch. Effectiveness of the nudge is unknown; the reload is the confirmed cure.
+- A member's own pause of a playing room is unchanged (decision 3 in docs/AUTOMATIC_RESUME_DESIGN.md).
+
+## Decisions and Rationale
+- Automatic reload on with a 20 s countdown, Sync cancels, once per ten minutes per tab, never without `sessionStorage`; wait two minutes then stop; no "continue without"; coordinator wait is memory-only. Recorded in docs/AUTOMATIC_RESUME_DESIGN.md section 7.
+- No wire break: `canPlay` is optional and ignored by older coordinators; an older extension is judged by `buffering`.
+
+## Files and Artifacts
+- `packages/sync-engine/src/room.ts`, `playback-health.ts`, `participant-status.ts`; `packages/protocol/src/index.ts`; `apps/extension/src/stuck-seek.ts`, `content-script.ts`, `service-worker.ts`, `diagnostics-budget.ts`, `playback-status.ts`, `internal.ts`; `apps/edge-service/src/alarm.ts`, `worker.ts`; `apps/room-service/src/server.ts`; tests; `docs/AUTOMATIC_RESUME_DESIGN.md`; `CHANGELOG.md`; this file.
+
+## Open Questions, Blockers, and Dependencies
+- Owner's go to deploy the coordinator, and an extension release (0.2.10) so that participants get the ladder, `canPlay` and the notices.
+
+## Next Steps
+1. Matrix on the final head; review; merge.
+2. Release 0.2.10, then deploy the coordinator on the owner's go; production smoke and a two-participant probe.
+3. A live session with a diagnostics report right after any stall.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
