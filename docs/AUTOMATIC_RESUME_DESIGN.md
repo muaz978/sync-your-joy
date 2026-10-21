@@ -118,12 +118,12 @@ Timing origin: every wait is measured from the start of the seek that got stuck 
 
 | Step | Action | When | Notes |
 | --- | --- | --- | --- |
-| 1 | Re-issue the seek to the same target (what Sync does, but automatic) | 6 s after the seek began | counted even when the player offers nothing to write to |
+| 1 | Re-issue the seek to the room's current target (what Sync does, but automatic; in a playing room the target has advanced since the seek began) | 6 s after the seek began | counted even when the player offers nothing to write to |
 | 2 | **Nudge**: seek to a buffered position at least a second from the target, then to the room's current position | 6 s after step 1 | tries every buffered range, nearest first; re-issues the seek when none is usable; effectiveness unknown (see 6) |
 | 3 | Reload advice, as before | when step 2 has also failed | the room keeps the place; no data is lost |
 | 3b | Automatic reload after a visible 20 s countdown that Sync cancels | 8 s after step 2 | at most once per tab in ten minutes; never without `sessionStorage` (decision 1) |
 
-Each step is reported to the diagnostics as a `stuck_seek_step` event, so a later report shows how far the ladder got. When any step succeeds, the player reports prepared and problem A's resume (or the controller's Play) works as normal.
+The re-issue, the nudge and each stage of the reload (countdown, cancelled, declined, sent) are reported to the diagnostics as `stuck_seek_step` events, so a later report shows how far the ladder got; the reload advice that precedes a countdown is shown on the page but is not an event of its own. When any step succeeds, the player reports prepared and problem A's resume (or the controller's Play) works as normal.
 
 Coordinator side (not built): when every required player has reported the same unprepared seek target, a repeated Play press is futile; answer with a status line ("Players are still loading 6:35") instead of starting another doomed 3.3 s operation each time.
 
