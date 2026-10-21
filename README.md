@@ -35,7 +35,7 @@ Unpacked extensions do not update automatically. Normal one-click installation a
 6. Everyone waits for **Video matches**, then selects **I'm ready**.
 7. The controller uses the streaming player's normal play, pause, and progress-bar controls. SyncYourJoy sends those actions to the room automatically.
 
-If a provider blocks autoplay, click its video once. Use **Sync me now** for one participant or **Sync everyone** for the whole room if a player drifts. A refresh is not normally required. Only when a player stays stuck on a synchronized seek after Sync has been pressed twice does the page advise reloading that tab; the room keeps your place.
+If a provider blocks autoplay, click its video once. Use **Sync me now** for one participant or **Sync everyone** for the whole room if a player drifts. A refresh is not normally required. Only when a player stays stuck on a synchronized seek does the page do more: from `0.2.10` it asks the player again by itself, seeks through a buffered position, and if that also fails counts down 20 seconds on the page and reloads the tab (Sync cancels the countdown; a tab is reloaded this way at most once in ten minutes); `0.2.8` and `0.2.9` advise reloading after Sync has been pressed twice. The room keeps your place.
 
 ## Current public beta
 
@@ -77,7 +77,7 @@ Version `0.2.5` adds transactional playback: Play and seek are prepared and comm
 
 Version `0.2.8` lets Sync re-ask a player that never finished a synchronized seek, and advises reloading the tab when two attempts also fail (a mitigation for a Crunchyroll stall; the cause is not established).
 
-Version `0.2.9` makes a short rebuffer stop pausing the room for everyone: the coordinator now pauses the room only after a participant has reported buffering for 3 seconds in a row (deployed on 2026-10-19), and a player that is only waiting for data is no longer paused and re-seeked by the extension's own drift correction. The room still does not resume by itself after a real pause: the controller presses Play (Sync only realigns a player and leaves the room paused). Every tester should be on `0.2.9`, because an older extension drops its buffering flag after one report and can still pause the room during a stall (tracked in #141).
+Version `0.2.9` makes a short rebuffer stop pausing the room for everyone: the coordinator now pauses the room only after a participant has reported buffering for 3 seconds in a row (deployed on 2026-10-19), and a player that is only waiting for data is no longer paused and re-seeked by the extension's own drift correction. The room still does not resume by itself after a real pause: the controller presses Play (Sync only realigns a player and leaves the room paused). An extension older than `0.2.9` drops its buffering flag after one report and can still pause the room during a stall (tracked in #141), so everyone in a room should run the latest release (see `0.2.10` below).
 
 Version `0.2.10` recovers a seek that never completes without a click (the page asks the player again, seeks through a buffered position, then counts down 20 seconds on the page and reloads the tab; Sync cancels, and a tab is reloaded this way at most once in ten minutes), keeps what began a stall in the diagnostics report, and shows a paused player that still waits for data as Buffering instead of Ready. The coordinator also gained the ability to resume the room by itself once every player can play after a pause the system caused (never after a pause a person made); that part works only after the coordinator is redeployed, which the release notes say when it has been done. See `docs/AUTOMATIC_RESUME_DESIGN.md`.
 
@@ -159,7 +159,7 @@ Maintainers should follow [Releasing](docs/RELEASING.md). Pull requests and push
 ## Project documentation
 
 - [Public beta testing](docs/PRIVATE_BETA.md)
-- [Gates 1-3 friend test guide](docs/TEST_GUIDE.md)
+- [Gates 1-3 friend test guide](docs/TEST_GUIDE.md) (written for `0.2.6`: its download link installs that release, so install the latest from the [Releases page](https://github.com/muaz978/sync-your-joy/releases) instead and use the guide for the test steps)
 - [Gates 1-3 friend test guide PDF](docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.pdf)
 - [Gates 1-3 friend test guide Word document](docs/artifacts/SyncYourJoy-Gates-1-3-Test-Guide.docx)
 - [Gate 1-3 closeout and Gate 4 entry criteria](docs/GATE_1_3_CLOSEOUT.md)
