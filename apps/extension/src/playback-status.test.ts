@@ -28,6 +28,12 @@ describe('extension playback status copy', () => {
     expect(localPlaybackStatus(base())).toBe('playing')
   })
 
+  it('does not call a paused player ready while it still waits for data', () => {
+    expect(localPlaybackStatus(base({ roomPlaying: false, buffering: true, progressed: false }))).toBe('buffering')
+    expect(localPlaybackStatus(base({ roomPlaying: false, ready: false, buffering: true }))).toBe('preparing')
+    expect(playbackStatusCopy('buffering', false).detail).toBe('The player is waiting for data before it can play.')
+  })
+
   it('maps each recovery reason to the bounded status vocabulary', () => {
     expect(localPlaybackStatus(base({ hasVideo: false }))).toBe('preparing')
     expect(localPlaybackStatus(base({ mediaMatches: false }))).toBe('wrong-media')

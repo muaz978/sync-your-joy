@@ -1,4 +1,4 @@
-import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticReason, DiagnosticValue, MediaFingerprint, ServerMessage } from '@syncyourjoy/protocol'
+import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticReason, DiagnosticValue, MediaFingerprint, PlaybackState, RoomSnapshot, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { CURRENT_CLIENT_CAPABILITIES, generateRoomCode, mediaMatches, normalizeMediaPageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
@@ -10,7 +10,7 @@ import { shouldConfirmMediaMismatch } from './readiness-state.ts'
 import { isAwaitingApproval } from './room-membership.ts'
 import { connectionQuality } from './connection-quality.ts'
 import { browserApi } from './browser-api.ts'
-import { fitDiagnosticsReport } from './diagnostics-budget.ts'
+import { diagnosticEvictionIndex, fitDiagnosticsReport, roomPositionJump } from './diagnostics-budget.ts'
 import { bufferedAheadBucket, MAX_BUFFERED_PAIRS, MAX_SEEKABLE_PAIRS, sanitizeElapsedMs, sanitizeMediaErrorCode, sanitizeRangeCount, sanitizeRangePairs, sanitizeRangeSeconds } from './media-ranges.ts'
 import { CONTROLLER_FOLLOW_NAVIGATION_ENABLED, shouldFollowControllerNavigation, strongCrunchyrollNavigationKey } from './navigation-transaction.ts'
 
@@ -21,6 +21,11 @@ const SESSION_STATE_KEY = 'syncYourJoySessionState'
 const PLAYER_BINDING_KEY = 'syncYourJoyPlayerBinding'
 const DISPLAY_NAME_KEY = 'syncYourJoyDisplayName'
 const DIAGNOSTIC_EVENT_LIMIT = 100
+// What the room says about resuming by itself after it paused a stalled player.
+const AUTO_RESUME_NOTICES: ReadonlyMap<string, string> = new Map([
+  ['auto_resume_play_pending', 'Resuming playback for everyone.'],
+  ['auto_resume_abandoned', 'Could not resume automatically. The controller can press Play when everyone is ready.'],
+])
 // A participant may be waking a suspended service worker or a throttled tab.
 // Give the room-wide report enough time to collect every response without
 // making the normal playback path wait for diagnostics.
@@ -363,6 +368,8 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         playbackStarted: typeof request.sample.playbackStarted === 'boolean' ? request.sample.playbackStarted : null,
         playbackStartFailed: typeof request.sample.playbackStartFailed === 'boolean' ? request.sample.playbackStartFailed : null,
         correctionCount: request.sample.correctionCount ?? 0,
+        // What the room's automatic resume waits for: without it a report cannot say why the room stayed paused.
+        canPlay: typeof request.sample.canPlay === 'boolean' ? request.sample.canPlay : null,
       }, statusReason ? { reason: statusReason } : {})
       sendToServer({ type: 'player_status', basedOnRevision: request.basedOnRevision, sample: request.sample })
       // Fire-and-forget, matching the 'pong' handler below: this fires on a
@@ -400,6 +407,30 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         bindingId: request.acknowledgement.bindingId,
         sourceGeneration: request.acknowledgement.sourceGeneration,
         sampleSequence: request.acknowledgement.sampleSequence,
+      }
+      return success()
+
+    case 'STUCK_SEEK_STEP':
+      if (!isBoundPlayerSender(sender, request.bindingId))
+        return success()
+      recordDiagnostic('playback', 'stuck_seek_step', {
+        step: request.step,
+        reissues: request.reissues,
+        positionSeconds: request.positionSeconds,
+      }, { critical: true })
+      return success()
+
+    case 'RELOAD_PLAYER_TAB':
+      // Only the tab the room is playing in, and only when the page itself
+      // asked after its own countdown; the room survives the reload and the
+      // page binds again.
+      if (!isBoundPlayerSender(sender, request.bindingId) || sender.tab?.id === undefined)
+        return success()
+      try {
+        await chrome.tabs.reload(sender.tab.id)
+      }
+      catch {
+        return failure('The tab could not be reloaded.')
       }
       return success()
 
@@ -792,16 +823,22 @@ function handleServerMessage(raw: string): void {
     state.connection = 'connected'
     state.participantId = message.participantId
     state.sessionToken = message.sessionToken ?? null
+    // A rejoin replaces what this browser last knew, so a seek made while the
+    // connection was down shows up here, not in a snapshot.
+    const previousPlayback = state.snapshot?.playback ?? null
     state.snapshot = message.snapshot
     state.lastError = null
     recordDiagnostic('room', 'room_joined', { revision: message.snapshot.revision })
+    recordRoomPositionJump(previousPlayback, message.snapshot, 'room_joined')
     void applySharedNavigation(message.snapshot)
     void publishState()
     return
   }
 
   if (message.type === 'room_snapshot') {
-    if (!state.snapshot || message.snapshot.revision >= state.snapshot.revision)
+    const previousPlayback = state.snapshot?.playback ?? null
+    const snapshotApplied = !state.snapshot || message.snapshot.revision >= state.snapshot.revision
+    if (snapshotApplied)
       state.snapshot = message.snapshot
     state.connection = 'connected'
     state.lastError = null
@@ -813,6 +850,11 @@ function handleServerMessage(raw: string): void {
       positionSeconds: message.snapshot.playback.positionSeconds,
       aligning: message.snapshot.seek !== null,
     }, snapshotReason ? { reason: snapshotReason } : {})
+    if (snapshotApplied)
+      recordRoomPositionJump(previousPlayback, message.snapshot, message.reason)
+    const autoResumeNotice = snapshotApplied ? AUTO_RESUME_NOTICES.get(message.reason) : undefined
+    if (autoResumeNotice)
+      void sendToPlayerTab({ type: 'SHOW_NOTICE', message: autoResumeNotice })
     void applySharedNavigation(message.snapshot)
     void publishState()
     return
@@ -1356,6 +1398,18 @@ function createId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`
 }
 
+function recordRoomPositionJump(previousPlayback: PlaybackState | null, snapshot: RoomSnapshot, reason: string): void {
+  const jump = roomPositionJump(previousPlayback, snapshot.playback, Date.now() + state.serverOffsetMs)
+  if (!jump)
+    return
+  recordDiagnostic('room', 'room_position_changed', {
+    fromSeconds: jump.fromSeconds,
+    toSeconds: jump.toSeconds,
+    reason: safeDiagnosticCode(reason),
+    revision: snapshot.revision,
+  }, { critical: true })
+}
+
 function recordDiagnostic(category: string, message: string, details: Record<string, DiagnosticValue> = {}, options: { critical?: boolean; reason?: DiagnosticReason } = {}): void {
   const atLocalMs = Date.now()
   const sanitizedDetails = Object.fromEntries(Object.entries(details).slice(0, 20).map(([key, value]) => [key.slice(0, 40), sanitizeDiagnosticValue(value)]))
@@ -1396,9 +1450,7 @@ function recordDiagnostic(category: string, message: string, details: Record<str
   if (options.reason)
     lastDiagnosticReason = options.reason
   if (diagnosticEvents.length > DIAGNOSTIC_EVENT_LIMIT) {
-    const firstNonCritical = diagnosticEvents.findIndex(candidate => candidate.critical !== true)
-    const removeIndex = firstNonCritical === -1 ? 0 : firstNonCritical
-    diagnosticEvents.splice(removeIndex, 1)
+    diagnosticEvents.splice(diagnosticEvictionIndex(diagnosticEvents), 1)
     diagnosticEventsDropped += 1
   }
 }
@@ -1415,6 +1467,7 @@ function diagnosticStatusSignature(details: Record<string, DiagnosticValue>): st
     details.progressEvidence ?? null,
     details.playbackStarted ?? null,
     details.playbackStartFailed ?? null,
+    details.canPlay ?? null,
   ])
 }
 

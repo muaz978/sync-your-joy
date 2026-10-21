@@ -1,6 +1,6 @@
 import type { DiagnosticsReport } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
-import { DIAGNOSTIC_MESSAGE_BUDGET_BYTES, fitDiagnosticsReport, serializedDiagnosticsBytes } from './diagnostics-budget.ts'
+import { DIAGNOSTIC_MESSAGE_BUDGET_BYTES, diagnosticEvictionIndex, fitDiagnosticsReport, roomPositionJump, serializedDiagnosticsBytes } from './diagnostics-budget.ts'
 
 function report(eventCount: number): DiagnosticsReport {
   return {
@@ -87,5 +87,71 @@ describe('diagnostics message budget', () => {
     // of a failure depends on.
     expect(cost).toBeLessThanOrEqual(400)
     expect(serializedDiagnosticsBytes(fitDiagnosticsReport({ ...largest, events: report(120).events }))).toBeLessThanOrEqual(DIAGNOSTIC_MESSAGE_BUDGET_BYTES)
+  })
+})
+
+describe('which diagnostic event is dropped first', () => {
+  const event = (message: string, details: Record<string, string | number> = {}, critical = true) => ({
+    atLocalMs: 1,
+    category: 'room',
+    message,
+    details,
+    ...(critical ? { critical: true as const } : {}),
+  })
+
+  it('drops an ordinary event before a repeated one, a repeated one before a critical one, and a critical one before a pinned one', () => {
+    expect(diagnosticEvictionIndex([
+      event('room_position_changed'),
+      event('room_snapshot', { reason: 'control_play_pending' }),
+      event('room_snapshot', { reason: 'participant_status_changed' }),
+      event('heartbeat', {}, false),
+    ])).toBe(3)
+    expect(diagnosticEvictionIndex([
+      event('room_position_changed'),
+      event('room_snapshot', { reason: 'control_play_pending' }),
+      event('room_snapshot', { reason: 'participant_status_changed' }),
+    ])).toBe(2)
+    expect(diagnosticEvictionIndex([
+      event('room_position_changed'),
+      event('room_snapshot', { reason: 'control_play_pending' }),
+    ])).toBe(1)
+  })
+
+  it('drops the oldest of the lowest rank and says -1 for nothing', () => {
+    expect(diagnosticEvictionIndex([event('player_status'), event('media_detected'), event('room_position_changed')])).toBe(0)
+    expect(diagnosticEvictionIndex([event('media_detected'), event('room_snapshot', { reason: 'participant_status_changed' }), event('room_snapshot', { reason: 'participant_status_changed' })])).toBe(1)
+    expect(diagnosticEvictionIndex([])).toBe(-1)
+  })
+
+  it('keeps a pinned event through a report trimmed to the byte budget', () => {
+    const base = report(0)
+    const events = [
+      { atLocalMs: 1, category: 'room', message: 'room_position_changed', details: { fromSeconds: 676, toSeconds: 395.6 }, critical: true as const },
+      ...Array.from({ length: 200 }, (_, index) => ({
+        atLocalMs: 2 + index,
+        category: 'room',
+        message: 'room_snapshot',
+        details: { reason: 'participant_status_changed', revision: index, status: 'paused', positionSeconds: 395.6, aligning: false },
+        critical: true as const,
+      })),
+    ]
+    const fitted = fitDiagnosticsReport({ ...base, events })
+    expect(fitted.payloadTruncated).toBe(true)
+    expect(fitted.events[0]?.message).toBe('room_position_changed')
+  })
+})
+
+describe('roomPositionJump', () => {
+  const paused = (positionSeconds: number) => ({ status: 'paused' as const, positionSeconds, effectiveAtServerMs: 0, playbackRate: 1 as const })
+
+  it('reports a seek of several minutes with rounded positions', () => {
+    expect(roomPositionJump(paused(676.04), paused(395.63325), 10_000)).toEqual({ fromSeconds: 676, toSeconds: 395.6 })
+  })
+
+  it('does not report playback advancing, a small move, or a first snapshot', () => {
+    const playing = { status: 'playing' as const, positionSeconds: 100, effectiveAtServerMs: 0, playbackRate: 1 as const }
+    expect(roomPositionJump(playing, paused(110), 10_000)).toBeNull()
+    expect(roomPositionJump(paused(100), paused(102.9), 10_000)).toBeNull()
+    expect(roomPositionJump(null, paused(500), 10_000)).toBeNull()
   })
 })

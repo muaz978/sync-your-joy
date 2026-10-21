@@ -150,6 +150,7 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
       get: vi.fn(async () => {
         throw new Error('no such tab in this test')
       }),
+      reload: vi.fn(async () => undefined),
     },
   }
 
@@ -428,6 +429,8 @@ describe('service worker observed episode identity', () => {
         || message.type === 'SEEK_APPLIED'
         || message.type === 'OPERATION_ACK'
         || message.type === 'PLAYER_INTENT'
+        || message.type === 'STUCK_SEEK_STEP'
+        || message.type === 'RELOAD_PLAYER_TAB'
       const boundMessage = bindingAware && !('bindingId' in message)
         ? { ...message, bindingId: currentBindingId } as RuntimeRequest
         : message
@@ -1004,6 +1007,123 @@ describe('service worker observed episode identity', () => {
       expect(report.events.filter(event => event.message === 'player_status')).toEqual([expect.objectContaining({ details: expect.objectContaining({ repeatCount: 2 }) })])
       const times = report.events.map(event => event.atLocalMs)
       expect(times).toEqual([...times].sort((left, right) => left - right))
+    })
+
+    it('keeps the room position change that began a stall when the same snapshots repeat for minutes', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      const socket = FakeWebSocket.instances[0]!
+      const at = (positionSeconds: number) => ({ status: 'paused' as const, positionSeconds, effectiveAtServerMs: 0, playbackRate: 1 as const })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'control_pause', snapshot: buildRoomSnapshot({ revision: 6, playback: at(676) }) })
+      // The room jumps back by almost five minutes: the event the 0.2.9 report lost.
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'control_seek_pending', snapshot: buildRoomSnapshot({ revision: 7, playback: at(395.6) }) })
+      // Five minutes of the same failing Play cycle, six distinct room events per cycle.
+      for (let cycle = 0; cycle < 90; cycle += 1) {
+        const revision = 8 + cycle * 2
+        socket.simulateMessage({ type: 'room_snapshot', reason: 'control_play_pending', snapshot: buildRoomSnapshot({ revision, playback: at(395.6) }) })
+        socket.simulateMessage({ type: 'room_snapshot', reason: 'operation_timeout_paused', snapshot: buildRoomSnapshot({ revision: revision + 1, playback: at(395.6) }) })
+        for (let report = 0; report < 4; report += 1)
+          socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_status_changed', snapshot: buildRoomSnapshot({ revision: revision + 1, playback: at(395.6) }) })
+        await request({ type: 'PLAYER_STATUS', basedOnRevision: revision, sample: { ...stalledSample, sampledAtLocalMs: Date.now() } }, sender)
+      }
+
+      const report = reportFor(socket, 'report_position_jump')
+      expect(report.events.filter(event => event.message === 'room_position_changed')).toContainEqual(
+        expect.objectContaining({ critical: true, details: { fromSeconds: 676, toSeconds: 395.6, reason: 'control_seek_pending', revision: 7 } }),
+      )
+      expect(report.payloadTruncated).toBe(true)
+    })
+
+    it('records each step the page takes on a stuck seek, and keeps them through a long stall', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      const socket = FakeWebSocket.instances[0]!
+      await request({ type: 'STUCK_SEEK_STEP', step: 'reissue', reissues: 1, positionSeconds: 395.6 }, sender)
+      await request({ type: 'STUCK_SEEK_STEP', step: 'nudge', reissues: 2, positionSeconds: 395.6 }, sender)
+      for (let revision = 6; revision < 120; revision += 1)
+        socket.simulateMessage({ type: 'room_snapshot', reason: 'control_play_pending', snapshot: buildRoomSnapshot({ revision }) })
+
+      const steps = reportFor(socket, 'report_steps').events.filter(event => event.message === 'stuck_seek_step')
+      expect(steps.map(event => event.details)).toEqual([
+        { step: 'reissue', reissues: 1, positionSeconds: 395.6 },
+        { step: 'nudge', reissues: 2, positionSeconds: 395.6 },
+      ])
+    })
+
+    it('ignores a step report from a page that is not the bound player', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      await request({ type: 'STUCK_SEEK_STEP', step: 'nudge', reissues: 2, positionSeconds: 1 }, { tab: { id: 7 }, frameId: 0 } as chrome.runtime.MessageSender)
+      expect(reportFor(socket, 'report_foreign_step').events.filter(event => event.message === 'stuck_seek_step')).toEqual([])
+    })
+
+    it('reloads the tab the room is playing in when its page asks, and no other', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      await request({ type: 'RELOAD_PLAYER_TAB' }, { tab: { id: 7 }, frameId: 0 } as chrome.runtime.MessageSender)
+      expect(fake.chrome.tabs.reload).not.toHaveBeenCalled()
+
+      await request({ type: 'RELOAD_PLAYER_TAB' }, sender)
+      expect(fake.chrome.tabs.reload).toHaveBeenCalledTimes(1)
+      expect(fake.chrome.tabs.reload).toHaveBeenCalledWith(42)
+    })
+
+    it('tells the player page when the room resumes by itself and when it gives up', async () => {
+      const { fake } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'auto_resume_play_pending', snapshot: buildRoomSnapshot({ revision: 6 }) })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'auto_resume_abandoned', snapshot: buildRoomSnapshot({ revision: 6 }) })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_status_changed', snapshot: buildRoomSnapshot({ revision: 6 }) })
+
+      const shown = vi.mocked(fake.chrome.tabs.sendMessage).mock.calls
+        .map(([, message]) => message as { type?: string; message?: string })
+        .filter(message => message.type === 'SHOW_NOTICE')
+        .map(message => message.message)
+      expect(shown).toEqual([
+        'Resuming playback for everyone.',
+        'Could not resume automatically. The controller can press Play when everyone is ready.',
+      ])
+    })
+
+    it('reports a seek made while the connection was down when the room is joined again', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      void request
+      const socket = FakeWebSocket.instances[0]!
+      const at = (positionSeconds: number) => ({ status: 'paused' as const, positionSeconds, effectiveAtServerMs: 0, playbackRate: 1 as const })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'control_pause', snapshot: buildRoomSnapshot({ revision: 6, playback: at(676) }) })
+      socket.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ revision: 9, playback: at(395.6) }) })
+
+      expect(reportFor(socket, 'report_rejoin_jump').events.filter(event => event.message === 'room_position_changed').at(-1)?.details)
+        .toEqual({ fromSeconds: 676, toSeconds: 395.6, reason: 'room_joined', revision: 9 })
+    })
+
+    it('records whether a player could play in its status events, as a transition of its own', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { ...stalledSample, canPlay: false, sampledAtLocalMs: Date.now() } }, sender)
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { ...stalledSample, canPlay: true, sampledAtLocalMs: Date.now() } }, sender)
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { ...stalledSample, sampledAtLocalMs: Date.now() } }, sender)
+
+      expect(reportFor(socket, 'report_can_play').events.filter(event => event.message === 'player_status').map(event => event.details.canPlay))
+        .toEqual([false, true, null])
+    })
+
+    it('answers a reload request that Chrome refused with a failure, so the page does not keep the cooldown', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      vi.mocked(fake.chrome.tabs.reload).mockRejectedValueOnce(new Error('No tab with id'))
+
+      const response = await request({ type: 'RELOAD_PLAYER_TAB' }, sender)
+
+      expect(response.ok).toBe(false)
+      expect(response.error).toBe('The tab could not be reloaded.')
+    })
+
+    it('does not report a position that only advanced with playback or moved less than the jump threshold', async () => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const playing = (positionSeconds: number) => ({ status: 'playing' as const, positionSeconds, effectiveAtServerMs: Date.now(), playbackRate: 1 as const })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'control_play', snapshot: buildRoomSnapshot({ revision: 6, playback: playing(0) }) })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_status_changed', snapshot: buildRoomSnapshot({ revision: 7, playback: playing(1.5) }) })
+      expect(reportFor(socket, 'report_no_jump').events.filter(event => event.message === 'room_position_changed')).toEqual([])
     })
 
     it('does not merge a heartbeat across a media loss, a reconnect or a room change', async () => {

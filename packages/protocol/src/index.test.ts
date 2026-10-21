@@ -163,6 +163,13 @@ describe('media identity matching', () => {
   })
 
 
+  it('accepts the optional canPlay evidence only as a boolean, and still accepts a sample without it', () => {
+    const sample = { positionSeconds: 7, durationSeconds: 600, paused: true, buffering: false, sampledAtLocalMs: 10_000 }
+    expect(parseClientMessage({ type: 'player_status', basedOnRevision: 4, sample })).not.toBeNull()
+    expect(parseClientMessage({ type: 'player_status', basedOnRevision: 4, sample: { ...sample, canPlay: true } })).toMatchObject({ sample: { canPlay: true } })
+    expect(parseClientMessage({ type: 'player_status', basedOnRevision: 4, sample: { ...sample, canPlay: 'yes' } })).toBeNull()
+  })
+
   it('accepts only finite seek-completion acknowledgements', () => {
     expect(parseClientMessage({ type: 'seek_applied', revision: 7, positionSeconds: 120 })).toMatchObject({
       type: 'seek_applied',

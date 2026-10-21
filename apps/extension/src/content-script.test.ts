@@ -47,6 +47,7 @@ class FakeVideo extends FakeElement {
   static HAVE_NOTHING = 0
   static HAVE_METADATA = 1
   static HAVE_CURRENT_DATA = 2
+  static HAVE_FUTURE_DATA = 3
   localName = 'video'
   isConnected = true
   currentSrc = 'blob:fixture-episode'
@@ -518,6 +519,30 @@ describe('adaptive player lifecycle', () => {
     })
   })
 
+  describe('the sample the room uses to decide whether it can resume by itself', () => {
+    function sampleNow(): { canPlay?: boolean } {
+      let sample: { canPlay?: boolean } = {}
+      listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, (response) => { sample = (response as { sample: typeof sample }).sample })
+      return sample
+    }
+
+    it('says canPlay only for an element that has data to play and is not seeking', () => {
+      video.readyState = FakeVideo.HAVE_FUTURE_DATA
+      expect(sampleNow().canPlay).toBe(true)
+
+      video.readyState = FakeVideo.HAVE_CURRENT_DATA
+      expect(sampleNow().canPlay).toBe(false)
+
+      video.readyState = FakeVideo.HAVE_FUTURE_DATA
+      video.seeking = true
+      expect(sampleNow().canPlay).toBe(false)
+
+      video.seeking = false
+      video.readyState = FakeVideo.HAVE_METADATA
+      expect(sampleNow().canPlay).toBe(false)
+    })
+  })
+
   describe('a player stuck at metadata during a transactional prepare', () => {
     const target = 197.442125
 
@@ -673,6 +698,306 @@ describe('adaptive player lifecycle', () => {
         await vi.advanceTimersByTimeAsync(2_500)
 
         expect(pill('#syj-notice').textContent).not.toContain('Reload this tab')
+      })
+    })
+
+    describe('and nobody presses Sync: the page recovers by itself (#138)', () => {
+      const RELOAD_NOTICE = 'This player is stuck loading the shared position. Reload this tab to recover; the room keeps your place.'
+      let storage: Map<string, string>
+
+      function stubSessionStorage(initial: Record<string, string> = {}): void {
+        storage = new Map(Object.entries(initial))
+        vi.stubGlobal('sessionStorage', {
+          getItem: (key: string) => storage.get(key) ?? null,
+          setItem: (key: string, value: string) => { storage.set(key, value) },
+          removeItem: (key: string) => { storage.delete(key) },
+        })
+      }
+
+      async function wedge(): Promise<void> {
+        video.readyState = FakeVideo.HAVE_METADATA
+        video.networkState = 2
+        Object.assign(video, { buffered: { length: 1, start: () => 672.7, end: () => 736 } })
+        await beginPlayPrepare()
+        expect(video.writes).toEqual([target])
+      }
+
+      const steps = () => messages.filter((message): message is Extract<RuntimeRequest, { type: 'STUCK_SEEK_STEP' }> => message.type === 'STUCK_SEEK_STEP').map(message => message.step)
+      const reloads = () => messages.filter(message => message.type === 'RELOAD_PLAYER_TAB')
+
+      it('leaves a slow load alone for six seconds, then asks for the position again', async () => {
+        stubSessionStorage()
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(5_000)
+        expect(video.writes).toEqual([target])
+        expect(steps()).toEqual([])
+
+        await vi.advanceTimersByTimeAsync(2_000)
+        expect(video.writes).toEqual([target, target])
+        expect(steps()).toEqual(['reissue'])
+      })
+
+      it('then seeks to a buffered point and back, without presenting either as a scrub', async () => {
+        stubSessionStorage()
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(14_000)
+
+        expect(video.writes).toEqual([target, target, 673.2, target])
+        expect(steps()).toEqual(['reissue', 'nudge'])
+        expect(messages.filter(message => message.type === 'PLAYER_INTENT')).toEqual([])
+      })
+
+      it('does not send the controller\'s own nudge to the room as a scrub', async () => {
+        stubSessionStorage()
+        state.snapshot!.controller = { participantId: 'guest', leaseEpoch: 1 }
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(14_000)
+
+        expect(video.writes).toEqual([target, target, 673.2, target])
+        expect(messages.filter(message => message.type === 'PLAYER_INTENT' || message.type === 'CONTROL')).toEqual([])
+      })
+
+      it('counts down on the page and reloads the tab once, after both steps have failed', async () => {
+        stubSessionStorage()
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(24_000)
+        expect(steps()).toEqual(['reissue', 'nudge', 'reload_countdown'])
+        expect(pill('#syj-notice').textContent).toMatch(/Reloading this tab in \d+ s/)
+        expect(reloads()).toEqual([])
+
+        let reloadedAt = 0
+        const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+        const original = sendMessage.getMockImplementation() as (request: RuntimeRequest) => Promise<unknown>
+        sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+          if (request.type === 'RELOAD_PLAYER_TAB')
+            reloadedAt = Date.now()
+          return original(request)
+        })
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(reloads()).toHaveLength(1)
+        expect(steps().at(-1)).toBe('reload')
+        expect(reloadedAt).toBeGreaterThan(0)
+        expect(Number(storage.get('syncyourjoy.autoReloadAt'))).toBe(reloadedAt)
+
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(reloads()).toHaveLength(1)
+      })
+
+      it('still climbs the ladder when the player has no seekable range to write to, instead of repeating the first step', async () => {
+        stubSessionStorage()
+        await wedge()
+        Object.assign(video, { seekable: { length: 0, start: () => 0, end: () => 0 } })
+
+        await vi.advanceTimersByTimeAsync(24_000)
+
+        expect(steps()).toEqual(['reissue', 'nudge', 'reload_countdown'])
+      })
+
+      it('climbs the ladder in a room that keeps playing, whose target moves every second', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(2_000)
+        // The operation is over and the room plays on, so the target moves with the clock.
+        state.snapshot!.contract!.operation = null
+        apply('playing', target)
+
+        await vi.advanceTimersByTimeAsync(26_000)
+
+        expect(steps()).toEqual(['reissue', 'nudge', 'reload_countdown'])
+      })
+
+      it('ends the recovery when the controller scrubs somewhere else, before the room has heard about it', async () => {
+        stubSessionStorage()
+        state.snapshot!.controller = { participantId: 'guest', leaseEpoch: 1 }
+        await wedge()
+        await vi.advanceTimersByTimeAsync(5_600)
+
+        // A native scrub, which nothing on the page asked for. The room has not
+        // learned of it yet, so the stuck position is still the room's.
+        video.position = 100
+        video.seeking = true
+        video.dispatchEvent(new Event('seeking'))
+        await vi.advanceTimersByTimeAsync(1_500)
+
+        // The ladder's first step was due; it must not take it for the old position.
+        expect(steps()).toEqual([])
+      })
+
+      it('does not replace a newer seek with the return from the buffered point when the room moves on while it is held', async () => {
+        stubSessionStorage()
+        await wedge()
+        for (let waited = 0; waited < 20_000 && !video.writes.includes(673.2); waited += 100)
+          await vi.advanceTimersByTimeAsync(100)
+        expect(video.writes).toContain(673.2)
+
+        // A new seek replaces the operation, as a controller's scrub does.
+        state.snapshot!.contract!.operation = null
+        apply('paused', 500)
+        await vi.advanceTimersByTimeAsync(2_000)
+
+        expect(video.writes.slice(video.writes.indexOf(673.2) + 1)).not.toContain(target)
+        expect(video.writes.at(-1)).toBe(500)
+      })
+
+      it('leaves a healthy player in a playing room alone, whatever stuck record an earlier stall left behind', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(2_000)
+        // The seek finished and the room plays on, a little behind the room as a real player is.
+        state.snapshot!.contract!.operation = null
+        apply('playing', target)
+        video.seeking = false
+        video.readyState = FakeVideo.HAVE_FUTURE_DATA
+        video.paused = false
+        const startedAt = Date.now()
+
+        for (let second = 0; second < 60; second += 1) {
+          // A real element finishes the seeks the page starts; the fake one never does.
+          video.seeking = false
+          video.position = target + (Date.now() - startedAt) / 1000 - 1.0
+          video.totalFrames += 24
+          await vi.advanceTimersByTimeAsync(1_000)
+        }
+
+        expect(steps()).toEqual([])
+        expect(video.writes).not.toContain(673.2)
+        expect(reloads()).toEqual([])
+      })
+
+      it('does not warn about a reload that Chrome refused after the seek completed in the meantime', async () => {
+        stubSessionStorage()
+        await wedge()
+        const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+        const original = sendMessage.getMockImplementation() as (request: RuntimeRequest) => Promise<unknown>
+        let refuse: () => void = () => {}
+        const refusal = new Promise<void>((resolve) => { refuse = resolve })
+        sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+          if (request.type !== 'RELOAD_PLAYER_TAB')
+            return original(request)
+          messages.push(request)
+          await refusal
+          return { ok: false, state, error: 'The tab could not be reloaded.' }
+        })
+        for (let waited = 0; waited < 60_000 && reloads().length === 0; waited += 500)
+          await vi.advanceTimersByTimeAsync(500)
+        expect(reloads()).toHaveLength(1)
+
+        video.seeking = false
+        video.readyState = FakeVideo.HAVE_CURRENT_DATA
+        video.position = target
+        video.dispatchEvent(new Event('seeked'))
+        await vi.advanceTimersByTimeAsync(200)
+        // Completing the seek took the countdown off the page.
+        expect(pill('#syj-notice').textContent).toBe('')
+        refuse()
+        await vi.advanceTimersByTimeAsync(200)
+
+        expect(pill('#syj-notice').textContent).toBe('')
+      })
+
+      it('takes the countdown off the page when the player recovers while it runs', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(24_000)
+        expect(pill('#syj-notice').textContent).toMatch(/Reloading this tab in/)
+
+        video.seeking = false
+        video.readyState = FakeVideo.HAVE_CURRENT_DATA
+        video.position = target
+        await vi.advanceTimersByTimeAsync(2_000)
+
+        expect(pill('#syj-notice').textContent).toBe('')
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(reloads()).toEqual([])
+      })
+
+      it('does not use up the cooldown, and tells the participant, when the worker refuses the reload', async () => {
+        stubSessionStorage()
+        await wedge()
+        const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+        const original = sendMessage.getMockImplementation() as (request: RuntimeRequest) => Promise<unknown>
+        sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+          if (request.type !== 'RELOAD_PLAYER_TAB')
+            return original(request)
+          messages.push(request)
+          return { ok: false, state, error: 'The tab could not be reloaded.' }
+        })
+
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        expect(reloads()).toHaveLength(1)
+        expect(storage.has('syncyourjoy.autoReloadAt')).toBe(false)
+        expect(pill('#syj-notice').textContent).toBe(RELOAD_NOTICE)
+      })
+
+      it('lets Sync cancel the countdown, and does not start another for the same stall', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(24_000)
+        expect(steps().at(-1)).toBe('reload_countdown')
+
+        listener({ type: 'FORCE_SYNC' })
+        await Promise.resolve()
+        expect(steps().at(-1)).toBe('reload_cancelled')
+
+        await vi.advanceTimersByTimeAsync(120_000)
+        expect(reloads()).toEqual([])
+        expect(steps().filter(step => step === 'reload_countdown')).toHaveLength(1)
+      })
+
+      it('does not reload a tab that was reloaded automatically ten minutes ago or less', async () => {
+        stubSessionStorage({ 'syncyourjoy.autoReloadAt': String(Date.now() - 60_000) })
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        expect(steps().slice(-1)).toEqual(['reload_declined'])
+        expect(reloads()).toEqual([])
+        expect(pill('#syj-notice').textContent).toBe(RELOAD_NOTICE)
+      })
+
+      it('never reloads on its own when the tab cannot remember that it did', async () => {
+        vi.stubGlobal('sessionStorage', {
+          getItem: () => { throw new Error('storage is blocked') },
+          setItem: () => { throw new Error('storage is blocked') },
+        })
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        expect(steps().slice(-1)).toEqual(['reload_declined'])
+        expect(reloads()).toEqual([])
+      })
+
+      it('does nothing once the seek completes on its own', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(3_000)
+
+        video.seeking = false
+        video.readyState = FakeVideo.HAVE_CURRENT_DATA
+        video.dispatchEvent(new Event('seeked'))
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        expect(video.writes).toEqual([target])
+        expect(steps()).toEqual([])
+        expect(reloads()).toEqual([])
+      })
+
+      it('starts over for a new room position instead of repeating the old target', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(3_000)
+
+        apply('paused', 500)
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        expect(video.writes).not.toContain(673.2)
+        expect(steps()).not.toContain('nudge')
       })
     })
 
