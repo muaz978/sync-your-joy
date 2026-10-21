@@ -43,8 +43,11 @@ export function localPlaybackStatus(input: LocalPlaybackStatusInput): Participan
     return 'blocked'
   if (input.pendingSeek || input.operationKind === 'seek')
     return 'seeking'
-  if (!input.roomPlaying)
-    return input.ready ? 'ready' : 'preparing'
+  if (!input.roomPlaying) {
+    if (!input.ready)
+      return 'preparing'
+    return input.buffering ? 'buffering' : 'ready'
+  }
   if (input.statusAgeMs !== null && input.statusAgeMs >= SILENCE_TIMEOUT_MS)
     return 'silent'
   if (input.buffering)
@@ -75,7 +78,7 @@ export function playbackStatusCopy(status: ParticipantPlaybackStatus, controller
     case 'blocked':
       return { label: 'Playback blocked', detail: 'Use one local gesture to allow playback, then sync again.', action: 'Sync me now' }
     case 'buffering':
-      return { label: 'Buffering', detail: 'The player is waiting for data before it can confirm progress.', action: 'Retry after buffering' }
+      return { label: 'Buffering', detail: 'The player is waiting for data before it can play.', action: 'Retry after buffering' }
     case 'silent':
       return { label: 'No player report', detail: 'The player stopped reporting. Redetect it or reopen the shared page.', action: 'Redetect player' }
     case 'wrong-media':

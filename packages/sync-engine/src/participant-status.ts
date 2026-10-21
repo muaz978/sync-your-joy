@@ -40,8 +40,14 @@ export function participantPlaybackStatus(input: ParticipantPlaybackStatusInput)
   if (operation && isPreparationPhase(operation.phase))
     return 'preparing'
 
-  if (input.playback.status !== 'playing')
-    return input.ready ? 'ready' : 'preparing'
+  if (input.playback.status !== 'playing') {
+    if (!input.ready)
+      return 'preparing'
+    // A paused player that still reports waiting for data is not ready to
+    // play, whatever its readiness button says: the panel used to show a green
+    // "Ready" for two players that had been unable to finish a seek for minutes.
+    return input.sample?.buffering === true ? 'buffering' : 'ready'
+  }
 
   if (input.sample === null)
     return input.nowMs >= input.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS ? 'silent' : 'preparing'

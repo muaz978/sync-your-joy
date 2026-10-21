@@ -53,6 +53,12 @@ describe('public participant playback statuses', () => {
     expect(participantPlaybackStatus(base({ playback: playing, sample: sample() }))).toBe('playing')
   })
 
+  it('does not report a paused room player as ready while its sample says it is still waiting for data', () => {
+    expect(participantPlaybackStatus(base({ sample: sample({ paused: true, buffering: true, progressed: false }) }))).toBe('buffering')
+    expect(participantPlaybackStatus(base({ sample: sample({ paused: true, buffering: false }) }))).toBe('ready')
+    expect(participantPlaybackStatus(base({ ready: false, sample: sample({ paused: true, buffering: true }) }))).toBe('preparing')
+  })
+
   it('explains media mismatch, preparation and seeking before raw health details', () => {
     expect(participantPlaybackStatus(base({ mediaMatches: false }))).toBe('wrong-media')
     expect(participantPlaybackStatus(base({ ready: false }))).toBe('preparing')
