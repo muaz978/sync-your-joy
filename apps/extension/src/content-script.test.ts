@@ -891,7 +891,8 @@ describe('adaptive player lifecycle', () => {
         video.position = target
         video.dispatchEvent(new Event('seeked'))
         await vi.advanceTimersByTimeAsync(200)
-        pill('#syj-notice').textContent = ''
+        // Completing the seek took the countdown off the page.
+        expect(pill('#syj-notice').textContent).toBe('')
         refuse()
         await vi.advanceTimersByTimeAsync(200)
 

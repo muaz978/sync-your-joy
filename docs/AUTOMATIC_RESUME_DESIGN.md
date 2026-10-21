@@ -114,16 +114,18 @@ Runs in the extension, per player, automatically; today only Sync re-issues the 
 
 Trigger: a pending seek is still incomplete after `LOCAL_SEEK_MAX_WAIT_MS` (1.5 s). The ladder does not look at `readyState` or the buffered ranges to start; the first step waits 6 s, and a player that is no longer seeking and has data (at the target, in a paused room) ends the recovery at the next look, so a slow but valid seek is left alone as long as it completes.
 
-| Step | Action | Wait | Notes |
+Timing origin: every wait is measured from the start of the seek that got stuck for the first step (6 s after it began, not 6 s after the 1.5 s timeout), and from the previous step for the next ones. The ladder looks once a second.
+
+| Step | Action | When | Notes |
 | --- | --- | --- | --- |
-| 1 | Re-issue the seek to the same target (what Sync does today, but automatic) | 2 s | exists for Sync; make it automatic once |
-| 2 | **Nudge**: seek to the nearest buffered position, wait for `seeked`, then seek to the target | 3 s | forces a real seeking transition; effectiveness unknown (see 6) |
-| 3 | Reload advice, as now | - | the room keeps the place; no data is lost |
-| 3b | Automatic reload after a visible countdown (20 s, cancellable) | - | **owner decision**, see 7 |
+| 1 | Re-issue the seek to the same target (what Sync does, but automatic) | 6 s after the seek began | counted even when the player offers nothing to write to |
+| 2 | **Nudge**: seek to a buffered position at least a second from the target, then to the room's current position | 6 s after step 1 | tries every buffered range, nearest first; re-issues the seek when none is usable; effectiveness unknown (see 6) |
+| 3 | Reload advice, as before | when step 2 has also failed | the room keeps the place; no data is lost |
+| 3b | Automatic reload after a visible 20 s countdown that Sync cancels | 8 s after step 2 | at most once per tab in ten minutes; never without `sessionStorage` (decision 1) |
 
-After each step report `stuckSeek.step` in the diagnostics sample so a later report shows how far the ladder got. When any step succeeds, the player reports prepared and problem A's resume (or the controller's Play) works as normal.
+Each step is reported to the diagnostics as a `stuck_seek_step` event, so a later report shows how far the ladder got. When any step succeeds, the player reports prepared and problem A's resume (or the controller's Play) works as normal.
 
-Coordinator side: when every required player has reported the same unprepared seek target, a repeated Play press is futile; answer with a status line ("Players are still loading 6:35") instead of starting another doomed 3.3 s operation each time.
+Coordinator side (not built): when every required player has reported the same unprepared seek target, a repeated Play press is futile; answer with a status line ("Players are still loading 6:35") instead of starting another doomed 3.3 s operation each time.
 
 ## 5. Diagnostics fixes (needed to learn anything from the next report)
 
