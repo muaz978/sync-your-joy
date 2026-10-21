@@ -930,7 +930,7 @@ function handleServerMessage(raw: string): void {
       state.snapshot = message.snapshot
       recordRoomStatusChange(previousPlayback, message.snapshot, message.code)
     }
-      recordDiagnostic('error', 'command_rejected', {
+    recordDiagnostic('error', 'command_rejected', {
       code: safeDiagnosticCode(message.code),
       // Who was not ready, when that is why: the report can say which participant.
       ...(message.code === 'participants_not_ready' && state.snapshot ? { notReady: notReadySummary(state.snapshot.participants) } : {}),
