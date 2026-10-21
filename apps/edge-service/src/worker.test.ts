@@ -394,6 +394,56 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     return { store, host, friend, first }
   }
 
+  it('resumes a room the system paused from its alarm, and schedules that alarm (#141)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: startMs })
+    const alarms: number[] = []
+    const host = new FakeSocket()
+    const room = objectOver(new Map<string, unknown>(), [host], alarms)
+    const snapshots = () => host.sent.filter((message): message is Extract<ServerMessage, { type: 'room_snapshot' }> => message.type === 'room_snapshot')
+    const reasons = () => snapshots().map(message => message.reason)
+    const revision = () => snapshots().at(-1)!.snapshot.revision
+    const sample = (overrides: Record<string, unknown> = {}) => say(room, host, {
+      type: 'player_status',
+      basedOnRevision: revision(),
+      sample: { positionSeconds: 20, durationSeconds: 600, paused: false, buffering: false, progressed: true, playbackStarted: true, sampledAtLocalMs: Date.now(), ...overrides },
+    })
+    const tick = (ms: number) => vi.setSystemTime(Date.now() + ms)
+
+    await say(room, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA, capabilities: CURRENT_CLIENT_CAPABILITIES })
+    await say(room, host, { type: 'set_ready', ready: true, media: MEDIA })
+    await say(room, host, { type: 'control', actionId: 'action_edge_auto_resume', basedOnRevision: revision(), leaseEpoch: 1, kind: 'play', positionSeconds: 20 })
+    const operation = snapshots().at(-1)!.snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    const acknowledge = (phase: 'prepared' | 'started', sampleSequence: number) => say(room, host, {
+      type: 'operation_ack',
+      acknowledgement: {
+        mediaEpoch: operation.mediaEpoch, operationId: operation.operationId, phase, participantId: 'participant_host',
+        bindingId: 'binding_host_123456', sourceGeneration: 1, sampleSequence, observedPositionSeconds: 20, observedAtLocalMs: Date.now(),
+      },
+    })
+    await acknowledge('prepared', 1)
+    vi.setSystemTime(snapshots().at(-1)!.snapshot.contract?.operation?.effectiveAtServerMs ?? startMs)
+    await acknowledge('started', 2)
+
+    tick(3_000)
+    for (let step = 0; step < 8 && !reasons().includes('participant_buffering'); step += 1) {
+      await sample({ buffering: true, progressed: false })
+      tick(1_000)
+    }
+    expect(reasons()).toContain('participant_buffering')
+    // The pause armed the wait, and the object asked for an alarm to look at it.
+    expect(alarms.at(-1)).toBeLessThanOrEqual(Date.now() + 1_000)
+
+    for (let step = 0; step < 5 && !reasons().includes('auto_resume_play_pending'); step += 1) {
+      await sample({ paused: true, buffering: false, progressed: false, canPlay: true })
+      await room.alarm()
+      tick(1_000)
+    }
+    expect(reasons()).toContain('auto_resume_play_pending')
+    expect(snapshots().at(-1)!.snapshot.contract?.operation).toMatchObject({ kind: 'play', phase: 'preparing' })
+  })
+
   it('withdraws a stored request whose socket is gone, so it cannot be approved into a member with no connection', async () => {
     const { store, host } = await roomWithHostAndRequest()
 
