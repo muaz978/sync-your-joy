@@ -5,6 +5,7 @@ import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from
 import { MAX_BUFFERED_PAIRS, MAX_SEEKABLE_PAIRS, summarizeTimeRanges } from './media-ranges.ts'
 import { resolveSeekTarget } from './media-seek.ts'
 import { LOCAL_INTENT_HOLD_MS, shouldDeferAuthoritativeSync } from './player-intent.ts'
+import { isAutomaticPause, isPauseWhileAway } from './automatic-pause.ts'
 import { PlayerOperations, type OperationToken } from './player-operations.ts'
 import { clearPlaybackStartFailed, createPlayerHealthState, markPlaybackStartFailed, markPlayerHealthBuffering, observePlayerHealth, resetPlayerHealthBaseline, type PlayerHealthState } from './player-health.ts'
 import { decidePlayerIdentity } from './player-identity.ts'
@@ -54,6 +55,11 @@ let lastFingerprintKey = ''
 let lastMediaReportAt = 0
 let localSeeking = false
 let localIntentHoldUntil = 0
+// A scrub the room refused because someone was not ready: the controller's
+// player stays where it was scrubbed to until the worker releases it.
+let controllerSeekHeldUntil = 0
+// When the page was last left (window blur, or the tab hidden); see automatic-pause.ts.
+let lastAwayAtMs: number | null = null
 let expectedPlayUntil = 0
 let playAttemptTimer: ReturnType<typeof setTimeout> | null = null
 let expectedPauseUntil = 0
@@ -411,6 +417,17 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
       video.pause()
     }
   }
+  else if (message.type === 'CONTROLLER_SEEK_HOLD') {
+    if (message.held) {
+      controllerSeekHeldUntil = performance.now() + message.holdMs
+    }
+    else {
+      controllerSeekHeldUntil = 0
+      if (message.releaseHoldMs !== undefined && message.releaseHoldMs > 0)
+        localIntentHoldUntil = performance.now() + message.releaseHoldMs
+      applyAuthoritativeState()
+    }
+  }
   else if (message.type === 'FORCE_SYNC') {
     forceSyncToRoom(false)
   }
@@ -458,8 +475,13 @@ function recoverAfterPageVisibilityChange(): void {
   }
 }
 
+window.addEventListener('blur', () => {
+  lastAwayAtMs = performance.now()
+})
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible')
+  if (document.visibilityState === 'hidden')
+    lastAwayAtMs = performance.now()
+  else if (document.visibilityState === 'visible')
     recoverAfterPageVisibilityChange()
 })
 window.addEventListener('pageshow', recoverAfterPageVisibilityChange)
@@ -812,8 +834,30 @@ function handlePause(): void {
     // Programmatic pause already reflects the authoritative room state.
   }
   else if (video && !video.ended) {
-    holdLocalControllerIntent()
-    void sendRuntime({ type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: video.currentTime })
+    const context = {
+      roomPlaying: activeState?.snapshot?.playback.status === 'playing',
+      visibilityState: document.visibilityState,
+      focused: typeof document.hasFocus === 'function' ? document.hasFocus() : true,
+      msSinceAway: lastAwayAtMs === null ? null : performance.now() - lastAwayAtMs,
+    }
+    const automatic = isAutomaticPause(context)
+    if (isPauseWhileAway(context)) {
+      void sendRuntime({
+        type: 'PLAYER_PAUSE_CONTEXT',
+        ignored: automatic,
+        visibility: context.visibilityState,
+        focused: context.focused,
+        msSinceAway: context.msSinceAway === null ? null : Math.round(context.msSinceAway),
+      }).catch(() => undefined)
+    }
+    if (automatic) {
+      // Not a decision: the room keeps playing and this player follows it again.
+      applyAuthoritativeState()
+    }
+    else {
+      holdLocalControllerIntent()
+      void sendRuntime({ type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: video.currentTime })
+    }
   }
   renderPill()
   void reportPlayerStatus(false)
@@ -1094,6 +1138,11 @@ function applyAuthoritativeState(): void {
     holdUntil: localIntentHoldUntil,
     now: performance.now(),
   }))
+    return
+
+  // The room is not at the scrubbed position yet. Taking the player back to it
+  // is a long jump to data the player no longer has.
+  if (performance.now() < controllerSeekHeldUntil && isLocalController())
     return
 
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
@@ -1579,6 +1628,23 @@ function sendTransactionalAcknowledgement(operation: RoomOperation, phase: 'prep
   })
 }
 
+/** An explicit Sync is the retry boundary for a timed-out seek and for a stuck-seek reload that was counting down. */
+function retryBoundaryForSync(target: HTMLVideoElement): void {
+  if (pendingSeek?.timedOut) {
+    playerOperations.retireSeek(performance.now())
+    pendingSeek = null
+    clearSeekCompletionTimer()
+  }
+  if (!target.seeking)
+    clearStuckSeek()
+  if (stuckSeek && stuckSeek.reloadAt !== null) {
+    stuckSeek.reloadAt = null
+    stuckSeek.reloadCancelled = true
+    reportStuckSeekStep('reload_cancelled')
+    showNotice('Automatic reload cancelled. Sync is asking the player again.')
+  }
+}
+
 function forceSyncToRoom(fromUserGesture: boolean): void {
   if (!video || !activeState?.snapshot) {
     showNotice('The shared player is still loading.')
@@ -1594,20 +1660,8 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
   restorePlaybackRate()
   localIntentHoldUntil = 0
   localSeeking = false
-  // An explicit Sync is the retry boundary for a timed-out operation.
-  if (pendingSeek?.timedOut) {
-    playerOperations.retireSeek(performance.now())
-    pendingSeek = null
-    clearSeekCompletionTimer()
-  }
-  if (!video.seeking)
-    clearStuckSeek()
-  if (stuckSeek && stuckSeek.reloadAt !== null) {
-    stuckSeek.reloadAt = null
-    stuckSeek.reloadCancelled = true
-    reportStuckSeekStep('reload_cancelled')
-    showNotice('Automatic reload cancelled. Sync is asking the player again.')
-  }
+  controllerSeekHeldUntil = 0
+  retryBoundaryForSync(video)
   const reissueStuckSeek = stuckSeek !== null
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
   const expectedSeconds = expectedPosition(activeState.snapshot.playback, estimatedServerNowMs)
@@ -2396,6 +2450,7 @@ function withPlayerBinding(request: RuntimeRequest): RuntimeRequest {
     case 'SEEK_APPLIED':
     case 'PLAYER_INTENT':
     case 'STUCK_SEEK_STEP':
+    case 'PLAYER_PAUSE_CONTEXT':
     case 'RELOAD_PLAYER_TAB':
       return { ...request, bindingId: playerBindingId }
     default:

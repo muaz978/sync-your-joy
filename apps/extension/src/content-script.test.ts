@@ -272,6 +272,151 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('leaving the window', () => {
+  const pauseIntents = () => messages.filter(message => message.type === 'PLAYER_INTENT' && message.kind === 'pause')
+  const pauseContexts = () => messages.filter((message): message is Extract<RuntimeRequest, { type: 'PLAYER_PAUSE_CONTEXT' }> => message.type === 'PLAYER_PAUSE_CONTEXT')
+
+  async function playingAsController(): Promise<void> {
+    state.participantId = 'host'
+    video.position = 10
+    video.paused = false
+    apply('playing', 10)
+    await vi.advanceTimersByTimeAsync(50)
+    messages.length = 0
+    video.play.mockClear()
+  }
+
+  const leaveWindow = () => {
+    ;(document as unknown as { hasFocus: () => boolean }).hasFocus = () => false
+    window.dispatchEvent(new Event('blur'))
+  }
+
+  it('does not pause the room for everyone when the page pauses itself as the window is left, and lets the player follow the room again', async () => {
+    await playingAsController()
+
+    leaveWindow()
+    video.pause()
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(pauseIntents()).toEqual([])
+    expect(pauseContexts()).toEqual([{ type: 'PLAYER_PAUSE_CONTEXT', ignored: true, visibility: 'visible', focused: false, msSinceAway: expect.any(Number) }])
+    expect(video.play).toHaveBeenCalled()
+  })
+
+  it('does not pause the room for everyone when the page pauses itself as the tab is hidden', async () => {
+    await playingAsController()
+    ;(document as unknown as { hasFocus: () => boolean }).hasFocus = () => true
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    video.pause()
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(pauseIntents()).toEqual([])
+    expect(pauseContexts()).toEqual([{ type: 'PLAYER_PAUSE_CONTEXT', ignored: true, visibility: 'hidden', focused: true, msSinceAway: expect.any(Number) }])
+    expect(video.play).toHaveBeenCalled()
+  })
+
+  it('still sends a pause the controller makes in the page', async () => {
+    await playingAsController()
+    ;(document as unknown as { hasFocus: () => boolean }).hasFocus = () => true
+
+    video.pause()
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(pauseIntents()).toEqual([{ type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: expect.any(Number) }])
+    expect(pauseContexts()).toEqual([])
+  })
+
+  it('still sends a pause made long after the window was left, such as a media key', async () => {
+    await playingAsController()
+    leaveWindow()
+    for (let second = 1; second <= 5; second += 1) {
+      video.position = 10 + second
+      await vi.advanceTimersByTimeAsync(1_000)
+    }
+    messages.length = 0
+
+    video.pause()
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(pauseIntents()).toHaveLength(1)
+    expect(pauseContexts()).toEqual([expect.objectContaining({ ignored: false, focused: false })])
+  })
+
+  it('does not treat a pause as automatic when the room is not playing', async () => {
+    state.participantId = 'host'
+    apply('paused', 10)
+    video.paused = false
+    messages.length = 0
+    leaveWindow()
+
+    video.pause()
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(pauseIntents()).toHaveLength(1)
+  })
+})
+
+describe('a scrub the room has not accepted yet', () => {
+  async function scrubbedAwayFromPausedRoom(): Promise<void> {
+    state.participantId = 'host'
+    apply('paused', 2.68)
+    await vi.advanceTimersByTimeAsync(50)
+    video.position = 126
+    video.seeking = false
+    video.writes.length = 0
+  }
+
+  it('is taken back to the room position by default', async () => {
+    await scrubbedAwayFromPausedRoom()
+
+    apply('paused', 2.68)
+    await vi.advanceTimersByTimeAsync(3_000)
+
+    expect(video.writes).toContain(2.68)
+  })
+
+  it('keeps the controller\'s player where it was scrubbed to while the worker holds it, and releases it on request', async () => {
+    await scrubbedAwayFromPausedRoom()
+    listener({ type: 'CONTROLLER_SEEK_HOLD', held: true, holdMs: 45_000 })
+
+    // Room updates arrive while the room waits for a participant.
+    apply('paused', 2.68)
+    await vi.advanceTimersByTimeAsync(3_000)
+    apply('paused', 2.68)
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(video.writes).toEqual([])
+
+    listener({ type: 'CONTROLLER_SEEK_HOLD', held: false })
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(video.writes).toContain(2.68)
+  })
+
+  it('lets go by itself when the worker never releases it', async () => {
+    await scrubbedAwayFromPausedRoom()
+    listener({ type: 'CONTROLLER_SEEK_HOLD', held: true, holdMs: 10_000 })
+
+    apply('paused', 2.68)
+    await vi.advanceTimersByTimeAsync(9_000)
+    expect(video.writes).toEqual([])
+
+    apply('paused', 2.68)
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(video.writes).toContain(2.68)
+  })
+
+  it('is released by Sync', async () => {
+    await scrubbedAwayFromPausedRoom()
+    listener({ type: 'CONTROLLER_SEEK_HOLD', held: true, holdMs: 45_000 })
+
+    listener({ type: 'FORCE_SYNC' })
+    await vi.advanceTimersByTimeAsync(3_000)
+
+    expect(video.writes).toContain(2.68)
+  })
+})
+
 describe('adaptive player lifecycle', () => {
   it('learns the worker binding token from media detection and propagates it to later status messages', async () => {
     const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
