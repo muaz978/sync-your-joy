@@ -46,7 +46,7 @@ Resume is only useful once B is solved or does not apply. Do B first or together
 
 ```
 autoResume: {
-  armedAtServerMs, cause,          // 'participant_buffering' | 'participant_playback_stalled' | 'participant_playback_startup_timeout'
+  armedAtServerMs, cause,          // 'participant_buffering' | 'participant_playback_stalled' | 'participant_playback_silent'
   revisionAtPause,                 // the revision the pause produced
   attempts, lastAttemptAtServerMs,
   stableSinceServerMs | null,      // start of the current "everyone can play" window
@@ -61,6 +61,7 @@ Armed inside the same code that produces the health pause (`updatePlayerStatus`)
 
 - `participant_buffering` (after the 3 s grace),
 - `participant_playback_stalled` (1.8 s without progress),
+- `participant_playback_silent` (a player that stopped reporting; its own reports must resume before the wait can proceed).
 - `participant_playback_startup_timeout` is **not** armed (a player that never started is problem B).
 
 Not armed: `participant_playback_blocked` (needs a user gesture), any controller `pause`, `seek`, `play`, `pass`, an operation that failed in `preparing` (`operation_timeout_paused`), `manual-recovery`, a restore, room expiry.
@@ -82,7 +83,7 @@ The prepare barrier is the final safety check. A player that reports `buffering:
 ### 3.5 Resume action and bounds
 
 - Issue the same transactional Play a controller press issues (prepare, commit with lead, start acknowledgements) so everyone starts together. Mark the operation `initiator: 'system'` in the diagnostics event, and record `auto_resume_attempt`, `auto_resume_succeeded`, `auto_resume_abandoned` with the reason.
-- Success: the operation reaches `started` and progress is confirmed for 10 s; reset `attempts`.
+- Success: the operation reaches `started`; the wait is cleared at once and no separate progress confirmation is made. A later stall arms a new wait, within the arm limit.
 - Failure (barrier timeout, start timeout, rejection): count it.
   - Autoplay rejection: abandon immediately (needs a gesture).
   - Barrier never prepared (wedged player): abandon after the first failure, mark the participant `recovery-required`, and hand over to problem B.
@@ -94,7 +95,7 @@ The prepare barrier is the final safety check. A player that reports `buffering:
 
 A count of what people did to the room (a control, a readiness change, a join, a leave, a change of controller, any call that changed the room) is taken when the wait begins; a different count cancels it. Revisions are not compared: the coordinator's own health, acknowledgement and failed-operation updates produce revisions that say nothing about a person.
 
-While a wait is open the edge object is woken once a second (the alarm persists the room each time), for at most two minutes per wait and three waits in two minutes: about 120 small writes per incident. The local service already ticks every 100 ms.
+While a wait is open the edge object is woken once a second (the alarm persists the room each time), for at most two minutes per wait: about 120 small writes per wait. The arm limit (three waits inside a rolling two minutes) bounds how fast waits can follow one another, not the total over a long incident. The local service already ticks every 100 ms.
 
 ### 3.6 What the user sees
 
@@ -111,7 +112,7 @@ A participant whose extension is too old to report reliably is not special-cased
 
 Runs in the extension, per player, automatically; today only Sync re-issues the seek and the reload advice appears after two failed re-issues.
 
-Trigger: a pending seek has timed out (`LOCAL_SEEK_MAX_WAIT_MS`, 1.5 s), `readyState <= 1`, and the target is outside every buffered range.
+Trigger: a pending seek is still incomplete after `LOCAL_SEEK_MAX_WAIT_MS` (1.5 s). The ladder does not look at `readyState` or the buffered ranges to start; the first step waits 6 s, and a player that is no longer seeking and has data (at the target, in a paused room) ends the recovery at the next look, so a slow but valid seek is left alone as long as it completes.
 
 | Step | Action | Wait | Notes |
 | --- | --- | --- | --- |

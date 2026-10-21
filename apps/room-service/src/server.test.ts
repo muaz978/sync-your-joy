@@ -1035,8 +1035,10 @@ describe('empty room expiry with unapproved requests', () => {
 describe('automatic resume after the room paused a stalled player (#141)', () => {
   const startMs = 1_800_000_000_000
   let clockMs = startMs
+  const settle = () => new Promise<void>(resolve => setTimeout(resolve, 40))
 
-  it('resumes from the cleanup timer once the player can play again, and tells the room', async () => {
+  /** A host in a transactional room whose snapshots are collected, and the means to drive its player. */
+  async function openRoom() {
     clockMs = startMs
     service = await createRoomService({ port: 0, now: () => clockMs, cleanupIntervalMs: 10 })
     const media = { service: 'youtube', canonicalId: 'youtube:auto-resume', title: 'Auto resume test video', durationSeconds: 600 }
@@ -1047,8 +1049,8 @@ describe('automatic resume after the room paused a stalled player (#141)', () =>
       if (message.type === 'room_snapshot')
         seen.push(message)
     })
-    const latest = () => seen.at(-1)!
-    const waitFor = async (reason: string): Promise<Extract<ServerMessage, { type: 'room_snapshot' }>> => {
+    const has = (reason: string) => seen.some(message => message.reason === reason)
+    const waitFor = async (reason: string) => {
       const deadline = AbortSignal.timeout(3_000)
       for (;;) {
         const found = seen.find(message => message.reason === reason)
@@ -1061,10 +1063,17 @@ describe('automatic resume after the room paused a stalled player (#141)', () =>
     }
     const sample = (overrides: Record<string, unknown> = {}) => host.send(JSON.stringify({
       type: 'player_status',
-      basedOnRevision: latest().snapshot.revision,
+      basedOnRevision: seen.at(-1)!.snapshot.revision,
       sample: { positionSeconds: 20, durationSeconds: 600, paused: false, buffering: false, progressed: true, playbackStarted: true, sampledAtLocalMs: clockMs, ...overrides },
     }))
-    const settle = () => new Promise<void>(resolve => setTimeout(resolve, 40))
+    /** Sends `overrides` as the player's report once a second until the room says `reason`, at most `steps` times. */
+    const reportUntil = async (reason: string, steps: number, overrides: Record<string, unknown>) => {
+      for (let step = 0; step < steps && !has(reason); step += 1) {
+        sample(overrides)
+        await settle()
+        clockMs += 1_000
+      }
+    }
 
     host.send(JSON.stringify({
       type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'AUTORSM1', media, capabilities: CURRENT_CLIENT_CAPABILITIES,
@@ -1075,15 +1084,18 @@ describe('automatic resume after the room paused a stalled player (#141)', () =>
     seen.push({ type: 'room_snapshot', reason: 'room_joined', snapshot: created.snapshot })
     host.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
     await waitFor('participant_ready')
+    return { host, seen, has, waitFor, sample, reportUntil }
+  }
 
-    host.send(JSON.stringify({
-      type: 'control', actionId: 'action_auto_resume_play', basedOnRevision: latest().snapshot.revision, leaseEpoch: 1, kind: 'play', positionSeconds: 20,
+  /** Plays from 20 s and returns once the host's player has acknowledged the start. */
+  async function startPlaying(room: Awaited<ReturnType<typeof openRoom>>) {
+    room.host.send(JSON.stringify({
+      type: 'control', actionId: 'action_auto_resume_play', basedOnRevision: room.seen.at(-1)!.snapshot.revision, leaseEpoch: 1, kind: 'play', positionSeconds: 20,
     }))
-    const pending = await waitFor('control_play_pending')
-    const operation = pending.snapshot.contract?.operation
+    const operation = (await room.waitFor('control_play_pending')).snapshot.contract?.operation
     if (!operation)
       throw new Error('Expected a transactional operation.')
-    const acknowledge = (phase: 'prepared' | 'started', sampleSequence: number) => host.send(JSON.stringify({
+    const acknowledge = (phase: 'prepared' | 'started', sampleSequence: number) => room.host.send(JSON.stringify({
       type: 'operation_ack',
       acknowledgement: {
         mediaEpoch: operation.mediaEpoch, operationId: operation.operationId, phase, participantId: 'participant_host',
@@ -1091,38 +1103,35 @@ describe('automatic resume after the room paused a stalled player (#141)', () =>
       },
     }))
     acknowledge('prepared', 1)
-    const committed = await waitFor('operation_committed')
+    const committed = await room.waitFor('operation_committed')
     clockMs = committed.snapshot.contract?.operation?.effectiveAtServerMs ?? clockMs
     acknowledge('started', 2)
-    await waitFor('operation_started')
+    await room.waitFor('operation_started')
+  }
+
+  it('resumes from the cleanup timer once the player can play again, and tells the room', async () => {
+    const room = await openRoom()
+    await startPlaying(room)
 
     // The player buffers until the room pauses for everyone.
     clockMs += 3_000
-    for (let step = 0; step < 8 && !seen.some(message => message.reason === 'participant_buffering'); step += 1) {
-      sample({ buffering: true, progressed: false })
-      await settle()
-      clockMs += 1_000
-    }
-    const paused = await waitFor('participant_buffering')
+    await room.reportUntil('participant_buffering', 8, { buffering: true, progressed: false })
+    const paused = await room.waitFor('participant_buffering')
     expect(paused.snapshot.playback.status).toBe('paused')
 
     // It cannot play yet: nothing is started, however long it stays that way.
     for (let step = 0; step < 3; step += 1) {
-      sample({ paused: true, buffering: true, progressed: false, canPlay: false })
+      room.sample({ paused: true, buffering: true, progressed: false, canPlay: false })
       await settle()
       clockMs += 1_000
     }
-    expect(seen.some(message => message.reason === 'auto_resume_play_pending')).toBe(false)
+    expect(room.has('auto_resume_play_pending')).toBe(false)
 
     // Once it can play for the stability window, the room starts a Play by itself.
-    for (let step = 0; step < 4 && !seen.some(message => message.reason === 'auto_resume_play_pending'); step += 1) {
-      sample({ paused: true, buffering: false, progressed: false, canPlay: true })
-      await settle()
-      clockMs += 1_000
-    }
-    const resumed = await waitFor('auto_resume_play_pending')
+    await room.reportUntil('auto_resume_play_pending', 4, { paused: true, buffering: false, progressed: false, canPlay: true })
+    const resumed = await room.waitFor('auto_resume_play_pending')
     expect(resumed.snapshot.contract?.operation).toMatchObject({ kind: 'play', phase: 'preparing', targetPositionSeconds: paused.snapshot.playback.positionSeconds })
-    host.close()
+    room.host.close()
   })
 })
 

@@ -60,9 +60,10 @@ export interface BufferedRange { start: number; end: number }
 
 /**
  * A position inside the buffered range nearest to the target, to seek to
- * first. Null when nothing is buffered. The point sits half a second inside
- * the range, or in its middle when the range is shorter than a second, so it
- * is a position the player can show at once.
+ * first. Null when nothing usable is buffered. The point sits half a second
+ * inside the range at its near edge, or at the other edge or the middle when
+ * that would be within a second of the target (a seek that does not move the
+ * player shows it nothing), or in the middle of a range shorter than a second.
  */
 export function nearestBufferedPoint(ranges: readonly BufferedRange[], targetSeconds: number): number | null {
   let best: BufferedRange | null = null
@@ -79,7 +80,8 @@ export function nearestBufferedPoint(ranges: readonly BufferedRange[], targetSec
   if (best === null)
     return null
   const length = best.end - best.start
-  if (length < 1)
-    return best.start + length / 2
-  return targetSeconds < best.start ? best.start + 0.5 : best.end - 0.5
+  const nearEdge = targetSeconds < best.start ? best.start + 0.5 : best.end - 0.5
+  const farEdge = targetSeconds < best.start ? best.end - 0.5 : best.start + 0.5
+  const candidates = length < 1 ? [best.start + length / 2] : [nearEdge, farEdge, best.start + length / 2]
+  return candidates.find(candidate => Math.abs(candidate - targetSeconds) >= 1) ?? null
 }

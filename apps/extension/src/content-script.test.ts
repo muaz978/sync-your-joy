@@ -827,7 +827,7 @@ describe('adaptive player lifecycle', () => {
         expect(steps()).toEqual([])
       })
 
-      it('asks for where the room is now, not where it was, when it moves on while the buffered point is held', async () => {
+      it('does not replace a newer seek with the return from the buffered point when the room moves on while it is held', async () => {
         stubSessionStorage()
         await wedge()
         for (let waited = 0; waited < 20_000 && !video.writes.includes(673.2); waited += 100)
@@ -841,6 +841,61 @@ describe('adaptive player lifecycle', () => {
 
         expect(video.writes.slice(video.writes.indexOf(673.2) + 1)).not.toContain(target)
         expect(video.writes.at(-1)).toBe(500)
+      })
+
+      it('leaves a healthy player in a playing room alone, whatever stuck record an earlier stall left behind', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(2_000)
+        // The seek finished and the room plays on, a little behind the room as a real player is.
+        state.snapshot!.contract!.operation = null
+        apply('playing', target)
+        video.seeking = false
+        video.readyState = FakeVideo.HAVE_FUTURE_DATA
+        video.paused = false
+        const startedAt = Date.now()
+
+        for (let second = 0; second < 60; second += 1) {
+          // A real element finishes the seeks the page starts; the fake one never does.
+          video.seeking = false
+          video.position = target + (Date.now() - startedAt) / 1000 - 1.0
+          video.totalFrames += 24
+          await vi.advanceTimersByTimeAsync(1_000)
+        }
+
+        expect(steps()).toEqual([])
+        expect(video.writes).not.toContain(673.2)
+        expect(reloads()).toEqual([])
+      })
+
+      it('does not warn about a reload that Chrome refused after the seek completed in the meantime', async () => {
+        stubSessionStorage()
+        await wedge()
+        const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+        const original = sendMessage.getMockImplementation() as (request: RuntimeRequest) => Promise<unknown>
+        let refuse: () => void = () => {}
+        const refusal = new Promise<void>((resolve) => { refuse = resolve })
+        sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+          if (request.type !== 'RELOAD_PLAYER_TAB')
+            return original(request)
+          messages.push(request)
+          await refusal
+          return { ok: false, state, error: 'The tab could not be reloaded.' }
+        })
+        for (let waited = 0; waited < 60_000 && reloads().length === 0; waited += 500)
+          await vi.advanceTimersByTimeAsync(500)
+        expect(reloads()).toHaveLength(1)
+
+        video.seeking = false
+        video.readyState = FakeVideo.HAVE_CURRENT_DATA
+        video.position = target
+        video.dispatchEvent(new Event('seeked'))
+        await vi.advanceTimersByTimeAsync(200)
+        pill('#syj-notice').textContent = ''
+        refuse()
+        await vi.advanceTimersByTimeAsync(200)
+
+        expect(pill('#syj-notice').textContent).toBe('')
       })
 
       it('takes the countdown off the page when the player recovers while it runs', async () => {

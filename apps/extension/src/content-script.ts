@@ -2105,11 +2105,16 @@ function stuckSeekLadderTick(): void {
   const snapshot = activeState.snapshot
   const now = performance.now()
   const target = expectedPosition(snapshot.playback, Date.now() + activeState.serverOffsetMs)
-  if (!video.seeking && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && isSeekAligned(video.currentTime, target)) {
+  const roomPaused = snapshot.playback.status === 'paused'
+  // A player that is no longer seeking and has data is not stuck. In a playing
+  // room its position is the drift correction's business (it is never at the
+  // moving target to the tenth of a second); only a paused room's player must
+  // also be at the target, or the ladder keeps going.
+  if (!video.seeking && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && (!roomPaused || isSeekAligned(video.currentTime, target))) {
     clearStuckSeek()
     return
   }
-  if (snapshot.playback.status === 'paused' && !isSeekAligned(stuck.positionSeconds, target)) {
+  if (roomPaused && !isSeekAligned(stuck.positionSeconds, target)) {
     // The room moved on: a stall at the new position is a new seek.
     clearStuckSeek()
     return
@@ -2166,11 +2171,14 @@ function runStuckSeekStep(stuck: NonNullable<typeof stuckSeek>, kind: 'reissue' 
   expectedSeek = { positionSeconds: via, until: now + 4_000 }
   if (!writeSeekTarget(video, via))
     return
+  const generation = playerOperations.snapshot()
   // Reviewed false positive: the callback is a fixed arrow function and the
   // delay is a constant, so no untrusted data reaches the timer.
   stuckSeekNudgeTimer = setTimeout(() => { // DevSkim: ignore DS172411
     stuckSeekNudgeTimer = null
-    if (stuckSeek !== stuck || !video || !activeState?.snapshot)
+    // A room command or a new source while the buffered point was held has
+    // its own seek to make; this one would replace it.
+    if (stuckSeek !== stuck || !video || !activeState?.snapshot || !playerOperations.isCurrentGeneration(generation))
       return
     // The room may have moved on while the buffered point was held: ask for
     // where it is now, not for where it was.
@@ -2238,6 +2246,9 @@ async function performStuckSeekReload(stuck: NonNullable<typeof stuckSeek>): Pro
   catch {
     // Nothing was stored to begin with.
   }
+  // The seek may have completed while the request was out; nothing is stuck then.
+  if (stuckSeek !== stuck)
+    return
   declineStuckSeekReload(stuck)
 }
 

@@ -53,6 +53,13 @@ describe('the buffered point to seek to first', () => {
     expect(nearestBufferedPoint([{ start: 5, end: 5 }], 10)).toBeNull()
   })
 
+  it('never picks a point within a second of the target, which would show the player nothing', () => {
+    expect(nearestBufferedPoint([{ start: 0, end: 60 }], 59.5)).toBe(0.5)
+    expect(nearestBufferedPoint([{ start: 0, end: 60 }], 0.2)).toBe(59.5)
+    expect(nearestBufferedPoint([{ start: 10, end: 11.6 }], 10.8)).toBeNull()
+    expect(nearestBufferedPoint([{ start: 50, end: 50.6 }], 50.3)).toBeNull()
+  })
+
   it('treats a target inside a range as nearest to that range', () => {
     expect(nearestBufferedPoint([{ start: 0, end: 60 }, { start: 90, end: 100 }], 30)).toBe(59.5)
   })

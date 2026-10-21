@@ -1140,11 +1140,12 @@ describe('RoomCoordinator', () => {
         reportAll({ progressed: true })
       }
       /** The friend buffers until the room pauses for everyone. */
-      const bufferUntilPaused = () => {
+      const bufferUntilPaused = (hostKeepsReporting = true) => {
         nowMs += 3_000
         let result: RoomResult | null = null
         for (let step = 0; step < 8 && room.snapshot().playback.status === 'playing'; step += 1) {
-          report('participant_host')
+          if (hostKeepsReporting)
+            report('participant_host')
           result = report('participant_friend', { buffering: true, progressed: false })
           nowMs += 1_000
         }
@@ -1283,7 +1284,7 @@ describe('RoomCoordinator', () => {
         report('participant_friend', { paused: true, buffering: false, progressed: false, canPlay: true, positionSeconds: friendPosition })
       }
       for (let step = 0; step < 4; step += 1) {
-        ready(roomPosition - 120)
+        ready(roomPosition - 20)
         expect(room.evaluateAutoResume()).toBeNull()
         at(now() + 1_000)
       }
@@ -1328,18 +1329,30 @@ describe('RoomCoordinator', () => {
     it('does not count a report from before the pause, or one that is no longer fresh', () => {
       const { room, play, report, reportAll, bufferUntilPaused, now, at } = startedRoom()
       play()
+      // The host's last report is from before the pause, and says it can play.
       reportAll({ paused: true, buffering: false, progressed: false, canPlay: true })
-      bufferUntilPaused()
-      // The only samples are the ones the buffering run left, and the host's from before the pause.
+      bufferUntilPaused(false)
+      // The friend's samples are the buffering ones that caused the pause.
       expect(room.evaluateAutoResume()).toBeNull()
       at(now() + 5_000)
       expect(room.evaluateAutoResume()).toBeNull()
 
+      // Only the friend reports again: the host's report still predates the pause.
       report('participant_friend', { paused: true, buffering: false, progressed: false, canPlay: true })
-      report('participant_host', { paused: true, buffering: false, progressed: false, canPlay: true })
       expect(room.evaluateAutoResume()).toBeNull()
       at(now() + 3_000)
+      report('participant_friend', { paused: true, buffering: false, progressed: false, canPlay: true })
       expect(room.evaluateAutoResume()).toBeNull()
+      expect(room.snapshot().contract?.operation?.phase).not.toBe('preparing')
+
+      // Once the host reports after the pause too, the wait can proceed.
+      report('participant_host', { paused: true, buffering: false, progressed: false, canPlay: true })
+      at(now() + 1_600)
+      reportAll({ paused: true, buffering: false, progressed: false, canPlay: true })
+      expect(room.evaluateAutoResume()).toBeNull()
+      at(now() + 1_600)
+      reportAll({ paused: true, buffering: false, progressed: false, canPlay: true })
+      expect(room.evaluateAutoResume()).toMatchObject({ reason: 'auto_resume_play_pending' })
     })
 
     it('never arms for a pause the controller made, a refused play(), a pause during startup, or a legacy room', () => {
@@ -1364,6 +1377,22 @@ describe('RoomCoordinator', () => {
       }
       expect(legacy.snapshot().playback.status).toBe('paused')
       expect(legacy.autoResumeDeadlineMs()).toBeNull()
+    })
+
+    it('does not arm after a player that never started playback timed out at startup', () => {
+      const { room, report, at } = startedRoom()
+      controlTransactional(room, 'play', 40)
+      for (const id of IDS)
+        room.acknowledgeOperation(id, operationAcknowledgement(room, id, 'prepared', 40, 1))
+      const effectiveAt = room.snapshot().contract?.operation?.effectiveAtServerMs
+      if (!effectiveAt)
+        throw new Error('Expected a committed Play.')
+      at(effectiveAt + 11_000)
+
+      const result = report('participant_friend', { playbackStarted: false, progressed: false })
+
+      expect(result).toMatchObject({ ok: true, reason: 'participant_playback_startup_timeout', snapshot: { playback: { status: 'paused' } } })
+      expect(room.autoResumeDeadlineMs()).toBeNull()
     })
 
     it('arms after a no-progress stall and after a player went silent, not only after buffering', () => {
@@ -1503,7 +1532,7 @@ describe('RoomCoordinator', () => {
     })
 
     it('stops being armed once the Play it started has begun, and a later stall arms a new wait', () => {
-      const { room, play, bufferUntilPaused, everyoneCanPlay, now, at } = startedRoom()
+      const { room, play, reportAll, bufferUntilPaused, everyoneCanPlay, now, at } = startedRoom()
       play()
       bufferUntilPaused()
       everyoneCanPlay()
@@ -1521,6 +1550,12 @@ describe('RoomCoordinator', () => {
       expect(room.snapshot().contract?.operation?.phase).toBe('started')
       expect(room.evaluateAutoResume()).toBeNull()
       expect(room.autoResumeDeadlineMs()).toBeNull()
+
+      // The room plays on and a player stalls again: that is a new wait.
+      reportAll({ progressed: true })
+      bufferUntilPaused()
+      expect(room.snapshot().playback.status).toBe('paused')
+      expect(room.autoResumeDeadlineMs()).not.toBeNull()
     })
 
     it('arms no more than three times inside two minutes, so a flapping connection cannot pause and resume forever', () => {
