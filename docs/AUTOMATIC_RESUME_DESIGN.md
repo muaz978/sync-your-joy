@@ -1,6 +1,6 @@
 # Automatic resume and stuck-seek recovery: design
 
-Status: implemented on branch `feat/auto-recovery` (not released, coordinator not deployed). Tracking issue: #141 (resume), #138 (stuck seek). Written 2026-10-19 after a live 0.2.9 session (diagnostics report `report_29f1ddf6…`, screenshot of the side panel). Section 7 records the decisions that were taken; section 9 says what was built.
+Status: the extension part (recovery ladder, diagnostics, `canPlay`, notices) shipped in extension 0.2.10; the coordinator part (automatic resume) is merged but not deployed, so it does not run in production yet. Tracking issue: #141 (resume), #138 (stuck seek). Written 2026-10-19 after a live 0.2.9 session (diagnostics report `report_29f1ddf6…`, screenshot of the side panel). Section 7 records the decisions that were taken; section 9 says what was built.
 
 ## 1. What the 0.2.9 session actually shows
 
