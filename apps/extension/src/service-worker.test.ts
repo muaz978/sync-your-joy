@@ -966,6 +966,16 @@ describe('service worker observed episode identity', () => {
       expect(eventsToPage(fake)).not.toContainEqual(expect.objectContaining({ type: 'SHOW_NOTICE', message: expect.stringMatching(/must be ready/i) }))
     })
 
+    it('records who was not ready, for the refusal and for the kept scrub', async () => {
+      const { socket } = await refusedScrub()
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      socket.simulateMessage({ type: 'diagnostics_requested', reportId: 'report_who' })
+      const report = (socket.sentMessages.find(message => (message as { reportId?: unknown }).reportId === 'report_who') as { report: DiagnosticsReport }).report
+
+      expect(report.events.find(event => event.message === 'command_rejected')!.details).toMatchObject({ code: 'participants_not_ready', notReady: 'friend:nm' })
+      expect(report.events.find(event => event.message === 'seek_deferred')!.details).toMatchObject({ notReady: 'friend:nm' })
+    })
+
     it('sends the same scrub once everyone is ready, and keeps the page held until the room has the seek', async () => {
       const { fake, socket } = await refusedScrub()
 

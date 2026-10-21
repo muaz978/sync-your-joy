@@ -12,7 +12,7 @@ import { connectionQuality } from './connection-quality.ts'
 import { browserApi } from './browser-api.ts'
 import { diagnosticEvictionIndex, fitDiagnosticsReport, roomPositionJump } from './diagnostics-budget.ts'
 import { bufferedAheadBucket, MAX_BUFFERED_PAIRS, MAX_SEEKABLE_PAIRS, sanitizeElapsedMs, sanitizeMediaErrorCode, sanitizeRangeCount, sanitizeRangePairs, sanitizeRangeSeconds } from './media-ranges.ts'
-import { DEFERRED_SEEK_MS, everyoneConnectedIsReady, roomHasAcceptedScrub, SCRUB_ANSWER_HOLD_MS, scrubBelongsTo, shouldDeferRejectedSeek, SUPERSEDED_SCRUB_HOLD_MS } from './deferred-seek.ts'
+import { DEFERRED_SEEK_MS, everyoneConnectedIsReady, notReadySummary, roomHasAcceptedScrub, SCRUB_ANSWER_HOLD_MS, scrubBelongsTo, shouldDeferRejectedSeek, SUPERSEDED_SCRUB_HOLD_MS } from './deferred-seek.ts'
 import type { PendingScrub, SentControl } from './deferred-seek.ts'
 import { CONTROLLER_FOLLOW_NAVIGATION_ENABLED, shouldFollowControllerNavigation, strongCrunchyrollNavigationKey } from './navigation-transaction.ts'
 
@@ -929,7 +929,11 @@ function handleServerMessage(raw: string): void {
       state.snapshot = message.snapshot
       recordRoomStatusChange(previousPlayback, message.snapshot, message.code)
     }
-    recordDiagnostic('error', 'command_rejected', { code: safeDiagnosticCode(message.code) }, { reason: 'command-rejected' })
+      recordDiagnostic('error', 'command_rejected', {
+      code: safeDiagnosticCode(message.code),
+      // Who was not ready, when that is why: the report can say which participant.
+      ...(message.code === 'participants_not_ready' && state.snapshot ? { notReady: notReadySummary(state.snapshot.participants) } : {}),
+    }, { reason: 'command-rejected' })
     if (shouldDeferRejectedSeek({ code: message.code, actionId: message.actionId ?? '', last: lastControlSent, nowMs: Date.now(), isController: isController() })) {
       // Not an error: the scrub waits, so no lastError, which would also end
       // the page's hold on the controller's player.
@@ -1394,7 +1398,11 @@ function deferSeek(rejected: SentControl): void {
   if (deferredSeekTimer)
     clearTimeout(deferredSeekTimer)
   deferredSeekTimer = setTimeout(expireDeferredSeek, Math.max(0, expiresAtMs - nowMs))
-  recordDiagnostic('control', 'seek_deferred', { positionSeconds: rejected.positionSeconds, waitMs: Math.max(0, expiresAtMs - nowMs) })
+  recordDiagnostic('control', 'seek_deferred', {
+    positionSeconds: rejected.positionSeconds,
+    waitMs: Math.max(0, expiresAtMs - nowMs),
+    notReady: notReadySummary(snapshot.participants),
+  })
   holdPlayerPage(expiresAtMs - nowMs)
   void sendToPlayerTab({ type: 'SHOW_NOTICE', message: 'Waiting for everyone to be ready, then the room moves to that position.' })
 }

@@ -11,7 +11,7 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ### Changed
 
-- Extension: the diagnostics report keeps why the room paused or resumed. Each change of the room's status, and each interruption (buffering, a stalled player, a refused Play, a participant who is no longer ready, a disconnect, the automatic resume starting or giving up), is recorded as `room_status_changed` with its reason, ahead of ordinary events but never ahead of what began a stall. A scrub kept for later is recorded as `seek_deferred`, `seek_deferred_retry` or `seek_deferred_expired`. Before, the 0.2.10 report had dropped 2,199 events and could not say why the room paused, or who was not ready when the seek was refused.
+- Extension: the diagnostics report keeps why the room paused or resumed. Each change of the room's status, and each interruption (buffering, a stalled player, a refused Play, a participant who is no longer ready, a disconnect, the automatic resume starting or giving up), is recorded as `room_status_changed` with its reason, ahead of ordinary events but never ahead of what began a stall. A scrub kept for later is recorded as `seek_deferred`, `seek_deferred_retry` or `seek_deferred_expired`. A refusal for readiness, and a scrub kept because of it, now name who was not ready (the end of the participant's id, whether it was ready, and whether it showed the right video). Before, the 0.2.10 report had dropped 2,199 events and could not say why the room paused, or who was not ready when the seek was refused; this change does not recover that report, it makes the next one answer it.
 
 ## [0.2.10] - 2026-10-21
 

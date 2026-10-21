@@ -1,7 +1,7 @@
 import type { ParticipantState, RoomSnapshot } from '@syncyourjoy/protocol'
 import type { PendingScrub } from './deferred-seek.ts'
 import { describe, expect, it } from 'vitest'
-import { DEFERRED_SEEK_REJECTION_WINDOW_MS, everyoneConnectedIsReady, roomHasAcceptedScrub, scrubBelongsTo, shouldDeferRejectedSeek } from './deferred-seek.ts'
+import { DEFERRED_SEEK_REJECTION_WINDOW_MS, everyoneConnectedIsReady, notReadySummary, roomHasAcceptedScrub, scrubBelongsTo, shouldDeferRejectedSeek } from './deferred-seek.ts'
 
 const seek = { actionId: 'action_seek', kind: 'seek', positionSeconds: 126, atMs: 1_000 } as const
 const refused = { code: 'participants_not_ready', actionId: 'action_seek', last: seek, nowMs: 1_100, isController: true }
@@ -66,5 +66,24 @@ describe('a kept scrub and the room it was made in', () => {
     expect(roomHasAcceptedScrub(room({}), 126)).toBe(false)
     expect(roomHasAcceptedScrub(room({ playback: { status: 'paused', positionSeconds: 126, effectiveAtServerMs: 0, playbackRate: 1 } }), 126)).toBe(true)
     expect(roomHasAcceptedScrub(room({ seek: { revision: 9, positionSeconds: 126, acknowledgedParticipantIds: [], resumeWhenReady: false, deadlineAtServerMs: 0 } }), 126)).toBe(true)
+  })
+})
+
+describe('who stood in the way', () => {
+  const person = (id: string, overrides: Partial<ParticipantState>): ParticipantState =>
+    ({ id, name: 'P', role: 'member', ready: true, connected: true, mediaMatches: true, latencyMs: null, ...overrides }) as ParticipantState
+
+  it('names each connected participant that is not ready, by the end of its id, and what is missing', () => {
+    expect(notReadySummary([
+      person('participant_aaaaaa', {}),
+      person('participant_bbbbbb', { ready: false }),
+      person('participant_cccccc', { mediaMatches: false }),
+      person('participant_dddddd', { ready: false, mediaMatches: false }),
+      person('participant_eeeeee', { connected: false, ready: false }),
+    ])).toBe('bbbbbb:nm,cccccc:rx,dddddd:nx')
+  })
+
+  it('is empty when everyone is ready', () => {
+    expect(notReadySummary([person('participant_aaaaaa', {})])).toBe('')
   })
 })

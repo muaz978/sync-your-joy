@@ -80,3 +80,16 @@ export function roomHasAcceptedScrub(snapshot: RoomSnapshot, positionSeconds: nu
 export function scrubBelongsTo(pending: PendingScrub, snapshot: RoomSnapshot): boolean {
   return pending.roomId === snapshot.roomId && pending.mediaId === (snapshot.media?.canonicalId ?? null)
 }
+
+/**
+ * Who stood in the way, for the report: for each connected participant that is
+ * not ready, the end of its id and whether it is ready (r or n) and shows the
+ * right video (m or x). Ids are opaque, and the report names each participant
+ * by the same id.
+ */
+export function notReadySummary(participants: readonly ParticipantState[]): string {
+  return participants
+    .filter(participant => participant.connected && !(participant.ready && participant.mediaMatches))
+    .map(participant => `${participant.id.slice(-6)}:${participant.ready ? 'r' : 'n'}${participant.mediaMatches ? 'm' : 'x'}`)
+    .join(',')
+}

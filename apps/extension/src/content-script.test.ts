@@ -303,6 +303,20 @@ describe('leaving the window', () => {
     expect(video.play).toHaveBeenCalled()
   })
 
+  it('does not pause the room for everyone when the page pauses itself as the tab is hidden', async () => {
+    await playingAsController()
+    ;(document as unknown as { hasFocus: () => boolean }).hasFocus = () => true
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    video.pause()
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(pauseIntents()).toEqual([])
+    expect(pauseContexts()).toEqual([{ type: 'PLAYER_PAUSE_CONTEXT', ignored: true, visibility: 'hidden', focused: true, msSinceAway: expect.any(Number) }])
+    expect(video.play).toHaveBeenCalled()
+  })
+
   it('still sends a pause the controller makes in the page', async () => {
     await playingAsController()
     ;(document as unknown as { hasFocus: () => boolean }).hasFocus = () => true
