@@ -1251,6 +1251,80 @@ describe('RoomCoordinator', () => {
       expect(room.evaluateAutoResume()).toBeNull()
     })
 
+    it('restarts the stability window when a player reports it cannot play and recovers between two looks at the wait', () => {
+      const { room, play, report, reportAll, bufferUntilPaused, everyoneCanPlay, now, at } = startedRoom()
+      play()
+      bufferUntilPaused()
+      everyoneCanPlay()
+      expect(room.evaluateAutoResume()).toBeNull()
+
+      at(now() + 1_000)
+      report('participant_friend', { paused: true, buffering: false, progressed: false, canPlay: false })
+      at(now() + 100)
+      reportAll({ paused: true, buffering: false, progressed: false, canPlay: true })
+      // Without a look at the wait in between, the dip must still count: the window began before it.
+      at(now() + 500)
+      reportAll({ paused: true, buffering: false, progressed: false, canPlay: true })
+      expect(room.evaluateAutoResume()).toBeNull()
+      expect(room.snapshot().contract?.operation?.phase).not.toBe('preparing')
+
+      at(now() + 1_600)
+      reportAll({ paused: true, buffering: false, progressed: false, canPlay: true })
+      expect(room.evaluateAutoResume()).toMatchObject({ reason: 'auto_resume_play_pending' })
+    })
+
+    it('does not resume a player that is far from the room position, but does one that is a few seconds behind', () => {
+      const { room, play, report, bufferUntilPaused, now, at } = startedRoom()
+      play()
+      bufferUntilPaused()
+      const roomPosition = room.snapshot().playback.positionSeconds
+      const ready = (friendPosition: number) => {
+        report('participant_host', { paused: true, buffering: false, progressed: false, canPlay: true, positionSeconds: roomPosition })
+        report('participant_friend', { paused: true, buffering: false, progressed: false, canPlay: true, positionSeconds: friendPosition })
+      }
+      for (let step = 0; step < 4; step += 1) {
+        ready(roomPosition - 120)
+        expect(room.evaluateAutoResume()).toBeNull()
+        at(now() + 1_000)
+      }
+      for (let step = 0; step < 3; step += 1) {
+        ready(roomPosition - 4)
+        const resumed = room.evaluateAutoResume()
+        if (resumed?.ok && resumed.reason === 'auto_resume_play_pending')
+          return
+        at(now() + 1_000)
+      }
+      throw new Error('Expected the room to resume for a player a few seconds behind.')
+    })
+
+    it('does not undo a pause the controller makes after an automatic start failed but before the wait was looked at again', () => {
+      const { room, play, bufferUntilPaused, everyoneCanPlay, now, at } = startedRoom()
+      play()
+      bufferUntilPaused()
+      everyoneCanPlay()
+      const early = room.evaluateAutoResume()
+      at(now() + 1_600)
+      everyoneCanPlay()
+      expect(early ?? room.evaluateAutoResume()).toMatchObject({ reason: 'auto_resume_play_pending' })
+      for (const id of IDS)
+        room.acknowledgeOperation(id, operationAcknowledgement(room, id, 'prepared', room.snapshot().playback.positionSeconds, 1))
+      const deadline = room.operationDeadlineMs()
+      if (deadline === null)
+        throw new Error('Expected a start deadline.')
+      at(deadline)
+      expect(room.releaseExpiredOperation()).toMatchObject({ snapshot: { contract: { operation: { phase: 'failed' } } } })
+
+      // The failure has not been looked at yet; the controller pauses first.
+      controlTransactional(room, 'pause', room.snapshot().playback.positionSeconds)
+      for (let step = 0; step < 8; step += 1) {
+        at(now() + 2_000)
+        everyoneCanPlay()
+        expect(room.evaluateAutoResume()).toBeNull()
+      }
+      expect(room.snapshot().contract?.operation?.phase).toBe('failed')
+      expect(room.autoResumeDeadlineMs()).toBeNull()
+    })
+
     it('does not count a report from before the pause, or one that is no longer fresh', () => {
       const { room, play, report, reportAll, bufferUntilPaused, now, at } = startedRoom()
       play()
@@ -1420,6 +1494,8 @@ describe('RoomCoordinator', () => {
       at(armedAt + 100_000)
       everyoneCanPlay({ canPlay: false })
       expect(room.evaluateAutoResume()).toBeNull()
+      // The abandonment has to be scheduled, not only possible: a missing deadline would never wake the room.
+      expect(room.autoResumeDeadlineMs()).not.toBeNull()
       expect(room.autoResumeDeadlineMs()).toBeLessThanOrEqual(armedAt + 120_000)
       at(armedAt + 125_000)
       expect(room.evaluateAutoResume()).toMatchObject({ reason: 'auto_resume_abandoned' })

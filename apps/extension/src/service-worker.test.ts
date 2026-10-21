@@ -1084,6 +1084,39 @@ describe('service worker observed episode identity', () => {
       ])
     })
 
+    it('reports a seek made while the connection was down when the room is joined again', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      void request
+      const socket = FakeWebSocket.instances[0]!
+      const at = (positionSeconds: number) => ({ status: 'paused' as const, positionSeconds, effectiveAtServerMs: 0, playbackRate: 1 as const })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'control_pause', snapshot: buildRoomSnapshot({ revision: 6, playback: at(676) }) })
+      socket.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ revision: 9, playback: at(395.6) }) })
+
+      expect(reportFor(socket, 'report_rejoin_jump').events.filter(event => event.message === 'room_position_changed').at(-1)?.details)
+        .toEqual({ fromSeconds: 676, toSeconds: 395.6, reason: 'room_joined', revision: 9 })
+    })
+
+    it('records whether a player could play in its status events, as a transition of its own', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { ...stalledSample, canPlay: false, sampledAtLocalMs: Date.now() } }, sender)
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { ...stalledSample, canPlay: true, sampledAtLocalMs: Date.now() } }, sender)
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { ...stalledSample, sampledAtLocalMs: Date.now() } }, sender)
+
+      expect(reportFor(socket, 'report_can_play').events.filter(event => event.message === 'player_status').map(event => event.details.canPlay))
+        .toEqual([false, true, null])
+    })
+
+    it('answers a reload request that Chrome refused with a failure, so the page does not keep the cooldown', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      vi.mocked(fake.chrome.tabs.reload).mockRejectedValueOnce(new Error('No tab with id'))
+
+      const response = await request({ type: 'RELOAD_PLAYER_TAB' }, sender)
+
+      expect(response.ok).toBe(false)
+      expect(response.error).toBe('The tab could not be reloaded.')
+    })
+
     it('does not report a position that only advanced with playback or moved less than the jump threshold', async () => {
       await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!

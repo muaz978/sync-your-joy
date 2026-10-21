@@ -27,7 +27,15 @@ export const PLAYBACK_BUFFERING_REPORT_GAP_MS = 2_500
 export const AUTO_RESUME_STABLE_MS = 1_500
 export const AUTO_RESUME_WINDOW_MS = 120_000
 export const AUTO_RESUME_MAX_ATTEMPTS = 3
-export const AUTO_RESUME_BACKOFF_MS: readonly number[] = [2_000, 5_000, 10_000]
+/** The wait after the first and after the second failed start; the third failure gives up. */
+export const AUTO_RESUME_BACKOFF_MS: readonly number[] = [2_000, 5_000]
+/**
+ * A player this far from the room position cannot be expected to prepare for
+ * the Play within its window (it stalled behind, or is stuck elsewhere). A
+ * player a few seconds behind, as the room runs ahead of a stalled one for the
+ * length of the buffering grace, is normal.
+ */
+export const AUTO_RESUME_MAX_OFFSET_SECONDS = 15
 export const AUTO_RESUME_POLL_MS = 1_000
 export const AUTO_RESUME_SAMPLE_FRESH_MS = 2_500
 /** At most this many automatic resumes are armed inside `AUTO_RESUME_WINDOW_MS`, so a flapping connection cannot pause and resume forever. */

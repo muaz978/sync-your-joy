@@ -68,6 +68,7 @@ let expectedSeek: { positionSeconds: number; until: number } | null = null
 // replaced.
 let stuckSeek: { positionSeconds: number; reissues: number; lastActionAt: number; reloadAt: number | null; reloadCancelled: boolean } | null = null
 let stuckSeekTimer: ReturnType<typeof setTimeout> | null = null
+let stuckSeekNudgeTimer: ReturnType<typeof setTimeout> | null = null
 const STUCK_SEEK_RELOAD_NOTICE = 'This player is stuck loading the shared position. Reload this tab to recover; the room keeps your place.'
 const AUTO_RELOAD_STORAGE_KEY = 'syncyourjoy.autoReloadAt'
 
@@ -829,6 +830,8 @@ function handleSeeking(): void {
     // A real scrub/Skip Intro to another destination supersedes the old
     // operation, even inside its event-suppression window.
     invalidateRoomOperations()
+    // The controller chose a position; recovery of the old one is over.
+    clearStuckSeek()
     localSeeking = true
     scheduleControllerSeekIntent()
   }
@@ -2045,7 +2048,12 @@ function scheduleSeekCompletionProbe(): void {
 }
 
 function markSeekStuck(pending: NonNullable<typeof pendingSeek>): boolean {
-  const known = stuckSeek && isSeekAligned(stuckSeek.positionSeconds, pending.positionSeconds) ? stuckSeek : null
+  // A moving target (a playing room) is still the same stuck player; only a
+  // paused room's target says whether this is the seek that was stuck before.
+  const roomPlaying = activeState?.snapshot?.playback.status === 'playing'
+  const known = stuckSeek && (roomPlaying || isSeekAligned(stuckSeek.positionSeconds, pending.positionSeconds)) ? stuckSeek : null
+  if (known)
+    known.positionSeconds = pending.positionSeconds
   stuckSeek = known ?? { positionSeconds: pending.positionSeconds, reissues: 0, lastActionAt: pending.since, reloadAt: null, reloadCancelled: false }
   scheduleStuckSeekLadder()
   if (stuckSeek.reissues >= STUCK_SEEK_RELOAD_AFTER)
@@ -2054,17 +2062,29 @@ function markSeekStuck(pending: NonNullable<typeof pendingSeek>): boolean {
   return false
 }
 
+const STUCK_SEEK_COUNTDOWN_NOTICE_PREFIX = 'This player is stuck. Reloading this tab in '
+
 function clearStuckSeek(): void {
+  const counting = stuckSeek !== null && stuckSeek.reloadAt !== null
   stuckSeek = null
   if (stuckSeekTimer)
     clearTimeout(stuckSeekTimer)
   stuckSeekTimer = null
+  if (stuckSeekNudgeTimer)
+    clearTimeout(stuckSeekNudgeTimer)
+  stuckSeekNudgeTimer = null
+  // The countdown notice stays on the page until something replaces it, and
+  // there is no longer anything to count down to.
+  if (counting && noticeElement?.textContent.startsWith(STUCK_SEEK_COUNTDOWN_NOTICE_PREFIX))
+    noticeElement.textContent = ''
 }
 
 function scheduleStuckSeekLadder(): void {
   if (stuckSeekTimer || !stuckSeek)
     return
-  stuckSeekTimer = setTimeout(stuckSeekLadderTick, STUCK_SEEK_TICK_MS)
+  // Reviewed false positive: the callback is a fixed function reference and the
+  // delay is a constant, so no untrusted data reaches the timer.
+  stuckSeekTimer = setTimeout(stuckSeekLadderTick, STUCK_SEEK_TICK_MS) // DevSkim: ignore DS172411
 }
 
 function reportStuckSeekStep(step: StuckSeekStep): void {
@@ -2082,13 +2102,13 @@ function stuckSeekLadderTick(): void {
   const stuck = stuckSeek
   if (!stuck || !video || !activeState?.snapshot)
     return
-  if (!video.seeking && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-    clearStuckSeek()
-    return
-  }
   const snapshot = activeState.snapshot
   const now = performance.now()
   const target = expectedPosition(snapshot.playback, Date.now() + activeState.serverOffsetMs)
+  if (!video.seeking && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && isSeekAligned(video.currentTime, target)) {
+    clearStuckSeek()
+    return
+  }
   if (snapshot.playback.status === 'paused' && !isSeekAligned(stuck.positionSeconds, target)) {
     // The room moved on: a stall at the new position is a new seek.
     clearStuckSeek()
@@ -2105,10 +2125,10 @@ function stuckSeekLadderTick(): void {
         startStuckSeekReload(stuck, now)
         break
       case 'countdown':
-        showNotice(`This player is stuck. Reloading this tab in ${action.remainingSeconds} s to recover; the room keeps your place. Press Sync to cancel.`, true)
+        showNotice(`${STUCK_SEEK_COUNTDOWN_NOTICE_PREFIX}${action.remainingSeconds} s to recover; the room keeps your place. Press Sync to cancel.`, true)
         break
       case 'reload':
-        performStuckSeekReload(stuck)
+        void performStuckSeekReload(stuck)
         return
       case 'none':
         break
@@ -2128,8 +2148,15 @@ function runStuckSeekStep(stuck: NonNullable<typeof stuckSeek>, kind: 'reissue' 
   reportStuckSeekStep(kind)
   const via = kind === 'nudge' ? nearestBufferedPoint(bufferedRanges(video), target) : null
   if (via === null) {
-    // trySetProgrammaticPosition counts the attempt and restarts the clock.
+    const actionBefore = stuck.lastActionAt
     trySetProgrammaticPosition(target, roomRevision, true)
+    // The attempt counts even when the player offered nothing to write to (no
+    // seekable range, a seek that is already running), so that the ladder
+    // reaches its last step instead of repeating the first.
+    if (stuck.lastActionAt === actionBefore) {
+      stuck.reissues++
+      stuck.lastActionAt = now
+    }
     return
   }
   stuck.reissues++
@@ -2139,10 +2166,16 @@ function runStuckSeekStep(stuck: NonNullable<typeof stuckSeek>, kind: 'reissue' 
   expectedSeek = { positionSeconds: via, until: now + 4_000 }
   if (!writeSeekTarget(video, via))
     return
-  setTimeout(() => {
-    if (stuckSeek !== stuck || !video)
+  // Reviewed false positive: the callback is a fixed arrow function and the
+  // delay is a constant, so no untrusted data reaches the timer.
+  stuckSeekNudgeTimer = setTimeout(() => { // DevSkim: ignore DS172411
+    stuckSeekNudgeTimer = null
+    if (stuckSeek !== stuck || !video || !activeState?.snapshot)
       return
-    trySetProgrammaticPosition(target, roomRevision, false)
+    // The room may have moved on while the buffered point was held: ask for
+    // where it is now, not for where it was.
+    const snapshot = activeState.snapshot
+    trySetProgrammaticPosition(expectedPosition(snapshot.playback, Date.now() + activeState.serverOffsetMs), snapshot.seek?.revision ?? null, false)
   }, STUCK_SEEK_NUDGE_SETTLE_MS)
 }
 
@@ -2181,18 +2214,37 @@ function autoReloadAllowed(): boolean {
   }
 }
 
-function performStuckSeekReload(stuck: NonNullable<typeof stuckSeek>): void {
+async function performStuckSeekReload(stuck: NonNullable<typeof stuckSeek>): Promise<void> {
   try {
     sessionStorage.setItem(AUTO_RELOAD_STORAGE_KEY, String(Date.now()))
   }
   catch {
-    stuck.reloadAt = null
-    stuck.reloadCancelled = true
-    showNotice(STUCK_SEEK_RELOAD_NOTICE, true)
+    declineStuckSeekReload(stuck)
     return
   }
   reportStuckSeekStep('reload')
-  void sendRuntime({ type: 'RELOAD_PLAYER_TAB' }).catch(() => undefined)
+  try {
+    const response = await sendRuntime({ type: 'RELOAD_PLAYER_TAB' })
+    if (response.ok)
+      return
+  }
+  catch {
+    // The worker could not be reached; handled like a refusal below.
+  }
+  // A reload that did not happen must not use up the cooldown.
+  try {
+    sessionStorage.removeItem(AUTO_RELOAD_STORAGE_KEY)
+  }
+  catch {
+    // Nothing was stored to begin with.
+  }
+  declineStuckSeekReload(stuck)
+}
+
+function declineStuckSeekReload(stuck: NonNullable<typeof stuckSeek>): void {
+  stuck.reloadAt = null
+  stuck.reloadCancelled = true
+  showNotice(STUCK_SEEK_RELOAD_NOTICE, true)
 }
 
 function clearSeekCompletionTimer(): void {

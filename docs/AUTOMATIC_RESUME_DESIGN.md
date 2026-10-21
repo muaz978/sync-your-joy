@@ -73,7 +73,7 @@ Evaluated on every accepted fresh status report and by an alarm at the next stab
 
 - the latest sample is fresh (younger than the report-silence limit) and for the current revision,
 - `buffering` is false and `playbackStatus` is not `blocked` or `recovery-required` with a start failure,
-- the sample position is within the seek tolerance of the room position (a paused, healed player sits where the room is),
+- the sample position is within 15 s of the room position (a stalled player is a few seconds behind a room that ran on for the buffering grace; one that is far away is stuck, not waiting),
 
 and it has held continuously for a **stability window** of 1.5 s (two heartbeats), so one lucky sample does not resume a flapping player.
 
@@ -86,9 +86,15 @@ The prepare barrier is the final safety check. A player that reports `buffering:
 - Failure (barrier timeout, start timeout, rejection): count it.
   - Autoplay rejection: abandon immediately (needs a gesture).
   - Barrier never prepared (wedged player): abandon after the first failure, mark the participant `recovery-required`, and hand over to problem B.
-  - Other failure: retry with backoff 2 s, 5 s, 10 s; at most 3 attempts; overall window 2 minutes from arming.
+  - Other failure: retry after 2 s, then after 5 s; the third failure gives up (so at most 3 attempts); overall window 2 minutes from arming.
 - Abandoned: the room stays paused, the controller sees "Could not resume automatically. Press Play." naming the participant that was not ready.
 - The 3 s buffering grace is unchanged and runs before arming, so a short rebuffer never pauses anyone and never reaches resume.
+
+### 3.5a What cancels the wait, and what it costs
+
+A count of what people did to the room (a control, a readiness change, a join, a leave, a change of controller, any call that changed the room) is taken when the wait begins; a different count cancels it. Revisions are not compared: the coordinator's own health, acknowledgement and failed-operation updates produce revisions that say nothing about a person.
+
+While a wait is open the edge object is woken once a second (the alarm persists the room each time), for at most two minutes per wait and three waits in two minutes: about 120 small writes per incident. The local service already ticks every 100 ms.
 
 ### 3.6 What the user sees
 

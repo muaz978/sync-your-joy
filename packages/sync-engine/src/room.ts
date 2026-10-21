@@ -25,7 +25,7 @@ import {
   supportsTransactionalOperations,
 } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_MAX_OFFSET_SECONDS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSettledPausedSeek } from './operation-state.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
@@ -245,6 +245,10 @@ export class RoomCoordinator {
   }
 
   join(participant: { id: string; name: string; media: MediaFingerprint | null; sessionToken?: string; capabilities?: ClientCapabilities }): RoomResult {
+    return this.asPersonAction(() => this.joinCore(participant))
+  }
+
+  private joinCore(participant: { id: string; name: string; media: MediaFingerprint | null; sessionToken?: string; capabilities?: ClientCapabilities }): RoomResult {
     const capabilities = normalizeClientCapabilities(participant.capabilities)
     const existing = this.participants.get(participant.id)
     if (existing) {
@@ -333,6 +337,10 @@ export class RoomCoordinator {
   }
 
   respondToJoin(controllerId: string, leaseEpoch: number, participantId: string, approve: boolean): RoomResult {
+    return this.asPersonAction(() => this.respondToJoinCore(controllerId, leaseEpoch, participantId, approve))
+  }
+
+  private respondToJoinCore(controllerId: string, leaseEpoch: number, participantId: string, approve: boolean): RoomResult {
     if (controllerId !== this.controllerId || leaseEpoch !== this.leaseEpoch)
       return this.failure('controller_only', 'Only the current controller can respond to join requests.')
 
@@ -410,6 +418,10 @@ export class RoomCoordinator {
    * and holds one of the ten places.
    */
   cancelPendingJoin(participantId: string): RoomResult | null {
+    return this.asPersonAction(() => this.cancelPendingJoinCore(participantId))
+  }
+
+  private cancelPendingJoinCore(participantId: string): RoomResult | null {
     if (!this.pendingJoinRequests.delete(participantId))
       return null
     this.revision += 1
@@ -460,6 +472,10 @@ export class RoomCoordinator {
   }
 
   setReady(participantId: string, ready: boolean, media: MediaFingerprint | null): RoomResult {
+    return this.asPersonAction(() => this.setReadyCore(participantId, ready, media))
+  }
+
+  private setReadyCore(participantId: string, ready: boolean, media: MediaFingerprint | null): RoomResult {
     const participant = this.participants.get(participantId)
     if (!participant)
       return this.failure('participant_missing', 'You are no longer part of this room.')
@@ -488,6 +504,10 @@ export class RoomCoordinator {
   }
 
   control(participantId: string, intent: ControlIntent): RoomResult {
+    return this.asPersonAction(() => this.controlCore(participantId, intent))
+  }
+
+  private controlCore(participantId: string, intent: ControlIntent): RoomResult {
     if (this.actionIds.has(intent.actionId))
       return this.success('duplicate_action')
 
@@ -939,6 +959,10 @@ export class RoomCoordinator {
   }
 
   transferControl(fromParticipantId: string, toParticipantId: string, leaseEpoch: number): RoomResult {
+    return this.asPersonAction(() => this.transferControlCore(fromParticipantId, toParticipantId, leaseEpoch))
+  }
+
+  private transferControlCore(fromParticipantId: string, toParticipantId: string, leaseEpoch: number): RoomResult {
     if (fromParticipantId !== this.controllerId || leaseEpoch !== this.leaseEpoch)
       return this.failure('controller_only', 'Only the current controller can pass control.')
 
@@ -966,6 +990,10 @@ export class RoomCoordinator {
   }
 
   openLink(participantId: string, intent: OpenLinkIntent): RoomResult {
+    return this.asPersonAction(() => this.openLinkCore(participantId, intent))
+  }
+
+  private openLinkCore(participantId: string, intent: OpenLinkIntent): RoomResult {
     if (this.actionIds.has(intent.actionId))
       return this.success('duplicate_action')
     if (participantId !== this.controllerId)
@@ -1063,6 +1091,12 @@ export class RoomCoordinator {
       && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= 0.12)
     participant.lastSample = sample
     participant.lastSampleReceivedAtMs = nowMs
+    // A report that says the player cannot play ends the stability window an
+    // automatic resume is counting, even if the player recovers before the next
+    // time the wait is looked at.
+    if (this.autoResume !== null && this.autoResume.operationId === null
+      && (sample.buffering || sample.playbackStartFailed === true || sample.canPlay === false))
+      this.autoResume.stableSinceMs = null
     // Only buffering that happens while the room plays counts towards the
     // grace period; a run reported while paused never carries into the next play.
     // Only evidence that is new, current and from an eligible participant counts:
@@ -1209,8 +1243,8 @@ export class RoomCoordinator {
    */
   private autoResume: {
     armedAtMs: number
-    /** The room revision this state belongs to; any other change disarms it. */
-    revision: number
+    /** `personActions` when the wait began; any other value means a person acted. */
+    personActions: number
     attempts: number
     nextAttemptAtMs: number
     stableSinceMs: number | null
@@ -1218,6 +1252,23 @@ export class RoomCoordinator {
   } | null = null
 
   private autoResumeArmedAtMs: number[] = []
+
+  /**
+   * Counts what people did to the room: any call that changed it, such as a
+   * control, a readiness change, a join, a leave or a change of controller.
+   * An automatic resume waits only for the room as the system left it, so a
+   * change in this count cancels the wait, whatever the revisions that the
+   * coordinator's own health and acknowledgement updates produced in between.
+   */
+  private personActions = 0
+
+  private asPersonAction<T>(run: () => T): T {
+    const revisionBefore = this.revision
+    const result = run()
+    if (this.revision !== revisionBefore)
+      this.personActions += 1
+    return result
+  }
 
   /**
    * Start waiting to resume after a pause the system caused. Not for a room
@@ -1234,7 +1285,7 @@ export class RoomCoordinator {
     this.autoResumeArmedAtMs.push(nowMs)
     this.autoResume = {
       armedAtMs: nowMs,
-      revision: this.revision,
+      personActions: this.personActions,
       attempts: 0,
       nextAttemptAtMs: nowMs,
       stableSinceMs: null,
@@ -1280,6 +1331,7 @@ export class RoomCoordinator {
         && sample.buffering !== true
         && sample.playbackStartFailed !== true
         && sample.canPlay !== false
+        && Math.abs(sample.positionSeconds - this.playback.positionSeconds) <= AUTO_RESUME_MAX_OFFSET_SECONDS
         && participant.playbackBlocked !== true
     })
   }
@@ -1319,7 +1371,6 @@ export class RoomCoordinator {
       const neverPrepared = operation.reason === 'deadline-expired'
       waiting.attempts += 1
       waiting.operationId = null
-      waiting.revision = this.revision
       waiting.stableSinceMs = null
       waiting.nextAttemptAtMs = nowMs + (AUTO_RESUME_BACKOFF_MS[Math.min(waiting.attempts - 1, AUTO_RESUME_BACKOFF_MS.length - 1)] ?? 0)
       if (neverPrepared || waiting.attempts >= AUTO_RESUME_MAX_ATTEMPTS)
@@ -1327,7 +1378,7 @@ export class RoomCoordinator {
       return null
     }
 
-    if (this.revision !== waiting.revision || this.playback.status !== 'paused' || this.contract.mode !== 'transactional') {
+    if (this.personActions !== waiting.personActions || this.playback.status !== 'paused' || this.contract.mode !== 'transactional') {
       this.autoResume = null
       return null
     }
@@ -1345,7 +1396,6 @@ export class RoomCoordinator {
 
     this.controlTransactional('play', this.playback.positionSeconds, nowMs, this.commandLeadMs())
     waiting.operationId = this.contract.operation?.operationId ?? null
-    waiting.revision = this.revision
     waiting.stableSinceMs = null
     return this.success('auto_resume_play_pending')
   }
@@ -1362,6 +1412,10 @@ export class RoomCoordinator {
   }
 
   disconnect(participantId: string): RoomResult | null {
+    return this.asPersonAction(() => this.disconnectCore(participantId))
+  }
+
+  private disconnectCore(participantId: string): RoomResult | null {
     const participant = this.participants.get(participantId)
     if (!participant || !participant.connected)
       return null
@@ -1377,6 +1431,10 @@ export class RoomCoordinator {
   }
 
   transferDisconnectedController(): RoomResult | null {
+    return this.asPersonAction(() => this.transferDisconnectedControllerCore())
+  }
+
+  private transferDisconnectedControllerCore(): RoomResult | null {
     const current = this.participants.get(this.controllerId)
     if (current?.connected)
       return null
