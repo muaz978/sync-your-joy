@@ -646,6 +646,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       const deadlineResult = room.coordinator.releaseExpiredSeek(nowMs)
         ?? room.coordinator.releaseExpiredOperation(nowMs)
         ?? room.coordinator.evaluateHealth(nowMs)
+        ?? room.coordinator.evaluateAutoResume(nowMs)
       if (deadlineResult?.ok)
         broadcast(room, { type: 'room_snapshot', reason: deadlineResult.reason, snapshot: deadlineResult.snapshot })
 

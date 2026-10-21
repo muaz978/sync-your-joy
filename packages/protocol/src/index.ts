@@ -282,6 +282,12 @@ export interface PlayerSample {
   playbackStarted?: boolean
   /** Bounded local correction attempts since the current player command. */
   correctionCount?: number
+  /**
+   * True when the element has data to play at its position and is not seeking.
+   * Absent from older extensions, which a coordinator then judges by
+   * `buffering` alone.
+   */
+  canPlay?: boolean
 }
 
 export type ProgressEvidenceQuality = 'frames' | 'clock' | 'unknown'
@@ -1025,6 +1031,7 @@ function validPlayerSample(value: unknown): value is PlayerSample {
     && (value.playbackStartFailed === undefined || typeof value.playbackStartFailed === 'boolean')
     && (value.playbackStarted === undefined || typeof value.playbackStarted === 'boolean')
     && (value.correctionCount === undefined || isBoundedSafeInteger(value.correctionCount, 10_000))
+    && (value.canPlay === undefined || typeof value.canPlay === 'boolean')
 }
 
 function validDiagnosticsReport(value: unknown): value is DiagnosticsReport {

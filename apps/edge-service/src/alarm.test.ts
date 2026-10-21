@@ -57,12 +57,36 @@ describe('edge alarm and persistence boundaries', () => {
         calls.push('health')
         return successfulResult('participant_playback_stalled')
       },
+      evaluateAutoResume: () => {
+        calls.push('autoResume')
+        return successfulResult('auto_resume_play_pending')
+      },
     }
 
     const evaluation = applyEarliestDueDeadline(coordinator, 20_000)
 
     expect(evaluation).toMatchObject({ source: 'operation', result: { ok: true, reason: 'operation_timeout_paused' } })
     expect(calls).toEqual(['seek', 'operation'])
+  })
+
+  it('evaluates an automatic resume only after the seek, operation and health deadlines have nothing to do', () => {
+    const calls: string[] = []
+    const none = (name: string) => () => {
+      calls.push(name)
+      return null
+    }
+    const evaluation = applyEarliestDueDeadline({
+      releaseExpiredSeek: none('seek'),
+      releaseExpiredOperation: none('operation'),
+      evaluateHealth: none('health'),
+      evaluateAutoResume: () => {
+        calls.push('autoResume')
+        return successfulResult('auto_resume_play_pending')
+      },
+    }, 20_000)
+
+    expect(evaluation).toMatchObject({ source: 'autoResume', result: { reason: 'auto_resume_play_pending' } })
+    expect(calls).toEqual(['seek', 'operation', 'health', 'autoResume'])
   })
 
   it('does not expose a transition until its durable write completes', async () => {

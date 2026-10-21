@@ -1001,6 +1001,9 @@ function currentPlayerSample(target: HTMLVideoElement): PlayerSample {
     progressEvidence: playerHealth.progressEvidence,
     playbackStartFailed: playerHealth.playbackStartFailed,
     playbackStarted: playbackStarted || (!target.paused && target.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA),
+    // Lets the room resume by itself after a pause only once this player has
+    // data to play, not merely once it stops calling itself buffering.
+    canPlay: target.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !target.seeking,
     correctionCount,
   }
 }

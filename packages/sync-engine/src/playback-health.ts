@@ -20,6 +20,18 @@ export const PLAYBACK_REPORT_SILENCE_TIMEOUT_MS = 5_000
 // observed in between and the period starts again.
 export const PLAYBACK_BUFFERING_GRACE_MS = 3_000
 export const PLAYBACK_BUFFERING_REPORT_GAP_MS = 2_500
+// Automatic resume (#141). After the room paused itself because a player
+// buffered or stalled, it starts playback again once every player has been able
+// to play for the stability window, and gives up after a bounded number of
+// attempts or window, so a player that cannot play never causes a loop.
+export const AUTO_RESUME_STABLE_MS = 1_500
+export const AUTO_RESUME_WINDOW_MS = 120_000
+export const AUTO_RESUME_MAX_ATTEMPTS = 3
+export const AUTO_RESUME_BACKOFF_MS: readonly number[] = [2_000, 5_000, 10_000]
+export const AUTO_RESUME_POLL_MS = 1_000
+export const AUTO_RESUME_SAMPLE_FRESH_MS = 2_500
+/** At most this many automatic resumes are armed inside `AUTO_RESUME_WINDOW_MS`, so a flapping connection cannot pause and resume forever. */
+export const AUTO_RESUME_ARM_LIMIT = 3
 
 export function playbackStartupDeadlineMs(playback: PlaybackState): number {
   return playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS

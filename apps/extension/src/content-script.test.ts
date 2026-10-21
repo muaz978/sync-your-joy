@@ -47,6 +47,7 @@ class FakeVideo extends FakeElement {
   static HAVE_NOTHING = 0
   static HAVE_METADATA = 1
   static HAVE_CURRENT_DATA = 2
+  static HAVE_FUTURE_DATA = 3
   localName = 'video'
   isConnected = true
   currentSrc = 'blob:fixture-episode'
@@ -515,6 +516,30 @@ describe('adaptive player lifecycle', () => {
       await Promise.resolve()
 
       expect(video.play).toHaveBeenCalled()
+    })
+  })
+
+  describe('the sample the room uses to decide whether it can resume by itself', () => {
+    function sampleNow(): { canPlay?: boolean } {
+      let sample: { canPlay?: boolean } = {}
+      listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, (response) => { sample = (response as { sample: typeof sample }).sample })
+      return sample
+    }
+
+    it('says canPlay only for an element that has data to play and is not seeking', () => {
+      video.readyState = FakeVideo.HAVE_FUTURE_DATA
+      expect(sampleNow().canPlay).toBe(true)
+
+      video.readyState = FakeVideo.HAVE_CURRENT_DATA
+      expect(sampleNow().canPlay).toBe(false)
+
+      video.readyState = FakeVideo.HAVE_FUTURE_DATA
+      video.seeking = true
+      expect(sampleNow().canPlay).toBe(false)
+
+      video.seeking = false
+      video.readyState = FakeVideo.HAVE_METADATA
+      expect(sampleNow().canPlay).toBe(false)
     })
   })
 

@@ -21,6 +21,11 @@ const SESSION_STATE_KEY = 'syncYourJoySessionState'
 const PLAYER_BINDING_KEY = 'syncYourJoyPlayerBinding'
 const DISPLAY_NAME_KEY = 'syncYourJoyDisplayName'
 const DIAGNOSTIC_EVENT_LIMIT = 100
+// What the room says about resuming by itself after it paused a stalled player.
+const AUTO_RESUME_NOTICES: ReadonlyMap<string, string> = new Map([
+  ['auto_resume_play_pending', 'Resuming playback for everyone.'],
+  ['auto_resume_abandoned', 'Could not resume automatically. The controller can press Play when everyone is ready.'],
+])
 // A participant may be waking a suspended service worker or a throttled tab.
 // Give the room-wide report enough time to collect every response without
 // making the normal playback path wait for diagnostics.
@@ -843,6 +848,9 @@ function handleServerMessage(raw: string): void {
         revision: message.snapshot.revision,
       }, { critical: true })
     }
+    const autoResumeNotice = snapshotApplied ? AUTO_RESUME_NOTICES.get(message.reason) : undefined
+    if (autoResumeNotice)
+      void sendToPlayerTab({ type: 'SHOW_NOTICE', message: autoResumeNotice })
     void applySharedNavigation(message.snapshot)
     void publishState()
     return

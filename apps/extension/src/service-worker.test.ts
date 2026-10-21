@@ -1067,6 +1067,23 @@ describe('service worker observed episode identity', () => {
       expect(fake.chrome.tabs.reload).toHaveBeenCalledWith(42)
     })
 
+    it('tells the player page when the room resumes by itself and when it gives up', async () => {
+      const { fake } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'auto_resume_play_pending', snapshot: buildRoomSnapshot({ revision: 6 }) })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'auto_resume_abandoned', snapshot: buildRoomSnapshot({ revision: 6 }) })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_status_changed', snapshot: buildRoomSnapshot({ revision: 6 }) })
+
+      const shown = vi.mocked(fake.chrome.tabs.sendMessage).mock.calls
+        .map(([, message]) => message as { type?: string; message?: string })
+        .filter(message => message.type === 'SHOW_NOTICE')
+        .map(message => message.message)
+      expect(shown).toEqual([
+        'Resuming playback for everyone.',
+        'Could not resume automatically. The controller can press Play when everyone is ready.',
+      ])
+    })
+
     it('does not report a position that only advanced with playback or moved less than the jump threshold', async () => {
       await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!

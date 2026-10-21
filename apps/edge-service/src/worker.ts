@@ -1019,6 +1019,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     const healthDeadlineMs = this.coordinator.nextHealthDeadlineMs()
     if (healthDeadlineMs !== null)
       alarmCandidates.push(healthDeadlineMs)
+    const autoResumeDeadlineMs = this.coordinator.autoResumeDeadlineMs()
+    if (autoResumeDeadlineMs !== null)
+      alarmCandidates.push(autoResumeDeadlineMs)
 
     await persistRoomAndSchedule(this.ctx.storage, storedRoom, alarmCandidates, () => this.announceWithheldRepair())
     // Any save does what a retried restore save would: it writes the room as it
