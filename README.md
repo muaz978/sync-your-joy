@@ -39,7 +39,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-The current beta includes the following, introduced in `0.2.0` and extended by later releases (`0.2.5`, `0.2.6`, `0.2.7`, `0.2.8` and `0.2.9` are described in the [Changelog](CHANGELOG.md)):
+The current beta includes the following, introduced in `0.2.0` and extended by later releases (`0.2.5`, `0.2.6`, `0.2.7`, `0.2.8`, `0.2.9` and `0.2.10` are described in the [Changelog](CHANGELOG.md)):
 
 - host-approval join: a new join request waits for the controller to approve it before that person can see or use the room;
 - automatic room-wide play, pause, forward seek, and backward seek;
@@ -78,6 +78,8 @@ Version `0.2.5` adds transactional playback: Play and seek are prepared and comm
 Version `0.2.8` lets Sync re-ask a player that never finished a synchronized seek, and advises reloading the tab when two attempts also fail (a mitigation for a Crunchyroll stall; the cause is not established).
 
 Version `0.2.9` makes a short rebuffer stop pausing the room for everyone: the coordinator now pauses the room only after a participant has reported buffering for 3 seconds in a row (deployed on 2026-10-19), and a player that is only waiting for data is no longer paused and re-seeked by the extension's own drift correction. The room still does not resume by itself after a real pause: the controller presses Play (Sync only realigns a player and leaves the room paused). Every tester should be on `0.2.9`, because an older extension drops its buffering flag after one report and can still pause the room during a stall (tracked in #141).
+
+Version `0.2.10` recovers a seek that never completes without a click (the page asks the player again, seeks through a buffered position, then counts down 20 seconds on the page and reloads the tab; Sync cancels, and a tab is reloaded this way at most once in ten minutes), keeps what began a stall in the diagnostics report, and shows a paused player that still waits for data as Buffering instead of Ready. The coordinator also gained the ability to resume the room by itself once every player can play after a pause the system caused (never after a pause a person made); that part works only after the coordinator is redeployed, which the release notes say when it has been done. See `docs/AUTOMATIC_RESUME_DESIGN.md`.
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 

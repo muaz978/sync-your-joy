@@ -10353,3 +10353,44 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy, release 0.2.10 (extension) after #148.
+- Checkpoint number: 126.
+- Date and time: 2026-10-21, Europe/Istanbul.
+- Coverage period: Since checkpoint 125 (`main` at `6753269`, #148 merged).
+- Current context status: Branch `release/0.2.10` from `6753269`. Not merged, not tagged. The coordinator with automatic resume is NOT deployed (needs the owner's explicit go for the exact commit; active Worker `b640977c-5e4b-4ee3-a923-f2e65e362df7`, previous `b6ea9ac1-d4c1-4ab0-aa94-b324dd76ce7f`).
+
+## User Objective and Requirements
+- A release the owner can test with a friend, carrying the recovery ladder, the diagnostics fix and, once deployed, automatic resume; README and docs updated.
+
+## Complete Chronological Activity Log
+- #148 merged as `6753269` after five bot review rounds (25 findings fixed or declined with reasons), a regression found by the matrix and fixed (a stale stuck-seek record made the ladder touch a healthy playing player), matrix 20 of 20 on `1235bdb`, browser suite 15 passed, 753 unit tests.
+- Versions bumped to 0.2.10; changelog, README and this file updated.
+
+## Confirmed Successful Results
+- Everything above; nothing live.
+
+## Failed, Incomplete, or Unresolved Work
+- Coordinator not deployed: until it is, 0.2.10 does not resume by itself.
+- No live Crunchyroll session on 0.2.8, 0.2.9 or 0.2.10; the cause of the original wedge is unproven; whether the nudge frees a wedged player is unknown (the reload is the confirmed cure). #138 and #141 stay open.
+- On this Mac, unrelated vitest tests sometimes hang for 25 s (also on `main`); a unit run needs `--retry 2` there.
+
+## Decisions and Rationale
+- The extension is released before the coordinator deploy because it is compatible with both coordinators; the release notes say so.
+
+## Files and Artifacts
+- `package.json`, `package-lock.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json`, `CHANGELOG.md`, `README.md`, this file.
+
+## Open Questions, Blockers, and Dependencies
+- The owner's go to deploy the coordinator from the release commit.
+
+## Next Steps
+1. Merge, tag `v0.2.10`, verify the release asset and checksum.
+2. Deploy the coordinator on the owner's go; production smoke and a two-participant probe.
+3. A live session with a diagnostics report right after any stall.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.

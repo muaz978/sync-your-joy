@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-10-21
+
+This is a compatible test release. The extension changes below (the recovery ladder, the diagnostics that keep what began a stall, `canPlay`, the notices and the Buffering status) take effect when each participant loads this package. The coordinator change (the room resuming by itself) takes effect only when the coordinator is redeployed, which has not been done yet; until then 0.2.10 behaves as 0.2.9 as far as resuming goes, and the controller presses Play. Every tester should be on 0.2.10.
+
 ### Added
 
 - Coordinator: after the room pauses for everyone because a player buffered for 3 seconds, stopped advancing, or stopped reporting, it now starts playback again by itself once every player can play (a paused player has data and is not seeking, which an extension that reports the new `canPlay` field says outright and an older one shows by no longer reporting buffering) and has stayed that way for 1.5 seconds. It uses the same prepare-and-start Play a controller press uses, so everyone starts together. It never undoes a deliberate pause: a pause, seek, Play or any other change made by a person cancels the wait. A player more than 15 seconds from the room position is not counted as able to play. It gives up, and the controller is told to press Play, when a player never gets prepared (that player is stuck, and waiting does not help), after three failed starts (the first failure is followed by a 2 second wait, the second by a 5 second wait), or after two minutes; it arms at most three times in two minutes, so a flapping connection cannot pause and resume forever. A refused `play()` (a browser that needs a click) and a player that never started are not resumed. The wait is kept only in the coordinator's memory: a room restored after a restart stays paused. It needs rooms where every participant runs transactional operations (extension 0.2.5 or later) and takes effect when the coordinator is redeployed (#141, which stays open).
