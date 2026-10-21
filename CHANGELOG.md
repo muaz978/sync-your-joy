@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-10-21
+
+This is a compatible test release; it changes the extension only, and the coordinator that is deployed (the one with automatic resume) is unchanged. The changes below take effect when each participant loads this package. Every tester should be on 0.2.11.
+
 ### Fixed
 
 - Extension: a scrub the room refuses because someone is not ready no longer wedges the controller's player. The 0.2.10 report of 2026-10-21 shows the controller scrubbing to 2:06 while the room sat at 0:02; the room refused the seek (`participants_not_ready`), so the page took the player back to 0:02, a position the player had already thrown away, and Crunchyroll's player never loaded it (the same stuck seek as in #138; the reload that the recovery ladder performs after 20 seconds put the player back at 2:06, and the refused seek started it again). The scrub is now kept: the controller's player stays where it was scrubbed to, and the same seek is sent again as soon as everyone is ready, for up to 45 seconds. A newer control, Sync, leaving the room, or the end of the wait drops it. Takes effect when participants load the extension release.
@@ -11,7 +15,7 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ### Changed
 
-- Extension: the diagnostics report keeps why the room paused or resumed. Each change of the room's status, and each interruption (buffering, a stalled player, a refused Play, a participant who is no longer ready, a disconnect, the automatic resume starting or giving up), is recorded as `room_status_changed` with its reason, ahead of ordinary events but never ahead of what began a stall. A scrub kept for later is recorded as `seek_deferred`, `seek_deferred_retry` or `seek_deferred_expired`. A refusal for readiness, and a scrub kept because of it, now name who was not ready (the end of the participant's id, whether it was ready, and whether it showed the right video). Before, the 0.2.10 report had dropped 2,199 events and could not say why the room paused, or who was not ready when the seek was refused; this change does not recover that report, it makes the next one answer it.
+- Extension: the diagnostics report keeps why the room paused or resumed. Each change of the room's status, and each interruption (buffering, a stalled player, a refused Play, a participant who is no longer ready, a disconnect, the automatic resume starting or giving up), is recorded as `room_status_changed` with its reason, ahead of ordinary events but never ahead of what began a stall. A scrub kept for later is recorded as `seek_deferred`, `seek_deferred_retry` or `seek_deferred_expired`. A report is limited to about 12 KB, so a long incident can still lose older events of this kind. A refusal for readiness, and a scrub kept because of it, now name who was not ready (the end of the participant's id, whether it was ready, and whether it showed the right video). Before, the 0.2.10 report had dropped 2,199 events and could not say why the room paused, or who was not ready when the seek was refused; this change does not recover that report, it makes the next one answer it.
 
 ## [0.2.10] - 2026-10-21
 
