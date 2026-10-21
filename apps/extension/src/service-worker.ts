@@ -12,6 +12,8 @@ import { connectionQuality } from './connection-quality.ts'
 import { browserApi } from './browser-api.ts'
 import { diagnosticEvictionIndex, fitDiagnosticsReport, roomPositionJump } from './diagnostics-budget.ts'
 import { bufferedAheadBucket, MAX_BUFFERED_PAIRS, MAX_SEEKABLE_PAIRS, sanitizeElapsedMs, sanitizeMediaErrorCode, sanitizeRangeCount, sanitizeRangePairs, sanitizeRangeSeconds } from './media-ranges.ts'
+import { DEFERRED_SEEK_MS, everyoneConnectedIsReady, shouldDeferRejectedSeek } from './deferred-seek.ts'
+import type { SentControl } from './deferred-seek.ts'
 import { CONTROLLER_FOLLOW_NAVIGATION_ENABLED, shouldFollowControllerNavigation, strongCrunchyrollNavigationKey } from './navigation-transaction.ts'
 
 declare const __ROOM_SERVER_URL__: string
@@ -25,6 +27,21 @@ const DIAGNOSTIC_EVENT_LIMIT = 100
 const AUTO_RESUME_NOTICES: ReadonlyMap<string, string> = new Map([
   ['auto_resume_play_pending', 'Resuming playback for everyone.'],
   ['auto_resume_abandoned', 'Could not resume automatically. The controller can press Play when everyone is ready.'],
+])
+// Why the room stopped or started by itself. A status change is kept in the
+// report with its reason, and so are these reasons when the status did not
+// change (a refused Play, a participant who is no longer ready).
+const ROOM_INTERRUPTION_REASONS: ReadonlySet<string> = new Set([
+  'participant_buffering',
+  'participant_playback_stalled',
+  'participant_playback_silent',
+  'participant_playback_startup_timeout',
+  'participant_playback_blocked',
+  'operation_timeout_paused',
+  'participant_not_ready',
+  'participant_disconnected',
+  'auto_resume_play_pending',
+  'auto_resume_abandoned',
 ])
 // A participant may be waking a suspended service worker or a throttled tab.
 // Give the room-wide report enough time to collect every response without
@@ -91,6 +108,12 @@ let pingTimer: ReturnType<typeof setInterval> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let reconnectAttempts = 0
 let intentionallyClosed = false
+// The last control this browser sent, and a scrub the room refused because
+// someone was not ready, kept until they are (see deferred-seek.ts). Neither
+// is persisted: a restarted worker simply drops the wait.
+let lastControlSent: SentControl | null = null
+let deferredSeek: { positionSeconds: number, expiresAtMs: number } | null = null
+let deferredSeekTimer: ReturnType<typeof setTimeout> | null = null
 let clock = new ClockSynchronizer()
 const diagnosticEvents: DiagnosticEvent[] = []
 let diagnosticEventsDropped = 0
@@ -178,7 +201,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 })
 
 chrome.runtime.onMessage.addListener((request: RuntimeRequest | RuntimeEvent, sender, sendResponse) => {
-  if (!request || typeof request.type !== 'string' || request.type === 'ROOM_STATE_UPDATED' || request.type === 'APPLY_ROOM_STATE' || request.type === 'PAUSE_LOCAL' || request.type === 'FORCE_SYNC' || request.type === 'SHOW_NOTICE')
+  if (!request || typeof request.type !== 'string' || request.type === 'ROOM_STATE_UPDATED' || request.type === 'APPLY_ROOM_STATE' || request.type === 'PAUSE_LOCAL' || request.type === 'FORCE_SYNC' || request.type === 'SHOW_NOTICE' || request.type === 'CONTROLLER_SEEK_HOLD')
     return false
 
   if (request.type === 'OPEN_PANEL' && sender.tab?.id !== undefined) {
@@ -410,6 +433,17 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       }
       return success()
 
+    case 'PLAYER_PAUSE_CONTEXT':
+      if (!isBoundPlayerSender(sender, request.bindingId))
+        return success()
+      recordDiagnostic('playback', 'native_pause_context', {
+        ignored: request.ignored,
+        visibility: request.visibility.slice(0, 12),
+        focused: request.focused,
+        msSinceAway: request.msSinceAway,
+      })
+      return success()
+
     case 'STUCK_SEEK_STEP':
       if (!isBoundPlayerSender(sender, request.bindingId))
         return success()
@@ -517,6 +551,8 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
     case 'SYNC_NOW':
       if (!state.snapshot || state.playerTabId === null || state.playerFrameId === null || !state.currentMedia)
         return failure('The shared player is not ready yet.')
+      // Sync is the choice to return to the room, so a waiting scrub is dropped.
+      clearDeferredSeek(false)
       await sendToPlayerTab({ type: 'FORCE_SYNC' })
       recordDiagnostic('control', 'manual_sync', { revision: state.snapshot.revision })
       return success()
@@ -637,7 +673,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
   }
 }
 
-async function sendControl(kind: ControlKind, explicitPosition?: number): Promise<RuntimeResponse> {
+async function sendControl(kind: ControlKind, explicitPosition?: number, retryOf?: { expiresAtMs: number }): Promise<RuntimeResponse> {
   const snapshot = state.snapshot
   if (!snapshot)
     return failure('Join a room first.')
@@ -656,6 +692,10 @@ async function sendControl(kind: ControlKind, explicitPosition?: number): Promis
   const fallbackPosition = expectedPosition(snapshot.playback, estimatedNow)
   const positionSeconds = resolveControlPosition(kind, explicitPosition, state.lastPlayerSample, fallbackPosition)
   recordDiagnostic('control', 'room_control', { kind, positionSeconds, basedOnRevision: snapshot.revision })
+  // Any control other than the retry of the waiting scrub is a newer decision.
+  if (!retryOf)
+    clearDeferredSeek(true)
+  lastControlSent = { kind, positionSeconds, atMs: Date.now(), carryExpiresAtMs: retryOf?.expiresAtMs }
   if (kind === 'pause')
     void sendToPlayerTab({ type: 'PAUSE_LOCAL' })
   const sent = sendToServer({
@@ -830,6 +870,7 @@ function handleServerMessage(raw: string): void {
     state.lastError = null
     recordDiagnostic('room', 'room_joined', { revision: message.snapshot.revision })
     recordRoomPositionJump(previousPlayback, message.snapshot, 'room_joined')
+    retryDeferredSeek(message.snapshot)
     void applySharedNavigation(message.snapshot)
     void publishState()
     return
@@ -852,6 +893,17 @@ function handleServerMessage(raw: string): void {
     }, snapshotReason ? { reason: snapshotReason } : {})
     if (snapshotApplied)
       recordRoomPositionJump(previousPlayback, message.snapshot, message.reason)
+    if (snapshotApplied && (previousPlayback?.status !== message.snapshot.playback.status || ROOM_INTERRUPTION_REASONS.has(message.reason))) {
+      recordDiagnostic('room', 'room_status_changed', {
+        from: previousPlayback?.status ?? 'none',
+        to: message.snapshot.playback.status,
+        reason: safeDiagnosticCode(message.reason),
+        positionSeconds: message.snapshot.playback.positionSeconds,
+        revision: message.snapshot.revision,
+      })
+    }
+    if (snapshotApplied)
+      retryDeferredSeek(message.snapshot)
     const autoResumeNotice = snapshotApplied ? AUTO_RESUME_NOTICES.get(message.reason) : undefined
     if (autoResumeNotice)
       void sendToPlayerTab({ type: 'SHOW_NOTICE', message: autoResumeNotice })
@@ -872,8 +924,15 @@ function handleServerMessage(raw: string): void {
     }
     if (message.snapshot)
       state.snapshot = message.snapshot
-    state.lastError = message.message
     recordDiagnostic('error', 'command_rejected', { code: safeDiagnosticCode(message.code) }, { reason: 'command-rejected' })
+    if (shouldDeferRejectedSeek({ code: message.code, last: lastControlSent, nowMs: Date.now(), isController: isController() })) {
+      // Not an error: the scrub waits, so no lastError, which would also end
+      // the page's hold on the controller's player.
+      deferSeek(lastControlSent!)
+      void publishState()
+      return
+    }
+    state.lastError = message.message
     void publishState()
     void sendToPlayerTab({ type: 'SHOW_NOTICE', message: message.message })
     return
@@ -1024,6 +1083,7 @@ function leaveRoom(): void {
   const previousPlayerTabId = state.playerTabId
   const previousPlayerFrameId = state.playerFrameId
   const previousPlayerDocumentId = playerBinding?.documentId ?? undefined
+  clearDeferredSeek(false)
   intentionallyClosed = true
   if (reconnectTimer)
     clearTimeout(reconnectTimer)
@@ -1302,6 +1362,63 @@ async function unbindPlayerContext(release = true): Promise<void> {
   clearPlayerTab()
   if (previousTabId !== null && previousFrameId !== null)
     await sendToTab(previousTabId, { type: 'APPLY_ROOM_STATE', state: detachedState(), ...(release ? { bindingReleased: true } : {}) }, previousFrameId, previousDocumentId)
+}
+
+/**
+ * The room refused a scrub because someone was not ready. Keep it, tell the
+ * page to leave the controller's player where it is, and send it again when
+ * everyone is ready (or give up after DEFERRED_SEEK_MS).
+ */
+function deferSeek(rejected: SentControl): void {
+  const nowMs = Date.now()
+  const expiresAtMs = deferredSeek?.expiresAtMs ?? rejected.carryExpiresAtMs ?? nowMs + DEFERRED_SEEK_MS
+  deferredSeek = { positionSeconds: rejected.positionSeconds, expiresAtMs }
+  if (deferredSeekTimer)
+    clearTimeout(deferredSeekTimer)
+  deferredSeekTimer = setTimeout(expireDeferredSeek, Math.max(0, expiresAtMs - nowMs))
+  recordDiagnostic('control', 'seek_deferred', { positionSeconds: rejected.positionSeconds, waitMs: Math.max(0, expiresAtMs - nowMs) })
+  void sendToPlayerTab({ type: 'CONTROLLER_SEEK_HOLD', held: true })
+  void sendToPlayerTab({ type: 'SHOW_NOTICE', message: 'Waiting for everyone to be ready, then the room moves to that position.' })
+}
+
+function clearDeferredSeek(releasePage: boolean, releaseHoldMs?: number): void {
+  if (deferredSeekTimer)
+    clearTimeout(deferredSeekTimer)
+  deferredSeekTimer = null
+  if (!deferredSeek)
+    return
+  deferredSeek = null
+  if (releasePage)
+    void sendToPlayerTab({ type: 'CONTROLLER_SEEK_HOLD', held: false, ...(releaseHoldMs === undefined ? {} : { releaseHoldMs }) })
+}
+
+function expireDeferredSeek(): void {
+  if (!deferredSeek)
+    return
+  recordDiagnostic('control', 'seek_deferred_expired', { positionSeconds: deferredSeek.positionSeconds })
+  clearDeferredSeek(true)
+  void sendToPlayerTab({ type: 'SHOW_NOTICE', message: 'The room did not move: someone was not ready. Press Sync to return to the room position.' })
+}
+
+function retryDeferredSeek(snapshot: RoomSnapshot): void {
+  if (!deferredSeek)
+    return
+  if (Date.now() >= deferredSeek.expiresAtMs) {
+    expireDeferredSeek()
+    return
+  }
+  if (snapshot.controller.participantId !== state.participantId) {
+    clearDeferredSeek(true)
+    return
+  }
+  if (!everyoneConnectedIsReady(snapshot.participants))
+    return
+  const { positionSeconds, expiresAtMs } = deferredSeek
+  recordDiagnostic('control', 'seek_deferred_retry', { positionSeconds })
+  // The scrub is a normal one from here: the page holds its player for the
+  // usual moment while the room accepts it.
+  clearDeferredSeek(true, 2_500)
+  void sendControl('seek', positionSeconds, { expiresAtMs })
 }
 
 function isController(): boolean {

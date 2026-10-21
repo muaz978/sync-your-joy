@@ -157,6 +157,8 @@ export type RuntimeRequest =
   | { type: 'STUCK_SEEK_STEP'; step: StuckSeekStep; reissues: number; positionSeconds: number; bindingId?: string | undefined }
   | { type: 'RELOAD_PLAYER_TAB'; bindingId?: string | undefined }
   | { type: 'PLAYER_INTENT'; kind: ControlKind; positionSeconds: number; bindingId?: string | undefined }
+  /** A pause the page did not cause, made while it was not in front: kept for the report. */
+  | { type: 'PLAYER_PAUSE_CONTEXT'; ignored: boolean; visibility: string; focused: boolean; msSinceAway: number | null; bindingId?: string | undefined }
   | { type: 'OPEN_PANEL' }
 
 export type ContentRequest =
@@ -179,6 +181,12 @@ export type RuntimeEvent =
   // asked to report.
   | { type: 'APPLY_ROOM_STATE'; state: ExtensionState; bindingReleased?: boolean }
   | { type: 'PAUSE_LOCAL' }
+  /**
+   * `held` keeps the controller's player where a refused scrub left it, instead
+   * of returning it to the room position, until it is released; a release may
+   * ask for the usual short hold while the room accepts the scrub again.
+   */
+  | { type: 'CONTROLLER_SEEK_HOLD'; held: boolean; releaseHoldMs?: number }
   | { type: 'FORCE_SYNC' }
   /**
    * `roomEnded` marks a notice about a room that no longer exists (it expired,

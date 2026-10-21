@@ -430,6 +430,7 @@ describe('service worker observed episode identity', () => {
         || message.type === 'OPERATION_ACK'
         || message.type === 'PLAYER_INTENT'
         || message.type === 'STUCK_SEEK_STEP'
+        || message.type === 'PLAYER_PAUSE_CONTEXT'
         || message.type === 'RELOAD_PLAYER_TAB'
       const boundMessage = bindingAware && !('bindingId' in message)
         ? { ...message, bindingId: currentBindingId } as RuntimeRequest
@@ -916,6 +917,161 @@ describe('service worker observed episode identity', () => {
       expect.objectContaining({ message: 'command_rejected', details: { code: 'session_invalid' } }),
       expect.objectContaining({ message: 'server_error', details: { code: 'provider-error' } }),
     ]))
+  })
+
+  describe('a scrub the room refused because someone was not ready', () => {
+    const me = { id: 'participant_resumed', name: 'Me', role: 'controller', ready: true, connected: true, mediaMatches: true, latencyMs: null } as const
+    const friendNotReady = { id: 'participant_friend', name: 'Friend', role: 'member', ready: false, connected: true, mediaMatches: true, latencyMs: null } as const
+    const friendReady = { ...friendNotReady, ready: true }
+    const playerSender = { tab: { id: 42 }, frameId: 0 } as chrome.runtime.MessageSender
+    const refusal = {
+      type: 'command_rejected',
+      actionId: 'action_scrub',
+      code: 'participants_not_ready',
+      message: 'Everyone must be ready before a transactional operation starts.',
+      snapshot: null,
+    } as const
+
+    function snapshotOf(revision: number, friend: typeof friendNotReady | typeof friendReady, reason = 'participant_ready') {
+      return { type: 'room_snapshot', reason, snapshot: buildRoomSnapshot({ revision, media: oldMedia, participants: [me, friend] }) } as const
+    }
+
+    function controlsSent(socket: FakeWebSocket) {
+      return socket.sentMessages.filter((message): message is { type: 'control', kind: string, positionSeconds: number, basedOnRevision: number } =>
+        typeof message === 'object' && message !== null && (message as { type?: unknown }).type === 'control')
+    }
+
+    function eventsToPage(fake: Awaited<ReturnType<typeof resumeAtPage>>['fake']) {
+      return (fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mock.calls.map(call => call[1] as { type: string, [key: string]: unknown })
+    }
+
+    async function refusedScrub() {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      socket.simulateMessage(snapshotOf(6, friendNotReady, 'participant_not_ready'))
+      await request({ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: 126 }, playerSender)
+      expect(controlsSent(socket)).toEqual([expect.objectContaining({ kind: 'seek', positionSeconds: 126 })])
+      ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockClear()
+      socket.simulateMessage(refusal)
+      return { fake, request, socket }
+    }
+
+    it('keeps the scrub, holds the controller\'s player and shows no error', async () => {
+      const { fake, request } = await refusedScrub()
+
+      await vi.waitFor(() => expect(eventsToPage(fake)).toContainEqual({ type: 'CONTROLLER_SEEK_HOLD', held: true }))
+      expect((await request({ type: 'GET_STATE' })).state.lastError).toBeNull()
+      expect(eventsToPage(fake)).not.toContainEqual(expect.objectContaining({ type: 'SHOW_NOTICE', message: refusal.message }))
+    })
+
+    it('sends the same scrub once everyone is ready, and lets the page hold its player for the usual moment', async () => {
+      const { fake, socket } = await refusedScrub()
+
+      socket.simulateMessage(snapshotOf(7, friendNotReady, 'readiness_unchanged'))
+      expect(controlsSent(socket)).toHaveLength(1)
+
+      socket.simulateMessage(snapshotOf(8, friendReady))
+      await vi.waitFor(() => expect(controlsSent(socket)).toHaveLength(2))
+      expect(controlsSent(socket)[1]).toMatchObject({ kind: 'seek', positionSeconds: 126, basedOnRevision: 8 })
+      expect(eventsToPage(fake)).toContainEqual({ type: 'CONTROLLER_SEEK_HOLD', held: false, releaseHoldMs: 2_500 })
+
+      // It is sent once.
+      socket.simulateMessage(snapshotOf(9, friendReady, 'control_seek_pending'))
+      expect(controlsSent(socket)).toHaveLength(2)
+    })
+
+    it('does not start the wait over when the sent-again scrub is refused too', async () => {
+      const { socket } = await refusedScrub()
+      socket.simulateMessage(snapshotOf(8, friendReady))
+      await vi.waitFor(() => expect(controlsSent(socket)).toHaveLength(2))
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        vi.setSystemTime(Date.now() + 44_000)
+        socket.simulateMessage(refusal)
+        vi.setSystemTime(Date.now() + 2_000)
+        socket.simulateMessage(snapshotOf(9, friendReady))
+        // 46 s after the first refusal: the original wait is over.
+        expect(controlsSent(socket)).toHaveLength(2)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('drops the scrub when the controller decides something else', async () => {
+      const { request, socket } = await refusedScrub()
+
+      await request({ type: 'CONTROL', kind: 'pause' })
+      socket.simulateMessage(snapshotOf(8, friendReady))
+
+      expect(controlsSent(socket).map(message => message.kind)).toEqual(['seek', 'pause'])
+    })
+
+    it('drops the scrub when Sync is pressed', async () => {
+      const { request, socket } = await refusedScrub()
+
+      await request({ type: 'SYNC_NOW' })
+      socket.simulateMessage(snapshotOf(8, friendReady))
+
+      expect(controlsSent(socket)).toHaveLength(1)
+    })
+
+    it('gives up after the wait and lets the page return to the room', async () => {
+      const { fake, socket } = await refusedScrub()
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        vi.setSystemTime(Date.now() + 46_000)
+        socket.simulateMessage(snapshotOf(8, friendReady))
+      }
+      finally {
+        vi.useRealTimers()
+      }
+
+      expect(controlsSent(socket)).toHaveLength(1)
+      await vi.waitFor(() => expect(eventsToPage(fake)).toContainEqual({ type: 'CONTROLLER_SEEK_HOLD', held: false }))
+      expect(eventsToPage(fake)).toContainEqual(expect.objectContaining({ type: 'SHOW_NOTICE', message: expect.stringMatching(/did not move/i) }))
+    })
+
+    it('does not keep a refusal for another reason', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      socket.simulateMessage(snapshotOf(6, friendReady))
+      await request({ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: 126 }, playerSender)
+      ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockClear()
+
+      socket.simulateMessage({ ...refusal, code: 'stale_context', message: 'The room changed before this control was applied.' })
+
+      await vi.waitFor(async () => expect((await request({ type: 'GET_STATE' })).state.lastError).toBe('The room changed before this control was applied.'))
+      expect(eventsToPage(fake)).not.toContainEqual({ type: 'CONTROLLER_SEEK_HOLD', held: true })
+    })
+  })
+
+  describe('why the room paused or resumed', () => {
+    function reportEvents(socket: FakeWebSocket, reportId: string) {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      socket.simulateMessage({ type: 'diagnostics_requested', reportId })
+      const response = socket.sentMessages.find(message => typeof message === 'object' && message !== null
+        && (message as { reportId?: unknown }).reportId === reportId) as { report: DiagnosticsReport }
+      return response.report.events
+    }
+
+    it('keeps the reason of a status change and of an interruption that changed nothing', async () => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const playing = { status: 'playing', positionSeconds: 10, effectiveAtServerMs: 0, playbackRate: 1 } as const
+      const paused = { ...playing, status: 'paused' } as const
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'operation_started', snapshot: buildRoomSnapshot({ revision: 6, playback: playing }) })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_buffering', snapshot: buildRoomSnapshot({ revision: 7, playback: paused }) })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_not_ready', snapshot: buildRoomSnapshot({ revision: 8, playback: paused }) })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_status_changed', snapshot: buildRoomSnapshot({ revision: 9, playback: paused }) })
+
+      const changes = reportEvents(socket, 'report_why').filter(event => event.message === 'room_status_changed')
+      expect(changes.map(event => [event.details.from, event.details.to, event.details.reason])).toEqual([
+        ['paused', 'playing', 'operation_started'],
+        ['playing', 'paused', 'participant_buffering'],
+        ['paused', 'paused', 'participant_not_ready'],
+      ])
+    })
   })
 
   describe('stall evidence in diagnostic reports', () => {

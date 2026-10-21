@@ -15,6 +15,10 @@ export const PINNED_DIAGNOSTIC_MESSAGES: ReadonlySet<string> = new Set([
   'manual_sync',
   'room_control',
   'native_player_intent',
+  'native_pause_context',
+  'seek_deferred',
+  'seek_deferred_retry',
+  'seek_deferred_expired',
   'join_denied',
   'command_rejected',
   'server_error',
@@ -27,6 +31,11 @@ function evictionRank(event: DiagnosticEvent): number {
     return 0
   if (PINNED_DIAGNOSTIC_MESSAGES.has(event.message))
     return 3
+  // Why the room paused or resumed. Worth keeping over ordinary events, but a
+  // failing Play repeats it every few seconds, so it never outranks the events
+  // above, which say what began the incident.
+  if (event.message === 'room_status_changed')
+    return 2.5
   // Each refused Play repeats this snapshot about four times; coalesced
   // heartbeats and statuses are single events and stay in the ordinary rank.
   return event.message === 'room_snapshot' && event.details.reason === 'participant_status_changed' ? 1 : 2
