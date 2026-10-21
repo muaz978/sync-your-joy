@@ -1,9 +1,10 @@
-import type { ParticipantState } from '@syncyourjoy/protocol'
+import type { ParticipantState, RoomSnapshot } from '@syncyourjoy/protocol'
+import type { PendingScrub } from './deferred-seek.ts'
 import { describe, expect, it } from 'vitest'
-import { DEFERRED_SEEK_REJECTION_WINDOW_MS, everyoneConnectedIsReady, shouldDeferRejectedSeek } from './deferred-seek.ts'
+import { DEFERRED_SEEK_REJECTION_WINDOW_MS, everyoneConnectedIsReady, roomHasAcceptedScrub, scrubBelongsTo, shouldDeferRejectedSeek } from './deferred-seek.ts'
 
-const seek = { kind: 'seek', positionSeconds: 126, atMs: 1_000 } as const
-const refused = { code: 'participants_not_ready', last: seek, nowMs: 1_100, isController: true }
+const seek = { actionId: 'action_seek', kind: 'seek', positionSeconds: 126, atMs: 1_000 } as const
+const refused = { code: 'participants_not_ready', actionId: 'action_seek', last: seek, nowMs: 1_100, isController: true }
 
 describe('deferring a refused scrub', () => {
   it('defers a seek refused because someone was not ready', () => {
@@ -16,6 +17,15 @@ describe('deferring a refused scrub', () => {
     expect(shouldDeferRejectedSeek({ ...refused, last: null })).toBe(false)
     expect(shouldDeferRejectedSeek({ ...refused, nowMs: seek.atMs + DEFERRED_SEEK_REJECTION_WINDOW_MS + 1 })).toBe(false)
     expect(shouldDeferRejectedSeek({ ...refused, isController: false })).toBe(false)
+  })
+
+  it('does not defer the refusal of an older control, which is not about the seek that was sent last', () => {
+    expect(shouldDeferRejectedSeek({ ...refused, actionId: 'action_older_seek' })).toBe(false)
+    expect(shouldDeferRejectedSeek({ ...refused, actionId: '' })).toBe(false)
+  })
+
+  it('waits for a refusal no longer than the page protects its player for', () => {
+    expect(DEFERRED_SEEK_REJECTION_WINDOW_MS).toBeLessThan(2_500)
   })
 })
 
@@ -32,5 +42,29 @@ describe('everyone connected is ready', () => {
   it('ignores a participant who is not connected, and an empty room is not ready', () => {
     expect(everyoneConnectedIsReady([person({}), person({ connected: false, ready: false })])).toBe(true)
     expect(everyoneConnectedIsReady([])).toBe(false)
+  })
+})
+
+describe('a kept scrub and the room it was made in', () => {
+  const pending: PendingScrub = { positionSeconds: 126, expiresAtMs: 50_000, roomId: 'room_a', mediaId: 'crunchyroll:ONE', phase: 'sent', actionId: 'action_retry' }
+  const room = (overrides: Partial<RoomSnapshot>): RoomSnapshot => ({
+    roomId: 'room_a',
+    media: { service: 'crunchyroll', canonicalId: 'crunchyroll:ONE', pageUrl: 'https://www.crunchyroll.com/watch/ONE/x', title: 'x', durationSeconds: 1400 },
+    playback: { status: 'paused', positionSeconds: 2.68, effectiveAtServerMs: 0, playbackRate: 1 },
+    seek: null,
+    ...overrides,
+  }) as RoomSnapshot
+
+  it('is only for the same room and the same video', () => {
+    expect(scrubBelongsTo(pending, room({}))).toBe(true)
+    expect(scrubBelongsTo(pending, room({ roomId: 'room_b' }))).toBe(false)
+    expect(scrubBelongsTo(pending, room({ media: null }))).toBe(false)
+    expect(scrubBelongsTo({ ...pending, mediaId: null }, room({ media: null }))).toBe(true)
+  })
+
+  it('is accepted when the room has the seek or sits at the scrubbed position, and not while it still shows the old one', () => {
+    expect(roomHasAcceptedScrub(room({}), 126)).toBe(false)
+    expect(roomHasAcceptedScrub(room({ playback: { status: 'paused', positionSeconds: 126, effectiveAtServerMs: 0, playbackRate: 1 } }), 126)).toBe(true)
+    expect(roomHasAcceptedScrub(room({ seek: { revision: 9, positionSeconds: 126, acknowledgedParticipantIds: [], resumeWhenReady: false, deadlineAtServerMs: 0 } }), 126)).toBe(true)
   })
 })

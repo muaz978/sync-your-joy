@@ -183,10 +183,12 @@ export type RuntimeEvent =
   | { type: 'PAUSE_LOCAL' }
   /**
    * `held` keeps the controller's player where a refused scrub left it, instead
-   * of returning it to the room position, until it is released; a release may
-   * ask for the usual short hold while the room accepts the scrub again.
+   * of returning it to the room position, for `holdMs` or until it is released
+   * (so that a suspended worker cannot leave it held); a release may ask for
+   * the usual short hold while the room accepts the scrub again.
    */
-  | { type: 'CONTROLLER_SEEK_HOLD'; held: boolean; releaseHoldMs?: number }
+  | { type: 'CONTROLLER_SEEK_HOLD'; held: true; holdMs: number }
+  | { type: 'CONTROLLER_SEEK_HOLD'; held: false; releaseHoldMs?: number }
   | { type: 'FORCE_SYNC' }
   /**
    * `roomEnded` marks a notice about a room that no longer exists (it expired,

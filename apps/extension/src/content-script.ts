@@ -57,7 +57,7 @@ let localSeeking = false
 let localIntentHoldUntil = 0
 // A scrub the room refused because someone was not ready: the controller's
 // player stays where it was scrubbed to until the worker releases it.
-let controllerSeekHeld = false
+let controllerSeekHeldUntil = 0
 // When the page was last left (window blur, or the tab hidden); see automatic-pause.ts.
 let lastAwayAtMs: number | null = null
 let expectedPlayUntil = 0
@@ -418,11 +418,15 @@ chrome.runtime.onMessage.addListener((message: RuntimeEvent | ContentRequest, _s
     }
   }
   else if (message.type === 'CONTROLLER_SEEK_HOLD') {
-    controllerSeekHeld = message.held
-    if (!message.held && message.releaseHoldMs !== undefined && message.releaseHoldMs > 0)
-      localIntentHoldUntil = performance.now() + message.releaseHoldMs
-    if (!message.held)
+    if (message.held) {
+      controllerSeekHeldUntil = performance.now() + message.holdMs
+    }
+    else {
+      controllerSeekHeldUntil = 0
+      if (message.releaseHoldMs !== undefined && message.releaseHoldMs > 0)
+        localIntentHoldUntil = performance.now() + message.releaseHoldMs
       applyAuthoritativeState()
+    }
   }
   else if (message.type === 'FORCE_SYNC') {
     forceSyncToRoom(false)
@@ -1138,7 +1142,7 @@ function applyAuthoritativeState(): void {
 
   // The room is not at the scrubbed position yet. Taking the player back to it
   // is a long jump to data the player no longer has.
-  if (controllerSeekHeld && isLocalController())
+  if (performance.now() < controllerSeekHeldUntil && isLocalController())
     return
 
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
@@ -1624,6 +1628,23 @@ function sendTransactionalAcknowledgement(operation: RoomOperation, phase: 'prep
   })
 }
 
+/** An explicit Sync is the retry boundary for a timed-out seek and for a stuck-seek reload that was counting down. */
+function retryBoundaryForSync(target: HTMLVideoElement): void {
+  if (pendingSeek?.timedOut) {
+    playerOperations.retireSeek(performance.now())
+    pendingSeek = null
+    clearSeekCompletionTimer()
+  }
+  if (!target.seeking)
+    clearStuckSeek()
+  if (stuckSeek && stuckSeek.reloadAt !== null) {
+    stuckSeek.reloadAt = null
+    stuckSeek.reloadCancelled = true
+    reportStuckSeekStep('reload_cancelled')
+    showNotice('Automatic reload cancelled. Sync is asking the player again.')
+  }
+}
+
 function forceSyncToRoom(fromUserGesture: boolean): void {
   if (!video || !activeState?.snapshot) {
     showNotice('The shared player is still loading.')
@@ -1639,21 +1660,8 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
   restorePlaybackRate()
   localIntentHoldUntil = 0
   localSeeking = false
-  controllerSeekHeld = false
-  // An explicit Sync is the retry boundary for a timed-out operation.
-  if (pendingSeek?.timedOut) {
-    playerOperations.retireSeek(performance.now())
-    pendingSeek = null
-    clearSeekCompletionTimer()
-  }
-  if (!video.seeking)
-    clearStuckSeek()
-  if (stuckSeek && stuckSeek.reloadAt !== null) {
-    stuckSeek.reloadAt = null
-    stuckSeek.reloadCancelled = true
-    reportStuckSeekStep('reload_cancelled')
-    showNotice('Automatic reload cancelled. Sync is asking the player again.')
-  }
+  controllerSeekHeldUntil = 0
+  retryBoundaryForSync(video)
   const reissueStuckSeek = stuckSeek !== null
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
   const expectedSeconds = expectedPosition(activeState.snapshot.playback, estimatedServerNowMs)

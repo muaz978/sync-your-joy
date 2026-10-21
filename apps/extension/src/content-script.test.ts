@@ -365,7 +365,7 @@ describe('a scrub the room has not accepted yet', () => {
 
   it('keeps the controller\'s player where it was scrubbed to while the worker holds it, and releases it on request', async () => {
     await scrubbedAwayFromPausedRoom()
-    listener({ type: 'CONTROLLER_SEEK_HOLD', held: true })
+    listener({ type: 'CONTROLLER_SEEK_HOLD', held: true, holdMs: 45_000 })
 
     // Room updates arrive while the room waits for a participant.
     apply('paused', 2.68)
@@ -379,9 +379,22 @@ describe('a scrub the room has not accepted yet', () => {
     expect(video.writes).toContain(2.68)
   })
 
+  it('lets go by itself when the worker never releases it', async () => {
+    await scrubbedAwayFromPausedRoom()
+    listener({ type: 'CONTROLLER_SEEK_HOLD', held: true, holdMs: 10_000 })
+
+    apply('paused', 2.68)
+    await vi.advanceTimersByTimeAsync(9_000)
+    expect(video.writes).toEqual([])
+
+    apply('paused', 2.68)
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(video.writes).toContain(2.68)
+  })
+
   it('is released by Sync', async () => {
     await scrubbedAwayFromPausedRoom()
-    listener({ type: 'CONTROLLER_SEEK_HOLD', held: true })
+    listener({ type: 'CONTROLLER_SEEK_HOLD', held: true, holdMs: 45_000 })
 
     listener({ type: 'FORCE_SYNC' })
     await vi.advanceTimersByTimeAsync(3_000)
