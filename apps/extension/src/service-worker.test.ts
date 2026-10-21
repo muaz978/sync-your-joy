@@ -150,6 +150,7 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
       get: vi.fn(async () => {
         throw new Error('no such tab in this test')
       }),
+      reload: vi.fn(async () => undefined),
     },
   }
 
@@ -428,6 +429,8 @@ describe('service worker observed episode identity', () => {
         || message.type === 'SEEK_APPLIED'
         || message.type === 'OPERATION_ACK'
         || message.type === 'PLAYER_INTENT'
+        || message.type === 'STUCK_SEEK_STEP'
+        || message.type === 'RELOAD_PLAYER_TAB'
       const boundMessage = bindingAware && !('bindingId' in message)
         ? { ...message, bindingId: currentBindingId } as RuntimeRequest
         : message
@@ -1029,6 +1032,39 @@ describe('service worker observed episode identity', () => {
         expect.objectContaining({ critical: true, details: { fromSeconds: 676, toSeconds: 395.6, reason: 'control_seek_pending', revision: 7 } }),
       )
       expect(report.payloadTruncated).toBe(true)
+    })
+
+    it('records each step the page takes on a stuck seek, and keeps them through a long stall', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      const socket = FakeWebSocket.instances[0]!
+      await request({ type: 'STUCK_SEEK_STEP', step: 'reissue', reissues: 1, positionSeconds: 395.6 }, sender)
+      await request({ type: 'STUCK_SEEK_STEP', step: 'nudge', reissues: 2, positionSeconds: 395.6 }, sender)
+      for (let revision = 6; revision < 120; revision += 1)
+        socket.simulateMessage({ type: 'room_snapshot', reason: 'control_play_pending', snapshot: buildRoomSnapshot({ revision }) })
+
+      const steps = reportFor(socket, 'report_steps').events.filter(event => event.message === 'stuck_seek_step')
+      expect(steps.map(event => event.details)).toEqual([
+        { step: 'reissue', reissues: 1, positionSeconds: 395.6 },
+        { step: 'nudge', reissues: 2, positionSeconds: 395.6 },
+      ])
+    })
+
+    it('ignores a step report from a page that is not the bound player', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      await request({ type: 'STUCK_SEEK_STEP', step: 'nudge', reissues: 2, positionSeconds: 1 }, { tab: { id: 7 }, frameId: 0 } as chrome.runtime.MessageSender)
+      expect(reportFor(socket, 'report_foreign_step').events.filter(event => event.message === 'stuck_seek_step')).toEqual([])
+    })
+
+    it('reloads the tab the room is playing in when its page asks, and no other', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      await request({ type: 'RELOAD_PLAYER_TAB' }, { tab: { id: 7 }, frameId: 0 } as chrome.runtime.MessageSender)
+      expect(fake.chrome.tabs.reload).not.toHaveBeenCalled()
+
+      await request({ type: 'RELOAD_PLAYER_TAB' }, sender)
+      expect(fake.chrome.tabs.reload).toHaveBeenCalledTimes(1)
+      expect(fake.chrome.tabs.reload).toHaveBeenCalledWith(42)
     })
 
     it('does not report a position that only advanced with playback or moved less than the jump threshold', async () => {

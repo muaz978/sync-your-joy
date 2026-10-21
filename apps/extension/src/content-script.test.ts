@@ -676,6 +676,149 @@ describe('adaptive player lifecycle', () => {
       })
     })
 
+    describe('and nobody presses Sync: the page recovers by itself (#138)', () => {
+      const RELOAD_NOTICE = 'This player is stuck loading the shared position. Reload this tab to recover; the room keeps your place.'
+      let storage: Map<string, string>
+
+      function stubSessionStorage(initial: Record<string, string> = {}): void {
+        storage = new Map(Object.entries(initial))
+        vi.stubGlobal('sessionStorage', {
+          getItem: (key: string) => storage.get(key) ?? null,
+          setItem: (key: string, value: string) => { storage.set(key, value) },
+        })
+      }
+
+      async function wedge(): Promise<void> {
+        video.readyState = FakeVideo.HAVE_METADATA
+        video.networkState = 2
+        Object.assign(video, { buffered: { length: 1, start: () => 672.7, end: () => 736 } })
+        await beginPlayPrepare()
+        expect(video.writes).toEqual([target])
+      }
+
+      const steps = () => messages.filter((message): message is Extract<RuntimeRequest, { type: 'STUCK_SEEK_STEP' }> => message.type === 'STUCK_SEEK_STEP').map(message => message.step)
+      const reloads = () => messages.filter(message => message.type === 'RELOAD_PLAYER_TAB')
+
+      it('leaves a slow load alone for six seconds, then asks for the position again', async () => {
+        stubSessionStorage()
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(5_000)
+        expect(video.writes).toEqual([target])
+        expect(steps()).toEqual([])
+
+        await vi.advanceTimersByTimeAsync(2_000)
+        expect(video.writes).toEqual([target, target])
+        expect(steps()).toEqual(['reissue'])
+      })
+
+      it('then seeks to a buffered point and back, without presenting either as a scrub', async () => {
+        stubSessionStorage()
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(14_000)
+
+        expect(video.writes).toEqual([target, target, 673.2, target])
+        expect(steps()).toEqual(['reissue', 'nudge'])
+        expect(messages.filter(message => message.type === 'PLAYER_INTENT')).toEqual([])
+      })
+
+      it('does not send the controller\'s own nudge to the room as a scrub', async () => {
+        stubSessionStorage()
+        state.snapshot!.controller = { participantId: 'guest', leaseEpoch: 1 }
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(14_000)
+
+        expect(video.writes).toEqual([target, target, 673.2, target])
+        expect(messages.filter(message => message.type === 'PLAYER_INTENT' || message.type === 'CONTROL')).toEqual([])
+      })
+
+      it('counts down on the page and reloads the tab once, after both steps have failed', async () => {
+        stubSessionStorage()
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(24_000)
+        expect(steps()).toEqual(['reissue', 'nudge', 'reload_countdown'])
+        expect(pill('#syj-notice').textContent).toMatch(/Reloading this tab in \d+ s/)
+        expect(reloads()).toEqual([])
+
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(reloads()).toHaveLength(1)
+        expect(steps().at(-1)).toBe('reload')
+        expect(Number(storage.get('syncyourjoy.autoReloadAt'))).toBeGreaterThan(0)
+
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(reloads()).toHaveLength(1)
+      })
+
+      it('lets Sync cancel the countdown, and does not start another for the same stall', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(24_000)
+        expect(steps().at(-1)).toBe('reload_countdown')
+
+        listener({ type: 'FORCE_SYNC' })
+        await Promise.resolve()
+        expect(steps().at(-1)).toBe('reload_cancelled')
+
+        await vi.advanceTimersByTimeAsync(120_000)
+        expect(reloads()).toEqual([])
+        expect(steps().filter(step => step === 'reload_countdown')).toHaveLength(1)
+      })
+
+      it('does not reload a tab that was reloaded automatically ten minutes ago or less', async () => {
+        stubSessionStorage({ 'syncyourjoy.autoReloadAt': String(Date.now() - 60_000) })
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        expect(steps().slice(-1)).toEqual(['reload_declined'])
+        expect(reloads()).toEqual([])
+        expect(pill('#syj-notice').textContent).toBe(RELOAD_NOTICE)
+      })
+
+      it('never reloads on its own when the tab cannot remember that it did', async () => {
+        vi.stubGlobal('sessionStorage', {
+          getItem: () => { throw new Error('storage is blocked') },
+          setItem: () => { throw new Error('storage is blocked') },
+        })
+        await wedge()
+
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        expect(steps().slice(-1)).toEqual(['reload_declined'])
+        expect(reloads()).toEqual([])
+      })
+
+      it('does nothing once the seek completes on its own', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(3_000)
+
+        video.seeking = false
+        video.readyState = FakeVideo.HAVE_CURRENT_DATA
+        video.dispatchEvent(new Event('seeked'))
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        expect(video.writes).toEqual([target])
+        expect(steps()).toEqual([])
+        expect(reloads()).toEqual([])
+      })
+
+      it('starts over for a new room position instead of repeating the old target', async () => {
+        stubSessionStorage()
+        await wedge()
+        await vi.advanceTimersByTimeAsync(3_000)
+
+        apply('paused', 500)
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        expect(video.writes).not.toContain(673.2)
+        expect(steps()).not.toContain('nudge')
+      })
+    })
+
     it('reports the element state that separates a stalled fetch from a refused stream', async () => {
       video.readyState = FakeVideo.HAVE_METADATA
       video.networkState = 2

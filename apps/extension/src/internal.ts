@@ -1,4 +1,5 @@
 import type { ClientCapabilities, ClientRoomState, ControlKind, MediaFingerprint, OperationAcknowledgement, OperationIdentity, PlayerSample, ProgressEvidenceQuality, RoomMode } from '@syncyourjoy/protocol'
+import type { StuckSeekStep } from './stuck-seek.ts'
 import { LEGACY_CLIENT_CAPABILITIES, OPERATION_CONTRACT_VERSION, normalizeRoomContractSnapshot } from '@syncyourjoy/protocol'
 
 export type PlayerOrigin = 'light-dom' | 'open-shadow-dom'
@@ -153,6 +154,8 @@ export type RuntimeRequest =
   | { type: 'PLAYER_STATUS'; basedOnRevision: number; sample: PlayerSample; bindingId?: string | undefined }
   | { type: 'SEEK_APPLIED'; revision: number; positionSeconds: number; bindingId?: string | undefined }
   | { type: 'OPERATION_ACK'; acknowledgement: OperationAcknowledgement }
+  | { type: 'STUCK_SEEK_STEP'; step: StuckSeekStep; reissues: number; positionSeconds: number; bindingId?: string | undefined }
+  | { type: 'RELOAD_PLAYER_TAB'; bindingId?: string | undefined }
   | { type: 'PLAYER_INTENT'; kind: ControlKind; positionSeconds: number; bindingId?: string | undefined }
   | { type: 'OPEN_PANEL' }
 

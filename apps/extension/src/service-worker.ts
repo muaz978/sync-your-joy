@@ -403,6 +403,25 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       }
       return success()
 
+    case 'STUCK_SEEK_STEP':
+      if (!isBoundPlayerSender(sender, request.bindingId))
+        return success()
+      recordDiagnostic('playback', 'stuck_seek_step', {
+        step: request.step,
+        reissues: request.reissues,
+        positionSeconds: request.positionSeconds,
+      }, { critical: true })
+      return success()
+
+    case 'RELOAD_PLAYER_TAB':
+      // Only the tab the room is playing in, and only when the page itself
+      // asked after its own countdown; the room survives the reload and the
+      // page binds again.
+      if (!isBoundPlayerSender(sender, request.bindingId) || sender.tab?.id === undefined)
+        return success()
+      void chrome.tabs.reload(sender.tab.id).catch(() => undefined)
+      return success()
+
     case 'CREATE_ROOM':
       const newRoomCode = generateRoomCode()
       state.sessionToken = null

@@ -13,6 +13,7 @@ import { localPlaybackStatus } from './playback-status.ts'
 import { pillView, roomlessNoticeView } from './pill-view.ts'
 import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
+import { mayAutoReload, nearestBufferedPoint, nextStuckSeekAction, STUCK_SEEK_NUDGE_SETTLE_MS, STUCK_SEEK_RELOAD_AFTER, STUCK_SEEK_RELOAD_COUNTDOWN_MS, STUCK_SEEK_TICK_MS, type StuckSeekStep } from './stuck-seek.ts'
 import { isAwaitingApproval } from './room-membership.ts'
 import { discoverOpenShadowRoots, discoverVideoElements } from './video-discovery.ts'
 
@@ -58,14 +59,17 @@ let playAttemptTimer: ReturnType<typeof setTimeout> | null = null
 let expectedPauseUntil = 0
 let expectedSeek: { positionSeconds: number; until: number } | null = null
 // A seek the player never finished (#138). The element reports the target as
-// its position while it is stuck, so only an explicit Sync may ask again, and
-// two attempts that also time out mean the page's own player is wedged, which
-// only a reload of the tab clears. It outlives a room command that retires the
-// pending seek, and ends when the seek completes, the source changes or the
-// player is replaced.
-let stuckSeek: { positionSeconds: number; reissues: number } | null = null
-const STUCK_SEEK_RELOAD_AFTER = 2
+// its position while it is stuck, so the page cannot tell a slow load from a
+// wedged one and uses time (see stuck-seek.ts): it asks again, nudges the
+// player through a buffered position, and finally reloads the tab, which only
+// a fresh player clears. An explicit Sync is also an attempt, and cancels a
+// reload countdown. The state outlives a room command that retires the pending
+// seek, and ends when the seek completes, the source changes or the player is
+// replaced.
+let stuckSeek: { positionSeconds: number; reissues: number; lastActionAt: number; reloadAt: number | null; reloadCancelled: boolean } | null = null
+let stuckSeekTimer: ReturnType<typeof setTimeout> | null = null
 const STUCK_SEEK_RELOAD_NOTICE = 'This player is stuck loading the shared position. Reload this tab to recover; the room keeps your place.'
+const AUTO_RELOAD_STORAGE_KEY = 'syncyourjoy.autoReloadAt'
 
 let pendingSeek: { token: OperationToken; positionSeconds: number; since: number; lastAttemptAt: number; roomRevision: number | null; timedOut?: boolean } | null = null
 let seekRecoveryUntil = 0
@@ -663,7 +667,7 @@ function detachPlayer(target: HTMLVideoElement | null): void {
   if (!target)
     return
   stopFrameObserver(target)
-  stuckSeek = null
+  clearStuckSeek()
   target.removeEventListener('play', handlePlay)
   target.removeEventListener('pause', handlePause)
   target.removeEventListener('seeking', handleSeeking)
@@ -694,7 +698,7 @@ function invalidateRoomOperations(sourceChanged = false): void {
   const retiredTarget = pendingSeek?.positionSeconds
   if (sourceChanged) {
     playerOperations.invalidateSource(performance.now())
-    stuckSeek = null
+    clearStuckSeek()
   }
   else
     playerOperations.invalidateCommand(performance.now())
@@ -1591,7 +1595,13 @@ function forceSyncToRoom(fromUserGesture: boolean): void {
     clearSeekCompletionTimer()
   }
   if (!video.seeking)
-    stuckSeek = null
+    clearStuckSeek()
+  if (stuckSeek && stuckSeek.reloadAt !== null) {
+    stuckSeek.reloadAt = null
+    stuckSeek.reloadCancelled = true
+    reportStuckSeekStep('reload_cancelled')
+    showNotice('Automatic reload cancelled. Sync is asking the player again.')
+  }
   const reissueStuckSeek = stuckSeek !== null
   const estimatedServerNowMs = Date.now() + activeState.serverOffsetMs
   const expectedSeconds = expectedPosition(activeState.snapshot.playback, estimatedServerNowMs)
@@ -1895,8 +1905,10 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
     scheduleSeekCompletionProbe()
     return false
   }
-  if (stuck)
+  if (stuck) {
     stuck.reissues++
+    stuck.lastActionAt = now
+  }
   if (writeSeekTarget(video, target))
     scheduleSeekCompletionProbe()
   return false
@@ -1977,7 +1989,7 @@ function maybeAcknowledgeRoomSeek(): void {
 }
 
 function completePendingSeek(completed: NonNullable<typeof pendingSeek>): void {
-  stuckSeek = null
+  clearStuckSeek()
   playerOperations.completeSeek(completed.token)
   if (completed.roomRevision !== null)
     completedRoomSeekRevision = completed.roomRevision
@@ -2030,12 +2042,154 @@ function scheduleSeekCompletionProbe(): void {
 }
 
 function markSeekStuck(pending: NonNullable<typeof pendingSeek>): boolean {
-  const reissues = stuckSeek && isSeekAligned(stuckSeek.positionSeconds, pending.positionSeconds) ? stuckSeek.reissues : 0
-  stuckSeek = { positionSeconds: pending.positionSeconds, reissues }
-  if (reissues >= STUCK_SEEK_RELOAD_AFTER)
+  const known = stuckSeek && isSeekAligned(stuckSeek.positionSeconds, pending.positionSeconds) ? stuckSeek : null
+  stuckSeek = known ?? { positionSeconds: pending.positionSeconds, reissues: 0, lastActionAt: pending.since, reloadAt: null, reloadCancelled: false }
+  scheduleStuckSeekLadder()
+  if (stuckSeek.reissues >= STUCK_SEEK_RELOAD_AFTER)
     return true
   showNotice('This player could not finish aligning. The room is pausing so Sync can retry without a refresh.')
   return false
+}
+
+function clearStuckSeek(): void {
+  stuckSeek = null
+  if (stuckSeekTimer)
+    clearTimeout(stuckSeekTimer)
+  stuckSeekTimer = null
+}
+
+function scheduleStuckSeekLadder(): void {
+  if (stuckSeekTimer || !stuckSeek)
+    return
+  stuckSeekTimer = setTimeout(stuckSeekLadderTick, STUCK_SEEK_TICK_MS)
+}
+
+function reportStuckSeekStep(step: StuckSeekStep): void {
+  if (!stuckSeek)
+    return
+  void sendRuntime({ type: 'STUCK_SEEK_STEP', step, reissues: stuckSeek.reissues, positionSeconds: stuckSeek.positionSeconds }).catch(() => undefined)
+}
+
+/**
+ * One look at a seek that has timed out. Runs once a second while the seek
+ * stays stuck and takes the next step of the ladder when its time has come.
+ */
+function stuckSeekLadderTick(): void {
+  stuckSeekTimer = null
+  const stuck = stuckSeek
+  if (!stuck || !video || !activeState?.snapshot)
+    return
+  if (!video.seeking && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    clearStuckSeek()
+    return
+  }
+  const snapshot = activeState.snapshot
+  const now = performance.now()
+  const target = expectedPosition(snapshot.playback, Date.now() + activeState.serverOffsetMs)
+  if (snapshot.playback.status === 'paused' && !isSeekAligned(stuck.positionSeconds, target)) {
+    // The room moved on: a stall at the new position is a new seek.
+    clearStuckSeek()
+    return
+  }
+  if (currentEpisodeMatchesRoom()) {
+    const action = nextStuckSeekAction(stuck, now)
+    switch (action.kind) {
+      case 'reissue':
+      case 'nudge':
+        runStuckSeekStep(stuck, action.kind, target, snapshot.seek?.revision ?? null, now)
+        break
+      case 'start_reload':
+        startStuckSeekReload(stuck, now)
+        break
+      case 'countdown':
+        showNotice(`This player is stuck. Reloading this tab in ${action.remainingSeconds} s to recover; the room keeps your place. Press Sync to cancel.`, true)
+        break
+      case 'reload':
+        performStuckSeekReload(stuck)
+        return
+      case 'none':
+        break
+    }
+  }
+  scheduleStuckSeekLadder()
+}
+
+function runStuckSeekStep(stuck: NonNullable<typeof stuckSeek>, kind: 'reissue' | 'nudge', target: number, roomRevision: number | null, now: number): void {
+  if (!video)
+    return
+  if (pendingSeek?.timedOut) {
+    playerOperations.retireSeek(now)
+    pendingSeek = null
+    clearSeekCompletionTimer()
+  }
+  reportStuckSeekStep(kind)
+  const via = kind === 'nudge' ? nearestBufferedPoint(bufferedRanges(video), target) : null
+  if (via === null) {
+    // trySetProgrammaticPosition counts the attempt and restarts the clock.
+    trySetProgrammaticPosition(target, roomRevision, true)
+    return
+  }
+  stuck.reissues++
+  stuck.lastActionAt = now
+  // Seeking away from the target is the page's own doing: the element's seek
+  // events must not be taken for a scrub, which a controller would send to the room.
+  expectedSeek = { positionSeconds: via, until: now + 4_000 }
+  if (!writeSeekTarget(video, via))
+    return
+  setTimeout(() => {
+    if (stuckSeek !== stuck || !video)
+      return
+    trySetProgrammaticPosition(target, roomRevision, false)
+  }, STUCK_SEEK_NUDGE_SETTLE_MS)
+}
+
+function bufferedRanges(target: HTMLVideoElement): Array<{ start: number; end: number }> {
+  try {
+    return Array.from({ length: target.buffered.length }, (_, index) => ({ start: target.buffered.start(index), end: target.buffered.end(index) }))
+  }
+  catch {
+    // A provider can expose a broken buffered property; nothing is known then.
+    return []
+  }
+}
+
+function startStuckSeekReload(stuck: NonNullable<typeof stuckSeek>, now: number): void {
+  if (!autoReloadAllowed()) {
+    // Reloaded already a moment ago, or the tab cannot remember that it was:
+    // the participant decides.
+    stuck.reloadCancelled = true
+    reportStuckSeekStep('reload_declined')
+    showNotice(STUCK_SEEK_RELOAD_NOTICE, true)
+    return
+  }
+  stuck.reloadAt = now + STUCK_SEEK_RELOAD_COUNTDOWN_MS
+  reportStuckSeekStep('reload_countdown')
+}
+
+function autoReloadAllowed(): boolean {
+  try {
+    const stored = sessionStorage.getItem(AUTO_RELOAD_STORAGE_KEY)
+    return mayAutoReload(stored === null ? null : Number(stored), Date.now())
+  }
+  catch {
+    // Without storage the cooldown cannot be kept, and a reload that recurs
+    // would loop.
+    return false
+  }
+}
+
+function performStuckSeekReload(stuck: NonNullable<typeof stuckSeek>): void {
+  try {
+    sessionStorage.setItem(AUTO_RELOAD_STORAGE_KEY, String(Date.now()))
+  }
+  catch {
+    stuck.reloadAt = null
+    stuck.reloadCancelled = true
+    showNotice(STUCK_SEEK_RELOAD_NOTICE, true)
+    return
+  }
+  reportStuckSeekStep('reload')
+  void sendRuntime({ type: 'RELOAD_PLAYER_TAB' }).catch(() => undefined)
 }
 
 function clearSeekCompletionTimer(): void {
@@ -2175,6 +2329,8 @@ function withPlayerBinding(request: RuntimeRequest): RuntimeRequest {
     case 'PLAYER_STATUS':
     case 'SEEK_APPLIED':
     case 'PLAYER_INTENT':
+    case 'STUCK_SEEK_STEP':
+    case 'RELOAD_PLAYER_TAB':
       return { ...request, bindingId: playerBindingId }
     default:
       return request
