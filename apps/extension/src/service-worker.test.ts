@@ -992,9 +992,14 @@ describe('service worker observed episode identity', () => {
       expect(holds(fake).some(event => event.held === false)).toBe(false)
       expect(controlsSent(socket)).toHaveLength(2)
 
-      // The room has the seek.
+      // The room has the seek. The page is given that state first, and only then let go.
+      ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockClear()
       socket.simulateMessage(snapshotOf(10, friendReady, 'control_seek_pending', { playback: atRoom(126) }))
-      expect(holds(fake).at(-1)).toEqual({ type: 'CONTROLLER_SEEK_HOLD', held: false })
+      await vi.waitFor(() => expect(holds(fake).at(-1)).toEqual({ type: 'CONTROLLER_SEEK_HOLD', held: false }))
+      const delivered = eventsToPage(fake)
+      const stateWithSeek = delivered.findIndex(event => event.type === 'APPLY_ROOM_STATE' && (event.state as { snapshot: { revision: number } }).snapshot.revision === 10)
+      expect(stateWithSeek).toBeGreaterThanOrEqual(0)
+      expect(stateWithSeek).toBeLessThan(delivered.findIndex(event => event.type === 'CONTROLLER_SEEK_HOLD' && event.held === false))
       socket.simulateMessage(snapshotOf(11, friendReady, 'participant_status_changed', { playback: atRoom(126) }))
       expect(controlsSent(socket)).toHaveLength(2)
     })
@@ -1153,12 +1158,15 @@ describe('service worker observed episode identity', () => {
       socket.simulateMessage({ type: 'room_snapshot', reason: 'operation_started', snapshot: buildRoomSnapshot({ revision: 6, playback: playing }) })
       socket.simulateMessage({ type: 'command_rejected', actionId: 'action_play', code: 'start_rejected', message: 'x', snapshot: buildRoomSnapshot({ revision: 7, playback: paused }) })
       socket.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ revision: 8, playback: playing }) })
+      // Refused because someone is not ready, with nothing else changed.
+      socket.simulateMessage({ type: 'command_rejected', actionId: 'action_seek', code: 'participants_not_ready', message: 'x', snapshot: buildRoomSnapshot({ revision: 8, playback: playing }) })
 
       const changes = reportEvents(socket, 'report_other_messages').filter(event => event.message === 'room_status_changed')
       expect(changes.map(event => [event.details.from, event.details.to, event.details.reason])).toEqual([
         ['paused', 'playing', 'operation_started'],
         ['playing', 'paused', 'start_rejected'],
         ['paused', 'playing', 'room_joined'],
+        ['playing', 'playing', 'participants_not_ready'],
       ])
     })
 

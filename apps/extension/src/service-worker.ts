@@ -39,6 +39,7 @@ const ROOM_INTERRUPTION_REASONS: ReadonlySet<string> = new Set([
   'participant_playback_blocked',
   'operation_timeout_paused',
   'participant_not_ready',
+  'participants_not_ready',
   'participant_disconnected',
   'auto_resume_play_pending',
   'auto_resume_abandoned',
@@ -1468,7 +1469,12 @@ function retryDeferredSeek(snapshot: RoomSnapshot): void {
     // a snapshot that still shows the old position must not take the player back.
     if (roomHasAcceptedScrub(snapshot, pending.positionSeconds)) {
       recordDiagnostic('control', 'seek_deferred_accepted', { positionSeconds: pending.positionSeconds })
-      clearDeferredSeek(true)
+      // The page lets go only after it has been given the state that shows the
+      // seek: released first, it would apply the room position it still has.
+      void publishState().then(() => {
+        if (deferredSeek === pending)
+          clearDeferredSeek(true)
+      })
     }
     return
   }

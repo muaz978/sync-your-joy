@@ -18,6 +18,7 @@ export const PINNED_DIAGNOSTIC_MESSAGES: ReadonlySet<string> = new Set([
   'native_pause_context',
   'seek_deferred',
   'seek_deferred_retry',
+  'seek_deferred_accepted',
   'seek_deferred_expired',
   'join_denied',
   'command_rejected',
