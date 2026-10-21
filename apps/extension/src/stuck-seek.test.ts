@@ -60,6 +60,11 @@ describe('the buffered point to seek to first', () => {
     expect(nearestBufferedPoint([{ start: 50, end: 50.6 }], 50.3)).toBeNull()
   })
 
+  it('falls through to the next range when the nearest one has no usable point', () => {
+    expect(nearestBufferedPoint([{ start: 100, end: 100.6 }, { start: 200, end: 210 }], 100.3)).toBe(200.5)
+    expect(nearestBufferedPoint([{ start: 200, end: 210 }, { start: 100, end: 100.6 }], 100.3)).toBe(200.5)
+  })
+
   it('treats a target inside a range as nearest to that range', () => {
     expect(nearestBufferedPoint([{ start: 0, end: 60 }, { start: 90, end: 100 }], 30)).toBe(59.5)
   })

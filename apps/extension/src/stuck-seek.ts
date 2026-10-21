@@ -59,29 +59,29 @@ export function mayAutoReload(lastReloadAtMs: number | null, nowMs: number): boo
 export interface BufferedRange { start: number; end: number }
 
 /**
- * A position inside the buffered range nearest to the target, to seek to
- * first. Null when nothing usable is buffered. The point sits half a second
- * inside the range at its near edge, or at the other edge or the middle when
- * that would be within a second of the target (a seek that does not move the
- * player shows it nothing), or in the middle of a range shorter than a second.
+ * A position inside a buffered range, to seek to first. Ranges are tried
+ * nearest to the target first and the first one that offers a usable point
+ * wins; null when none does. A usable point sits half a second inside the
+ * range at its near edge, or at the other edge or the middle when that would be
+ * within a second of the target (a seek that does not move the player shows it
+ * nothing); a range shorter than a second offers only its middle.
  */
 export function nearestBufferedPoint(ranges: readonly BufferedRange[], targetSeconds: number): number | null {
-  let best: BufferedRange | null = null
-  let bestDistance = Number.POSITIVE_INFINITY
-  for (const range of ranges) {
-    if (!(range.end > range.start) || !Number.isFinite(range.start) || !Number.isFinite(range.end))
-      continue
-    const distance = targetSeconds < range.start ? range.start - targetSeconds : targetSeconds > range.end ? targetSeconds - range.end : 0
-    if (distance < bestDistance) {
-      best = range
-      bestDistance = distance
-    }
+  const usable = ranges
+    .filter(range => range.end > range.start && Number.isFinite(range.start) && Number.isFinite(range.end))
+    .map(range => ({
+      range,
+      distance: targetSeconds < range.start ? range.start - targetSeconds : targetSeconds > range.end ? targetSeconds - range.end : 0,
+    }))
+    .sort((left, right) => left.distance - right.distance)
+  for (const { range } of usable) {
+    const length = range.end - range.start
+    const nearEdge = targetSeconds < range.start ? range.start + 0.5 : range.end - 0.5
+    const farEdge = targetSeconds < range.start ? range.end - 0.5 : range.start + 0.5
+    const candidates = length < 1 ? [range.start + length / 2] : [nearEdge, farEdge, range.start + length / 2]
+    const point = candidates.find(candidate => Math.abs(candidate - targetSeconds) >= 1)
+    if (point !== undefined)
+      return point
   }
-  if (best === null)
-    return null
-  const length = best.end - best.start
-  const nearEdge = targetSeconds < best.start ? best.start + 0.5 : best.end - 0.5
-  const farEdge = targetSeconds < best.start ? best.end - 0.5 : best.start + 0.5
-  const candidates = length < 1 ? [best.start + length / 2] : [nearEdge, farEdge, best.start + length / 2]
-  return candidates.find(candidate => Math.abs(candidate - targetSeconds) >= 1) ?? null
+  return null
 }
