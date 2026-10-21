@@ -39,7 +39,7 @@ If a provider blocks autoplay, click its video once. Use **Sync me now** for one
 
 ## Current public beta
 
-The current beta includes the following, introduced in `0.2.0` and extended by later releases (`0.2.5`, `0.2.6`, `0.2.7`, `0.2.8`, `0.2.9` and `0.2.10` are described in the [Changelog](CHANGELOG.md)):
+The current beta includes the following, introduced in `0.2.0` and extended by later releases (`0.2.5`, `0.2.6`, `0.2.7`, `0.2.8`, `0.2.9`, `0.2.10` and `0.2.11` are described in the [Changelog](CHANGELOG.md)):
 
 - host-approval join: a new join request waits for the controller to approve it before that person can see or use the room;
 - automatic room-wide play, pause, forward seek, and backward seek;
@@ -80,6 +80,8 @@ Version `0.2.8` lets Sync re-ask a player that never finished a synchronized see
 Version `0.2.9` makes a short rebuffer stop pausing the room for everyone: the coordinator now pauses the room only after a participant has reported buffering for 3 seconds in a row (deployed on 2026-10-19), and a player that is only waiting for data is no longer paused and re-seeked by the extension's own drift correction. The room still does not resume by itself after a real pause: the controller presses Play (Sync only realigns a player and leaves the room paused). An extension older than `0.2.9` drops its buffering flag after one report and can still pause the room during a stall (tracked in #141), so everyone in a room should run the latest release (see `0.2.10` below).
 
 Version `0.2.10` recovers a seek that never completes without a click (the page asks the player again, seeks through a buffered position, then counts down 20 seconds on the page and reloads the tab; Sync cancels, and a tab is reloaded this way at most once in ten minutes), keeps what began a stall in the diagnostics report, and shows a paused player that still waits for data as Buffering instead of Ready. The coordinator also gained the ability to resume the room by itself once every player can play after a pause the system caused (never after a pause a person made); that part is deployed on the public coordinator (2026-10-21) and applies to rooms where every participant runs extension 0.2.5 or later (0.2.10 recommended). See `docs/AUTOMATIC_RESUME_DESIGN.md`.
+
+Version `0.2.11` keeps a scrub that the room refuses because someone is not ready, instead of taking the controller's player back to the room position, which could leave Crunchyroll's player stuck: the scrub is sent again as soon as everyone is ready (for up to 45 seconds; a newer control, Sync or leaving the room drops it). A pause that the page makes as the browser window loses focus or the tab is hidden, such as switching to another app on a Mac, is no longer sent to the room as the controller pausing. That second change rests on a report and is not confirmed in a live session, so each such pause is recorded in the diagnostics report together with every reason the room paused or resumed; download the report after anything unexpected. See the [Changelog](CHANGELOG.md).
 
 The public beta room coordinator is deployed at `wss://sync-your-joy-rooms.sync-your-joy.workers.dev/rooms`. Its health endpoint is `https://sync-your-joy-rooms.sync-your-joy.workers.dev/health`.
 

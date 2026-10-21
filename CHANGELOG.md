@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-10-21
+
+This is a compatible test release; it changes the extension only, and the coordinator that is deployed (the one with automatic resume) is unchanged. The changes below take effect when each participant loads this package. Every tester should be on 0.2.11.
+
 ### Fixed
 
 - Extension: a scrub the room refuses because someone is not ready no longer wedges the controller's player. The 0.2.10 report of 2026-10-21 shows the controller scrubbing to 2:06 while the room sat at 0:02; the room refused the seek (`participants_not_ready`), so the page took the player back to 0:02, a position the player had already thrown away, and Crunchyroll's player never loaded it (the same stuck seek as in #138; the reload that the recovery ladder performs after 20 seconds put the player back at 2:06, and the refused seek started it again). The scrub is now kept: the controller's player stays where it was scrubbed to, and the same seek is sent again as soon as everyone is ready, for up to 45 seconds. A newer control, Sync, leaving the room, or the end of the wait drops it. Takes effect when participants load the extension release.

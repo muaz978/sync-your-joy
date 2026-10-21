@@ -10432,3 +10432,43 @@
 
 ## Historical Checkpoint Notes
 - No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
+
+# Context Checkpoint
+
+## Session Metadata
+- Task or project: SyncYourJoy, release 0.2.11 (extension) after #152.
+- Checkpoint number: 128.
+- Date and time: 2026-10-21, Europe/Istanbul.
+- Coverage period: Since checkpoint 127 (`main` at `27b8039`).
+- Current context status: Branch `release/0.2.11` from `2199182` (#152 merged). Not merged, not tagged. The deployed coordinator is unchanged (Worker `01829323-1eea-4153-90e9-869ec6e22c6b`).
+
+## User Objective and Requirements
+- Analyse the 0.2.10 diagnostics report of the live session and fix what happened; then release 0.2.11 so the owner can test with a friend ("bump to the new release").
+
+## Complete Chronological Activity Log
+- Report: the room sat paused at 0:02; the controller scrubbed to 2:06; the room refused the seek (`participants_not_ready`); the page took the controller's player back to 0:02, which Crunchyroll's player never loaded (`readyState 1`, `seeking`, nothing buffered ahead); every later Play timed out because that player never prepared, while the other player was healthy (`readyState 4`). The recovery ladder reloaded the tab once; the reload put the player back at 2:06, which sent the scrub again and it was refused again; the second reload was declined by the ten-minute cooldown. Who was not ready is not in the report (room snapshots were dropped; 2,199 events).
+- The owner also reported that the room pauses and resumes too often and that switching to another app on a Mac pauses it; neither is explained by the report.
+- #152 (merged `2199182`): a refused scrub is kept and sent again when everyone is ready (up to 45 s; matched by action id, bound to its room and video; the page holds by itself for the stated time and is released only after it has the state that shows the seek); a pause within 2 s of the window losing focus or the tab hiding is not sent as a controller pause; diagnostics keep `room_status_changed` with its reason, `native_pause_context`, the deferred-scrub steps and who was not ready. 793 unit tests; 20 of 20 browser matrix.
+- User-level setting (outside the repository): the security-guidance plugin reviews were switched to Sonnet 5.5 on the subscription token; not part of this release.
+
+## Confirmed Successful Results
+- Unit suite 793 tests; typecheck; matrix 20 of 20 on the #152 head.
+
+## Failed, Incomplete, or Unresolved Work
+- Unproven: who was not ready at the refusal; whether the app-switch pause is the browser's or the site's; why the room paused and resumed so often. The next report answers all three. #138, #141, #119 stay open.
+
+## Decisions and Rationale
+- Extension-only release; the coordinator is unchanged. Tag `v0.2.11`; the release workflow publishes the zip and checksum.
+
+## Files and Artifacts
+- `package.json`, `package-lock.json`, `apps/extension/package.json`, `apps/extension/static/manifest.json`, `CHANGELOG.md`, `README.md`, this file; `outputs/0.2.11/` after the tag.
+
+## Open Questions, Blockers, and Dependencies
+- The owner's live test with a friend on 0.2.11, with a diagnostics report after any stall or unexpected pause.
+
+## Next Steps
+1. Merge, tag `v0.2.11`, verify the release asset and checksum, unpack it to `outputs/0.2.11`.
+2. Read the next report. Dependabot #149 (vite 8.3.5) after a few days.
+
+## Historical Checkpoint Notes
+- No passwords, private keys, access tokens, cookies, storage-state contents, signed URLs, protected media bytes or DRM information were recorded. No room code or participant id is recorded here.
