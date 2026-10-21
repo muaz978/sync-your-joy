@@ -1006,6 +1006,40 @@ describe('service worker observed episode identity', () => {
       expect(times).toEqual([...times].sort((left, right) => left - right))
     })
 
+    it('keeps the room position change that began a stall when the same snapshots repeat for minutes', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      const socket = FakeWebSocket.instances[0]!
+      const at = (positionSeconds: number) => ({ status: 'paused' as const, positionSeconds, effectiveAtServerMs: 0, playbackRate: 1 as const })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'control_pause', snapshot: buildRoomSnapshot({ revision: 6, playback: at(676) }) })
+      // The room jumps back by almost five minutes: the event the 0.2.9 report lost.
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'control_seek_pending', snapshot: buildRoomSnapshot({ revision: 7, playback: at(395.6) }) })
+      // Five minutes of the same failing Play cycle, six distinct room events per cycle.
+      for (let cycle = 0; cycle < 90; cycle += 1) {
+        const revision = 8 + cycle * 2
+        socket.simulateMessage({ type: 'room_snapshot', reason: 'control_play_pending', snapshot: buildRoomSnapshot({ revision, playback: at(395.6) }) })
+        socket.simulateMessage({ type: 'room_snapshot', reason: 'operation_timeout_paused', snapshot: buildRoomSnapshot({ revision: revision + 1, playback: at(395.6) }) })
+        for (let report = 0; report < 4; report += 1)
+          socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_status_changed', snapshot: buildRoomSnapshot({ revision: revision + 1, playback: at(395.6) }) })
+        await request({ type: 'PLAYER_STATUS', basedOnRevision: revision, sample: { ...stalledSample, sampledAtLocalMs: Date.now() } }, sender)
+      }
+
+      const report = reportFor(socket, 'report_position_jump')
+      expect(report.events.filter(event => event.message === 'room_position_changed')).toContainEqual(
+        expect.objectContaining({ critical: true, details: { fromSeconds: 676, toSeconds: 395.6, reason: 'control_seek_pending', revision: 7 } }),
+      )
+      expect(report.payloadTruncated).toBe(true)
+    })
+
+    it('does not report a position that only advanced with playback or moved less than the jump threshold', async () => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const playing = (positionSeconds: number) => ({ status: 'playing' as const, positionSeconds, effectiveAtServerMs: Date.now(), playbackRate: 1 as const })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'control_play', snapshot: buildRoomSnapshot({ revision: 6, playback: playing(0) }) })
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_status_changed', snapshot: buildRoomSnapshot({ revision: 7, playback: playing(1.5) }) })
+      expect(reportFor(socket, 'report_no_jump').events.filter(event => event.message === 'room_position_changed')).toEqual([])
+    })
+
     it('does not merge a heartbeat across a media loss, a reconnect or a room change', async () => {
       const { request } = await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!

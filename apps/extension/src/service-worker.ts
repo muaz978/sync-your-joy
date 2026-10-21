@@ -10,7 +10,7 @@ import { shouldConfirmMediaMismatch } from './readiness-state.ts'
 import { isAwaitingApproval } from './room-membership.ts'
 import { connectionQuality } from './connection-quality.ts'
 import { browserApi } from './browser-api.ts'
-import { fitDiagnosticsReport } from './diagnostics-budget.ts'
+import { diagnosticEvictionIndex, fitDiagnosticsReport, roomPositionJump } from './diagnostics-budget.ts'
 import { bufferedAheadBucket, MAX_BUFFERED_PAIRS, MAX_SEEKABLE_PAIRS, sanitizeElapsedMs, sanitizeMediaErrorCode, sanitizeRangeCount, sanitizeRangePairs, sanitizeRangeSeconds } from './media-ranges.ts'
 import { CONTROLLER_FOLLOW_NAVIGATION_ENABLED, shouldFollowControllerNavigation, strongCrunchyrollNavigationKey } from './navigation-transaction.ts'
 
@@ -801,7 +801,9 @@ function handleServerMessage(raw: string): void {
   }
 
   if (message.type === 'room_snapshot') {
-    if (!state.snapshot || message.snapshot.revision >= state.snapshot.revision)
+    const previousPlayback = state.snapshot?.playback ?? null
+    const snapshotApplied = !state.snapshot || message.snapshot.revision >= state.snapshot.revision
+    if (snapshotApplied)
       state.snapshot = message.snapshot
     state.connection = 'connected'
     state.lastError = null
@@ -813,6 +815,15 @@ function handleServerMessage(raw: string): void {
       positionSeconds: message.snapshot.playback.positionSeconds,
       aligning: message.snapshot.seek !== null,
     }, snapshotReason ? { reason: snapshotReason } : {})
+    const jump = snapshotApplied ? roomPositionJump(previousPlayback, message.snapshot.playback, Date.now() + state.serverOffsetMs) : null
+    if (jump) {
+      recordDiagnostic('room', 'room_position_changed', {
+        fromSeconds: jump.fromSeconds,
+        toSeconds: jump.toSeconds,
+        reason: safeDiagnosticCode(message.reason),
+        revision: message.snapshot.revision,
+      }, { critical: true })
+    }
     void applySharedNavigation(message.snapshot)
     void publishState()
     return
@@ -1396,9 +1407,7 @@ function recordDiagnostic(category: string, message: string, details: Record<str
   if (options.reason)
     lastDiagnosticReason = options.reason
   if (diagnosticEvents.length > DIAGNOSTIC_EVENT_LIMIT) {
-    const firstNonCritical = diagnosticEvents.findIndex(candidate => candidate.critical !== true)
-    const removeIndex = firstNonCritical === -1 ? 0 : firstNonCritical
-    diagnosticEvents.splice(removeIndex, 1)
+    diagnosticEvents.splice(diagnosticEvictionIndex(diagnosticEvents), 1)
     diagnosticEventsDropped += 1
   }
 }
