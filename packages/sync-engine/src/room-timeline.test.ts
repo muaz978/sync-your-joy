@@ -1,6 +1,7 @@
 import type { MediaFingerprint } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
 import { RoomCoordinator } from './room.ts'
+import { DISCONNECT_PAUSE_GRACE_MS } from './playback-health.ts'
 import { ROOM_TIMELINE_LIMIT, safeCloseReason, timelineStateKey } from './room-timeline.ts'
 
 const media: MediaFingerprint = {
@@ -193,22 +194,37 @@ describe('the coordinator\'s timeline', () => {
     })
   })
 
-  it('shows the coordinator pausing a playing room for a disconnect, after the close that caused it', () => {
+  it('shows the room waiting for a dropped connection, then pausing when it does not come back', () => {
     const clock = { now: 10_000 }
     const room = createPair(clock)
     clock.now = 11_000
     play(room, 12, 'action_disconnect_play')
     clock.now = 20_000
     room.recordTransportEvent('participant_friend', 'socket_closed', { code: 1006 })
-    const result = room.disconnect('participant_friend')
-    expect(result?.ok).toBe(true)
+    expect(room.disconnect('participant_friend')?.ok).toBe(true)
 
-    const tail = room.roomDiagnostics().entries.slice(-2)
-    expect(tail.map(entry => entry.kind)).toEqual(['transport', 'change'])
-    expect(tail[1]).toMatchObject({ playbackStatus: 'paused' })
-    expect(tail[1]!.participants).toEqual(expect.arrayContaining([
+    // It waits: the room is still playing, with the participant shown as gone.
+    const waiting = room.roomDiagnostics().entries.slice(-2)
+    expect(waiting.map(entry => entry.kind)).toEqual(['transport', 'change'])
+    expect(waiting[1]).toMatchObject({ playbackStatus: 'playing' })
+    expect(waiting[1]!.participants).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'participant_friend', connected: false }),
     ]))
+
+    clock.now += DISCONNECT_PAUSE_GRACE_MS + 1
+    expect(room.evaluateDisconnectGrace(clock.now)?.ok).toBe(true)
+    expect(room.roomDiagnostics().entries.at(-1)).toMatchObject({ kind: 'change', event: 'participant_disconnect_timeout', playbackStatus: 'paused' })
+  })
+
+  it('shows a deliberate leave pausing the room at once', () => {
+    const clock = { now: 10_000 }
+    const room = createPair(clock)
+    clock.now = 11_000
+    play(room, 12, 'action_leave_play')
+    clock.now = 20_000
+    room.disconnect('participant_friend', { intentional: true })
+
+    expect(room.roomDiagnostics().entries.at(-1)).toMatchObject({ kind: 'change', playbackStatus: 'paused' })
   })
 
   it('keeps two Play commands that set different positions', () => {

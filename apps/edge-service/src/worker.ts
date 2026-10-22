@@ -4,7 +4,7 @@ import type { ClientMessage, ServerMessage } from '@syncyourjoy/protocol'
 import type { RoomCoordinatorState, RoomResult } from '@syncyourjoy/sync-engine'
 import { DurableObject } from 'cloudflare:workers'
 import { isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
-import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator, safeCloseReason } from '@syncyourjoy/sync-engine'
+import { isEmptyRoomExpired, isIntentionalLeave, reconcileEmptyClock, RoomCoordinator, safeCloseReason } from '@syncyourjoy/sync-engine'
 import { applyEarliestDueDeadline, persistRoomAndSchedule, persistThenObserve } from './alarm.ts'
 
 const MAX_MESSAGE_BYTES = 16_384
@@ -241,7 +241,8 @@ export class RoomDurableObject extends DurableObject<Env> {
     for (const participant of snapshot.participants) {
       if (!participant.connected || attached.has(participant.id))
         continue
-      const disconnected = coordinator.disconnect(participant.id)
+      // A member with no socket after a restart is gone, not on a flaky connection: no grace.
+      const disconnected = coordinator.disconnect(participant.id, { intentional: true })
       if (disconnected?.ok) {
         repair.reason = disconnected.reason
         if (coordinator.snapshot().controller.participantId === participant.id) {
@@ -551,6 +552,11 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.handleMessage(socket, attachment, message)
   }
 
+  /**
+   * `reason` is the close reason the client gave. A client that leaves on
+   * purpose says so, and the room pauses at once; any other close, and
+   * webSocketError, is a dropped connection that the room waits out.
+   */
   async webSocketClose(socket: WebSocket, code?: number, reason?: string): Promise<void> {
     await this.socketGone(socket, 'socket_closed', code, reason)
   }
@@ -624,7 +630,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
-    const result = this.coordinator.disconnect(attachment.participantId)
+    const result = this.coordinator.disconnect(attachment.participantId, { intentional: isIntentionalLeave(reason) })
     if (!result?.ok) {
       // A controller already stored as disconnected (a join whose write was
       // lost across a restart) has nothing left to disconnect, but its socket
@@ -1046,6 +1052,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     const healthDeadlineMs = this.coordinator.nextHealthDeadlineMs()
     if (healthDeadlineMs !== null)
       alarmCandidates.push(healthDeadlineMs)
+    const disconnectGraceDeadlineMs = this.coordinator.disconnectGraceDeadlineMs()
+    if (disconnectGraceDeadlineMs !== null)
+      alarmCandidates.push(disconnectGraceDeadlineMs)
     const autoResumeDeadlineMs = this.coordinator.autoResumeDeadlineMs()
     if (autoResumeDeadlineMs !== null)
       alarmCandidates.push(autoResumeDeadlineMs)

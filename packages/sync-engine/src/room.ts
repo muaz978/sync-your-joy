@@ -28,7 +28,7 @@ import {
   supportsTransactionalOperations,
 } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_MAX_OFFSET_SECONDS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { DISCONNECT_PAUSE_GRACE_MS, AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_MAX_OFFSET_SECONDS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSettledPausedSeek } from './operation-state.ts'
 import { ROOM_TIMELINE_LIMIT, TIMELINE_PARTICIPANT_LIMIT, timelineStateKey } from './room-timeline.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
@@ -100,6 +100,15 @@ export interface RoomCoordinatorState {
   pendingSeek?: SharedSeek | null
   pendingJoinRequests?: InternalPendingJoinRequest[]
   contract?: RoomContractSnapshot
+  /** Participants whose dropped connection the room was waiting out when it was saved. */
+  disconnectGrace?: DisconnectGraceEntry[]
+}
+
+/** A dropped connection being waited for: who, since when, and which run of playback it dropped in. */
+export interface DisconnectGraceEntry {
+  id: string
+  sinceMs: number
+  playbackAtMs: number
 }
 
 export const ROOM_STATE_VERSION = 2
@@ -180,6 +189,8 @@ export class RoomCoordinator {
       this.pendingSeek = hasValidContractBoundary ? restoredPendingSeek : null
       if (!hasValidContractBoundary)
         this.migratePreContractState(restoredPendingSeek)
+      for (const entry of restoredState.disconnectGrace ?? [])
+        this.disconnectGrace.set(entry.id, { ...entry })
       this.refreshNegotiation()
       this.startTimeline(true)
       return
@@ -255,6 +266,7 @@ export class RoomCoordinator {
       pendingSeek: this.pendingSeek ? structuredClone(this.pendingSeek) : null,
       pendingJoinRequests: [...this.pendingJoinRequests.values()].map(request => structuredClone(request)),
       contract: structuredClone(this.contract),
+      disconnectGrace: this.liveDisconnectGrace().map(entry => ({ ...entry })),
     }
   }
 
@@ -295,7 +307,21 @@ export class RoomCoordinator {
           ? 'blocked'
           : existing.ready ? this.playback.status === 'playing' ? 'preparing' : 'ready' : 'preparing'
         : 'wrong-media'
-      this.pauseForMembershipChange()
+      // Back within the grace, ready and on the same video, with the room still
+      // playing: nothing to pause for. Every other return pauses, as before.
+      const entry = this.disconnectGrace.get(participant.id)
+      const waited = entry !== undefined && this.playback.status === 'playing' && entry.playbackAtMs === this.playback.effectiveAtServerMs ? entry : undefined
+      this.disconnectGrace.delete(participant.id)
+      // A return after the grace has run out is a timeout whether or not its sweep has run yet.
+      const inTime = waited !== undefined && this.now() - waited.sinceMs < DISCONNECT_PAUSE_GRACE_MS
+      if (inTime && existing.ready && this.canRideOutDisconnect()) {
+        // Away for seconds, so its last report is old: it gets a fresh window to report, not a stall.
+        existing.lastSampleReceivedAtMs = this.now()
+        existing.lastProgressAtServerMs = this.now()
+      }
+      else {
+        this.pauseForMembershipChange()
+      }
       this.refreshNegotiation()
       this.revision += 1
       this.markStateBarrier()
@@ -1259,6 +1285,13 @@ export class RoomCoordinator {
   private timelineStartedAtMs = 0
   private lastTimelineKey = ''
   /**
+   * Participants whose connection dropped while the room was playing, and when,
+   * so the room can wait DISCONNECT_PAUSE_GRACE_MS for them before it pauses.
+   * An entry belongs to the run of playback it was made in (`playbackAtMs`): once the
+   * room has paused, or been played again, it no longer counts.
+   */
+  private disconnectGrace = new Map<string, DisconnectGraceEntry>()
+  /**
    * Coordinator-local record of an automatic resume that is waiting for the
    * players. Like the buffering runs it is kept out of every snapshot and the
    * persisted export: a restored room stays paused and its controller presses
@@ -1434,11 +1467,16 @@ export class RoomCoordinator {
       participant.latencyMs = Math.round(Math.max(0, Math.min(roundTripMs, 10_000)))
   }
 
-  disconnect(participantId: string): RoomResult | null {
-    return this.asPersonAction(() => this.disconnectCore(participantId))
+  /**
+   * `intentional` is a participant leaving on purpose: the room pauses at once.
+   * A dropped connection is waited for (see DISCONNECT_PAUSE_GRACE_MS) when the
+   * room is playing and nothing is being prepared.
+   */
+  disconnect(participantId: string, options: { intentional?: boolean } = {}): RoomResult | null {
+    return this.asPersonAction(() => this.disconnectCore(participantId, options.intentional === true))
   }
 
-  private disconnectCore(participantId: string): RoomResult | null {
+  private disconnectCore(participantId: string, intentional: boolean): RoomResult | null {
     const participant = this.participants.get(participantId)
     if (!participant || !participant.connected)
       return null
@@ -1446,11 +1484,53 @@ export class RoomCoordinator {
     participant.connected = false
     participant.playbackStatus = 'unknown'
 
-    this.pauseForMembershipChange('participant-disconnected')
+    if (!intentional && this.canRideOutDisconnect())
+      this.disconnectGrace.set(participantId, { id: participantId, sinceMs: this.now(), playbackAtMs: this.playback.effectiveAtServerMs })
+    else
+      this.pauseForMembershipChange('participant-disconnected')
 
     this.revision += 1
     this.markStateBarrier()
     return this.success('participant_disconnected')
+  }
+
+  /** The room is playing with nothing being prepared, and somebody is still connected to watch with. */
+  private canRideOutDisconnect(): boolean {
+    if (this.playback.status !== 'playing' || this.pendingSeek !== null)
+      return false
+    const operation = this.contract.operation
+    if (operation !== null && operation.phase !== 'started' && operation.phase !== 'cancelled' && operation.phase !== 'failed')
+      return false
+    return [...this.participants.values()].some(participant => participant.connected)
+  }
+
+  /** The participants still being waited for: the room has played on since they dropped, and they are still away. */
+  private liveDisconnectGrace(): DisconnectGraceEntry[] {
+    if (this.playback.status !== 'playing')
+      return []
+    return [...this.disconnectGrace.values()].filter(entry => entry.playbackAtMs === this.playback.effectiveAtServerMs
+      && this.participants.get(entry.id)?.connected === false)
+  }
+
+  /** When the room next has to look at a participant it is waiting for, or null when it waits for nobody. */
+  disconnectGraceDeadlineMs(): number | null {
+    const live = this.liveDisconnectGrace()
+    return live.length === 0 ? null : Math.min(...live.map(entry => entry.sinceMs)) + DISCONNECT_PAUSE_GRACE_MS
+  }
+
+  /** Pauses the room once a participant it waited for is still away after the grace. */
+  evaluateDisconnectGrace(nowMs: number = this.now()): RoomResult | null {
+    if (this.disconnectGrace.size === 0)
+      return null
+    const live = this.liveDisconnectGrace()
+    // What is no longer live is forgotten, so an old wait cannot count against a later run of playback.
+    this.disconnectGrace = new Map(live.map(entry => [entry.id, entry]))
+    if (!live.some(entry => nowMs - entry.sinceMs >= DISCONNECT_PAUSE_GRACE_MS))
+      return null
+    this.pauseForMembershipChange('participant-disconnected')
+    this.revision += 1
+    this.markStateBarrier()
+    return this.success('participant_disconnect_timeout')
   }
 
   transferDisconnectedController(): RoomResult | null {
@@ -1750,6 +1830,7 @@ export class RoomCoordinator {
   }
 
   private pauseForMembershipChange(reason: RoomOperation['reason'] = 'participant-disconnected'): void {
+    this.disconnectGrace.clear()
     if (this.contract.mode === 'transactional')
       this.cancelOperation(reason, this.now())
     this.pendingSeek = null

@@ -24,6 +24,19 @@ export const PLAYBACK_BUFFERING_REPORT_GAP_MS = 2_500
 // buffered or stalled, it starts playback again once every player has been able
 // to play for the stability window, and gives up after a bounded number of
 // attempts or window, so a player that cannot play never causes a loop.
+// A participant whose connection drops while the room is playing is waited for
+// this long before the room pauses for everyone. A short network or browser
+// hiccup (the 0.2.11 report of 2026-10-22: about one second) then costs
+// nothing, where it used to pause the room and make everybody press Play. A
+// participant who leaves on purpose still pauses the room at once.
+export const DISCONNECT_PAUSE_GRACE_MS = 8_000
+/** Close reasons the extension gives when it leaves a room on purpose. */
+export const INTENTIONAL_LEAVE_REASONS: readonly string[] = ['left_room', 'new_room']
+
+export function isIntentionalLeave(closeReason: string | undefined | null): boolean {
+  return typeof closeReason === 'string' && INTENTIONAL_LEAVE_REASONS.includes(closeReason)
+}
+
 export const AUTO_RESUME_STABLE_MS = 1_500
 export const AUTO_RESUME_WINDOW_MS = 120_000
 export const AUTO_RESUME_MAX_ATTEMPTS = 3
