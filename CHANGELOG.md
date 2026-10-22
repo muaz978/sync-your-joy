@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+### Fixed
+
+- Coordinator: when a participant disconnects (or stops being ready) while a Play is running, the room now pauses where it has got to, not where that Play began. Before, the room went back by everything watched since the Play was pressed: in the 0.2.11 report of 2026-10-22 a participant's connection dropped for about a second 100 seconds into the episode's last quarter, the room paused at 11:31 instead of 13:11, and both players, whose buffers only held data from 13:15 on, had to load a position 100 seconds back, which Crunchyroll's player never did. A Play that is still being prepared, or committed with no participant yet confirmed as started, still pauses at its target, and so does a Play whose start times out (stalled participants are not skipped forward). Takes effect when the coordinator is redeployed; no extension update is needed.
+
 ## [0.2.11] - 2026-10-21
 
 This is a compatible test release; it changes the extension only, and the coordinator that is deployed (the one with automatic resume) is unchanged. The changes below take effect when each participant loads this package. Every tester should be on 0.2.11.
