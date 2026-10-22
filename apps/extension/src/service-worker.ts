@@ -988,7 +988,8 @@ function handleServerMessage(raw: string): void {
 
   if (message.type === 'diagnostics_room') {
     const collection = diagnosticCollection
-    if (!collection || collection.reportId !== message.reportId)
+    // A timeline of another room than the one this report was asked for in does not belong in it.
+    if (!collection || collection.reportId !== message.reportId || state.snapshot?.code !== collection.roomCode)
       return
     collection.room = message.room
     finishWhenComplete(collection)
@@ -1918,6 +1919,11 @@ function requestDiagnosticResponses(reportId: string): boolean {
   const collection = diagnosticCollection
   if (!collection || collection.reportId !== reportId)
     return false
+  if (state.snapshot?.code !== collection.roomCode) {
+    // The controller is in another room: ask nobody more, and write what was collected for the room it was asked for in.
+    finishDiagnosticCollection(reportId)
+    return true
+  }
   if (hasEveryResponse(collection) && (collection.room !== null || collection.attempts > 0)) {
     // Everyone has answered. Only the timeline may be missing, and asking again would make every participant send its report again.
     finishWhenComplete(collection)

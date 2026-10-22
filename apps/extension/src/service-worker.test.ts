@@ -1169,7 +1169,7 @@ describe('service worker observed episode identity', () => {
     function downloadedReport(fake: FakeChrome) {
       const download = fake.downloadMock.mock.calls[0]![0] as { url: string }
       const [, body] = download.url.split(',', 2)
-      return JSON.parse(decodeURIComponent(body!)) as { schemaVersion: number, room: unknown, participants: unknown[], collection: { complete: boolean } }
+      return JSON.parse(decodeURIComponent(body!)) as { schemaVersion: number, roomCode: string | null, room: unknown, participants: unknown[], collection: { complete: boolean } }
     }
 
     function requestedReportId(socket: FakeWebSocket): string {
@@ -1233,6 +1233,36 @@ describe('service worker observed episode identity', () => {
       const download = fake.downloadMock.mock.calls[0]![0] as { url: string, filename: string }
       expect((JSON.parse(decodeURIComponent(download.url.split(',', 2)[1]!)) as { roomCode: string }).roomCode).toBe('ABCDEFGH')
       expect(download.filename).toContain('ABCDEFGH')
+    })
+
+    it('stops asking when the controller has moved to another room, and writes what it had for the first', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      socket.simulateMessage({
+        type: 'room_snapshot',
+        reason: 'join_approved',
+        snapshot: buildRoomSnapshot({ participants: [
+          { id: 'participant_resumed', name: 'Resumed Friend', role: 'controller', ready: false, connected: true, mediaMatches: false, latencyMs: null },
+          { id: 'participant_friend', name: 'Rana', role: 'member', ready: false, connected: true, mediaMatches: false, latencyMs: null },
+        ] }),
+      })
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      const reportId = requestedReportId(socket)
+      // Someone has not answered; the controller joins a different room before the next retry.
+      const joining = request({ type: 'JOIN_ROOM', code: 'VVVVVVVV' })
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+      const next = FakeWebSocket.instances[1]!
+      next.simulateOpen()
+      await joining
+      next.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ code: 'VVVVVVVV', media: oldMedia }) })
+      next.simulateMessage({ type: 'diagnostics_room', reportId, room: roomTimeline })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1), { timeout: 4_000 })
+      const report = downloadedReport(fake)
+      expect(report.roomCode).toBe('ABCDEFGH')
+      expect(report.room).toBeNull()
+      expect(next.sentMessages.some(message => (message as { type?: string }).type === 'request_diagnostics')).toBe(false)
     })
 
     it('ignores a timeline for a report it did not ask for', async () => {
