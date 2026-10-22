@@ -3239,7 +3239,7 @@ describe('a membership change while a transactional Play is running', () => {
 
     const disconnected = room.disconnect('participant_friend')
 
-    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
     expect(disconnected?.snapshot.playback.positionSeconds).toBeCloseTo(90, 0)
   })
 
@@ -3273,7 +3273,7 @@ describe('a membership change while a transactional Play is running', () => {
 
     const disconnected = room.disconnect('participant_friend')
 
-    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 } } })
+    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
   })
 
   it('pauses at the target when the Play was committed but its start time had not come', () => {
@@ -3288,7 +3288,7 @@ describe('a membership change while a transactional Play is running', () => {
 
     const disconnected = room.disconnect('participant_friend')
 
-    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 } } })
+    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
   })
 
   /** A committed Play whose start time has come and gone with no start acknowledgement from anyone. */
@@ -3310,7 +3310,7 @@ describe('a membership change while a transactional Play is running', () => {
 
     const disconnected = room.disconnect('participant_friend')
 
-    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 } } })
+    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
   })
 
   it('pauses at the target when a Play that never started times out', () => {
