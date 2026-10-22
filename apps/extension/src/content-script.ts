@@ -290,7 +290,7 @@ playbackButton?.addEventListener('click', () => {
     if (operation?.phase === 'committed' && operation.resumeWhenReady !== false)
       activateSynchronizedPlayback()
     else {
-      void video.play().catch(() => {
+      void startMediaPlay(video).catch(() => {
         renderPill()
         showNotice('Press Sync once so Chrome can allow synchronized play.')
       })
@@ -1363,9 +1363,7 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
     showNotice('The player did not respond to the synchronized play. Press Sync to retry without refreshing.')
     void reportPlayerStatus(true)
   }, PLAY_REQUEST_TIMEOUT_MS)
-  const playPromise = consumeLoopbackTestPlayerRejection(target)
-    ? Promise.reject(new DOMException('The local fixture rejected playback for recovery testing.', 'NotAllowedError'))
-    : target.play()
+  const playPromise = startMediaPlay(target)
   void playPromise.then(() => {
     if (!isCurrent()) {
       playerOperations.settlePlay(operation)
@@ -1397,6 +1395,13 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
     showNotice(name === 'NotAllowedError' ? blockedNotice : 'The video could not start. Check the player, then press Sync to retry.')
     void reportPlayerStatus(true)
   })
+}
+
+/** Every extension-issued play() goes through here so the local test player's simulated block covers all of them. */
+function startMediaPlay(target: HTMLVideoElement): Promise<void> {
+  return consumeLoopbackTestPlayerRejection(target)
+    ? Promise.reject(new DOMException('The local fixture rejected playback for recovery testing.', 'NotAllowedError'))
+    : target.play()
 }
 
 /**
