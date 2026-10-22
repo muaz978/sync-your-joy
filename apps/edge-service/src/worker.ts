@@ -569,6 +569,29 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.reconcileAfterUnreadableClose()
   }
 
+  /**
+   * Records that a participant's socket went, and reports whether the participant still has another.
+   * A socket whose attachment cannot be read is closed on the way.
+   */
+  private noteSocketGone(socket: WebSocket, participantId: string, event: 'socket_closed' | 'socket_error', code?: number, reason?: string): boolean {
+    let stillConnected = false
+    for (const candidate of this.ctx.getWebSockets()) {
+      if (candidate === socket)
+        continue
+      const other = this.attachmentOf(candidate)
+      if (other === undefined)
+        this.closeUnreadable(candidate)
+      else if (other.participantId === participantId)
+        stillConnected = true
+    }
+    this.coordinator?.recordTransportEvent(participantId, event, {
+      code: code ?? null,
+      reason: safeCloseReason(reason),
+      participantStillConnected: stillConnected,
+    })
+    return stillConnected
+  }
+
   private async socketGone(socket: WebSocket, event: 'socket_closed' | 'socket_error', code?: number, reason?: string): Promise<void> {
     await this.initialized
     const attachment = this.attachmentOf(socket)
@@ -579,21 +602,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!attachment.participantId || !this.coordinator)
       return
 
-    let stillConnected = false
-    for (const candidate of this.ctx.getWebSockets()) {
-      if (candidate === socket)
-        continue
-      const other = this.attachmentOf(candidate)
-      if (other === undefined)
-        this.closeUnreadable(candidate)
-      else if (other.participantId === attachment.participantId)
-        stillConnected = true
-    }
-    this.coordinator.recordTransportEvent(attachment.participantId, event, {
-      code: code ?? null,
-      reason: safeCloseReason(reason),
-      participantStillConnected: stillConnected,
-    })
+    const stillConnected = this.noteSocketGone(socket, attachment.participantId, event, code, reason)
     if (stillConnected)
       return
 
