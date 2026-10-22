@@ -55,6 +55,7 @@ describe('timelineStateKey', () => {
     controllerId: 'participant_host',
     operation: null,
     pendingJoinIds: [] as string[],
+    pendingSeekAcknowledged: null as number | null,
     participants: [{ id: 'participant_host', connected: true, ready: true, mediaMatches: true, status: 'playing' as const }],
   }
 
@@ -220,6 +221,32 @@ describe('the coordinator\'s timeline', () => {
 
     const plays = room.roomDiagnostics().entries.filter(entry => entry.kind === 'change' && entry.playbackStatus === 'playing')
     expect(plays.map(entry => Math.round(entry.positionSeconds))).toEqual(expect.arrayContaining([12, 300]))
+  })
+
+  it('keeps each confirmation of a seek the older way, so a timeout shows how far it got', () => {
+    const clock = { now: 10_000 }
+    const room = createPair(clock)
+    room.join({ id: 'participant_third', name: 'Sam', media })
+    room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_third', true)
+    room.setReady('participant_third', true, media)
+    const before = room.snapshot()
+    const seek = room.control('participant_host', {
+      actionId: 'action_legacy_seek',
+      basedOnRevision: before.revision,
+      leaseEpoch: before.controller.leaseEpoch,
+      kind: 'seek',
+      positionSeconds: 90,
+    })
+    expect(seek.ok).toBe(true)
+    const revision = room.snapshot().seek?.revision
+    if (revision === undefined)
+      throw new Error('Expected a pending seek.')
+    const counts = () => room.roomDiagnostics().entries.map(entry => entry.pendingSeekAcknowledged)
+
+    room.acknowledgeSeek('participant_host', revision, 90)
+    room.acknowledgeSeek('participant_friend', revision, 90)
+
+    expect(counts().filter(count => count !== null)).toEqual(expect.arrayContaining([0, 1, 2]))
   })
 
   it('keeps each person asking to join, by id', () => {

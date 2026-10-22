@@ -322,6 +322,8 @@ export interface RoomTimelineEntry {
   } | null
   /** Ids of people waiting to be let in. */
   pendingJoinIds: string[]
+  /** For a seek the older way (no operation): how many participants have confirmed it so far, or null when none is pending. */
+  pendingSeekAcknowledged: number | null
   participants: Array<{
     id: string
     connected: boolean

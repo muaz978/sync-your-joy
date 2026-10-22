@@ -1808,6 +1808,7 @@ export class RoomCoordinator {
             started: operation.startedParticipantIds.length,
           },
       pendingJoinIds: [...this.pendingJoinRequests.keys()].slice(0, TIMELINE_PARTICIPANT_LIMIT),
+      pendingSeekAcknowledged: this.pendingSeek ? this.pendingSeek.acknowledgedParticipantIds.length : null,
       // Connected members first: those who left stay in the list and must not crowd out the ones in the room.
       participants: [...this.participants.values()]
         .sort((a, b) => Number(b.connected) - Number(a.connected))

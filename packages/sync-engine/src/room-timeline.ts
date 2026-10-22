@@ -3,7 +3,7 @@ import type { RoomTimelineEntry } from '@syncyourjoy/protocol'
 /** Entries the coordinator keeps; the oldest go first and are counted as dropped. */
 export const ROOM_TIMELINE_LIMIT = 300
 
-type VisibleState = Pick<RoomTimelineEntry, 'playbackStatus' | 'positionSeconds' | 'controllerId' | 'operation' | 'participants' | 'pendingJoinIds'>
+type VisibleState = Pick<RoomTimelineEntry, 'playbackStatus' | 'positionSeconds' | 'controllerId' | 'operation' | 'participants' | 'pendingJoinIds' | 'pendingSeekAcknowledged'>
 
 /** What else a change can alter that an entry does not show: the stored playback, the media and the shared link. */
 export interface TimelineStateExtras {
@@ -29,6 +29,7 @@ export function timelineStateKey(state: VisibleState, extras?: TimelineStateExtr
       ? null
       : [state.operation.kind, state.operation.phase, state.operation.reason, state.operation.targetPositionSeconds, state.operation.prepared, state.operation.started, state.operation.required],
     state.pendingJoinIds,
+    state.pendingSeekAcknowledged,
     // A command that moves a playing room changes where it was stored from, though the position moves on its own.
     extras === undefined ? null : [extras.playbackPositionSeconds, extras.playbackEffectiveAtServerMs, extras.mediaEpoch, extras.navigationRevision],
     state.participants.map(participant => [participant.id, participant.connected, participant.ready, participant.mediaMatches, participant.status]),
