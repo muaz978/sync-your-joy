@@ -24,14 +24,12 @@ export const PINNED_DIAGNOSTIC_MESSAGES: ReadonlySet<string> = new Set([
   'command_rejected',
   'server_error',
   'room_gone',
-  // The connection's own history: why and when the socket dropped, and what the network said.
+  // The connection's own history: why and when the socket dropped, and how its health changed.
   'socket_opened',
   'socket_closed',
   'heartbeat_timeout',
   'reconnect_scheduled',
   'connection_quality',
-  'network_offline',
-  'network_online',
   'worker_started',
 ])
 
