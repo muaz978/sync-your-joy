@@ -3319,7 +3319,8 @@ describe('a membership change while a transactional Play is running', () => {
   it('pauses at the target when a participant leaves after the start deadline but before the timeout was handled, even though someone confirmed starting', () => {
     const { room, operation, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
     setNow(effectiveAtServerMs + 500)
-    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+    const confirmed = room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+    expect(confirmed).toMatchObject({ ok: true, reason: 'operation_participant_started' })
     // The deadline has passed and the sweep that would have timed the start out has not run yet.
     setNow(operation.deadlineAtServerMs + 1)
 
