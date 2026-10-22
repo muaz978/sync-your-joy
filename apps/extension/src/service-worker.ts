@@ -113,6 +113,9 @@ let intentionallyClosed = false
 // for the report: how long it stayed out of reach across failed attempts. It is cleared by a socket
 // opening, and by a room being joined or left, which is not an outage.
 let outageStartedAtMs: number | null = null
+// When a pong last really arrived on the current socket. `state.lastPongAtMs` is seeded when a socket opens so that
+// the heartbeat has something to measure from, which would make a socket that never got a pong look like it had.
+let lastPongReceivedAtMs: number | null = null
 // The last control this browser sent, and a scrub the room refused because
 // someone was not ready, kept until they are (see deferred-seek.ts). Neither
 // is persisted: a restarted worker simply drops the wait.
@@ -767,6 +770,7 @@ async function connect(roomCode: string): Promise<void> {
     nextSocket.addEventListener('open', () => {
       connectionPromise = null
       openedAtMs = Date.now()
+      lastPongReceivedAtMs = null
       const attempt = reconnectAttempts
       const downMs = outageStartedAtMs === null ? null : openedAtMs - outageStartedAtMs
       outageStartedAtMs = null
@@ -810,7 +814,7 @@ async function connect(roomCode: string): Promise<void> {
       if (isCurrent && !closedByThisClient) {
         // What the connection looked like when it ended, before the handler below marks it offline:
         // a pong that had stopped arriving points at the network.
-        evidence.pongAgeMs = state.lastPongAtMs > 0 ? closedAtMs - state.lastPongAtMs : null
+        evidence.pongAgeMs = lastPongReceivedAtMs === null ? null : closedAtMs - lastPongReceivedAtMs
         evidence.roundTripMs = state.roundTripMs
         evidence.quality = state.connectionQuality
       }
@@ -1040,6 +1044,7 @@ function handleServerMessage(raw: string): void {
     state.clockUncertaintyMs = Number.isFinite(estimate.uncertaintyMs) ? estimate.uncertaintyMs : 99_999
     state.roundTripMs = Math.max(0, Math.min(receivedAtLocalMs - message.sentAtLocalMs, 10_000))
     state.lastPongAtMs = receivedAtLocalMs
+    lastPongReceivedAtMs = receivedAtLocalMs
     setConnectionQuality(connectionQuality({
       connection: state.connection,
       roundTripMs: state.roundTripMs,

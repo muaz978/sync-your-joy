@@ -1278,6 +1278,43 @@ describe('service worker observed episode identity', () => {
       expect(events.filter(event => event.message === 'socket_opened').at(-1)?.details).toMatchObject({ attempt: 0, downMs: null })
     })
 
+    it('reports no pong age for a socket that closed before its first pong, and the age of the last real one otherwise', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      await resumeAtPage(sharedUrl)
+      const first = FakeWebSocket.instances[0]!
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      let second: FakeWebSocket
+      try {
+        // Open for 4 s, and no pong has come.
+        await vi.advanceTimersByTimeAsync(4_000)
+        first.simulateClose(1006, '')
+        await vi.advanceTimersByTimeAsync(20_000)
+        second = FakeWebSocket.instances[1]!
+        second.simulateOpen()
+        second.simulateMessage({
+          type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia }),
+        })
+        // A pong arrives, and 3 s later the socket drops.
+        second.simulateMessage({ type: 'pong', id: 'ping_pong_age', sentAtLocalMs: Date.now() - 40, serverTimeMs: Date.now() })
+        await vi.advanceTimersByTimeAsync(3_000)
+        second.simulateClose(1006, '')
+        await vi.advanceTimersByTimeAsync(20_000)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+      const third = FakeWebSocket.instances[2]!
+      third.simulateOpen()
+      third.simulateMessage({
+        type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia }),
+      })
+
+      const closes = eventsFrom(third, 'report_pong_age').filter(event => event.message === 'socket_closed')
+      expect(closes[0]?.details.pongAgeMs).toBeNull()
+      expect(closes[1]?.details.pongAgeMs as number).toBeGreaterThanOrEqual(3_000)
+      expect(closes[1]?.details.pongAgeMs as number).toBeLessThan(4_000)
+    })
+
     it('does not say the network failed when this client closed the socket on purpose', async () => {
       vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
       const { request } = await resumeAtPage(sharedUrl)

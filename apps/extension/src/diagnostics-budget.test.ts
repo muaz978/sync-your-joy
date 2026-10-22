@@ -170,7 +170,7 @@ describe('a burst of one kind of event does not push out the incident', () => {
     }
     events.push(event(200, 'socket_closed', { intentional: false, code: 1006, reason: 'none', wasClean: false, openMs: 900_000, pongAgeMs: 4_800, online: true }, 'connection'))
     events.push(event(201, 'reconnect_scheduled', { attempt: 1, delayMs: 612 }, 'connection'))
-    events.push(event(202, 'socket_opened', { roomCode: 'ABCDEFGH', attempt: 1, downMs: 1_050 }, 'connection'))
+    events.push(event(202, 'socket_opened', { attempt: 1, downMs: 1_050 }, 'connection'))
     events.push(event(203, 'room_status_changed', { from: 'playing', to: 'paused', reason: 'participant_disconnect_timeout', positionSeconds: 790.5, revision: 183 }, 'room'))
     return { ...report(0), events }
   }
@@ -189,7 +189,7 @@ describe('a burst of one kind of event does not push out the incident', () => {
     expect(fitted.eventsDropped).toBeGreaterThan(0)
   })
 
-  it('drops the oldest of a burst before an ordinary critical event, and an ordinary one before a drop', () => {
+  it('drops the oldest of a burst before an ordinary critical event', () => {
     const events = scrubbingThenADrop().events
     const ordinary = event(300, 'operation_ack', { phase: 'prepared' }, 'playback')
     const withOrdinary = [...events.slice(0, 40), ordinary, ...events.slice(40)]
@@ -198,5 +198,14 @@ describe('a burst of one kind of event does not push out the incident', () => {
 
     expect(withOrdinary[next]?.message).toBe('room_control')
     expect(withOrdinary[next]?.details.basedOnRevision).toBe(0)
+  })
+
+  it('drops an ordinary critical event before the drop itself when nothing is in surplus', () => {
+    const drop = event(10, 'socket_closed', { intentional: false, code: 1006, reason: 'none' }, 'connection')
+    const ordinary = event(20, 'operation_ack', { phase: 'prepared' }, 'playback')
+
+    const next = diagnosticEvictionIndex([drop, ordinary])
+
+    expect(next).toBe(1)
   })
 })
