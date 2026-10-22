@@ -294,6 +294,53 @@ export type ProgressEvidenceQuality = 'frames' | 'clock' | 'unknown'
 
 export type DiagnosticValue = string | number | boolean | null
 
+/**
+ * One thing the coordinator saw, in the order it saw it. The room keeps a bounded
+ * timeline of these and hands it to the controller with a detailed report, so a
+ * pause or a refusal can be explained from the middle of the room, not only from
+ * what each browser remembers.
+ */
+export interface RoomTimelineEntry {
+  atServerMs: number
+  revision: number
+  /** `change`: the room moved. `refused`: a command was turned down and nothing moved. `transport`: a connection event. */
+  kind: 'change' | 'refused' | 'transport'
+  /** The coordinator's reason for the change, the code of the refusal, or the transport event. */
+  event: string
+  playbackStatus: PlaybackStatus
+  /** Where the room was at `atServerMs`, whether paused or playing. */
+  positionSeconds: number
+  controllerId: string
+  operation: {
+    kind: OperationKind
+    phase: OperationPhase
+    reason: OperationReason | null
+    targetPositionSeconds: number | null
+    required: number
+    prepared: number
+    started: number
+  } | null
+  participants: Array<{
+    id: string
+    connected: boolean
+    ready: boolean
+    mediaMatches: boolean
+    status: ParticipantPlaybackStatus
+  }>
+  detail?: Record<string, DiagnosticValue>
+}
+
+export interface RoomDiagnostics {
+  generatedAtServerMs: number
+  revision: number
+  mode: RoomMode
+  /** When the coordinator started keeping this timeline (a restarted coordinator starts again). */
+  coverageStartedAtServerMs: number
+  /** Entries pushed out of the bounded timeline before this report. */
+  entriesDropped: number
+  entries: RoomTimelineEntry[]
+}
+
 export type DiagnosticReason = OperationReason
   | 'none'
   | 'permission-denied'
@@ -491,6 +538,11 @@ export type ServerMessage =
   | {
       type: 'diagnostics_requested'
       reportId: string
+    }
+  | {
+      type: 'diagnostics_room'
+      reportId: string
+      room: RoomDiagnostics
     }
   | {
       type: 'diagnostics_response'

@@ -1,4 +1,4 @@
-import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticReason, DiagnosticValue, MediaFingerprint, PlaybackState, RoomSnapshot, ServerMessage } from '@syncyourjoy/protocol'
+import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticReason, DiagnosticValue, MediaFingerprint, PlaybackState, RoomDiagnostics, RoomSnapshot, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { CURRENT_CLIENT_CAPABILITIES, generateRoomCode, mediaMatches, normalizeMediaPageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
@@ -48,6 +48,9 @@ const ROOM_INTERRUPTION_REASONS: ReadonlySet<string> = new Set([
 // Give the room-wide report enough time to collect every response without
 // making the normal playback path wait for diagnostics.
 const DIAGNOSTIC_COLLECTION_TIMEOUT_MS = 8_000
+// How long a report that has every participant's answer waits for the coordinator's own timeline,
+// which a coordinator from before it was kept never sends.
+const ROOM_TIMELINE_GRACE_MS = 1_500
 // A bare setTimeout does not survive MV3 service-worker suspension. This
 // alarm is a fallback that wakes the service worker to retry a reconnect
 // even if it was suspended while the setTimeout backoff was pending.
@@ -63,6 +66,9 @@ interface DiagnosticCollection {
   timer: ReturnType<typeof setTimeout>
   retryTimers: Array<ReturnType<typeof setTimeout>>
   attempts: number
+  /** The coordinator's own timeline, sent back to the controller when it asks for the report; the newest copy wins. */
+  room: RoomDiagnostics | null
+  timelineGraceTimer: ReturnType<typeof setTimeout> | null
 }
 
 interface PlayerBinding {
@@ -577,6 +583,8 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         timer: setTimeout(() => finishDiagnosticCollection(reportId), DIAGNOSTIC_COLLECTION_TIMEOUT_MS),
         retryTimers: [],
         attempts: 0,
+        room: null,
+        timelineGraceTimer: null,
       }
       diagnosticCollection = collection
       recordDiagnostic('diagnostics', 'collection_requested', { reportId, expectedParticipants: collection.expectedParticipantIds.size })
@@ -975,6 +983,15 @@ function handleServerMessage(raw: string): void {
     return
   }
 
+  if (message.type === 'diagnostics_room') {
+    const collection = diagnosticCollection
+    if (!collection || collection.reportId !== message.reportId)
+      return
+    collection.room = message.room
+    finishWhenComplete(collection)
+    return
+  }
+
   if (message.type === 'diagnostics_response') {
     const collection = diagnosticCollection
     if (!collection || collection.reportId !== message.reportId)
@@ -984,8 +1001,7 @@ function handleServerMessage(raw: string): void {
       participantName: message.participantName,
       report: message.report,
     })
-    if ([...collection.expectedParticipantIds].every(participantId => collection.responses.has(participantId)))
-      finishDiagnosticCollection(message.reportId)
+    finishWhenComplete(collection)
     return
   }
 
@@ -1826,12 +1842,14 @@ function finishDiagnosticCollection(reportId: string): void {
   if (!collection || collection.reportId !== reportId)
     return
   clearTimeout(collection.timer)
+  if (collection.timelineGraceTimer !== null)
+    clearTimeout(collection.timelineGraceTimer)
   for (const retryTimer of collection.retryTimers)
     clearTimeout(retryTimer)
   diagnosticCollection = null
   const missingParticipantIds = [...collection.expectedParticipantIds].filter(participantId => !collection.responses.has(participantId))
   const payload = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     roomCode: state.snapshot?.code ?? null,
     reportId,
@@ -1843,6 +1861,8 @@ function finishDiagnosticCollection(reportId: string): void {
       complete: missingParticipantIds.length === 0,
     },
     missingParticipantIds,
+    /** The coordinator's timeline, or null when it could not be had (an older coordinator). */
+    room: collection.room,
     participants: [...collection.responses.values()],
   }
   const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
@@ -1854,11 +1874,30 @@ function finishDiagnosticCollection(reportId: string): void {
   })
 }
 
+function hasEveryResponse(collection: DiagnosticCollection): boolean {
+  return [...collection.expectedParticipantIds].every(participantId => collection.responses.has(participantId))
+}
+
+/**
+ * The report is written when every participant has answered and the coordinator's timeline has come.
+ * A coordinator that does not keep one never sends it, so the wait for it is short.
+ */
+function finishWhenComplete(collection: DiagnosticCollection): boolean {
+  if (!hasEveryResponse(collection))
+    return false
+  if (collection.room !== null) {
+    finishDiagnosticCollection(collection.reportId)
+    return true
+  }
+  collection.timelineGraceTimer ??= setTimeout(() => finishDiagnosticCollection(collection.reportId), ROOM_TIMELINE_GRACE_MS)
+  return false
+}
+
 function requestDiagnosticResponses(reportId: string): boolean {
   const collection = diagnosticCollection
   if (!collection || collection.reportId !== reportId)
     return false
-  if ([...collection.expectedParticipantIds].every(participantId => collection.responses.has(participantId))) {
+  if (hasEveryResponse(collection) && collection.room !== null) {
     finishDiagnosticCollection(reportId)
     return true
   }
@@ -1868,5 +1907,9 @@ function requestDiagnosticResponses(reportId: string): boolean {
     attempt: collection.attempts,
     receivedParticipants: collection.responses.size,
   })
-  return sendToServer({ type: 'request_diagnostics', reportId })
+  const sent = sendToServer({ type: 'request_diagnostics', reportId })
+  // Everyone's answer can already be here (a room with only the controller in it), leaving only the timeline to wait for.
+  if (sent)
+    finishWhenComplete(collection)
+  return sent
 }

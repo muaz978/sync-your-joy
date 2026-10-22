@@ -203,6 +203,34 @@ describe('RoomDurableObject: who receives room state', () => {
   })
 })
 
+describe('RoomDurableObject: the coordinator\'s timeline for a detailed report', () => {
+  it('records why a socket closed and hands the timeline to the controller only', async () => {
+    const { room, host, friend } = await roomWithPendingFriend()
+    await say(room, host, approve)
+
+    await room.webSocketClose(friend as never, 1006, 'Closed by https://example.test/watch?token=secret')
+    await say(room, host, { type: 'request_diagnostics', reportId: 'report_edge_timeline' })
+
+    const timeline = host.sent.find(message => message.type === 'diagnostics_room')
+    if (timeline?.type !== 'diagnostics_room')
+      throw new Error('Expected diagnostics_room')
+    expect(timeline.reportId).toBe('report_edge_timeline')
+    const closed = timeline.room.entries.find(entry => entry.kind === 'transport' && entry.event === 'socket_closed')
+    expect(closed?.detail).toMatchObject({ participantId: 'participant_friend', code: 1006, reason: 'other', participantStillConnected: false })
+    expect(JSON.stringify(timeline)).not.toContain('secret')
+  })
+
+  it('does not send it to a participant who asked without being the controller', async () => {
+    const { room, host, friend } = await roomWithPendingFriend()
+    await say(room, host, approve)
+
+    await say(room, friend, { type: 'request_diagnostics', reportId: 'report_edge_member' })
+
+    expect(friend.sent.some(message => message.type === 'diagnostics_room')).toBe(false)
+    expect(friend.last()).toMatchObject({ type: 'error', code: 'controller_only' })
+  })
+})
+
 describe('RoomDurableObject: rejections and re-attach for unapproved requests', () => {
   it('does not hand room state to a stranger who is turned away because the room is full', async () => {
     const { room, host, friend } = await roomWithPendingFriend()

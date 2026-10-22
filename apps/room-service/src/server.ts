@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { generateRoomCode, isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
-import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator } from '@syncyourjoy/sync-engine'
+import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator, safeCloseReason } from '@syncyourjoy/sync-engine'
 import { WebSocket, WebSocketServer } from 'ws'
 
 const MAX_MESSAGE_BYTES = 16_384
@@ -261,7 +261,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       handleMessage(socket, message)
     })
 
-    socket.on('close', () => {
+    socket.on('close', (code: number, reason: Buffer) => {
       const client = clients.get(socket)
       if (!client)
         return
@@ -276,6 +276,11 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       const stillConnected = [...room.sockets].some((candidate) => {
         const candidateClient = clients.get(candidate)
         return candidateClient?.participantId === client.participantId
+      })
+      room.coordinator.recordTransportEvent(client.participantId, 'socket_closed', {
+        code,
+        reason: safeCloseReason(reason.toString('utf8')),
+        participantStillConnected: stillConnected,
       })
       if (stillConnected)
         return
@@ -462,6 +467,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       }
       room.pendingDiagnosticsRequests.set(message.reportId, new Set())
       broadcast(room, { type: 'diagnostics_requested', reportId: message.reportId })
+      send(socket, { type: 'diagnostics_room', reportId: message.reportId, room: room.coordinator.roomDiagnostics() })
       return
     }
 

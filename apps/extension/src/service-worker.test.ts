@@ -99,6 +99,7 @@ interface FakeChrome {
   updatedListener: (tabId: number, changeInfo: { status?: chrome.tabs.Tab['status'] }) => void
   sessionSetMock: ReturnType<typeof vi.fn>
   sendMessageMock: ReturnType<typeof vi.fn>
+  downloadMock: ReturnType<typeof vi.fn>
 }
 
 /** Builds a fake `chrome` global exposing only what service-worker.ts
@@ -110,8 +111,10 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
     await options.sessionSet?.(values)
   })
   const sendMessageMock = vi.fn(async () => undefined)
+  const downloadMock = vi.fn(async () => 1)
 
   const fakeChrome = {
+    downloads: { download: downloadMock },
     runtime: {
       onInstalled: { addListener: vi.fn() },
       onStartup: { addListener: vi.fn() },
@@ -164,6 +167,7 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
     },
     sessionSetMock,
     sendMessageMock,
+    downloadMock,
   } as FakeChrome
 }
 
@@ -1138,6 +1142,85 @@ describe('service worker observed episode identity', () => {
 
       await vi.waitFor(async () => expect((await request({ type: 'GET_STATE' })).state.lastError).toBe('The room changed before this control was applied.'))
       expect(holds(fake)).toEqual([])
+    })
+  })
+
+  describe('the coordinator\'s timeline in the downloaded report', () => {
+    const roomTimeline = {
+      generatedAtServerMs: 20_000,
+      revision: 9,
+      mode: 'transactional',
+      coverageStartedAtServerMs: 10_000,
+      entriesDropped: 0,
+      entries: [{
+        atServerMs: 15_000,
+        revision: 8,
+        kind: 'transport',
+        event: 'socket_closed',
+        playbackStatus: 'playing',
+        positionSeconds: 812.5,
+        controllerId: 'participant_resumed',
+        operation: null,
+        participants: [{ id: 'participant_friend', connected: false, ready: true, mediaMatches: true, status: 'playing' }],
+        detail: { participantId: 'participant_friend', code: 1006, reason: 'none', participantStillConnected: false },
+      }],
+    }
+
+    function downloadedReport(fake: FakeChrome) {
+      const download = fake.downloadMock.mock.calls[0]![0] as { url: string }
+      const [, body] = download.url.split(',', 2)
+      return JSON.parse(decodeURIComponent(body!)) as { schemaVersion: number, room: unknown, participants: unknown[], collection: { complete: boolean } }
+    }
+
+    function requestedReportId(socket: FakeWebSocket): string {
+      const request = socket.sentMessages.find(message => (message as { type?: string }).type === 'request_diagnostics') as { reportId: string } | undefined
+      if (!request)
+        throw new Error('Expected a request_diagnostics message.')
+      return request.reportId
+    }
+
+    it('writes the timeline the coordinator sends into the report, for a room with only the controller in it', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      const reportId = requestedReportId(socket)
+      // Nothing is written while the timeline is still on its way, though every answer is already here.
+      expect(fake.downloadMock).not.toHaveBeenCalled()
+
+      socket.simulateMessage({ type: 'diagnostics_room', reportId, room: roomTimeline })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1))
+      const report = downloadedReport(fake)
+      expect(report.schemaVersion).toBe(2)
+      expect(report.room).toEqual(roomTimeline)
+      expect(report.collection.complete).toBe(true)
+    })
+
+    it('ignores a timeline for a report it did not ask for', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      socket.simulateMessage({ type: 'diagnostics_room', reportId: 'report_someone_elses', room: roomTimeline })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(fake.downloadMock).not.toHaveBeenCalled()
+    })
+
+    it('still writes the report, with no timeline, when the coordinator is one that does not send it', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1), { timeout: 4_000 })
+      const report = downloadedReport(fake)
+      expect(report.schemaVersion).toBe(2)
+      expect(report.room).toBeNull()
+      expect(report.participants).toHaveLength(1)
     })
   })
 

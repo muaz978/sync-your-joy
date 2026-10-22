@@ -4,7 +4,7 @@ import type { ClientMessage, ServerMessage } from '@syncyourjoy/protocol'
 import type { RoomCoordinatorState, RoomResult } from '@syncyourjoy/sync-engine'
 import { DurableObject } from 'cloudflare:workers'
 import { isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
-import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator } from '@syncyourjoy/sync-engine'
+import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator, safeCloseReason } from '@syncyourjoy/sync-engine'
 import { applyEarliestDueDeadline, persistRoomAndSchedule, persistThenObserve } from './alarm.ts'
 
 const MAX_MESSAGE_BYTES = 16_384
@@ -551,7 +551,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.handleMessage(socket, attachment, message)
   }
 
-  async webSocketClose(socket: WebSocket): Promise<void> {
+  async webSocketClose(socket: WebSocket, code?: number, reason?: string): Promise<void> {
     await this.initialized
     const attachment = this.attachmentOf(socket)
     if (attachment === undefined) {
@@ -578,6 +578,11 @@ export class RoomDurableObject extends DurableObject<Env> {
       else if (other.participantId === attachment.participantId)
         stillConnected = true
     }
+    this.coordinator.recordTransportEvent(attachment.participantId, 'socket_closed', {
+      code: code ?? null,
+      reason: safeCloseReason(reason),
+      participantStillConnected: stillConnected,
+    })
     if (stillConnected)
       return
 
@@ -863,6 +868,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       }
       this.pendingDiagnosticsRequests.set(message.reportId, new Set())
       this.broadcast({ type: 'diagnostics_requested', reportId: message.reportId })
+      this.send(socket, { type: 'diagnostics_room', reportId: message.reportId, room: this.coordinator.roomDiagnostics() })
       return
     }
 
