@@ -161,6 +161,17 @@ describe('the coordinator\'s timeline', () => {
     expect(room.roomDiagnostics().entries.filter(entry => entry.kind === 'refused')).toHaveLength(2)
   })
 
+  it('does not record a first call that changed nothing as a change', () => {
+    const clock = { now: 10_000 }
+    const room = new RoomCoordinator(
+      { roomId: 'room_first', code: 'FIRST123' },
+      { id: 'participant_host', name: 'Muaz', media },
+      () => clock.now,
+    )
+    room.setReady('participant_host', false, media)
+    expect(room.roomDiagnostics().entries.map(entry => entry.event)).toEqual(['coordinator_started'])
+  })
+
   it('begins with the room as the coordinator first held it', () => {
     const room = createPair({ now: 10_000 })
     const first = room.roomDiagnostics().entries[0]!

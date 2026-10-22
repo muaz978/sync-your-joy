@@ -213,6 +213,8 @@ export class RoomCoordinator {
     this.refreshNegotiation()
     // Where the timeline begins: the room as this coordinator first held it, so the first change is read against something.
     this.recordTimeline('transport', 'coordinator_started', { restored: restoredState !== undefined })
+    // So that the first call which changes nothing is not recorded as a change.
+    this.lastTimelineKey = this.timelineKeyOf(this.timeline[0]!)
   }
 
   static fromState(state: RoomCoordinatorState, now: () => number = Date.now): RoomCoordinator {
@@ -1817,17 +1819,21 @@ export class RoomCoordinator {
     }
   }
 
+  private timelineKeyOf(entry: RoomTimelineEntry): string {
+    return timelineStateKey(entry, {
+      playbackPositionSeconds: this.playback.positionSeconds,
+      playbackEffectiveAtServerMs: this.playback.effectiveAtServerMs,
+      mediaEpoch: this.contract.mediaEpoch,
+      navigationRevision: this.navigation?.revision ?? null,
+    })
+  }
+
   private recordTimeline(kind: RoomTimelineEntry['kind'], event: string, detail?: Record<string, DiagnosticValue>): void {
     const entry = this.timelineEntry(kind, event, detail)
     // A change that left the room looking exactly as it did is not an entry. A refusal and a
     // transport event always are: they explain what happened, whether or not anything moved.
     if (kind === 'change') {
-      const key = timelineStateKey(entry, {
-        playbackPositionSeconds: this.playback.positionSeconds,
-        playbackEffectiveAtServerMs: this.playback.effectiveAtServerMs,
-        mediaEpoch: this.contract.mediaEpoch,
-        navigationRevision: this.navigation?.revision ?? null,
-      })
+      const key = this.timelineKeyOf(entry)
       if (key === this.lastTimelineKey)
         return
       this.lastTimelineKey = key
