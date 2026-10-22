@@ -1,11 +1,12 @@
 import type { RoomResult } from '@syncyourjoy/sync-engine'
 
-export type DeadlineSource = 'seek' | 'operation' | 'health' | 'autoResume'
+export type DeadlineSource = 'seek' | 'operation' | 'health' | 'disconnect' | 'autoResume'
 
 export interface DeadlineCoordinator {
   releaseExpiredSeek(nowMs: number): RoomResult | null
   releaseExpiredOperation(nowMs: number): RoomResult | null
   evaluateHealth(nowMs: number): RoomResult | null
+  evaluateDisconnectGrace(nowMs: number): RoomResult | null
   evaluateAutoResume(nowMs: number): RoomResult | null
 }
 
@@ -33,6 +34,7 @@ export function applyEarliestDueDeadline(coordinator: DeadlineCoordinator, nowMs
     ['seek', () => coordinator.releaseExpiredSeek(nowMs)],
     ['operation', () => coordinator.releaseExpiredOperation(nowMs)],
     ['health', () => coordinator.evaluateHealth(nowMs)],
+    ['disconnect', () => coordinator.evaluateDisconnectGrace(nowMs)],
     ['autoResume', () => coordinator.evaluateAutoResume(nowMs)],
   ]
 

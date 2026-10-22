@@ -1,6 +1,6 @@
 import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import type { ServerMessage } from '@syncyourjoy/protocol'
-import { RoomCoordinator } from '@syncyourjoy/sync-engine'
+import { DISCONNECT_PAUSE_GRACE_MS, RoomCoordinator } from '@syncyourjoy/sync-engine'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The Durable Object base class only exists inside the Workers runtime. The
@@ -486,6 +486,62 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     }
     expect(reasons()).toContain('auto_resume_play_pending')
     expect(snapshots().at(-1)!.snapshot.contract?.operation).toMatchObject({ kind: 'play', phase: 'preparing' })
+  })
+
+  /** A host and an approved friend, both ready, a transactional Play started and acknowledged by both. */
+  async function playingPair(alarms: number[] = []) {
+    vi.useFakeTimers({ toFake: ['Date'], now: startMs })
+    const host = new FakeSocket()
+    const friend = new FakeSocket()
+    const room = objectOver(new Map<string, unknown>(), [host, friend], alarms)
+    const snapshots = () => host.sent.filter((message): message is Extract<ServerMessage, { type: 'room_snapshot' }> => message.type === 'room_snapshot')
+    const revision = () => snapshots().at(-1)!.snapshot.revision
+    await say(room, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA, capabilities: CURRENT_CLIENT_CAPABILITIES })
+    await say(room, host, { type: 'set_ready', ready: true, media: MEDIA })
+    await say(room, friend, { type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: CODE, media: MEDIA, capabilities: CURRENT_CLIENT_CAPABILITIES })
+    await say(room, host, approve)
+    await say(room, friend, { type: 'set_ready', ready: true, media: MEDIA })
+    await say(room, host, { type: 'control', actionId: 'action_edge_drop_play', basedOnRevision: revision(), leaseEpoch: 1, kind: 'play', positionSeconds: 20 })
+    const operation = snapshots().at(-1)!.snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    const acknowledge = async (socket: FakeSocket, participantId: string, phase: 'prepared' | 'started', sampleSequence: number) => say(room, socket, {
+      type: 'operation_ack',
+      acknowledgement: {
+        mediaEpoch: operation.mediaEpoch, operationId: operation.operationId, phase, participantId,
+        bindingId: `binding_${participantId}`, sourceGeneration: 1, sampleSequence, observedPositionSeconds: 20, observedAtLocalMs: Date.now(),
+      },
+    })
+    await acknowledge(host, 'participant_host', 'prepared', 1)
+    await acknowledge(friend, 'participant_friend', 'prepared', 1)
+    vi.setSystemTime(snapshots().at(-1)!.snapshot.contract?.operation?.effectiveAtServerMs ?? startMs)
+    await acknowledge(host, 'participant_host', 'started', 2)
+    await acknowledge(friend, 'participant_friend', 'started', 2)
+    expect(snapshots().at(-1)!.snapshot.contract?.operation?.phase).toBe('started')
+    return { room, host, friend, snapshots, alarms }
+  }
+
+  it('keeps a room playing through a dropped connection, schedules an alarm for the grace, and pauses from it', async () => {
+    const { room, friend, snapshots, alarms } = await playingPair()
+
+    const droppedAt = Date.now()
+    await room.webSocketClose(friend as never, 1006, '')
+
+    expect(snapshots().at(-1)).toMatchObject({ reason: 'participant_disconnected', snapshot: { playback: { status: 'playing' } } })
+    expect(alarms.at(-1)).toBe(droppedAt + DISCONNECT_PAUSE_GRACE_MS)
+
+    vi.setSystemTime(droppedAt + DISCONNECT_PAUSE_GRACE_MS)
+    await room.alarm()
+
+    expect(snapshots().at(-1)).toMatchObject({ reason: 'participant_disconnect_timeout', snapshot: { playback: { status: 'paused' } } })
+  })
+
+  it('pauses at once for a participant who closes with a leaving reason', async () => {
+    const { room, friend, snapshots } = await playingPair()
+
+    await room.webSocketClose(friend as never, 1000, 'left_room')
+
+    expect(snapshots().at(-1)).toMatchObject({ reason: 'participant_disconnected', snapshot: { playback: { status: 'paused' } } })
   })
 
   it('withdraws a stored request whose socket is gone, so it cannot be approved into a member with no connection', async () => {

@@ -1190,6 +1190,141 @@ describe('automatic resume after the room paused a stalled player (#141)', () =>
   })
 })
 
+describe('a connection that drops while the room is playing', () => {
+  const startMs = 1_800_000_000_000
+  const GRACE_MS = 8_000
+  let clockMs = startMs
+  const realWait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+  const media = { service: 'youtube', canonicalId: 'youtube:dropped-connection', title: 'Dropped connection test video', durationSeconds: 600 }
+
+  /** A host and an approved friend, both ready, a transactional Play started and acknowledged by both. */
+  async function playingPair() {
+    clockMs = startMs
+    service = await createRoomService({ port: 0, now: () => clockMs, cleanupIntervalMs: 10, controllerGraceMs: 600_000 })
+    const host = await connect(service.url)
+    const seen: Array<Extract<ServerMessage, { type: 'room_snapshot' }>> = []
+    host.on('message', (data: Buffer) => {
+      const message = JSON.parse(data.toString()) as ServerMessage
+      if (message.type === 'room_snapshot')
+        seen.push(message)
+    })
+    const waitFor = async (matches: (message: Extract<ServerMessage, { type: 'room_snapshot' }>) => boolean, what: string) => {
+      const deadline = AbortSignal.timeout(3_000)
+      for (;;) {
+        const found = seen.find(matches)
+        if (found)
+          return found
+        if (deadline.aborted)
+          throw new Error(`Timed out waiting for ${what} (saw ${seen.map(message => message.reason).join(', ')})`)
+        await new Promise<void>(resolve => setTimeout(resolve, 5))
+      }
+    }
+    const latest = () => seen.at(-1)!.snapshot
+    const reasons = () => seen.map(message => message.reason)
+
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'DROPCON1', media, capabilities: CURRENT_CLIENT_CAPABILITIES,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    seen.push({ type: 'room_snapshot', reason: 'room_joined', snapshot: created.snapshot })
+    host.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    await waitFor(message => message.reason === 'participant_ready', 'the host to be ready')
+
+    const friend = await connect(service.url)
+    friend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: created.snapshot.code, media, capabilities: CURRENT_CLIENT_CAPABILITIES,
+    }))
+    const friendJoined = await nextMessage(friend)
+    if (friendJoined.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    host.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_friend', approve: true, actionId: 'action_approve_drop_friend', basedOnRevision: 0, leaseEpoch: 1,
+    }))
+    await waitFor(message => message.snapshot.participants.some(participant => participant.id === 'participant_friend'), 'the friend to be admitted')
+    friend.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    await waitFor(message => message.snapshot.participants.every(participant => participant.ready), 'both to be ready')
+
+    // A client presses Play on the room state it has; let the room finish announcing before it does.
+    for (let count = -1; count !== seen.length;) {
+      count = seen.length
+      await realWait(60)
+    }
+    host.send(JSON.stringify({
+      type: 'control', actionId: 'action_drop_play', basedOnRevision: latest().revision, leaseEpoch: 1, kind: 'play', positionSeconds: 20,
+    }))
+    const operation = (await waitFor(message => message.reason === 'control_play_pending', 'the Play')).snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    const acknowledge = (socket: WebSocket, participantId: string, phase: 'prepared' | 'started', sampleSequence: number) => socket.send(JSON.stringify({
+      type: 'operation_ack',
+      acknowledgement: {
+        mediaEpoch: operation.mediaEpoch, operationId: operation.operationId, phase, participantId,
+        bindingId: `binding_${participantId}`, sourceGeneration: 1, sampleSequence, observedPositionSeconds: 20, observedAtLocalMs: clockMs,
+      },
+    }))
+    acknowledge(host, 'participant_host', 'prepared', 1)
+    acknowledge(friend, 'participant_friend', 'prepared', 1)
+    const committed = await waitFor(message => message.reason === 'operation_committed', 'the Play to commit')
+    clockMs = committed.snapshot.contract?.operation?.effectiveAtServerMs ?? clockMs
+    acknowledge(host, 'participant_host', 'started', 2)
+    acknowledge(friend, 'participant_friend', 'started', 2)
+    await waitFor(message => message.reason === 'operation_started', 'the Play to start')
+    return { host, friend, seen, waitFor, reasons, code: created.snapshot.code, friendToken: friendJoined.sessionToken }
+  }
+
+  it('keeps playing for the grace, then pauses for everyone', async () => {
+    const room = await playingPair()
+
+    room.friend.terminate()
+    const dropped = await room.waitFor(message => message.reason === 'participant_disconnected', 'the drop')
+    expect(dropped.snapshot.playback.status).toBe('playing')
+    expect(dropped.snapshot.participants.find(participant => participant.id === 'participant_friend')).toMatchObject({ connected: false })
+
+    clockMs += GRACE_MS - 1_000
+    await realWait(80)
+    expect(room.reasons()).not.toContain('participant_disconnect_timeout')
+
+    clockMs += 1_000
+    const paused = await room.waitFor(message => message.reason === 'participant_disconnect_timeout', 'the pause after the grace')
+    expect(paused.snapshot.playback.status).toBe('paused')
+    room.host.close()
+  })
+
+  it('pauses at once for a participant who leaves on purpose', async () => {
+    const room = await playingPair()
+
+    room.friend.close(1000, 'left_room')
+    const left = await room.waitFor(message => message.reason === 'participant_disconnected', 'the departure')
+
+    expect(left.snapshot.playback.status).toBe('paused')
+    room.host.close()
+  })
+
+  it('keeps playing when the participant is back inside the grace', async () => {
+    const room = await playingPair()
+    room.friend.terminate()
+    await room.waitFor(message => message.reason === 'participant_disconnected', 'the drop')
+
+    clockMs += 1_000
+    const back = await connect(service!.url)
+    back.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: room.code, media, sessionToken: room.friendToken, capabilities: CURRENT_CLIENT_CAPABILITIES,
+    }))
+    const returned = await room.waitFor(message => message.reason === 'participant_reconnected', 'the return')
+    expect(returned.snapshot.playback.status).toBe('playing')
+
+    // Past the grace the room is not paused for the participant who came back. (It may still
+    // pause for silent players, which these fakes are, so only the grace is checked.)
+    clockMs += GRACE_MS * 2
+    await realWait(80)
+    expect(room.reasons()).not.toContain('participant_disconnect_timeout')
+    back.close()
+    room.host.close()
+  })
+})
+
 describe('controller recovery', () => {
   const GRACE_MS = 60
   const media = { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A title', durationSeconds: 600 }

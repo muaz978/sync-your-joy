@@ -57,6 +57,10 @@ describe('edge alarm and persistence boundaries', () => {
         calls.push('health')
         return successfulResult('participant_playback_stalled')
       },
+      evaluateDisconnectGrace: () => {
+        calls.push('disconnect')
+        return successfulResult('participant_disconnect_timeout')
+      },
       evaluateAutoResume: () => {
         calls.push('autoResume')
         return successfulResult('auto_resume_play_pending')
@@ -69,24 +73,40 @@ describe('edge alarm and persistence boundaries', () => {
     expect(calls).toEqual(['seek', 'operation'])
   })
 
-  it('evaluates an automatic resume only after the seek, operation and health deadlines have nothing to do', () => {
+  it('evaluates a disconnect grace after the seek, operation and health deadlines, and an automatic resume after that', () => {
     const calls: string[] = []
     const none = (name: string) => () => {
       calls.push(name)
       return null
     }
-    const evaluation = applyEarliestDueDeadline({
+    const disconnected = applyEarliestDueDeadline({
       releaseExpiredSeek: none('seek'),
       releaseExpiredOperation: none('operation'),
       evaluateHealth: none('health'),
+      evaluateDisconnectGrace: () => {
+        calls.push('disconnect')
+        return successfulResult('participant_disconnect_timeout')
+      },
+      evaluateAutoResume: none('autoResume'),
+    }, 20_000)
+
+    expect(disconnected).toMatchObject({ source: 'disconnect', result: { reason: 'participant_disconnect_timeout' } })
+    expect(calls).toEqual(['seek', 'operation', 'health', 'disconnect'])
+
+    calls.length = 0
+    const resumed = applyEarliestDueDeadline({
+      releaseExpiredSeek: none('seek'),
+      releaseExpiredOperation: none('operation'),
+      evaluateHealth: none('health'),
+      evaluateDisconnectGrace: none('disconnect'),
       evaluateAutoResume: () => {
         calls.push('autoResume')
         return successfulResult('auto_resume_play_pending')
       },
     }, 20_000)
 
-    expect(evaluation).toMatchObject({ source: 'autoResume', result: { reason: 'auto_resume_play_pending' } })
-    expect(calls).toEqual(['seek', 'operation', 'health', 'autoResume'])
+    expect(resumed).toMatchObject({ source: 'autoResume', result: { reason: 'auto_resume_play_pending' } })
+    expect(calls).toEqual(['seek', 'operation', 'health', 'disconnect', 'autoResume'])
   })
 
   it('does not expose a transition until its durable write completes', async () => {

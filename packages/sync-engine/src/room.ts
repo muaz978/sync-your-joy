@@ -28,7 +28,7 @@ import {
   supportsTransactionalOperations,
 } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_MAX_OFFSET_SECONDS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { DISCONNECT_PAUSE_GRACE_MS, AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_MAX_OFFSET_SECONDS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSettledPausedSeek } from './operation-state.ts'
 import { ROOM_TIMELINE_LIMIT, TIMELINE_PARTICIPANT_LIMIT, timelineStateKey } from './room-timeline.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
@@ -295,7 +295,11 @@ export class RoomCoordinator {
           ? 'blocked'
           : existing.ready ? this.playback.status === 'playing' ? 'preparing' : 'ready' : 'preparing'
         : 'wrong-media'
-      this.pauseForMembershipChange()
+      // Back within the grace, ready and on the same video, with the room still
+      // playing: nothing to pause for. Every other return pauses, as before.
+      const wasBeingWaitedFor = this.disconnectedSinceMs.delete(participant.id)
+      if (!(wasBeingWaitedFor && existing.ready && this.canRideOutDisconnect()))
+        this.pauseForMembershipChange()
       this.refreshNegotiation()
       this.revision += 1
       this.markStateBarrier()
@@ -1259,6 +1263,13 @@ export class RoomCoordinator {
   private timelineStartedAtMs = 0
   private lastTimelineKey = ''
   /**
+   * Participants whose connection dropped while the room was playing, and when,
+   * so the room can wait DISCONNECT_PAUSE_GRACE_MS for them before it pauses.
+   * Kept in memory only: a restored room does not wait for anyone, which is how
+   * a participant who is gone for good is treated once the room plays on.
+   */
+  private disconnectedSinceMs = new Map<string, number>()
+  /**
    * Coordinator-local record of an automatic resume that is waiting for the
    * players. Like the buffering runs it is kept out of every snapshot and the
    * persisted export: a restored room stays paused and its controller presses
@@ -1434,11 +1445,16 @@ export class RoomCoordinator {
       participant.latencyMs = Math.round(Math.max(0, Math.min(roundTripMs, 10_000)))
   }
 
-  disconnect(participantId: string): RoomResult | null {
-    return this.asPersonAction(() => this.disconnectCore(participantId))
+  /**
+   * `intentional` is a participant leaving on purpose: the room pauses at once.
+   * A dropped connection is waited for (see DISCONNECT_PAUSE_GRACE_MS) when the
+   * room is playing and nothing is being prepared.
+   */
+  disconnect(participantId: string, options: { intentional?: boolean } = {}): RoomResult | null {
+    return this.asPersonAction(() => this.disconnectCore(participantId, options.intentional === true))
   }
 
-  private disconnectCore(participantId: string): RoomResult | null {
+  private disconnectCore(participantId: string, intentional: boolean): RoomResult | null {
     const participant = this.participants.get(participantId)
     if (!participant || !participant.connected)
       return null
@@ -1446,11 +1462,51 @@ export class RoomCoordinator {
     participant.connected = false
     participant.playbackStatus = 'unknown'
 
-    this.pauseForMembershipChange('participant-disconnected')
+    if (!intentional && this.canRideOutDisconnect())
+      this.disconnectedSinceMs.set(participantId, this.now())
+    else
+      this.pauseForMembershipChange('participant-disconnected')
 
     this.revision += 1
     this.markStateBarrier()
     return this.success('participant_disconnected')
+  }
+
+  /** The room is playing with nothing being prepared, and somebody is still connected to watch with. */
+  private canRideOutDisconnect(): boolean {
+    if (this.playback.status !== 'playing' || this.pendingSeek !== null)
+      return false
+    const operation = this.contract.operation
+    if (operation !== null && operation.phase !== 'started' && operation.phase !== 'cancelled' && operation.phase !== 'failed')
+      return false
+    return [...this.participants.values()].some(participant => participant.connected)
+  }
+
+  /** When the room next has to look at a participant it is waiting for, or null when it waits for nobody. */
+  disconnectGraceDeadlineMs(): number | null {
+    if (this.disconnectedSinceMs.size === 0 || this.playback.status !== 'playing')
+      return null
+    return Math.min(...this.disconnectedSinceMs.values()) + DISCONNECT_PAUSE_GRACE_MS
+  }
+
+  /** Pauses the room once a participant it waited for is still away after the grace. */
+  evaluateDisconnectGrace(nowMs: number = this.now()): RoomResult | null {
+    if (this.disconnectedSinceMs.size === 0)
+      return null
+    for (const id of [...this.disconnectedSinceMs.keys()]) {
+      if (this.participants.get(id)?.connected !== false)
+        this.disconnectedSinceMs.delete(id)
+    }
+    if (this.playback.status !== 'playing') {
+      this.disconnectedSinceMs.clear()
+      return null
+    }
+    if (![...this.disconnectedSinceMs.values()].some(sinceMs => nowMs - sinceMs >= DISCONNECT_PAUSE_GRACE_MS))
+      return null
+    this.pauseForMembershipChange('participant-disconnected')
+    this.revision += 1
+    this.markStateBarrier()
+    return this.success('participant_disconnect_timeout')
   }
 
   transferDisconnectedController(): RoomResult | null {
@@ -1750,6 +1806,7 @@ export class RoomCoordinator {
   }
 
   private pauseForMembershipChange(reason: RoomOperation['reason'] = 'participant-disconnected'): void {
+    this.disconnectedSinceMs.clear()
     if (this.contract.mode === 'transactional')
       this.cancelOperation(reason, this.now())
     this.pendingSeek = null
