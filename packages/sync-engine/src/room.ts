@@ -1633,9 +1633,18 @@ export class RoomCoordinator {
   }
 
   private pauseAtOperationTarget(operation: RoomOperation, nowMs: number): void {
-    const positionSeconds = operation.targetPositionSeconds !== null
-      ? operation.targetPositionSeconds
-      : expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
+    // While the room is playing, the operation's target is only where playback
+    // began. A Play that was started a minute ago and is cancelled now (a
+    // participant disconnected, say) has to pause where the room has got to:
+    // pausing at the target moved the room back by everything watched since,
+    // to a position the players no longer have in their buffers, which
+    // Crunchyroll's player does not load (the 0.2.11 report of 2026-10-22).
+    // A Play that is still being prepared leaves the room paused at its target,
+    // and a committed one plays from the target at its start time, so
+    // expectedPosition() is the target in both until playback starts.
+    const positionSeconds = this.playback.status === 'playing' || operation.targetPositionSeconds === null
+      ? expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
+      : operation.targetPositionSeconds
     this.playback = {
       status: 'paused',
       positionSeconds: this.clampToMediaDuration(Math.max(0, positionSeconds)),
