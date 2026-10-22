@@ -3310,7 +3310,7 @@ describe('a membership change while a transactional Play is running', () => {
     room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 42, 2))
     expect(room.snapshot().contract?.operation?.phase).toBe('committed')
 
-    const left = room.disconnect('participant_friend', { intentional: true })
+    const left = room.disconnect('participant_friend')
 
     expect(left).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
     expect(left?.snapshot.playback.positionSeconds).toBeCloseTo(42, 0)
