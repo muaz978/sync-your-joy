@@ -1270,7 +1270,8 @@ describe('service worker observed episode identity', () => {
 
       const events = eventsFrom(next, 'report_stale')
       const closed = events.find(event => event.message === 'socket_closed')
-      expect(closed?.details).toMatchObject({ intentional: false, replaced: true, code: 1000, reason: 'new_room' })
+      // This client closed it, and says so although the browser reports the close after the flag was reset.
+      expect(closed?.details).toMatchObject({ intentional: true, replaced: true, code: 1000, reason: 'new_room' })
       expect(closed?.details).not.toHaveProperty('quality')
       expect(closed?.details).not.toHaveProperty('pongAgeMs')
       expect(closed?.details).not.toHaveProperty('roundTripMs')
@@ -1355,15 +1356,107 @@ describe('service worker observed episode identity', () => {
       expect(opened?.details).toMatchObject({ attempt: 0, downMs: null })
     })
 
-    it('records every change of connection quality, including the ones that are not a pong', async () => {
+    it('records every change of connection quality, each once, and never an offline that was only a timer being cleared', async () => {
       vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
       await resumeAtPage(sharedUrl)
+      const first = FakeWebSocket.instances[0]!
+      // The first connection had measured a round trip before it dropped.
+      first.simulateMessage({ type: 'pong', id: 'ping_rtt', sentAtLocalMs: Date.now() - 300, serverTimeMs: Date.now() })
 
-      const second = await dropAndReconnect(first => first.simulateClose(1006, ''))
+      const second = await dropAndReconnect(socket => socket.simulateClose(1006, ''))
 
-      const changes = eventsFrom(second, 'report_transitions').filter(event => event.message === 'connection_quality').map(event => [event.details.from, event.details.to])
-      // Opened (unknown), closed (offline), opened again (unknown).
-      expect(changes).toEqual(expect.arrayContaining([['unknown', 'offline'], ['offline', 'unknown']]))
+      const changes = eventsFrom(second, 'report_transitions').filter(event => event.message === 'connection_quality')
+      const afterPong = changes.slice(changes.findIndex(event => event.details.roundTripMs !== null && event.details.to !== 'unknown'))
+      const sequence = afterPong.map(event => `${event.details.from}>${event.details.to}`)
+      // Dropped (offline), then opened again (unknown): no unknown>offline between the open and its first pong.
+      expect(sequence.slice(-2)).toEqual([expect.stringMatching(/>offline$/), 'offline>unknown'])
+      expect(sequence.filter(step => step === 'unknown>offline')).toHaveLength(0)
+      // The new connection's first quality is not tagged with the old connection's round trip.
+      expect(changes.at(-1)!.details.roundTripMs).toBeNull()
+    })
+
+    it('says nothing of a previous connection\'s health for a reconnect attempt that never opened', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      await resumeAtPage(sharedUrl)
+      const first = FakeWebSocket.instances[0]!
+      first.simulateMessage({ type: 'pong', id: 'ping_old', sentAtLocalMs: Date.now() - 200, serverTimeMs: Date.now() })
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      let third: FakeWebSocket
+      try {
+        first.simulateClose(1006, '')
+        await vi.advanceTimersByTimeAsync(20_000)
+        FakeWebSocket.instances[1]!.simulateFailure()
+        await vi.advanceTimersByTimeAsync(20_000)
+        third = FakeWebSocket.instances[2]!
+        third.simulateOpen()
+        third.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia }) })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+
+      const closes = eventsFrom(third, 'report_never_opened').filter(event => event.message === 'socket_closed')
+      expect(closes[0]?.details).toHaveProperty('pongAgeMs')
+      expect(closes[1]?.details).toMatchObject({ openMs: null })
+      expect(closes[1]?.details).not.toHaveProperty('pongAgeMs')
+      expect(closes[1]?.details).not.toHaveProperty('roundTripMs')
+      expect(closes[1]?.details).not.toHaveProperty('quality')
+    })
+
+    it('measures a second outage from its own drop once the room has taken the client back from the first', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      await resumeAtPage(sharedUrl)
+      const rejoin = (socket: FakeWebSocket) => {
+        socket.simulateOpen()
+        socket.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia }) })
+      }
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      let third: FakeWebSocket
+      try {
+        FakeWebSocket.instances[0]!.simulateClose(1006, '')
+        await vi.advanceTimersByTimeAsync(20_000)
+        rejoin(FakeWebSocket.instances[1]!)
+        // Ten minutes of a working connection, then it drops again.
+        await vi.advanceTimersByTimeAsync(600_000)
+        FakeWebSocket.instances[1]!.simulateClose(1006, '')
+        await vi.advanceTimersByTimeAsync(2_000)
+        third = FakeWebSocket.instances[2]!
+        rejoin(third)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+
+      const opened = eventsFrom(third, 'report_second_outage').filter(event => event.message === 'socket_opened').at(-1)
+      expect(opened?.details.downMs as number).toBeLessThan(5_000)
+    })
+
+    it('keeps measuring an outage when a socket opens but closes before the room takes the client back', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      await resumeAtPage(sharedUrl)
+      const first = FakeWebSocket.instances[0]!
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      let third: FakeWebSocket
+      try {
+        first.simulateClose(1006, '')
+        await vi.advanceTimersByTimeAsync(20_000)
+        // Opens, but the connection is gone before room_joined arrives.
+        FakeWebSocket.instances[1]!.simulateOpen()
+        FakeWebSocket.instances[1]!.simulateClose(1006, '')
+        await vi.advanceTimersByTimeAsync(20_000)
+        third = FakeWebSocket.instances[2]!
+        third.simulateOpen()
+        third.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia }) })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+
+      const opened = eventsFrom(third, 'report_until_rejoined').filter(event => event.message === 'socket_opened').at(-1)
+      expect(opened?.details.downMs as number).toBeGreaterThanOrEqual(40_000)
     })
 
     it('marks where the report begins and whether a room was waiting to be rejoined', async () => {

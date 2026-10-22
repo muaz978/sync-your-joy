@@ -737,7 +737,7 @@ async function startFreshConnection(roomCode: string): Promise<void> {
     clearTimeout(reconnectTimer)
   reconnectTimer = null
   void chrome.alarms.clear(RECONNECT_ALARM_NAME)
-  socket?.close(1000, 'new_room')
+  closeOnPurpose(socket, 1000, 'new_room')
   socket = null
   connectionPromise = null
   // A new room is not a continuation of the last one's connection: its outage and retry count are not carried over.
@@ -772,12 +772,13 @@ async function connect(roomCode: string): Promise<void> {
       openedAtMs = Date.now()
       lastPongReceivedAtMs = null
       const attempt = reconnectAttempts
+      // The outage ends when the room has taken this client back (room_joined), not when a socket opens.
       const downMs = outageStartedAtMs === null ? null : openedAtMs - outageStartedAtMs
-      outageStartedAtMs = null
       reconnectAttempts = 0
       void chrome.alarms.clear(RECONNECT_ALARM_NAME)
-      setConnectionQuality('unknown')
+      // The previous connection's round trip is gone before this one's first quality is recorded.
       state.roundTripMs = null
+      setConnectionQuality('unknown')
       state.lastPongAtMs = Date.now()
       startPingLoop()
       // No room code: a report is sent to whoever controls the room it is asked for in, and this event outlives a change of room.
@@ -798,7 +799,7 @@ async function connect(roomCode: string): Promise<void> {
       // Read before anything below can leave the room, which sets the flag:
       // the diagnostic is about who closed the socket, not about what this
       // handler then did.
-      const closedByThisClient = intentionallyClosed
+      const closedByThisClient = intentionallyClosed || closedOnPurpose.has(nextSocket)
       const closedAtMs = Date.now()
       const closeEvent = event as CloseEvent
       // A socket that was already replaced (a new room, or leaving) is no longer the connection the
@@ -811,7 +812,7 @@ async function connect(roomCode: string): Promise<void> {
         openMs: openedAtMs === null ? null : closedAtMs - openedAtMs,
         online: typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : null,
       }
-      if (isCurrent && !closedByThisClient) {
+      if (isCurrent && !closedByThisClient && openedAtMs !== null) {
         // What the connection looked like when it ended, before the handler below marks it offline:
         // a pong that had stopped arriving points at the network.
         evidence.pongAgeMs = lastPongReceivedAtMs === null ? null : closedAtMs - lastPongReceivedAtMs
@@ -917,6 +918,7 @@ function handleServerMessage(raw: string): void {
     return
 
   if (message.type === 'room_joined') {
+    outageStartedAtMs = null
     state.connection = 'connected'
     state.participantId = message.participantId
     state.sessionToken = message.sessionToken ?? null
@@ -1059,7 +1061,7 @@ function handleServerMessage(raw: string): void {
 }
 
 function startPingLoop(): void {
-  stopPingLoop()
+  clearPingTimers()
   state.lastPongAtMs = Date.now()
   setConnectionQuality('unknown')
   const ping = () => sendToServer({ type: 'ping', id: createId('ping'), sentAtLocalMs: Date.now() })
@@ -1077,13 +1079,28 @@ function startPingLoop(): void {
   }, 1_000)
 }
 
-function stopPingLoop(): void {
+// Sockets this client closed itself. A close is reported by the browser later, by which time the flag
+// above has been reset, so who closed it is remembered with the socket.
+const closedOnPurpose = new WeakSet<WebSocket>()
+
+function closeOnPurpose(target: WebSocket | null, code: number, reason: string): void {
+  if (!target)
+    return
+  closedOnPurpose.add(target)
+  target.close(code, reason)
+}
+
+function clearPingTimers(): void {
   if (pingTimer)
     clearInterval(pingTimer)
   pingTimer = null
   if (heartbeatTimer)
     clearInterval(heartbeatTimer)
   heartbeatTimer = null
+}
+
+function stopPingLoop(): void {
+  clearPingTimers()
   setConnectionQuality('offline')
 }
 
@@ -1160,7 +1177,7 @@ function leaveRoom(): void {
   reconnectTimer = null
   void chrome.alarms.clear(RECONNECT_ALARM_NAME)
   stopPingLoop()
-  socket?.close(1000, 'left_room')
+  closeOnPurpose(socket, 1000, 'left_room')
   socket = null
   state.connection = 'disconnected'
   setConnectionQuality('offline')
