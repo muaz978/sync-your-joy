@@ -913,17 +913,21 @@ function scheduleReconnect(): void {
   void chrome.alarms.create(RECONNECT_ALARM_NAME, { delayInMinutes: delayMs / 60_000 })
 }
 
+/** The outage ends when the room has taken this client back, and only a join answered on the current socket says so. */
+function endOutage(fromCurrentSocket: boolean): void {
+  if (!fromCurrentSocket || outageStartedAtMs === null)
+    return
+  recordDiagnostic('connection', 'room_rejoined', { outageMs: Date.now() - outageStartedAtMs })
+  outageStartedAtMs = null
+}
+
 function handleServerMessage(raw: string, fromCurrentSocket = true): void {
   const message = safeJsonParse(raw) as ServerMessage | null
   if (!message || typeof message !== 'object' || !('type' in message))
     return
 
   if (message.type === 'room_joined') {
-    // The outage ends when the room has taken this client back, and only a join answered on the current socket says so.
-    if (fromCurrentSocket && outageStartedAtMs !== null) {
-      recordDiagnostic('connection', 'room_rejoined', { outageMs: Date.now() - outageStartedAtMs })
-      outageStartedAtMs = null
-    }
+    endOutage(fromCurrentSocket)
     state.connection = 'connected'
     state.participantId = message.participantId
     state.sessionToken = message.sessionToken ?? null
@@ -1045,9 +1049,8 @@ function handleServerMessage(raw: string, fromCurrentSocket = true): void {
   }
 
   if (message.type === 'pong') {
-    // A pong still in flight from a socket that has been replaced says nothing of the one that replaced it.
     if (!fromCurrentSocket)
-      return
+      return // a pong still in flight from a replaced socket says nothing of its replacement
     const receivedAtLocalMs = Date.now()
     const estimate = clock.addSample(message.sentAtLocalMs, receivedAtLocalMs, message.serverTimeMs)
     state.serverOffsetMs = estimate.offsetMs
