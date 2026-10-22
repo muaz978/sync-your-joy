@@ -3213,3 +3213,148 @@ describe('RoomCoordinator', () => {
     })
   })
 })
+
+describe('a membership change while a transactional Play is running', () => {
+  /** A Play at 40 s that both participants have started, with the clock at its start time. */
+  function startedPlayAt40() {
+    let nowMs = 10_000
+    const room = createTransactionalRoom(() => nowMs)
+    controlTransactional(room, 'play', 40)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+    const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+    const startAtMs = committed?.ok ? committed.snapshot.contract?.operation?.effectiveAtServerMs : null
+    if (!startAtMs)
+      throw new Error('Expected a committed transactional operation.')
+    nowMs = startAtMs + 100
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.1, 2))
+    room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40.1, 2))
+    expect(room.snapshot().contract?.operation?.phase).toBe('started')
+    return { room, startAtMs, setNow: (value: number) => { nowMs = value } }
+  }
+
+  it('pauses where the room has got to, not where the Play began, when a participant disconnects', () => {
+    const { room, startAtMs, setNow } = startedPlayAt40()
+    // Fifty seconds of watching later (the 0.2.11 report: 100 s, and both players had only data from there on).
+    setNow(startAtMs + 50_000)
+
+    const disconnected = room.disconnect('participant_friend')
+
+    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
+    expect(disconnected?.snapshot.playback.positionSeconds).toBeCloseTo(90, 0)
+  })
+
+  it('keeps that position when the participant comes back', () => {
+    const { room, startAtMs, setNow } = startedPlayAt40()
+    setNow(startAtMs + 50_000)
+    room.disconnect('participant_friend')
+
+    setNow(startAtMs + 51_000)
+    const rejoined = room.join({ id: 'participant_friend', name: 'Rana', media, capabilities: CURRENT_CLIENT_CAPABILITIES })
+
+    expect(rejoined).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+    expect(rejoined.snapshot.playback.positionSeconds).toBeCloseTo(90, 0)
+  })
+
+  it('also pauses where the room has got to when a participant becomes not ready', () => {
+    const { room, startAtMs, setNow } = startedPlayAt40()
+    setNow(startAtMs + 50_000)
+
+    const result = room.setReady('participant_friend', false, media)
+
+    expect(result).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+    expect(result.snapshot.playback.positionSeconds).toBeCloseTo(90, 0)
+  })
+
+  it('pauses at the target when the Play had not started yet', () => {
+    let nowMs = 10_000
+    const room = createTransactionalRoom(() => nowMs)
+    controlTransactional(room, 'play', 40)
+    nowMs += 500
+
+    const disconnected = room.disconnect('participant_friend')
+
+    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
+  })
+
+  it('pauses at the target when the Play was committed but its start time had not come', () => {
+    let nowMs = 10_000
+    const room = createTransactionalRoom(() => nowMs)
+    controlTransactional(room, 'play', 40)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+    const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+    if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+      throw new Error('Expected a committed transactional operation.')
+    nowMs = committed.snapshot.contract.operation.effectiveAtServerMs - 100
+
+    const disconnected = room.disconnect('participant_friend')
+
+    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
+  })
+
+  /** A committed Play whose start time has come and gone with no start acknowledgement from anyone. */
+  function committedPlayPastItsStart() {
+    let nowMs = 10_000
+    const room = createTransactionalRoom(() => nowMs)
+    controlTransactional(room, 'play', 40)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+    const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+    const operation = committed?.ok ? committed.snapshot.contract?.operation : null
+    if (!operation?.effectiveAtServerMs)
+      throw new Error('Expected a committed transactional operation.')
+    return { room, operation, effectiveAtServerMs: operation.effectiveAtServerMs, setNow: (value: number) => { nowMs = value } }
+  }
+
+  it('pauses where the room has got to when someone confirmed starting and a participant then leaves', () => {
+    const { room, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
+    setNow(effectiveAtServerMs + 2_000)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 42, 2))
+    expect(room.snapshot().contract?.operation?.phase).toBe('committed')
+
+    const left = room.disconnect('participant_friend')
+
+    expect(left).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+    expect(left?.snapshot.playback.positionSeconds).toBeCloseTo(42, 0)
+  })
+
+  it('pauses at the target when a participant leaves after the start deadline but before the timeout was handled, even though someone confirmed starting', () => {
+    const { room, operation, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
+    setNow(effectiveAtServerMs + 500)
+    const confirmed = room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+    expect(confirmed).toMatchObject({ ok: true, reason: 'operation_participant_started' })
+    // The deadline has passed and the sweep that would have timed the start out has not run yet.
+    setNow(operation.deadlineAtServerMs + 1)
+
+    const left = room.disconnect('participant_friend')
+
+    expect(left).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
+  })
+
+  it('pauses at the target when a start times out even though someone confirmed it', () => {
+    const { room, operation, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
+    setNow(effectiveAtServerMs + 500)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+    setNow(operation.deadlineAtServerMs + 1)
+
+    const released = room.releaseExpiredOperation()
+
+    expect(released).toMatchObject({ ok: true, reason: 'operation_timeout_paused', snapshot: { playback: { status: 'paused', positionSeconds: 40 } } })
+  })
+
+  it('pauses at the target when a participant disconnects after the start time but before anyone confirmed starting', () => {
+    const { room, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
+    setNow(effectiveAtServerMs + 3_000)
+
+    const disconnected = room.disconnect('participant_friend')
+
+    expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
+  })
+
+  it('pauses at the target when a Play that never started times out', () => {
+    const { room, operation, setNow } = committedPlayPastItsStart()
+    setNow(operation.deadlineAtServerMs + 1)
+
+    const released = room.releaseExpiredOperation()
+
+    expect(released).toMatchObject({ ok: true, reason: 'operation_timeout_paused', snapshot: { playback: { status: 'paused', positionSeconds: 40 } } })
+  })
+})
