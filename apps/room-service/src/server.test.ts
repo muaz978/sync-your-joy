@@ -508,6 +508,61 @@ describe('room service', () => {
     friend.close()
   })
 
+  it('gives the controller the coordinator\'s own timeline with a report, including why a socket closed', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const friend = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'TLINE123', media: null,
+    }))
+    const hostCreated = await nextMessage(host)
+    if (hostCreated.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    await joinAndApprove(host, friend, hostCreated.snapshot.code, 'participant_friend', 'Rana', null)
+
+    const hostNotified = nextMessage(host)
+    friend.close(4000, 'Closed by https://example.test/watch?token=secret')
+    await hostNotified
+
+    const messages: ServerMessage[] = []
+    const collect = (data: Buffer) => messages.push(JSON.parse(data.toString()) as ServerMessage)
+    host.on('message', collect)
+    host.send(JSON.stringify({ type: 'request_diagnostics', reportId: 'report_timeline' }))
+    await vi.waitFor(() => expect(messages.some(message => message.type === 'diagnostics_room')).toBe(true))
+    host.off('message', collect)
+
+    const timeline = messages.find(message => message.type === 'diagnostics_room')
+    if (timeline?.type !== 'diagnostics_room')
+      throw new Error('Expected diagnostics_room')
+    expect(timeline.reportId).toBe('report_timeline')
+    const closed = timeline.room.entries.find(entry => entry.kind === 'transport' && entry.event === 'socket_closed')
+    expect(closed?.detail).toMatchObject({ participantId: 'participant_friend', code: 4000, reason: 'other', participantStillConnected: false })
+    expect(JSON.stringify(timeline)).not.toContain('secret')
+    expect(timeline.room.entries.some(entry => entry.kind === 'change' && entry.participants.some(participant => participant.id === 'participant_friend' && !participant.connected))).toBe(true)
+    host.close()
+  })
+
+  it('does not hand the timeline to a participant who is not the controller', async () => {
+    service = await createRoomService({ port: 0 })
+    const host = await connect(service.url)
+    const friend = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'TLINE456', media: null,
+    }))
+    const hostCreated = await nextMessage(host)
+    if (hostCreated.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    await joinAndApprove(host, friend, hostCreated.snapshot.code, 'participant_friend', 'Rana', null)
+
+    const messages: ServerMessage[] = []
+    friend.on('message', data => messages.push(JSON.parse(data.toString()) as ServerMessage))
+    friend.send(JSON.stringify({ type: 'request_diagnostics', reportId: 'report_member' }))
+    await vi.waitFor(() => expect(messages.some(message => message.type === 'error')).toBe(true))
+    expect(messages.some(message => message.type === 'diagnostics_room')).toBe(false)
+    host.close()
+    friend.close()
+  })
+
   it('ignores a diagnostics_response with an unrequested reportId, and only forwards one response per participant per request', async () => {
     service = await createRoomService({ port: 0 })
     const host = await connect(service.url)

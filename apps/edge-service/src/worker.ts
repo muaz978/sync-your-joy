@@ -4,7 +4,7 @@ import type { ClientMessage, ServerMessage } from '@syncyourjoy/protocol'
 import type { RoomCoordinatorState, RoomResult } from '@syncyourjoy/sync-engine'
 import { DurableObject } from 'cloudflare:workers'
 import { isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
-import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator } from '@syncyourjoy/sync-engine'
+import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator, safeCloseReason } from '@syncyourjoy/sync-engine'
 import { applyEarliestDueDeadline, persistRoomAndSchedule, persistThenObserve } from './alarm.ts'
 
 const MAX_MESSAGE_BYTES = 16_384
@@ -551,23 +551,29 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.handleMessage(socket, attachment, message)
   }
 
-  async webSocketClose(socket: WebSocket): Promise<void> {
-    await this.initialized
-    const attachment = this.attachmentOf(socket)
-    if (attachment === undefined) {
-      // Which participant this socket belonged to cannot be told from it, so
-      // the members are compared with the sockets that can be read instead:
-      // throwing here would leave its member shown as connected, with no
-      // recovery planned if it was the controller, until the next restore.
-      // It is closed first: webSocketError also arrives here, for a socket
-      // that may still be open, and there may be no room left to reconcile.
-      this.closeUnreadable(socket)
-      await this.reconcileAfterUnreadableClose()
-      return
-    }
-    if (!attachment.participantId || !this.coordinator)
-      return
+  async webSocketClose(socket: WebSocket, code?: number, reason?: string): Promise<void> {
+    await this.socketGone(socket, 'socket_closed', code, reason)
+  }
 
+  /** A close whose attachment cannot be read: which participant it was is not known, but that it closed is. */
+  private async unreadableSocketGone(socket: WebSocket, event: 'socket_closed' | 'socket_error', code?: number, reason?: string): Promise<void> {
+    // Which participant this socket belonged to cannot be told from it, so
+    // the members are compared with the sockets that can be read instead:
+    // throwing here would leave its member shown as connected, with no
+    // recovery planned if it was the controller, until the next restore.
+    // It is closed first: webSocketError also arrives here, for a socket
+    // that may still be open, and there may be no room left to reconcile.
+    // Whose socket it was is not known, but that one closed is.
+    this.coordinator?.recordTransportEvent(null, event, { code: code ?? null, reason: safeCloseReason(reason), attachmentReadable: false })
+    this.closeUnreadable(socket)
+    await this.reconcileAfterUnreadableClose()
+  }
+
+  /**
+   * Records that a participant's socket went, and reports whether the participant still has another.
+   * A socket whose attachment cannot be read is closed on the way.
+   */
+  private noteSocketGone(socket: WebSocket, participantId: string, event: 'socket_closed' | 'socket_error', code?: number, reason?: string): boolean {
     let stillConnected = false
     for (const candidate of this.ctx.getWebSockets()) {
       if (candidate === socket)
@@ -575,9 +581,28 @@ export class RoomDurableObject extends DurableObject<Env> {
       const other = this.attachmentOf(candidate)
       if (other === undefined)
         this.closeUnreadable(candidate)
-      else if (other.participantId === attachment.participantId)
+      else if (other.participantId === participantId)
         stillConnected = true
     }
+    this.coordinator?.recordTransportEvent(participantId, event, {
+      code: code ?? null,
+      reason: safeCloseReason(reason),
+      participantStillConnected: stillConnected,
+    })
+    return stillConnected
+  }
+
+  private async socketGone(socket: WebSocket, event: 'socket_closed' | 'socket_error', code?: number, reason?: string): Promise<void> {
+    await this.initialized
+    const attachment = this.attachmentOf(socket)
+    if (attachment === undefined) {
+      await this.unreadableSocketGone(socket, event, code, reason)
+      return
+    }
+    if (!attachment.participantId || !this.coordinator)
+      return
+
+    const stillConnected = this.noteSocketGone(socket, attachment.participantId, event, code, reason)
     if (stillConnected)
       return
 
@@ -657,7 +682,8 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {
-    await this.webSocketClose(socket)
+    // An error is followed by its close; the report tells them apart.
+    await this.socketGone(socket, 'socket_error')
   }
 
   async alarm(): Promise<void> {
@@ -863,6 +889,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       }
       this.pendingDiagnosticsRequests.set(message.reportId, new Set())
       this.broadcast({ type: 'diagnostics_requested', reportId: message.reportId })
+      this.send(socket, { type: 'diagnostics_room', reportId: message.reportId, room: this.coordinator.roomDiagnostics() })
       return
     }
 

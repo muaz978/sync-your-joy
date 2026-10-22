@@ -1,6 +1,7 @@
 import type {
   ClientCapabilities,
   ControlKind,
+  DiagnosticValue,
   MediaFingerprint,
   OperationAcknowledgement,
   OperationObservationIdentity,
@@ -9,7 +10,9 @@ import type {
   ParticipantState,
   PlaybackState,
   PlayerSample,
+  RoomDiagnostics,
   RoomSnapshot,
+  RoomTimelineEntry,
   SharedSeek,
   SharedNavigation,
 } from '@syncyourjoy/protocol'
@@ -27,6 +30,7 @@ import {
 import { expectedPosition } from './clock.ts'
 import { AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_MAX_OFFSET_SECONDS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSettledPausedSeek } from './operation-state.ts'
+import { ROOM_TIMELINE_LIMIT, TIMELINE_PARTICIPANT_LIMIT, timelineStateKey } from './room-timeline.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
@@ -147,6 +151,7 @@ export class RoomCoordinator {
   ) {
     this.identity = identity
     this.now = now
+    this.timelineStartedAtMs = now()
 
     if (restoredState) {
       this.revision = restoredState.revision
@@ -176,6 +181,7 @@ export class RoomCoordinator {
       if (!hasValidContractBoundary)
         this.migratePreContractState(restoredPendingSeek)
       this.refreshNegotiation()
+      this.startTimeline(true)
       return
     }
 
@@ -206,6 +212,14 @@ export class RoomCoordinator {
     })
     this.contract = normalizeRoomContractSnapshot(undefined)
     this.refreshNegotiation()
+    this.startTimeline(false)
+  }
+
+  /** Where the timeline begins: the room as this coordinator first held it, so the first change is read against something. */
+  private startTimeline(restored: boolean): void {
+    this.recordTimeline('transport', 'coordinator_started', { restored })
+    // So that the first call which changes nothing is not recorded as a change.
+    this.lastTimelineKey = this.timelineKeyOf(this.timeline[0]!)
   }
 
   static fromState(state: RoomCoordinatorState, now: () => number = Date.now): RoomCoordinator {
@@ -1236,6 +1250,15 @@ export class RoomCoordinator {
   }
 
   /**
+   * The coordinator's own account of what happened, kept in memory and handed to
+   * the controller with a detailed report. A coordinator that restarts starts
+   * a new one; `timelineStartedAtMs` says from when the report can be trusted.
+   */
+  private timeline: RoomTimelineEntry[] = []
+  private timelineDropped = 0
+  private timelineStartedAtMs = 0
+  private lastTimelineKey = ''
+  /**
    * Coordinator-local record of an automatic resume that is waiting for the
    * players. Like the buffering runs it is kept out of every snapshot and the
    * persisted export: a restored room stays paused and its controller presses
@@ -1771,11 +1794,106 @@ export class RoomCoordinator {
   }
 
   private success(reason: string): RoomResult {
+    this.recordTimeline('change', reason)
     return { ok: true, reason, snapshot: this.snapshot() }
   }
 
   private failure(code: string, message: string): RoomResult {
+    this.recordTimeline('refused', code)
     return { ok: false, code, message, snapshot: this.snapshot() }
+  }
+
+  /** What the room looks like right now, as one timeline entry. */
+  private timelineEntry(kind: RoomTimelineEntry['kind'], event: string, detail?: Record<string, DiagnosticValue>): RoomTimelineEntry {
+    const nowMs = this.now()
+    const operation = this.contract.operation
+    return {
+      atServerMs: nowMs,
+      revision: this.revision,
+      kind,
+      event,
+      playbackStatus: this.playback.status,
+      positionSeconds: Math.round(expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null) * 1000) / 1000,
+      controllerId: this.controllerId,
+      operation: operation === null
+        ? null
+        : {
+            kind: operation.kind,
+            phase: operation.phase,
+            reason: operation.reason ?? null,
+            targetPositionSeconds: operation.targetPositionSeconds,
+            required: operation.requiredParticipantIds.length,
+            prepared: operation.preparedParticipantIds.length,
+            started: operation.startedParticipantIds.length,
+          },
+      pendingJoinIds: [...this.pendingJoinRequests.keys()].slice(0, TIMELINE_PARTICIPANT_LIMIT),
+      pendingSeekAcknowledged: this.pendingSeek ? this.pendingSeek.acknowledgedParticipantIds.length : null,
+      // Connected members first: those who left stay in the list and must not crowd out the ones in the room.
+      participants: [...this.participants.values()]
+        .sort((a, b) => Number(b.connected) - Number(a.connected))
+        .slice(0, TIMELINE_PARTICIPANT_LIMIT)
+        .map(participant => ({
+          id: participant.id,
+          connected: participant.connected,
+          ready: participant.ready,
+          mediaMatches: participant.mediaMatches,
+          status: participant.playbackStatus ?? 'unknown',
+        })),
+      ...(this.participants.size > TIMELINE_PARTICIPANT_LIMIT ? { participantsOmitted: this.participants.size - TIMELINE_PARTICIPANT_LIMIT } : {}),
+      ...(detail === undefined ? {} : { detail }),
+    }
+  }
+
+  private timelineKeyOf(entry: RoomTimelineEntry): string {
+    return timelineStateKey(entry, {
+      playbackPositionSeconds: this.playback.positionSeconds,
+      playbackEffectiveAtServerMs: this.playback.effectiveAtServerMs,
+      mediaEpoch: this.contract.mediaEpoch,
+      navigationRevision: this.navigation?.revision ?? null,
+    })
+  }
+
+  private recordTimeline(kind: RoomTimelineEntry['kind'], event: string, detail?: Record<string, DiagnosticValue>): void {
+    const entry = this.timelineEntry(kind, event, detail)
+    // A change that left the room looking exactly as it did is not an entry. A refusal and a
+    // transport event always are: they explain what happened, whether or not anything moved.
+    if (kind === 'change') {
+      const key = this.timelineKeyOf(entry)
+      if (key === this.lastTimelineKey)
+        return
+      this.lastTimelineKey = key
+    }
+    // The same refusal again, with the room unchanged, is one entry with a count: a participant who
+    // repeats a refused command must not push the history out of a bounded timeline.
+    const previous = this.timeline.at(-1)
+    if (kind === 'refused' && previous?.kind === 'refused' && previous.event === event
+      && timelineStateKey(previous) === timelineStateKey(entry)) {
+      const repeated = typeof previous.detail?.repeated === 'number' ? previous.detail.repeated : 1
+      previous.detail = { ...previous.detail, repeated: repeated + 1, lastAtServerMs: entry.atServerMs }
+      return
+    }
+    this.timeline.push(entry)
+    if (this.timeline.length > ROOM_TIMELINE_LIMIT) {
+      this.timeline.shift()
+      this.timelineDropped += 1
+    }
+  }
+
+  /** A connection event the transport saw (a socket closing, with its code), kept beside the changes it caused. */
+  recordTransportEvent(participantId: string | null, event: string, detail: Record<string, DiagnosticValue> = {}): void {
+    this.recordTimeline('transport', event, { participantId, ...detail })
+  }
+
+  /** The coordinator's timeline, for the controller's detailed report. */
+  roomDiagnostics(): RoomDiagnostics {
+    return {
+      generatedAtServerMs: this.now(),
+      revision: this.revision,
+      mode: this.contract.mode,
+      coverageStartedAtServerMs: this.timelineStartedAtMs,
+      entriesDropped: this.timelineDropped,
+      entries: this.timeline.map(entry => structuredClone(entry)),
+    }
   }
 }
 

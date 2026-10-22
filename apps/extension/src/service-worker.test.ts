@@ -105,6 +105,7 @@ interface FakeChrome {
   updatedListener: (tabId: number, changeInfo: { status?: chrome.tabs.Tab['status'] }) => void
   sessionSetMock: ReturnType<typeof vi.fn>
   sendMessageMock: ReturnType<typeof vi.fn>
+  downloadMock: ReturnType<typeof vi.fn>
 }
 
 /** Builds a fake `chrome` global exposing only what service-worker.ts
@@ -116,8 +117,10 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
     await options.sessionSet?.(values)
   })
   const sendMessageMock = vi.fn(async () => undefined)
+  const downloadMock = vi.fn(async () => 1)
 
   const fakeChrome = {
+    downloads: { download: downloadMock },
     runtime: {
       onInstalled: { addListener: vi.fn() },
       onStartup: { addListener: vi.fn() },
@@ -170,6 +173,7 @@ function buildFakeChrome(options: FakeChromeOptions = {}): FakeChrome {
     },
     sessionSetMock,
     sendMessageMock,
+    downloadMock,
   } as FakeChrome
 }
 
@@ -1569,6 +1573,155 @@ describe('service worker observed episode identity', () => {
       // The round trip of the first pong, 900 ms and the few milliseconds the test took to run it.
       expect(changes[0]!.details.roundTripMs as number).toBeGreaterThanOrEqual(900)
       expect(changes[0]!.details.roundTripMs as number).toBeLessThan(1_000)
+    })
+  })
+
+  describe('the coordinator\'s timeline in the downloaded report', () => {
+    const roomTimeline = {
+      generatedAtServerMs: 20_000,
+      revision: 9,
+      mode: 'transactional',
+      coverageStartedAtServerMs: 10_000,
+      entriesDropped: 0,
+      entries: [{
+        atServerMs: 15_000,
+        revision: 8,
+        kind: 'transport',
+        event: 'socket_closed',
+        playbackStatus: 'playing',
+        positionSeconds: 812.5,
+        controllerId: 'participant_resumed',
+        operation: null,
+        participants: [{ id: 'participant_friend', connected: false, ready: true, mediaMatches: true, status: 'playing' }],
+        detail: { participantId: 'participant_friend', code: 1006, reason: 'none', participantStillConnected: false },
+      }],
+    }
+
+    function downloadedReport(fake: FakeChrome) {
+      const download = fake.downloadMock.mock.calls[0]![0] as { url: string }
+      const [, body] = download.url.split(',', 2)
+      return JSON.parse(decodeURIComponent(body!)) as { schemaVersion: number, roomCode: string | null, room: unknown, participants: unknown[], collection: { complete: boolean } }
+    }
+
+    function requestedReportId(socket: FakeWebSocket): string {
+      const request = socket.sentMessages.find(message => (message as { type?: string }).type === 'request_diagnostics') as { reportId: string } | undefined
+      if (!request)
+        throw new Error('Expected a request_diagnostics message.')
+      return request.reportId
+    }
+
+    it('writes the timeline the coordinator sends into the report, for a room with only the controller in it', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      const reportId = requestedReportId(socket)
+      // Nothing is written while the timeline is still on its way, though every answer is already here.
+      expect(fake.downloadMock).not.toHaveBeenCalled()
+
+      socket.simulateMessage({ type: 'diagnostics_room', reportId, room: roomTimeline })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1))
+      const report = downloadedReport(fake)
+      expect(report.schemaVersion).toBe(2)
+      expect(report.room).toEqual(roomTimeline)
+      expect(report.collection.complete).toBe(true)
+    })
+
+    it('cuts the oldest of the timeline rather than produce a download Chrome would refuse', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      const entries = Array.from({ length: 300 }, (_, index) => ({
+        ...roomTimeline.entries[0]!,
+        atServerMs: 15_000 + index,
+        detail: { index, padding: 'a'.repeat(8_000) },
+      }))
+
+      socket.simulateMessage({ type: 'diagnostics_room', reportId: requestedReportId(socket), room: { ...roomTimeline, entries } })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1))
+      const download = fake.downloadMock.mock.calls[0]![0] as { url: string }
+      expect(download.url.length).toBeLessThanOrEqual(1_900_000)
+      const room = downloadedReport(fake).room as { entries: Array<{ detail: { index: number } }>, entriesDropped: number }
+      expect(room.entriesDropped).toBeGreaterThan(0)
+      expect(room.entries.at(-1)!.detail.index).toBe(299)
+    })
+
+    it('names the room the report was asked for in, though the controller has left it by the time it is written', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      const reportId = requestedReportId(socket)
+
+      await request({ type: 'LEAVE_ROOM' })
+      socket.simulateMessage({ type: 'diagnostics_room', reportId, room: roomTimeline })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1), { timeout: 4_000 })
+      const download = fake.downloadMock.mock.calls[0]![0] as { url: string, filename: string }
+      expect((JSON.parse(decodeURIComponent(download.url.split(',', 2)[1]!)) as { roomCode: string }).roomCode).toBe('ABCDEFGH')
+      expect(download.filename).toContain('ABCDEFGH')
+    })
+
+    it('stops asking when the controller has moved to another room, and writes what it had for the first', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      socket.simulateMessage({
+        type: 'room_snapshot',
+        reason: 'join_approved',
+        snapshot: buildRoomSnapshot({ participants: [
+          { id: 'participant_resumed', name: 'Resumed Friend', role: 'controller', ready: false, connected: true, mediaMatches: false, latencyMs: null },
+          { id: 'participant_friend', name: 'Rana', role: 'member', ready: false, connected: true, mediaMatches: false, latencyMs: null },
+        ] }),
+      })
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      const reportId = requestedReportId(socket)
+      // Someone has not answered; the controller joins a different room before the next retry.
+      const joining = request({ type: 'JOIN_ROOM', code: 'VVVVVVVV' })
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+      const next = FakeWebSocket.instances[1]!
+      next.simulateOpen()
+      await joining
+      next.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ code: 'VVVVVVVV', media: oldMedia }) })
+      next.simulateMessage({ type: 'diagnostics_room', reportId, room: roomTimeline })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1), { timeout: 4_000 })
+      const report = downloadedReport(fake)
+      expect(report.roomCode).toBe('ABCDEFGH')
+      expect(report.room).toBeNull()
+      expect(next.sentMessages.some(message => (message as { type?: string }).type === 'request_diagnostics')).toBe(false)
+    })
+
+    it('ignores a timeline for a report it did not ask for', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      socket.simulateMessage({ type: 'diagnostics_room', reportId: 'report_someone_elses', room: roomTimeline })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(fake.downloadMock).not.toHaveBeenCalled()
+    })
+
+    it('still writes the report, with no timeline, when the coordinator is one that does not send it', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1), { timeout: 4_000 })
+      const report = downloadedReport(fake)
+      expect(report.schemaVersion).toBe(2)
+      expect(report.room).toBeNull()
+      // The retry at 1 s did not ask everyone to send their report again for a timeline that was never coming.
+      const requests = FakeWebSocket.instances[0]!.sentMessages.filter(message => (message as { type?: string }).type === 'request_diagnostics')
+      expect(requests).toHaveLength(1)
+      expect(report.participants).toHaveLength(1)
     })
   })
 

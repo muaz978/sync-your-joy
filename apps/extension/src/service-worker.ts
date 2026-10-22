@@ -1,4 +1,4 @@
-import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticReason, DiagnosticValue, MediaFingerprint, PlaybackState, RoomSnapshot, ServerMessage } from '@syncyourjoy/protocol'
+import type { ClientMessage, ControlKind, DiagnosticEvent, DiagnosticsReport, DiagnosticReason, DiagnosticValue, MediaFingerprint, PlaybackState, RoomDiagnostics, RoomSnapshot, ServerMessage } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { CURRENT_CLIENT_CAPABILITIES, generateRoomCode, mediaMatches, normalizeMediaPageUrl, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
 import { ClockSynchronizer, expectedPosition } from '@syncyourjoy/sync-engine'
@@ -48,6 +48,9 @@ const ROOM_INTERRUPTION_REASONS: ReadonlySet<string> = new Set([
 // Give the room-wide report enough time to collect every response without
 // making the normal playback path wait for diagnostics.
 const DIAGNOSTIC_COLLECTION_TIMEOUT_MS = 8_000
+// How long a report that has every participant's answer waits for the coordinator's own timeline,
+// which a coordinator from before it was kept never sends.
+const ROOM_TIMELINE_GRACE_MS = 1_500
 // A bare setTimeout does not survive MV3 service-worker suspension. This
 // alarm is a fallback that wakes the service worker to retry a reconnect
 // even if it was suspended while the setTimeout backoff was pending.
@@ -63,6 +66,11 @@ interface DiagnosticCollection {
   timer: ReturnType<typeof setTimeout>
   retryTimers: Array<ReturnType<typeof setTimeout>>
   attempts: number
+  /** The room this report is about, fixed when it was asked for: the controller may be in another room by the time it is written. */
+  roomCode: string | null
+  /** The coordinator's own timeline, sent back to the controller when it asks for the report; the newest copy wins. */
+  room: RoomDiagnostics | null
+  timelineGraceTimer: ReturnType<typeof setTimeout> | null
 }
 
 interface PlayerBinding {
@@ -589,6 +597,9 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         timer: setTimeout(() => finishDiagnosticCollection(reportId), DIAGNOSTIC_COLLECTION_TIMEOUT_MS),
         retryTimers: [],
         attempts: 0,
+        roomCode: snapshot.code,
+        room: null,
+        timelineGraceTimer: null,
       }
       diagnosticCollection = collection
       recordDiagnostic('diagnostics', 'collection_requested', { reportId, expectedParticipants: collection.expectedParticipantIds.size })
@@ -1034,6 +1045,16 @@ function handleServerMessage(raw: string, fromCurrentSocket = true): void {
     return
   }
 
+  if (message.type === 'diagnostics_room') {
+    const collection = diagnosticCollection
+    // A timeline of another room than the one this report was asked for in does not belong in it.
+    if (!collection || collection.reportId !== message.reportId || state.snapshot?.code !== collection.roomCode)
+      return
+    collection.room = message.room
+    finishWhenComplete(collection)
+    return
+  }
+
   if (message.type === 'diagnostics_response') {
     const collection = diagnosticCollection
     if (!collection || collection.reportId !== message.reportId)
@@ -1043,8 +1064,7 @@ function handleServerMessage(raw: string, fromCurrentSocket = true): void {
       participantName: message.participantName,
       report: message.report,
     })
-    if ([...collection.expectedParticipantIds].every(participantId => collection.responses.has(participantId)))
-      finishDiagnosticCollection(message.reportId)
+    finishWhenComplete(collection)
     return
   }
 
@@ -1912,14 +1932,16 @@ function finishDiagnosticCollection(reportId: string): void {
   if (!collection || collection.reportId !== reportId)
     return
   clearTimeout(collection.timer)
+  if (collection.timelineGraceTimer !== null)
+    clearTimeout(collection.timelineGraceTimer)
   for (const retryTimer of collection.retryTimers)
     clearTimeout(retryTimer)
   diagnosticCollection = null
   const missingParticipantIds = [...collection.expectedParticipantIds].filter(participantId => !collection.responses.has(participantId))
   const payload = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
-    roomCode: state.snapshot?.code ?? null,
+    roomCode: collection.roomCode,
     reportId,
     privacy: 'Playback diagnostics only. No cookies, passwords, media content, or URL query parameters.',
     collection: {
@@ -1929,23 +1951,68 @@ function finishDiagnosticCollection(reportId: string): void {
       complete: missingParticipantIds.length === 0,
     },
     missingParticipantIds,
+    /** The coordinator's timeline, or null when it could not be had (an older coordinator). */
+    room: collection.room,
     participants: [...collection.responses.values()],
   }
   const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
-  const filename = `syncyourjoy-report-${state.snapshot?.code ?? 'room'}-${timestamp}.json`
-  const url = `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`
+  const filename = `syncyourjoy-report-${collection.roomCode ?? 'room'}-${timestamp}.json`
+  const url = reportDownloadUrl(payload)
   void chrome.downloads.download({ url, filename, saveAs: false }).catch(() => {
     state.lastError = 'Chrome could not download the detailed report.'
     void publishState()
   })
 }
 
+// Chrome refuses a data: URL of more than about 2 MB, which would leave the user with no file at all.
+const MAX_REPORT_URL_LENGTH = 1_900_000
+
+/**
+ * The report as a download URL. A report too large for one is cut from the oldest end of the coordinator's
+ * timeline, which is the part that can be spared, and says how much it cut.
+ */
+function reportDownloadUrl(payload: { room: RoomDiagnostics | null }): string {
+  const build = () => `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`
+  let url = build()
+  while (url.length > MAX_REPORT_URL_LENGTH && payload.room && payload.room.entries.length > 0) {
+    const cut = Math.max(1, Math.floor(payload.room.entries.length / 2))
+    payload.room = { ...payload.room, entries: payload.room.entries.slice(cut), entriesDropped: payload.room.entriesDropped + cut }
+    url = build()
+  }
+  return url
+}
+
+function hasEveryResponse(collection: DiagnosticCollection): boolean {
+  return [...collection.expectedParticipantIds].every(participantId => collection.responses.has(participantId))
+}
+
+/**
+ * The report is written when every participant has answered and the coordinator's timeline has come.
+ * A coordinator that does not keep one never sends it, so the wait for it is short.
+ */
+function finishWhenComplete(collection: DiagnosticCollection): boolean {
+  if (!hasEveryResponse(collection))
+    return false
+  if (collection.room !== null) {
+    finishDiagnosticCollection(collection.reportId)
+    return true
+  }
+  collection.timelineGraceTimer ??= setTimeout(() => finishDiagnosticCollection(collection.reportId), ROOM_TIMELINE_GRACE_MS)
+  return false
+}
+
 function requestDiagnosticResponses(reportId: string): boolean {
   const collection = diagnosticCollection
   if (!collection || collection.reportId !== reportId)
     return false
-  if ([...collection.expectedParticipantIds].every(participantId => collection.responses.has(participantId))) {
+  if (state.snapshot?.code !== collection.roomCode) {
+    // The controller is in another room: ask nobody more, and write what was collected for the room it was asked for in.
     finishDiagnosticCollection(reportId)
+    return true
+  }
+  if (hasEveryResponse(collection) && (collection.room !== null || collection.attempts > 0)) {
+    // Everyone has answered. Only the timeline may be missing, and asking again would make every participant send its report again.
+    finishWhenComplete(collection)
     return true
   }
   collection.attempts += 1
@@ -1954,5 +2021,9 @@ function requestDiagnosticResponses(reportId: string): boolean {
     attempt: collection.attempts,
     receivedParticipants: collection.responses.size,
   })
-  return sendToServer({ type: 'request_diagnostics', reportId })
+  const sent = sendToServer({ type: 'request_diagnostics', reportId })
+  // Everyone's answer can already be here (a room with only the controller in it), leaving only the timeline to wait for.
+  if (sent)
+    finishWhenComplete(collection)
+  return sent
 }
