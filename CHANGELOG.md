@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+### Added
+
+- Coordinator: a participant whose connection drops while the room is playing is waited for 8 seconds before the room pauses for everyone. If they are back inside that time (ready, and on the same video), the room never paused: a one-second network or browser hiccup no longer makes everybody press Play again. Past the 8 seconds the room pauses where it has got to, as before. A participant who leaves on purpose (closing the room, or opening another) still pauses the room at once, and so does a drop while a Play or a seek is being prepared, or when nobody else is connected. The wait is kept in the coordinator's memory only, so a coordinator that restarts does not wait for anyone. Takes effect when the coordinator is redeployed; no extension update is needed.
+
 ### Fixed
 
 - Coordinator: when a participant disconnects (or stops being ready) while a Play is running, the room now pauses where it has got to, not where that Play began. Before, the room went back by everything watched since the Play was pressed: in the 0.2.11 report of 2026-10-22 a participant's connection dropped for about a second 100 seconds into the episode's last quarter, the room paused at 11:31 instead of 13:11, and both players, whose buffers only held data from 13:15 on, had to load a position 100 seconds back, which Crunchyroll's player never did. A Play that is still being prepared, or committed but not yet confirmed as started by everyone (including one that times out without starting), still pauses at its target. Takes effect when the coordinator is redeployed; no extension update is needed.

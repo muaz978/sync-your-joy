@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { generateRoomCode, isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
-import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator } from '@syncyourjoy/sync-engine'
+import { isEmptyRoomExpired, isIntentionalLeave, reconcileEmptyClock, RoomCoordinator } from '@syncyourjoy/sync-engine'
 import { WebSocket, WebSocketServer } from 'ws'
 
 const MAX_MESSAGE_BYTES = 16_384
@@ -261,7 +261,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       handleMessage(socket, message)
     })
 
-    socket.on('close', () => {
+    socket.on('close', (_code, reason) => {
       const client = clients.get(socket)
       if (!client)
         return
@@ -294,7 +294,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
           room.emptySinceMs = now()
         return
       }
-      const result = room.coordinator.disconnect(client.participantId)
+      const result = room.coordinator.disconnect(client.participantId, { intentional: isIntentionalLeave(reason?.toString()) })
       if (result?.ok)
         broadcast(room, { type: 'room_snapshot', reason: result.reason, snapshot: result.snapshot })
 
@@ -646,6 +646,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       const deadlineResult = room.coordinator.releaseExpiredSeek(nowMs)
         ?? room.coordinator.releaseExpiredOperation(nowMs)
         ?? room.coordinator.evaluateHealth(nowMs)
+        ?? room.coordinator.evaluateDisconnectGrace(nowMs)
         ?? room.coordinator.evaluateAutoResume(nowMs)
       if (deadlineResult?.ok)
         broadcast(room, { type: 'room_snapshot', reason: deadlineResult.reason, snapshot: deadlineResult.snapshot })

@@ -4,7 +4,7 @@ import type { ClientMessage, ServerMessage } from '@syncyourjoy/protocol'
 import type { RoomCoordinatorState, RoomResult } from '@syncyourjoy/sync-engine'
 import { DurableObject } from 'cloudflare:workers'
 import { isAllowedOrigin, parseClientMessage, safeJsonParse } from '@syncyourjoy/protocol'
-import { isEmptyRoomExpired, reconcileEmptyClock, RoomCoordinator } from '@syncyourjoy/sync-engine'
+import { isEmptyRoomExpired, isIntentionalLeave, reconcileEmptyClock, RoomCoordinator } from '@syncyourjoy/sync-engine'
 import { applyEarliestDueDeadline, persistRoomAndSchedule, persistThenObserve } from './alarm.ts'
 
 const MAX_MESSAGE_BYTES = 16_384
@@ -551,7 +551,12 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.handleMessage(socket, attachment, message)
   }
 
-  async webSocketClose(socket: WebSocket): Promise<void> {
+  /**
+   * `reason` is the close reason the client gave. A client that leaves on
+   * purpose says so, and the room pauses at once; any other close, and
+   * webSocketError, is a dropped connection that the room waits out.
+   */
+  async webSocketClose(socket: WebSocket, _code?: number, reason?: string): Promise<void> {
     await this.initialized
     const attachment = this.attachmentOf(socket)
     if (attachment === undefined) {
@@ -599,7 +604,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       return
     }
 
-    const result = this.coordinator.disconnect(attachment.participantId)
+    const result = this.coordinator.disconnect(attachment.participantId, { intentional: isIntentionalLeave(reason) })
     if (!result?.ok) {
       // A controller already stored as disconnected (a join whose write was
       // lost across a restart) has nothing left to disconnect, but its socket
@@ -1019,6 +1024,9 @@ export class RoomDurableObject extends DurableObject<Env> {
     const healthDeadlineMs = this.coordinator.nextHealthDeadlineMs()
     if (healthDeadlineMs !== null)
       alarmCandidates.push(healthDeadlineMs)
+    const disconnectGraceDeadlineMs = this.coordinator.disconnectGraceDeadlineMs()
+    if (disconnectGraceDeadlineMs !== null)
+      alarmCandidates.push(disconnectGraceDeadlineMs)
     const autoResumeDeadlineMs = this.coordinator.autoResumeDeadlineMs()
     if (autoResumeDeadlineMs !== null)
       alarmCandidates.push(autoResumeDeadlineMs)

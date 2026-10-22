@@ -3,7 +3,7 @@ import { CURRENT_CLIENT_CAPABILITIES, mediaMatches } from '@syncyourjoy/protocol
 import { describe, expect, it } from 'vitest'
 import { RoomCoordinator } from './room.ts'
 import type { RoomResult } from './room.ts'
-import { PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, playbackStartupDeadlineMs } from './playback-health.ts'
+import { DISCONNECT_PAUSE_GRACE_MS, isIntentionalLeave, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, playbackStartupDeadlineMs } from './playback-health.ts'
 
 const media: MediaFingerprint = {
   service: 'youtube',
@@ -372,7 +372,7 @@ describe('RoomCoordinator', () => {
     expect(unready).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
   })
 
-  it('pauses when any participant disconnects during playback', () => {
+  it('pauses when a participant who left on purpose disconnects during playback', () => {
     const room = createRoom()
     joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
     room.setReady('participant_host', true, media)
@@ -385,8 +385,33 @@ describe('RoomCoordinator', () => {
       positionSeconds: 30,
     })
 
-    const disconnected = room.disconnect('participant_friend')
+    const disconnected = room.disconnect('participant_friend', { intentional: true })
     expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+  })
+
+  it('waits for a participant whose connection dropped during playback, then pauses', () => {
+    let nowMs = 10_000
+    const room = createRoom(() => nowMs)
+    joinApproved(room, { id: 'participant_friend', name: 'Rana', media })
+    room.setReady('participant_host', true, media)
+    room.setReady('participant_friend', true, media)
+    room.control('participant_host', {
+      actionId: 'action_play_drop',
+      basedOnRevision: room.snapshot().revision,
+      leaseEpoch: room.snapshot().controller.leaseEpoch,
+      kind: 'play',
+      positionSeconds: 30,
+    })
+
+    const dropped = room.disconnect('participant_friend')
+    expect(dropped).toMatchObject({ ok: true, snapshot: { playback: { status: 'playing' } } })
+    expect(room.disconnectGraceDeadlineMs()).toBe(nowMs + DISCONNECT_PAUSE_GRACE_MS)
+    nowMs += DISCONNECT_PAUSE_GRACE_MS - 1
+    expect(room.evaluateDisconnectGrace(nowMs)).toBeNull()
+
+    nowMs += 1
+    expect(room.evaluateDisconnectGrace(nowMs)).toMatchObject({ ok: true, reason: 'participant_disconnect_timeout', snapshot: { playback: { status: 'paused' } } })
+    expect(room.disconnectGraceDeadlineMs()).toBeNull()
   })
 
   it('restores readiness after a brief reconnect with the same matching media', () => {
@@ -3232,27 +3257,42 @@ describe('a membership change while a transactional Play is running', () => {
     return { room, startAtMs, setNow: (value: number) => { nowMs = value } }
   }
 
-  it('pauses where the room has got to, not where the Play began, when a participant disconnects', () => {
+  it('pauses where the room has got to, not where the Play began, when a participant leaves on purpose', () => {
     const { room, startAtMs, setNow } = startedPlayAt40()
     // Fifty seconds of watching later (the 0.2.11 report: 100 s, and both players had only data from there on).
     setNow(startAtMs + 50_000)
 
-    const disconnected = room.disconnect('participant_friend')
+    const disconnected = room.disconnect('participant_friend', { intentional: true })
 
     expect(disconnected).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
     expect(disconnected?.snapshot.playback.positionSeconds).toBeCloseTo(90, 0)
   })
 
-  it('keeps that position when the participant comes back', () => {
+  it('pauses where the room has got to when a dropped connection is not back within the grace', () => {
     const { room, startAtMs, setNow } = startedPlayAt40()
     setNow(startAtMs + 50_000)
     room.disconnect('participant_friend')
 
-    setNow(startAtMs + 51_000)
+    setNow(startAtMs + 50_000 + DISCONNECT_PAUSE_GRACE_MS)
+    const paused = room.evaluateDisconnectGrace()
+
+    expect(paused).toMatchObject({ ok: true, reason: 'participant_disconnect_timeout', snapshot: { playback: { status: 'paused' }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
+    expect(paused?.snapshot.playback.positionSeconds).toBeCloseTo(90 + DISCONNECT_PAUSE_GRACE_MS / 1000, 0)
+  })
+
+  it('keeps that position when the participant comes back after the grace', () => {
+    const { room, startAtMs, setNow } = startedPlayAt40()
+    setNow(startAtMs + 50_000)
+    room.disconnect('participant_friend')
+    setNow(startAtMs + 50_000 + DISCONNECT_PAUSE_GRACE_MS)
+    const paused = room.evaluateDisconnectGrace()
+    const pausedAt = paused?.snapshot.playback.positionSeconds
+
+    setNow(startAtMs + 51_000 + DISCONNECT_PAUSE_GRACE_MS)
     const rejoined = room.join({ id: 'participant_friend', name: 'Rana', media, capabilities: CURRENT_CLIENT_CAPABILITIES })
 
     expect(rejoined).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
-    expect(rejoined.snapshot.playback.positionSeconds).toBeCloseTo(90, 0)
+    expect(rejoined.snapshot.playback.positionSeconds).toBeCloseTo(pausedAt ?? 0, 3)
   })
 
   it('also pauses where the room has got to when a participant becomes not ready', () => {
@@ -3320,5 +3360,139 @@ describe('a membership change while a transactional Play is running', () => {
     const released = room.releaseExpiredOperation()
 
     expect(released).toMatchObject({ ok: true, reason: 'operation_timeout_paused', snapshot: { playback: { status: 'paused', positionSeconds: 40 } } })
+  })
+})
+
+describe('waiting for a participant whose connection dropped', () => {
+  function playingPair() {
+    let nowMs = 10_000
+    const room = createTransactionalRoom(() => nowMs)
+    controlTransactional(room, 'play', 40)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+    const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+    const startAtMs = committed?.ok ? committed.snapshot.contract?.operation?.effectiveAtServerMs : null
+    if (!startAtMs)
+      throw new Error('Expected a committed transactional operation.')
+    nowMs = startAtMs + 100
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.1, 2))
+    room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40.1, 2))
+    return { room, setNow: (value: number) => { nowMs = value }, now: () => nowMs }
+  }
+
+  const rejoin = (room: RoomCoordinator, id = 'participant_friend', withMedia: MediaFingerprint = media) =>
+    room.join({ id, name: 'Rana', media: withMedia, capabilities: CURRENT_CLIENT_CAPABILITIES })
+
+  it('keeps playing when the participant is back within the grace', () => {
+    const { room, setNow, now } = playingPair()
+    const revisionBefore = room.snapshot().revision
+
+    const dropped = room.disconnect('participant_friend')
+    expect(dropped).toMatchObject({ ok: true, reason: 'participant_disconnected', snapshot: { playback: { status: 'playing' } } })
+    expect(dropped?.snapshot.participants.find(participant => participant.id === 'participant_friend')).toMatchObject({ connected: false })
+    expect(room.disconnectGraceDeadlineMs()).toBe(now() + DISCONNECT_PAUSE_GRACE_MS)
+
+    setNow(now() + 1_000)
+    const back = rejoin(room)
+
+    expect(back).toMatchObject({ ok: true, reason: 'participant_reconnected', snapshot: { playback: { status: 'playing' }, contract: { operation: { phase: 'started' } } } })
+    expect(back.snapshot.participants.find(participant => participant.id === 'participant_friend')).toMatchObject({ connected: true, ready: true })
+    expect(back.snapshot.revision).toBeGreaterThan(revisionBefore)
+    expect(room.disconnectGraceDeadlineMs()).toBeNull()
+    expect(room.evaluateDisconnectGrace(now() + DISCONNECT_PAUSE_GRACE_MS * 2)).toBeNull()
+  })
+
+  it('still pauses when the participant returns on a different video', () => {
+    const { room } = playingPair()
+    room.disconnect('participant_friend')
+
+    const back = rejoin(room, 'participant_friend', { ...media, canonicalId: 'youtube:different999' })
+
+    expect(back).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+  })
+
+  it('pauses at once for a connection that drops while a Play is being prepared', () => {
+    let nowMs = 10_000
+    const room = createTransactionalRoom(() => nowMs)
+    controlTransactional(room, 'play', 40)
+
+    const dropped = room.disconnect('participant_friend')
+
+    expect(dropped).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+    expect(room.disconnectGraceDeadlineMs()).toBeNull()
+  })
+
+  it('pauses at once when nobody else is left connected', () => {
+    const { room, setNow, now } = playingPair()
+    // The friend leaves on purpose, which pauses the room; the host starts it again on their own.
+    room.disconnect('participant_friend', { intentional: true })
+    controlTransactional(room, 'play', 60)
+    const committed = room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 60, 3))
+    const startAtMs = committed?.ok ? committed.snapshot.contract?.operation?.effectiveAtServerMs : null
+    if (!startAtMs)
+      throw new Error('Expected a committed transactional operation.')
+    setNow(Math.max(now(), startAtMs + 100))
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 60.1, 4))
+    expect(room.snapshot()).toMatchObject({ playback: { status: 'playing' }, contract: { operation: { phase: 'started' } } })
+
+    const dropped = room.disconnect('participant_host')
+
+    expect(dropped).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+    expect(room.disconnectGraceDeadlineMs()).toBeNull()
+  })
+
+  it('stops waiting once the room is paused by someone else', () => {
+    const { room, setNow, now } = playingPair()
+    room.disconnect('participant_friend')
+
+    const snapshot = room.snapshot()
+    room.control('participant_host', {
+      actionId: 'action_pause_during_grace',
+      basedOnRevision: snapshot.revision,
+      leaseEpoch: snapshot.controller.leaseEpoch,
+      kind: 'pause',
+      positionSeconds: 45,
+    })
+
+    expect(room.disconnectGraceDeadlineMs()).toBeNull()
+    setNow(now() + DISCONNECT_PAUSE_GRACE_MS * 2)
+    expect(room.evaluateDisconnectGrace()).toBeNull()
+    expect(room.snapshot().playback).toMatchObject({ status: 'paused', positionSeconds: 45 })
+  })
+
+  it('waits from the first of two drops', () => {
+    let nowMs = 10_000
+    const room = createTransactionalRoom(() => nowMs)
+    room.join({ id: 'participant_third', name: 'Third', media, capabilities: CURRENT_CLIENT_CAPABILITIES })
+    room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_third', true)
+    room.setReady('participant_third', true, media)
+    const everyone = ['participant_host', 'participant_friend', 'participant_third']
+    controlTransactional(room, 'play', 40)
+    let committed: RoomResult | null = null
+    for (const id of everyone)
+      committed = room.acknowledgeOperation(id, operationAcknowledgement(room, id, 'prepared', 40, 1))
+    const startAtMs = committed?.ok ? committed.snapshot.contract?.operation?.effectiveAtServerMs : null
+    if (!startAtMs)
+      throw new Error('Expected a committed transactional operation.')
+    nowMs = startAtMs + 100
+    for (const id of everyone)
+      room.acknowledgeOperation(id, operationAcknowledgement(room, id, 'started', 40.1, 2))
+    expect(room.snapshot().contract?.operation?.phase).toBe('started')
+
+    const firstDropAt = nowMs
+    room.disconnect('participant_friend')
+    nowMs += 3_000
+    room.disconnect('participant_third')
+
+    expect(room.disconnectGraceDeadlineMs()).toBe(firstDropAt + DISCONNECT_PAUSE_GRACE_MS)
+    nowMs = firstDropAt + DISCONNECT_PAUSE_GRACE_MS
+    expect(room.evaluateDisconnectGrace()).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+  })
+
+  it('recognises the close reasons of a participant who leaves on purpose', () => {
+    expect(isIntentionalLeave('left_room')).toBe(true)
+    expect(isIntentionalLeave('new_room')).toBe(true)
+    expect(isIntentionalLeave('')).toBe(false)
+    expect(isIntentionalLeave(undefined)).toBe(false)
+    expect(isIntentionalLeave('room_expired')).toBe(false)
   })
 })
