@@ -258,9 +258,10 @@ async function initialize(): Promise<void> {
     connection: stored?.snapshot ? 'reconnecting' : 'disconnected',
     displayName: typeof displayName === 'string' && displayName.trim() ? displayName : state.displayName,
     lastError: null,
-    connectionQuality: stored?.connectionQuality ?? 'offline',
-    roundTripMs: stored?.roundTripMs ?? null,
-    lastPongAtMs: stored?.lastPongAtMs ?? 0,
+    // The socket these described went with the old worker: until a new one opens there is no quality or round trip.
+    connectionQuality: 'offline',
+    roundTripMs: null,
+    lastPongAtMs: 0,
   }
 
   // A service worker that restarted drops its socket and its report: this marks where the
@@ -786,7 +787,7 @@ async function connect(roomCode: string): Promise<void> {
       resolve()
     }, { once: true })
 
-    nextSocket.addEventListener('message', event => handleServerMessage(String(event.data)))
+    nextSocket.addEventListener('message', event => handleServerMessage(String(event.data), socket === nextSocket))
 
     nextSocket.addEventListener('error', () => {
       if (connectionPromise) {
@@ -912,7 +913,7 @@ function scheduleReconnect(): void {
   void chrome.alarms.create(RECONNECT_ALARM_NAME, { delayInMinutes: delayMs / 60_000 })
 }
 
-function handleServerMessage(raw: string): void {
+function handleServerMessage(raw: string, fromCurrentSocket = true): void {
   const message = safeJsonParse(raw) as ServerMessage | null
   if (!message || typeof message !== 'object' || !('type' in message))
     return
@@ -1040,6 +1041,9 @@ function handleServerMessage(raw: string): void {
   }
 
   if (message.type === 'pong') {
+    // A pong still in flight from a socket that has been replaced says nothing of the one that replaced it.
+    if (!fromCurrentSocket)
+      return
     const receivedAtLocalMs = Date.now()
     const estimate = clock.addSample(message.sentAtLocalMs, receivedAtLocalMs, message.serverTimeMs)
     state.serverOffsetMs = estimate.offsetMs

@@ -1316,6 +1316,57 @@ describe('service worker observed episode identity', () => {
       expect(closes[1]?.details.pongAgeMs as number).toBeLessThan(4_000)
     })
 
+    it('ignores a pong that arrives late from a socket that has been replaced', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      const { request } = await resumeAtPage(sharedUrl)
+      const first = FakeWebSocket.instances[0]!
+      first.close = () => {}
+
+      const joining = request({ type: 'JOIN_ROOM', code: 'WWWWWWWW' })
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+      const next = FakeWebSocket.instances[1]!
+      next.simulateOpen()
+      await joining
+      next.simulateMessage({
+        type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ code: 'WWWWWWWW', media: oldMedia }),
+      })
+      // The old room's socket answers a ping it was sent before it was replaced.
+      first.simulateMessage({ type: 'pong', id: 'ping_late', sentAtLocalMs: Date.now() - 123, serverTimeMs: Date.now() })
+
+      const state = (await request({ type: 'GET_STATE' })).state
+      expect(state.roundTripMs).toBeNull()
+      expect(eventsFrom(next, 'report_late_pong').filter(event => event.message === 'connection_quality').at(-1)?.details.to).toBe('unknown')
+    })
+
+    it('does not carry a restarted worker\'s old round trip into the failed reconnect that follows', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      const snapshot = buildRoomSnapshot({ media: oldMedia, navigation: { revision: 5, url: sharedUrl, effectiveAtServerMs: 0 } })
+      const fake = buildFakeChrome({ sessionState: {
+        participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot, playerTabId: 42, playerFrameId: 0,
+        playerAreaPixels: 500_000, currentMedia: oldMedia, lastOpenedNavigationRevision: 5,
+        connectionQuality: 'good', roundTripMs: 40, lastPongAtMs: Date.now(),
+      }, playerBindingState: { id: 'binding_resumed', documentId: null } })
+      vi.stubGlobal('chrome', fake.chrome)
+      vi.stubGlobal('WebSocket', FakeWebSocket)
+      await import('./service-worker.ts')
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      try {
+        FakeWebSocket.instances[0]!.simulateFailure()
+        await vi.advanceTimersByTimeAsync(20_000)
+        const next = FakeWebSocket.instances[1]!
+        next.simulateOpen()
+        next.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot })
+        const changes = eventsFrom(next, 'report_restart').filter(event => event.message === 'connection_quality')
+        expect(changes.some(event => event.details.roundTripMs === 40)).toBe(false)
+        expect(changes.some(event => event.details.from === 'good')).toBe(false)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
     it('does not say the network failed when this client closed the socket on purpose', async () => {
       vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
       const { request } = await resumeAtPage(sharedUrl)
