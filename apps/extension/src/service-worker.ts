@@ -1867,11 +1867,29 @@ function finishDiagnosticCollection(reportId: string): void {
   }
   const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
   const filename = `syncyourjoy-report-${state.snapshot?.code ?? 'room'}-${timestamp}.json`
-  const url = `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`
+  const url = reportDownloadUrl(payload)
   void chrome.downloads.download({ url, filename, saveAs: false }).catch(() => {
     state.lastError = 'Chrome could not download the detailed report.'
     void publishState()
   })
+}
+
+// Chrome refuses a data: URL of more than about 2 MB, which would leave the user with no file at all.
+const MAX_REPORT_URL_LENGTH = 1_900_000
+
+/**
+ * The report as a download URL. A report too large for one is cut from the oldest end of the coordinator's
+ * timeline, which is the part that can be spared, and says how much it cut.
+ */
+function reportDownloadUrl(payload: { room: RoomDiagnostics | null }): string {
+  const build = () => `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`
+  let url = build()
+  while (url.length > MAX_REPORT_URL_LENGTH && payload.room && payload.room.entries.length > 0) {
+    const cut = Math.max(1, Math.floor(payload.room.entries.length / 2))
+    payload.room = { ...payload.room, entries: payload.room.entries.slice(cut), entriesDropped: payload.room.entriesDropped + cut }
+    url = build()
+  }
+  return url
 }
 
 function hasEveryResponse(collection: DiagnosticCollection): boolean {
@@ -1897,8 +1915,9 @@ function requestDiagnosticResponses(reportId: string): boolean {
   const collection = diagnosticCollection
   if (!collection || collection.reportId !== reportId)
     return false
-  if (hasEveryResponse(collection) && collection.room !== null) {
-    finishDiagnosticCollection(reportId)
+  if (hasEveryResponse(collection) && (collection.room !== null || collection.attempts > 0)) {
+    // Everyone has answered. Only the timeline may be missing, and asking again would make every participant send its report again.
+    finishWhenComplete(collection)
     return true
   }
   collection.attempts += 1

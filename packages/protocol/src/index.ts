@@ -320,6 +320,8 @@ export interface RoomTimelineEntry {
     prepared: number
     started: number
   } | null
+  /** Ids of people waiting to be let in. */
+  pendingJoinIds: string[]
   participants: Array<{
     id: string
     connected: boolean
@@ -327,6 +329,8 @@ export interface RoomTimelineEntry {
     mediaMatches: boolean
     status: ParticipantPlaybackStatus
   }>
+  /** How many participants the room has beyond those listed. */
+  participantsOmitted?: number
   detail?: Record<string, DiagnosticValue>
 }
 

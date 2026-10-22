@@ -30,7 +30,7 @@ import {
 import { expectedPosition } from './clock.ts'
 import { AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_MAX_OFFSET_SECONDS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSettledPausedSeek } from './operation-state.ts'
-import { ROOM_TIMELINE_LIMIT, timelineStateKey } from './room-timeline.ts'
+import { ROOM_TIMELINE_LIMIT, TIMELINE_PARTICIPANT_LIMIT, timelineStateKey } from './room-timeline.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
 import { isSeekAligned, SEEK_BARRIER_MAX_WAIT_MS } from './seek-barrier.ts'
 
@@ -1798,13 +1798,19 @@ export class RoomCoordinator {
             prepared: operation.preparedParticipantIds.length,
             started: operation.startedParticipantIds.length,
           },
-      participants: [...this.participants.values()].map(participant => ({
-        id: participant.id,
-        connected: participant.connected,
-        ready: participant.ready,
-        mediaMatches: participant.mediaMatches,
-        status: participant.playbackStatus ?? 'unknown',
-      })),
+      pendingJoinIds: [...this.pendingJoinRequests.keys()].slice(0, TIMELINE_PARTICIPANT_LIMIT),
+      // Connected members first: those who left stay in the list and must not crowd out the ones in the room.
+      participants: [...this.participants.values()]
+        .sort((a, b) => Number(b.connected) - Number(a.connected))
+        .slice(0, TIMELINE_PARTICIPANT_LIMIT)
+        .map(participant => ({
+          id: participant.id,
+          connected: participant.connected,
+          ready: participant.ready,
+          mediaMatches: participant.mediaMatches,
+          status: participant.playbackStatus ?? 'unknown',
+        })),
+      ...(this.participants.size > TIMELINE_PARTICIPANT_LIMIT ? { participantsOmitted: this.participants.size - TIMELINE_PARTICIPANT_LIMIT } : {}),
       ...(detail === undefined ? {} : { detail }),
     }
   }
@@ -1814,7 +1820,12 @@ export class RoomCoordinator {
     // A change that left the room looking exactly as it did is not an entry. A refusal and a
     // transport event always are: they explain what happened, whether or not anything moved.
     if (kind === 'change') {
-      const key = timelineStateKey(entry)
+      const key = timelineStateKey(entry, {
+        playbackPositionSeconds: this.playback.positionSeconds,
+        playbackEffectiveAtServerMs: this.playback.effectiveAtServerMs,
+        mediaEpoch: this.contract.mediaEpoch,
+        navigationRevision: this.navigation?.revision ?? null,
+      })
       if (key === this.lastTimelineKey)
         return
       this.lastTimelineKey = key

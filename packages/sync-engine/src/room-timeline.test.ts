@@ -37,8 +37,10 @@ function play(room: RoomCoordinator, positionSeconds: number, actionId: string) 
 describe('safeCloseReason', () => {
   it('keeps a short code of lower-case words and nothing else a client could write', () => {
     expect(safeCloseReason('left_room')).toBe('left_room')
-    expect(safeCloseReason('heartbeat-timeout')).toBe('heartbeat-timeout')
+    expect(safeCloseReason('heartbeat_timeout')).toBe('heartbeat_timeout')
     expect(safeCloseReason('Closed by https://example.com/watch?token=abc')).toBe('other')
+    // Short, lower-case and harmless-looking, but not a reason this project's code ever gives.
+    expect(safeCloseReason('secret_password_123')).toBe('other')
     expect(safeCloseReason('x'.repeat(200))).toBe('other')
     expect(safeCloseReason('')).toBe('none')
     expect(safeCloseReason(undefined)).toBe('none')
@@ -52,6 +54,7 @@ describe('timelineStateKey', () => {
     positionSeconds: 10,
     controllerId: 'participant_host',
     operation: null,
+    pendingJoinIds: [] as string[],
     participants: [{ id: 'participant_host', connected: true, ready: true, mediaMatches: true, status: 'playing' as const }],
   }
 
@@ -60,6 +63,18 @@ describe('timelineStateKey', () => {
     const paused = { ...base, playbackStatus: 'paused' as const }
     expect(timelineStateKey({ ...paused, positionSeconds: 99 })).not.toBe(timelineStateKey(paused))
     expect(timelineStateKey({ ...paused, positionSeconds: 10.04 })).toBe(timelineStateKey(paused))
+  })
+
+  it('tells apart a target, a stored playback position, a link and a person waiting to be let in', () => {
+    const operation = { kind: 'seek' as const, phase: 'preparing' as const, reason: null, targetPositionSeconds: 100, required: 2, prepared: 0, started: 0 }
+    const extras = { playbackPositionSeconds: 10, playbackEffectiveAtServerMs: 5_000, mediaEpoch: 1, navigationRevision: 3 }
+    const key = timelineStateKey({ ...base, operation }, extras)
+    expect(timelineStateKey({ ...base, operation: { ...operation, targetPositionSeconds: 400 } }, extras)).not.toBe(key)
+    expect(timelineStateKey({ ...base, operation }, { ...extras, playbackPositionSeconds: 60 })).not.toBe(key)
+    expect(timelineStateKey({ ...base, operation }, { ...extras, playbackEffectiveAtServerMs: 9_000 })).not.toBe(key)
+    expect(timelineStateKey({ ...base, operation }, { ...extras, navigationRevision: 4 })).not.toBe(key)
+    expect(timelineStateKey({ ...base, operation }, { ...extras, mediaEpoch: 2 })).not.toBe(key)
+    expect(timelineStateKey({ ...base, operation, pendingJoinIds: ['participant_new'] }, extras)).not.toBe(key)
   })
 
   it('tells apart a participant that went away, lost its readiness or reports another status', () => {
@@ -167,6 +182,35 @@ describe('the coordinator\'s timeline', () => {
     expect(tail[1]!.participants).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'participant_friend', connected: false }),
     ]))
+  })
+
+  it('keeps two Play commands that set different positions, and a person asking to join', () => {
+    const clock = { now: 10_000 }
+    const room = new RoomCoordinator(
+      { roomId: 'room_commands', code: 'COMMAND1' },
+      { id: 'participant_host', name: 'Muaz', media },
+      () => clock.now,
+    )
+    room.join({ id: 'participant_friend', name: 'Rana', media })
+    const pending = room.roomDiagnostics().entries.at(-1)!
+    expect(pending.pendingJoinIds).toEqual(['participant_friend'])
+    room.join({ id: 'participant_other', name: 'Sam', media })
+    expect(room.roomDiagnostics().entries.at(-1)!.pendingJoinIds).toEqual(['participant_friend', 'participant_other'])
+  })
+
+  it('lists connected participants first and says how many it left out', () => {
+    const clock = { now: 10_000 }
+    const room = createPair(clock)
+    for (let index = 0; index < 25; index += 1) {
+      const id = `participant_guest_${index}`
+      room.join({ id, name: `Guest ${index}`, media })
+      room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, id, true)
+      room.disconnect(id)
+    }
+    const last = room.roomDiagnostics().entries.at(-1)!
+    expect(last.participants).toHaveLength(20)
+    expect(last.participantsOmitted).toBe(27 - 20)
+    expect(last.participants.slice(0, 2).every(participant => participant.connected)).toBe(true)
   })
 
   it('drops the oldest entries past its bound and says how many', () => {

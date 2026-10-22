@@ -1198,6 +1198,27 @@ describe('service worker observed episode identity', () => {
       expect(report.collection.complete).toBe(true)
     })
 
+    it('cuts the oldest of the timeline rather than produce a download Chrome would refuse', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      const entries = Array.from({ length: 300 }, (_, index) => ({
+        ...roomTimeline.entries[0]!,
+        atServerMs: 15_000 + index,
+        detail: { index, padding: 'a'.repeat(8_000) },
+      }))
+
+      socket.simulateMessage({ type: 'diagnostics_room', reportId: requestedReportId(socket), room: { ...roomTimeline, entries } })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1))
+      const download = fake.downloadMock.mock.calls[0]![0] as { url: string }
+      expect(download.url.length).toBeLessThanOrEqual(1_900_000)
+      const room = downloadedReport(fake).room as { entries: Array<{ detail: { index: number } }>, entriesDropped: number }
+      expect(room.entriesDropped).toBeGreaterThan(0)
+      expect(room.entries.at(-1)!.detail.index).toBe(299)
+    })
+
     it('ignores a timeline for a report it did not ask for', async () => {
       const { fake, request } = await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!
@@ -1220,6 +1241,9 @@ describe('service worker observed episode identity', () => {
       const report = downloadedReport(fake)
       expect(report.schemaVersion).toBe(2)
       expect(report.room).toBeNull()
+      // The retry at 1 s did not ask everyone to send their report again for a timeline that was never coming.
+      const requests = FakeWebSocket.instances[0]!.sentMessages.filter(message => (message as { type?: string }).type === 'request_diagnostics')
+      expect(requests).toHaveLength(1)
       expect(report.participants).toHaveLength(1)
     })
   })
