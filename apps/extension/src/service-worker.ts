@@ -117,6 +117,13 @@ let pingTimer: ReturnType<typeof setInterval> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let reconnectAttempts = 0
 let intentionallyClosed = false
+// When the room first went out of reach (the first unintended close after a connection that worked),
+// for the report: how long it stayed out of reach across failed attempts. It is cleared by a socket
+// opening, and by a room being joined or left, which is not an outage.
+let outageStartedAtMs: number | null = null
+// When a pong last really arrived on the current socket. `state.lastPongAtMs` is seeded when a socket opens so that
+// the heartbeat has something to measure from, which would make a socket that never got a pong look like it had.
+let lastPongReceivedAtMs: number | null = null
 // The last control this browser sent, and a scrub the room refused because
 // someone was not ready, kept until they are (see deferred-seek.ts). Neither
 // is persisted: a restarted worker simply drops the wait.
@@ -259,10 +266,15 @@ async function initialize(): Promise<void> {
     connection: stored?.snapshot ? 'reconnecting' : 'disconnected',
     displayName: typeof displayName === 'string' && displayName.trim() ? displayName : state.displayName,
     lastError: null,
-    connectionQuality: stored?.connectionQuality ?? 'offline',
-    roundTripMs: stored?.roundTripMs ?? null,
-    lastPongAtMs: stored?.lastPongAtMs ?? 0,
+    // The socket these described went with the old worker: until a new one opens there is no quality or round trip.
+    connectionQuality: 'offline',
+    roundTripMs: null,
+    lastPongAtMs: 0,
   }
+
+  // A service worker that restarted drops its socket and its report: this marks where the
+  // history of a report begins, and whether a room was waiting to be rejoined.
+  recordDiagnostic('connection', 'worker_started', { resumedRoom: state.snapshot !== null })
 
   if (state.snapshot) {
     await refreshBoundPlayerTab()
@@ -737,9 +749,12 @@ async function startFreshConnection(roomCode: string): Promise<void> {
     clearTimeout(reconnectTimer)
   reconnectTimer = null
   void chrome.alarms.clear(RECONNECT_ALARM_NAME)
-  socket?.close(1000, 'new_room')
+  closeOnPurpose(socket, 1000, 'new_room')
   socket = null
   connectionPromise = null
+  // A new room is not a continuation of the last one's connection: its outage and retry count are not carried over.
+  outageStartedAtMs = null
+  reconnectAttempts = 0
   state.snapshot = null
   state.lastOpenedNavigationRevision = 0
   lastControllerNavigationKey = null
@@ -761,19 +776,29 @@ async function connect(roomCode: string): Promise<void> {
     const nextSocket = new WebSocket(socketUrl)
     socket = nextSocket
 
+    // Kept with the socket, not in a shared variable: a close can arrive after a replacement has opened.
+    let openedAtMs: number | null = null
+
     nextSocket.addEventListener('open', () => {
       connectionPromise = null
+      openedAtMs = Date.now()
+      lastPongReceivedAtMs = null
+      const attempt = reconnectAttempts
+      // The outage ends when the room has taken this client back (room_joined), not when a socket opens.
+      const downMs = outageStartedAtMs === null ? null : openedAtMs - outageStartedAtMs
       reconnectAttempts = 0
       void chrome.alarms.clear(RECONNECT_ALARM_NAME)
-      state.connectionQuality = 'unknown'
+      // The previous connection's round trip is gone before this one's first quality is recorded.
       state.roundTripMs = null
+      setConnectionQuality('unknown')
       state.lastPongAtMs = Date.now()
       startPingLoop()
-      recordDiagnostic('connection', 'socket_opened', { roomCode })
+      // No room code: a report is sent to whoever controls the room it is asked for in, and this event outlives a change of room.
+      recordDiagnostic('connection', 'socket_opened', { attempt, downMs })
       resolve()
     }, { once: true })
 
-    nextSocket.addEventListener('message', event => handleServerMessage(String(event.data)))
+    nextSocket.addEventListener('message', event => handleServerMessage(String(event.data), socket === nextSocket))
 
     nextSocket.addEventListener('error', () => {
       if (connectionPromise) {
@@ -786,35 +811,59 @@ async function connect(roomCode: string): Promise<void> {
       // Read before anything below can leave the room, which sets the flag:
       // the diagnostic is about who closed the socket, not about what this
       // handler then did.
-      const closedByThisClient = intentionallyClosed
-      let serverEndedRoom = false
+      const closedByThisClient = intentionallyClosed || closedOnPurpose.has(nextSocket)
+      const closedAtMs = Date.now()
+      const closeEvent = event as CloseEvent
+      // A socket that was already replaced (a new room, or leaving) is no longer the connection the
+      // shared health numbers describe, and a close made on purpose says nothing about the network.
+      const isCurrent = socket === nextSocket
+      const evidence: Record<string, DiagnosticValue> = {
+        code: typeof closeEvent.code === 'number' ? closeEvent.code : null,
+        reason: closeEvent.reason ? safeDiagnosticCode(closeEvent.reason) : 'none',
+        wasClean: closeEvent.wasClean === true,
+        openMs: openedAtMs === null ? null : closedAtMs - openedAtMs,
+        online: typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : null,
+      }
+      if (isCurrent && !closedByThisClient && openedAtMs !== null) {
+        // What the connection looked like when it ended, before the handler below marks it offline:
+        // a pong that had stopped arriving points at the network.
+        evidence.pongAgeMs = lastPongReceivedAtMs === null ? null : closedAtMs - lastPongReceivedAtMs
+        evidence.roundTripMs = state.roundTripMs
+        evidence.quality = state.connectionQuality
+      }
+      else if (!isCurrent) {
+        evidence.replaced = true
+      }
+      // The coordinator closes with this reason only when the room has
+      // been removed (its lifetime ended, or nobody was in it for too
+      // long). Reconnecting could only end in room_not_found, so leave
+      // the room instead of keeping a waiting or room view up for a room
+      // that no longer exists.
+      const serverEndedRoom = isCurrent && !closedByThisClient && state.snapshot !== null && closeEvent.reason === 'room_expired'
+      if (isCurrent && !closedByThisClient)
+        outageStartedAtMs ??= closedAtMs
+      // Before the reconnect it causes: a report reads in the order things happened.
+      recordDiagnostic('connection', 'socket_closed', { intentional: closedByThisClient, ...(serverEndedRoom ? { serverEndedRoom: true } : {}), ...evidence })
       // A stale socket (already replaced by a newer connection, e.g. via
       // startFreshConnection) must not tear down the new socket's ping loop
       // or flip connection state away from whatever the new socket set.
-      if (socket === nextSocket) {
+      if (isCurrent) {
         socket = null
         connectionPromise = null
         stopPingLoop()
 
         if (!closedByThisClient && state.snapshot) {
-          // The coordinator closes with this reason only when the room has
-          // been removed (its lifetime ended, or nobody was in it for too
-          // long). Reconnecting could only end in room_not_found, so leave
-          // the room instead of keeping a waiting or room view up for a room
-          // that no longer exists.
-          if ((event as CloseEvent).reason === 'room_expired') {
-            serverEndedRoom = true
+          if (serverEndedRoom) {
             endRoomBecauseGone(ROOM_EXPIRED_MESSAGE)
           }
           else {
             state.connection = 'reconnecting'
-            state.connectionQuality = 'offline'
+            setConnectionQuality('offline')
             void publishState()
             scheduleReconnect()
           }
         }
       }
-      recordDiagnostic('connection', 'socket_closed', { intentional: closedByThisClient, ...(serverEndedRoom ? { serverEndedRoom: true } : {}) })
     })
   })
 
@@ -864,6 +913,7 @@ function scheduleReconnect(): void {
     return
   const delayMs = Math.min(15_000, 500 * 2 ** reconnectAttempts) + Math.round(Math.random() * 250)
   reconnectAttempts += 1
+  recordDiagnostic('connection', 'reconnect_scheduled', { attempt: reconnectAttempts, delayMs })
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
     void reconnectIfNeeded()
@@ -874,12 +924,21 @@ function scheduleReconnect(): void {
   void chrome.alarms.create(RECONNECT_ALARM_NAME, { delayInMinutes: delayMs / 60_000 })
 }
 
-function handleServerMessage(raw: string): void {
+/** The outage ends when the room has taken this client back, and only a join answered on the current socket says so. */
+function endOutage(fromCurrentSocket: boolean): void {
+  if (!fromCurrentSocket || outageStartedAtMs === null)
+    return
+  recordDiagnostic('connection', 'room_rejoined', { outageMs: Date.now() - outageStartedAtMs })
+  outageStartedAtMs = null
+}
+
+function handleServerMessage(raw: string, fromCurrentSocket = true): void {
   const message = safeJsonParse(raw) as ServerMessage | null
   if (!message || typeof message !== 'object' || !('type' in message))
     return
 
   if (message.type === 'room_joined') {
+    endOutage(fromCurrentSocket)
     state.connection = 'connected'
     state.participantId = message.participantId
     state.sessionToken = message.sessionToken ?? null
@@ -1010,19 +1069,22 @@ function handleServerMessage(raw: string): void {
   }
 
   if (message.type === 'pong') {
+    if (!fromCurrentSocket)
+      return // a pong still in flight from a replaced socket says nothing of its replacement
     const receivedAtLocalMs = Date.now()
     const estimate = clock.addSample(message.sentAtLocalMs, receivedAtLocalMs, message.serverTimeMs)
     state.serverOffsetMs = estimate.offsetMs
     state.clockUncertaintyMs = Number.isFinite(estimate.uncertaintyMs) ? estimate.uncertaintyMs : 99_999
     state.roundTripMs = Math.max(0, Math.min(receivedAtLocalMs - message.sentAtLocalMs, 10_000))
     state.lastPongAtMs = receivedAtLocalMs
-    state.connectionQuality = connectionQuality({
+    lastPongReceivedAtMs = receivedAtLocalMs
+    setConnectionQuality(connectionQuality({
       connection: state.connection,
       roundTripMs: state.roundTripMs,
       clockUncertaintyMs: state.clockUncertaintyMs,
       lastPongAtMs: state.lastPongAtMs,
       nowMs: receivedAtLocalMs,
-    })
+    }))
     sendToServer({ type: 'client_metrics', roundTripMs: receivedAtLocalMs - message.sentAtLocalMs })
     void persistState()
     notifyExtensionViews()
@@ -1030,9 +1092,9 @@ function handleServerMessage(raw: string): void {
 }
 
 function startPingLoop(): void {
-  stopPingLoop()
+  clearPingTimers()
   state.lastPongAtMs = Date.now()
-  state.connectionQuality = 'unknown'
+  setConnectionQuality('unknown')
   const ping = () => sendToServer({ type: 'ping', id: createId('ping'), sentAtLocalMs: Date.now() })
   ping()
   pingTimer = setInterval(ping, 5_000)
@@ -1043,19 +1105,42 @@ function startPingLoop(): void {
     if (nowMs - state.lastPongAtMs <= 15_000)
       return
     recordDiagnostic('connection', 'heartbeat_timeout', { ageMs: nowMs - state.lastPongAtMs })
-    state.connectionQuality = 'offline'
+    setConnectionQuality('offline')
     socket.close(4001, 'heartbeat_timeout')
   }, 1_000)
 }
 
-function stopPingLoop(): void {
+// Sockets this client closed itself. A close is reported by the browser later, by which time the flag
+// above has been reset, so who closed it is remembered with the socket.
+const closedOnPurpose = new WeakSet<WebSocket>()
+
+function closeOnPurpose(target: WebSocket | null, code: number, reason: string): void {
+  if (!target)
+    return
+  closedOnPurpose.add(target)
+  target.close(code, reason)
+}
+
+function clearPingTimers(): void {
   if (pingTimer)
     clearInterval(pingTimer)
   pingTimer = null
   if (heartbeatTimer)
     clearInterval(heartbeatTimer)
   heartbeatTimer = null
-  state.connectionQuality = 'offline'
+}
+
+function stopPingLoop(): void {
+  clearPingTimers()
+  setConnectionQuality('offline')
+}
+
+/** Every change of connection quality is recorded, wherever it comes from, with the round trip it was seen at. */
+function setConnectionQuality(next: ExtensionState['connectionQuality']): void {
+  const previous = state.connectionQuality
+  state.connectionQuality = next
+  if (next !== previous)
+    recordDiagnostic('connection', 'connection_quality', { from: previous, to: next, roundTripMs: state.roundTripMs })
 }
 
 // create_room/join_room are how a socket becomes a room member in the first
@@ -1123,10 +1208,10 @@ function leaveRoom(): void {
   reconnectTimer = null
   void chrome.alarms.clear(RECONNECT_ALARM_NAME)
   stopPingLoop()
-  socket?.close(1000, 'left_room')
+  closeOnPurpose(socket, 1000, 'left_room')
   socket = null
   state.connection = 'disconnected'
-  state.connectionQuality = 'offline'
+  setConnectionQuality('offline')
   state.roundTripMs = null
   state.lastPongAtMs = 0
   state.snapshot = null
@@ -1135,6 +1220,7 @@ function leaveRoom(): void {
   state.lastOpenedNavigationRevision = 0
   lastControllerNavigationKey = null
   reconnectAttempts = 0
+  outageStartedAtMs = null
   setTimeout(() => {
     intentionallyClosed = false
   }, 0)
