@@ -3277,7 +3277,7 @@ describe('a membership change while a transactional Play is running', () => {
     const paused = room.evaluateDisconnectGrace()
 
     expect(paused).toMatchObject({ ok: true, reason: 'participant_disconnect_timeout', snapshot: { playback: { status: 'paused' }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
-    expect(paused?.snapshot.playback.positionSeconds).toBeCloseTo(90 + DISCONNECT_PAUSE_GRACE_MS / 1000, 0)
+    expect(paused?.snapshot.playback.positionSeconds).toBeCloseTo(90 + DISCONNECT_PAUSE_GRACE_MS / 1000, 2)
   })
 
   it('keeps that position when the participant comes back after the grace', () => {
@@ -3302,7 +3302,7 @@ describe('a membership change while a transactional Play is running', () => {
     const result = room.setReady('participant_friend', false, media)
 
     expect(result).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
-    expect(result.snapshot.playback.positionSeconds).toBeCloseTo(90, 0)
+    expect(result.snapshot.playback.positionSeconds).toBeCloseTo(90, 2)
   })
 
   it('pauses at the target when the Play had not started yet', () => {
@@ -3353,7 +3353,7 @@ describe('a membership change while a transactional Play is running', () => {
     const left = room.disconnect('participant_friend')
 
     expect(left).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
-    expect(left?.snapshot.playback.positionSeconds).toBeCloseTo(42, 0)
+    expect(left?.snapshot.playback.positionSeconds).toBeCloseTo(42, 2)
   })
 
   it('pauses at the target when a participant leaves after the start deadline but before the timeout was handled, even though someone confirmed starting', () => {
@@ -3530,5 +3530,95 @@ describe('waiting for a participant whose connection dropped', () => {
     expect(isIntentionalLeave('')).toBe(false)
     expect(isIntentionalLeave(undefined)).toBe(false)
     expect(isIntentionalLeave('room_expired')).toBe(false)
+  })
+})
+
+describe('the wait for a dropped connection, at its edges', () => {
+  function playingPair() {
+    let nowMs = 10_000
+    const room = createTransactionalRoom(() => nowMs)
+    controlTransactional(room, 'play', 40)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+    const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+    const startAtMs = committed?.ok ? committed.snapshot.contract?.operation?.effectiveAtServerMs : null
+    if (!startAtMs)
+      throw new Error('Expected a committed transactional operation.')
+    nowMs = startAtMs + 100
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.1, 2))
+    room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40.1, 2))
+    return { room, setNow: (value: number) => { nowMs = value }, now: () => nowMs, clock: () => nowMs }
+  }
+
+  const rejoin = (room: RoomCoordinator) =>
+    room.join({ id: 'participant_friend', name: 'Rana', media, capabilities: CURRENT_CLIENT_CAPABILITIES })
+
+  it('pauses when the participant returns after the grace but before the sweep has run', () => {
+    const { room, setNow, now } = playingPair()
+    room.disconnect('participant_friend')
+    setNow(now() + DISCONNECT_PAUSE_GRACE_MS + 500)
+
+    const back = rejoin(room)
+
+    expect(back).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+    expect(room.evaluateDisconnectGrace()).toBeNull()
+  })
+
+  it('does not stall a returning participant for the age of its last report', () => {
+    const { room, setNow, now } = playingPair()
+    // The friend was playing and reporting progress when it dropped.
+    room.updatePlayerStatus('participant_friend', room.snapshot().revision, {
+      positionSeconds: 40.5, durationSeconds: 600, paused: false, buffering: false, progressed: true, playbackStarted: true, sampledAtLocalMs: now(),
+    })
+    room.disconnect('participant_friend')
+    // Away for longer than a player may go without progress, and inside the grace.
+    setNow(now() + 4_000)
+
+    rejoin(room)
+
+    expect(room.snapshot().playback.status).toBe('playing')
+    expect(room.evaluateHealth(now() + 100)).toBeNull()
+    expect(room.snapshot().playback.status).toBe('playing')
+  })
+
+  it('does not let an old wait pause playback that was paused and played again', () => {
+    const { room, setNow, now } = playingPair()
+    room.disconnect('participant_friend')
+    setNow(now() + 1_000)
+    expect(controlTransactional(room, 'pause', 45).ok).toBe(true)
+    expect(room.disconnectGraceDeadlineMs()).toBeNull()
+    expect(controlTransactional(room, 'play', 45).ok).toBe(true)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 45, 3))
+    const startAtMs = room.snapshot().contract?.operation?.effectiveAtServerMs
+    if (!startAtMs)
+      throw new Error('Expected the new Play to be committed.')
+    setNow(startAtMs + 100)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 45.1, 4))
+    expect(room.snapshot().playback.status).toBe('playing')
+
+    // The first wait has long since run out, but it belonged to the first run of playback.
+    expect(room.evaluateDisconnectGrace(now() + DISCONNECT_PAUSE_GRACE_MS * 2)).toBeNull()
+    expect(room.snapshot().playback.status).toBe('playing')
+  })
+
+  it('keeps the wait across a restart, so the room still pauses when it runs out', () => {
+    const { room, setNow, now } = playingPair()
+    room.disconnect('participant_friend')
+    const droppedAt = now()
+    const saved = room.exportState()
+    expect(saved.disconnectGrace).toEqual([expect.objectContaining({ id: 'participant_friend', sinceMs: droppedAt })])
+
+    const restored = RoomCoordinator.fromState(structuredClone(saved), () => droppedAt + 1_000)
+    expect(restored.disconnectGraceDeadlineMs()).toBe(droppedAt + DISCONNECT_PAUSE_GRACE_MS)
+    setNow(droppedAt + DISCONNECT_PAUSE_GRACE_MS)
+
+    expect(restored.evaluateDisconnectGrace(droppedAt + DISCONNECT_PAUSE_GRACE_MS)).toMatchObject({ ok: true, reason: 'participant_disconnect_timeout', snapshot: { playback: { status: 'paused' } } })
+  })
+
+  it('saves nothing about a wait that has been given up', () => {
+    const { room } = playingPair()
+    room.disconnect('participant_friend')
+    controlTransactional(room, 'pause', 45)
+
+    expect(room.exportState().disconnectGrace).toEqual([])
   })
 })

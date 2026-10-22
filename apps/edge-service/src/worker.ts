@@ -241,7 +241,8 @@ export class RoomDurableObject extends DurableObject<Env> {
     for (const participant of snapshot.participants) {
       if (!participant.connected || attached.has(participant.id))
         continue
-      const disconnected = coordinator.disconnect(participant.id)
+      // A member with no socket after a restart is gone, not on a flaky connection: no grace.
+      const disconnected = coordinator.disconnect(participant.id, { intentional: true })
       if (disconnected?.ok) {
         repair.reason = disconnected.reason
         if (coordinator.snapshot().controller.participantId === participant.id) {

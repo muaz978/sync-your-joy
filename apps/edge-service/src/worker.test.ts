@@ -493,7 +493,8 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     vi.useFakeTimers({ toFake: ['Date'], now: startMs })
     const host = new FakeSocket()
     const friend = new FakeSocket()
-    const room = objectOver(new Map<string, unknown>(), [host, friend], alarms)
+    const store = new Map<string, unknown>()
+    const room = objectOver(store, [host, friend], alarms)
     const snapshots = () => host.sent.filter((message): message is Extract<ServerMessage, { type: 'room_snapshot' }> => message.type === 'room_snapshot')
     const revision = () => snapshots().at(-1)!.snapshot.revision
     await say(room, host, { type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: CODE, media: MEDIA, capabilities: CURRENT_CLIENT_CAPABILITIES })
@@ -518,7 +519,7 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     await acknowledge(host, 'participant_host', 'started', 2)
     await acknowledge(friend, 'participant_friend', 'started', 2)
     expect(snapshots().at(-1)!.snapshot.contract?.operation?.phase).toBe('started')
-    return { room, host, friend, snapshots, alarms }
+    return { room, host, friend, snapshots, alarms, store }
   }
 
   it('keeps a room playing through a dropped connection, schedules an alarm for the grace, and pauses from it', async () => {
@@ -534,6 +535,39 @@ describe('RoomDurableObject: lifecycle across restarts and expiry', () => {
     await room.alarm()
 
     expect(snapshots().at(-1)).toMatchObject({ reason: 'participant_disconnect_timeout', snapshot: { playback: { status: 'paused' } } })
+  })
+
+  const roomState = (room: InstanceType<typeof RoomDurableObject>) =>
+    (room as unknown as { coordinator?: { snapshot: () => { playback: { status: string }, participants: Array<{ id: string, connected: boolean }> } } }).coordinator?.snapshot()
+
+  it('keeps the wait across a restart, and still pauses from the alarm when it runs out', async () => {
+    const { room, friend, host, store, alarms } = await playingPair()
+    const droppedAt = Date.now()
+    await room.webSocketClose(friend as never, 1006, '')
+
+    // The object is rebuilt while the participant is still away; the saved wait comes back with it.
+    const restarted = objectOver(store, [host], alarms)
+    await say(restarted, host, { type: 'request_diagnostics', reportId: 'report_grace_restart' })
+    expect(roomState(restarted)?.playback.status).toBe('playing')
+    expect(alarms.at(-1)).toBe(droppedAt + DISCONNECT_PAUSE_GRACE_MS)
+
+    vi.setSystemTime(droppedAt + DISCONNECT_PAUSE_GRACE_MS)
+    await restarted.alarm()
+
+    expect(roomState(restarted)?.playback.status).toBe('paused')
+  })
+
+  it('pauses at once for a member whose socket is gone after a restart, which is not a flaky connection', async () => {
+    const { host, friend, store, alarms } = await playingPair()
+
+    // The object is rebuilt and only the host\'s socket is still attached.
+    const restarted = objectOver(store, [host], alarms)
+    await say(restarted, host, { type: 'request_diagnostics', reportId: 'report_missing_socket' })
+
+    const snapshot = roomState(restarted)
+    expect(snapshot?.playback.status).toBe('paused')
+    expect(snapshot?.participants.find(participant => participant.id === 'participant_friend')).toMatchObject({ connected: false })
+    expect(friend.sent.length).toBeGreaterThan(0)
   })
 
   it('pauses at once for a participant who closes with a leaving reason', async () => {
