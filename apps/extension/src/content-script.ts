@@ -1399,12 +1399,17 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
   })
 }
 
+/**
+ * The local test player's stand-in for a browser autoplay block. While the page marks the video, every play request
+ * from the extension is rejected, as a real browser rejects them until a user gesture; the page lifts the mark in
+ * its own gesture handler. Rejecting only the first request let a second request, made moments later, succeed and
+ * clear the blocked state before a test could observe it.
+ */
 function consumeLoopbackTestPlayerRejection(target: HTMLVideoElement): boolean {
   if (!SYNCYOURJOY_TEST_MODE || location.origin !== SYNCYOURJOY_TEST_PLAYER_ORIGIN || location.pathname !== '/test-player')
     return false
   if (target.getAttribute('data-syncyourjoy-test-reject-play') !== 'true')
     return false
-  target.removeAttribute('data-syncyourjoy-test-reject-play')
   window.postMessage({ type: 'syncyourjoy-test-play-rejected' }, location.origin)
   return true
 }

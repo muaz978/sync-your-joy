@@ -173,6 +173,8 @@
       })
 
       allowPlaybackButton.addEventListener('click', () => {
+        // The gesture lifts the simulated autoplay block.
+        video.removeAttribute('data-syncyourjoy-test-reject-play')
         void video.play().then(() => {
           video.pause()
           setStatus('Playback permission gesture accepted.')
@@ -185,9 +187,10 @@
         // The extension content script runs in an isolated world, so a page
         // world override of HTMLMediaElement.play() cannot intercept it.
         // This explicit loopback-only marker is consumed by the extension's
-        // test-player branch and does not affect provider pages.
+        // test-player branch and does not affect provider pages. Like a browser
+        // autoplay block, it rejects every request until the gesture below.
         video.setAttribute('data-syncyourjoy-test-reject-play', 'true')
-        setStatus('The next playback request will be rejected once.')
+        setStatus('Playback requests will be rejected until the permission gesture.')
       })
     </script>
   </body>
