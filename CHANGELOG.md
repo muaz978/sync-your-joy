@@ -6,7 +6,7 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [0.2.12] - 2026-10-23
 
-This release changes the extension (the connection history in the report and the coordinator's timeline in it) and is published together with a coordinator deploy, which carries the fixes for the stuck room reported on 2026-10-22: the room no longer goes back by everything watched when a participant disconnects, and a connection that drops and returns within 8 seconds no longer pauses everyone. The extension changes take effect when each participant loads this package; the coordinator changes apply to every room once it is deployed. Every tester should be on 0.2.12.
+This release changes the extension (the connection history in the report and the coordinator's timeline in it) and is published together with a coordinator deploy, which carries the fixes for the stuck room reported on 2026-10-22: the room no longer goes back by everything watched when a participant disconnects during a running Play, and a connection that drops and returns within 8 seconds (ready, on the same video) no longer pauses everyone. The extension changes take effect when each participant loads this package; the coordinator changes apply to every room once the coordinator has been deployed (a separate step from publishing this package, done at the same time). Every tester should be on 0.2.12.
 
 ### Added
 
