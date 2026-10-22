@@ -1141,6 +1141,109 @@ describe('service worker observed episode identity', () => {
     })
   })
 
+  describe('the connection\'s own history in the report', () => {
+    function eventsFrom(socket: FakeWebSocket, reportId: string) {
+      socket.simulateMessage({ type: 'diagnostics_requested', reportId })
+      const response = socket.sentMessages.find(message => typeof message === 'object' && message !== null
+        && (message as { reportId?: unknown }).reportId === reportId) as { report: DiagnosticsReport }
+      return response.report.events
+    }
+
+    /** Closes the first socket the way `trigger` says, lets the worker reconnect, and returns the new, open socket. */
+    async function dropAndReconnect(trigger: (first: FakeWebSocket) => void): Promise<FakeWebSocket> {
+      const first = FakeWebSocket.instances[0]!
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      try {
+        trigger(first)
+        await vi.advanceTimersByTimeAsync(20_000)
+      }
+      finally {
+        vi.useRealTimers()
+      }
+      await vi.waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2))
+      const second = FakeWebSocket.instances[1]!
+      second.simulateOpen()
+      // The rejoin is answered, as it would be by the coordinator, so the worker is connected again.
+      second.simulateMessage({
+        type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia }),
+      })
+      await new Promise(resolve => setTimeout(resolve, 20))
+      return second
+    }
+
+    it('records why a connection ended: the close code and reason, how long it had lasted, how stale the last pong was and what the browser said about the network', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      await resumeAtPage(sharedUrl)
+
+      const second = await dropAndReconnect(first => first.simulateClose(1006, ''))
+
+      const events = eventsFrom(second, 'report_connection')
+      const closed = events.find(event => event.message === 'socket_closed')
+      expect(closed?.details).toMatchObject({ intentional: false, code: 1006, reason: 'none', wasClean: false, online: true })
+      expect(closed?.details.openMs).toEqual(expect.any(Number))
+      expect(closed?.details).toHaveProperty('quality')
+      expect(closed?.details).toHaveProperty('pongAgeMs')
+      expect(events.find(event => event.message === 'reconnect_scheduled')?.details).toMatchObject({ attempt: 1, delayMs: expect.any(Number) })
+      const reopened = events.filter(event => event.message === 'socket_opened').at(-1)
+      expect(reopened?.details).toMatchObject({ attempt: 1, downMs: expect.any(Number) })
+      expect(reopened?.details.downMs as number).toBeGreaterThanOrEqual(0)
+      // The reconnect was scheduled before the socket opened again.
+      const order = events.map(event => event.message)
+      expect(order.indexOf('reconnect_scheduled')).toBeLessThan(order.lastIndexOf('socket_opened'))
+    })
+
+    it('records the reason the coordinator gave, and that the browser thought it was offline', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: false })
+      await resumeAtPage(sharedUrl)
+
+      const second = await dropAndReconnect(first => first.simulateClose(4001, 'heartbeat_timeout'))
+
+      const closed = eventsFrom(second, 'report_reason').find(event => event.message === 'socket_closed')
+      expect(closed?.details).toMatchObject({ code: 4001, reason: 'heartbeat_timeout', online: false })
+    })
+
+    it('records the browser going offline and online', async () => {
+      const handlers = new Map<string, () => void>()
+      vi.stubGlobal('addEventListener', (type: string, handler: () => void) => { handlers.set(type, handler) })
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      await resumeAtPage(sharedUrl)
+
+      handlers.get('offline')?.()
+      handlers.get('online')?.()
+
+      const messages = eventsFrom(FakeWebSocket.instances[0]!, 'report_network').map(event => event.message)
+      expect(messages).toEqual(expect.arrayContaining(['network_offline', 'network_online']))
+      expect(messages.indexOf('network_offline')).toBeLessThan(messages.indexOf('network_online'))
+    })
+
+    it('marks where the report begins and whether a room was waiting to be rejoined', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      await resumeAtPage(sharedUrl)
+
+      const started = eventsFrom(FakeWebSocket.instances[0]!, 'report_started').find(event => event.message === 'worker_started')
+
+      expect(started?.details).toEqual({ resumedRoom: true })
+    })
+
+    it('records a change of connection quality once, with the round trip, not every pong', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const pong = (roundTripMs: number) => {
+        const sentAt = Date.now() - roundTripMs
+        socket.simulateMessage({ type: 'pong', id: 'ping_quality', sentAtLocalMs: sentAt, serverTimeMs: Date.now() })
+      }
+
+      pong(900)
+      pong(950)
+      pong(920)
+
+      const changes = eventsFrom(socket, 'report_quality').filter(event => event.message === 'connection_quality')
+      expect(changes).toHaveLength(1)
+      expect(changes[0]!.details).toMatchObject({ to: 'degraded', roundTripMs: expect.any(Number) })
+    })
+  })
+
   describe('why the room paused or resumed', () => {
     function reportEvents(socket: FakeWebSocket, reportId: string) {
       vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })

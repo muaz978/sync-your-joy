@@ -24,7 +24,29 @@ export const PINNED_DIAGNOSTIC_MESSAGES: ReadonlySet<string> = new Set([
   'command_rejected',
   'server_error',
   'room_gone',
+  // The connection's own history: why and when the socket dropped, and what the network said.
+  'socket_opened',
+  'socket_closed',
+  'heartbeat_timeout',
+  'reconnect_scheduled',
+  'connection_quality',
+  'network_offline',
+  'network_online',
+  'worker_started',
 ])
+
+/**
+ * How many of each pinned message are kept before the older ones are dropped like
+ * ordinary events. A burst of one kind (scrubbing through the first minutes of an
+ * episode sends a seek and a position change every few seconds) must not crowd out
+ * the single drop or stall that the report is for.
+ */
+export const PINNED_KEEP_NEWEST_PER_MESSAGE = 10
+const SURPLUS_PINNED_RANK = 1.5
+
+function isKeptEvent(event: DiagnosticEvent): boolean {
+  return event.critical === true && (PINNED_DIAGNOSTIC_MESSAGES.has(event.message) || event.message === 'room_status_changed')
+}
 
 /** Lower is dropped first; the oldest event of the lowest rank goes. */
 function evictionRank(event: DiagnosticEvent): number {
@@ -44,10 +66,21 @@ function evictionRank(event: DiagnosticEvent): number {
 
 /** Index of the event to drop next, or -1 when there is none. */
 export function diagnosticEvictionIndex(events: readonly DiagnosticEvent[]): number {
+  const keptSoFar = new Map<string, number>()
+  const surplus = new Set<number>()
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!
+    if (!isKeptEvent(event))
+      continue
+    const count = (keptSoFar.get(event.message) ?? 0) + 1
+    keptSoFar.set(event.message, count)
+    if (count > PINNED_KEEP_NEWEST_PER_MESSAGE)
+      surplus.add(index)
+  }
   let best = -1
   let bestRank = Number.POSITIVE_INFINITY
   events.forEach((event, index) => {
-    const rank = evictionRank(event)
+    const rank = surplus.has(index) ? SURPLUS_PINNED_RANK : evictionRank(event)
     if (rank < bestRank) {
       best = index
       bestRank = rank

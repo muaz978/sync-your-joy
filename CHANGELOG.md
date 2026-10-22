@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+### Changed
+
+- Extension: the diagnostics report keeps the connection's own history, so a drop can be explained. A closed connection records its close code and reason, whether it was clean, how long it had been open, how long ago the last pong arrived, the round trip and quality it had, and whether the browser thought it was online; the reconnect records its attempt, delay and how long the room was out of reach; the browser going offline or online, a change of connection quality (once per change, not per pong) and the worker starting (with whether a room was waiting to be rejoined) are recorded too. These events, and the position changes, controls and refused commands that were already kept, now keep their newest ten of each kind before the older ones are dropped like ordinary events: in the 0.2.11 report of 2026-10-22 the seek and position change of every ten seconds of scrubbing through the first minutes of the episode filled the report and pushed out the one connection drop it was needed for. Takes effect when participants load the extension release.
+
 ## [0.2.11] - 2026-10-21
 
 This is a compatible test release; it changes the extension only, and the coordinator that is deployed (the one with automatic resume) is unchanged. The changes below take effect when each participant loads this package. Every tester should be on 0.2.11.

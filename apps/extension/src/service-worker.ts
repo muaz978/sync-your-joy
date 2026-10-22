@@ -109,6 +109,10 @@ let pingTimer: ReturnType<typeof setInterval> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let reconnectAttempts = 0
 let intentionallyClosed = false
+// When the current socket opened and when the last one closed, for the report: how long a
+// connection lasted before it dropped, and how long the room was out of reach.
+let socketOpenedAtMs: number | null = null
+let lastSocketClosedAtMs: number | null = null
 // The last control this browser sent, and a scrub the room refused because
 // someone was not ready, kept until they are (see deferred-seek.ts). Neither
 // is persisted: a restarted worker simply drops the wait.
@@ -155,6 +159,11 @@ let lastControllerNavigationKey: string | null = null
 let playerContextGeneration = 0
 
 const initialized = initialize()
+
+// The browser's own word on the network (a Wi-Fi roam, a VPN, a call app changing routes), kept
+// beside the socket events so a drop can be told from a server that closed the connection.
+globalThis.addEventListener?.('offline', () => recordDiagnostic('connection', 'network_offline', {}))
+globalThis.addEventListener?.('online', () => recordDiagnostic('connection', 'network_online', {}))
 
 chrome.runtime.onInstalled.addListener(() => {
   if (browserApi.sidePanel)
@@ -255,6 +264,10 @@ async function initialize(): Promise<void> {
     roundTripMs: stored?.roundTripMs ?? null,
     lastPongAtMs: stored?.lastPongAtMs ?? 0,
   }
+
+  // A service worker that restarted drops its socket and its report: this marks where the
+  // history of a report begins, and whether a room was waiting to be rejoined.
+  recordDiagnostic('connection', 'worker_started', { resumedRoom: state.snapshot !== null })
 
   if (state.snapshot) {
     await refreshBoundPlayerTab()
@@ -752,13 +765,17 @@ async function connect(roomCode: string): Promise<void> {
 
     nextSocket.addEventListener('open', () => {
       connectionPromise = null
+      const openedAtMs = Date.now()
+      const attempt = reconnectAttempts
+      const downMs = lastSocketClosedAtMs === null ? null : openedAtMs - lastSocketClosedAtMs
+      socketOpenedAtMs = openedAtMs
       reconnectAttempts = 0
       void chrome.alarms.clear(RECONNECT_ALARM_NAME)
       state.connectionQuality = 'unknown'
       state.roundTripMs = null
       state.lastPongAtMs = Date.now()
       startPingLoop()
-      recordDiagnostic('connection', 'socket_opened', { roomCode })
+      recordDiagnostic('connection', 'socket_opened', { roomCode, attempt, downMs })
       resolve()
     }, { once: true })
 
@@ -776,6 +793,24 @@ async function connect(roomCode: string): Promise<void> {
       // the diagnostic is about who closed the socket, not about what this
       // handler then did.
       const closedByThisClient = intentionallyClosed
+      // What the connection looked like when it ended, before the handler below
+      // marks it offline: a pong that had stopped arriving points at the network.
+      const closedAtMs = Date.now()
+      const closeEvent = event as CloseEvent
+      const evidence: Record<string, DiagnosticValue> = {
+        code: typeof closeEvent.code === 'number' ? closeEvent.code : null,
+        reason: closeEvent.reason ? safeDiagnosticCode(closeEvent.reason) : 'none',
+        wasClean: closeEvent.wasClean === true,
+        openMs: socketOpenedAtMs === null ? null : closedAtMs - socketOpenedAtMs,
+        pongAgeMs: state.lastPongAtMs > 0 ? closedAtMs - state.lastPongAtMs : null,
+        roundTripMs: state.roundTripMs,
+        quality: state.connectionQuality,
+        online: typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : null,
+      }
+      if (socket === nextSocket) {
+        socketOpenedAtMs = null
+        lastSocketClosedAtMs = closedAtMs
+      }
       let serverEndedRoom = false
       // A stale socket (already replaced by a newer connection, e.g. via
       // startFreshConnection) must not tear down the new socket's ping loop
@@ -803,7 +838,7 @@ async function connect(roomCode: string): Promise<void> {
           }
         }
       }
-      recordDiagnostic('connection', 'socket_closed', { intentional: closedByThisClient, ...(serverEndedRoom ? { serverEndedRoom: true } : {}) })
+      recordDiagnostic('connection', 'socket_closed', { intentional: closedByThisClient, ...(serverEndedRoom ? { serverEndedRoom: true } : {}), ...evidence })
     })
   })
 
@@ -853,6 +888,7 @@ function scheduleReconnect(): void {
     return
   const delayMs = Math.min(15_000, 500 * 2 ** reconnectAttempts) + Math.round(Math.random() * 250)
   reconnectAttempts += 1
+  recordDiagnostic('connection', 'reconnect_scheduled', { attempt: reconnectAttempts, delayMs })
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
     void reconnectIfNeeded()
@@ -996,6 +1032,7 @@ function handleServerMessage(raw: string): void {
     state.clockUncertaintyMs = Number.isFinite(estimate.uncertaintyMs) ? estimate.uncertaintyMs : 99_999
     state.roundTripMs = Math.max(0, Math.min(receivedAtLocalMs - message.sentAtLocalMs, 10_000))
     state.lastPongAtMs = receivedAtLocalMs
+    const previousQuality = state.connectionQuality
     state.connectionQuality = connectionQuality({
       connection: state.connection,
       roundTripMs: state.roundTripMs,
@@ -1003,6 +1040,8 @@ function handleServerMessage(raw: string): void {
       lastPongAtMs: state.lastPongAtMs,
       nowMs: receivedAtLocalMs,
     })
+    if (state.connectionQuality !== previousQuality)
+      recordDiagnostic('connection', 'connection_quality', { from: previousQuality, to: state.connectionQuality, roundTripMs: state.roundTripMs })
     sendToServer({ type: 'client_metrics', roundTripMs: receivedAtLocalMs - message.sentAtLocalMs })
     void persistState()
     notifyExtensionViews()

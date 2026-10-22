@@ -155,3 +155,48 @@ describe('roomPositionJump', () => {
     expect(roomPositionJump(null, paused(500), 10_000)).toBeNull()
   })
 })
+
+describe('a burst of one kind of event does not push out the incident', () => {
+  const at = (index: number) => 1_725_000_000_000 + index * 1_000
+  const event = (index: number, message: string, details: Record<string, string | number | boolean | null>, category = 'control') =>
+    ({ atLocalMs: at(index), category, message, details, critical: true }) as DiagnosticsReport['events'][number]
+
+  /** Forty seconds of scrubbing through an episode (a seek and a position change every ten seconds of video), then a connection that drops. */
+  function scrubbingThenADrop(): DiagnosticsReport {
+    const events: DiagnosticsReport['events'] = []
+    for (let step = 0; step < 60; step += 1) {
+      events.push(event(step * 2, 'room_control', { kind: 'seek', positionSeconds: 10 * step, basedOnRevision: step }))
+      events.push(event(step * 2 + 1, 'room_position_changed', { fromSeconds: 10 * step - 9, toSeconds: 10 * step, reason: 'control_seek_pending', revision: step }, 'room'))
+    }
+    events.push(event(200, 'socket_closed', { intentional: false, code: 1006, reason: 'none', wasClean: false, openMs: 900_000, pongAgeMs: 4_800, online: true }, 'connection'))
+    events.push(event(201, 'reconnect_scheduled', { attempt: 1, delayMs: 612 }, 'connection'))
+    events.push(event(202, 'socket_opened', { roomCode: 'ABCDEFGH', attempt: 1, downMs: 1_050 }, 'connection'))
+    events.push(event(203, 'room_status_changed', { from: 'playing', to: 'paused', reason: 'participant_disconnect_timeout', positionSeconds: 790.5, revision: 183 }, 'room'))
+    return { ...report(0), events }
+  }
+
+  it('keeps every event of the drop and only the newest of the burst', () => {
+    const fitted = fitDiagnosticsReport(scrubbingThenADrop())
+    const messages = fitted.events.map(item => item.message)
+
+    expect(messages).toEqual(expect.arrayContaining(['socket_closed', 'reconnect_scheduled', 'socket_opened', 'room_status_changed']))
+    expect(fitted.events.find(item => item.message === 'socket_closed')?.details).toMatchObject({ code: 1006, pongAgeMs: 4_800 })
+    expect(serializedDiagnosticsBytes(fitted)).toBeLessThanOrEqual(DIAGNOSTIC_MESSAGE_BUDGET_BYTES)
+    // What is left of the burst is its newest end: the oldest scrub is gone, the latest stays.
+    const controls = fitted.events.filter(item => item.message === 'room_control')
+    expect(controls.some(item => item.details.basedOnRevision === 0)).toBe(false)
+    expect(controls.at(-1)?.details.basedOnRevision).toBe(59)
+    expect(fitted.eventsDropped).toBeGreaterThan(0)
+  })
+
+  it('drops the oldest of a burst before an ordinary critical event, and an ordinary one before a drop', () => {
+    const events = scrubbingThenADrop().events
+    const ordinary = event(300, 'operation_ack', { phase: 'prepared' }, 'playback')
+    const withOrdinary = [...events.slice(0, 40), ordinary, ...events.slice(40)]
+
+    const next = diagnosticEvictionIndex(withOrdinary)
+
+    expect(withOrdinary[next]?.message).toBe('room_control')
+    expect(withOrdinary[next]?.details.basedOnRevision).toBe(0)
+  })
+})
