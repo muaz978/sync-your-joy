@@ -919,7 +919,11 @@ function handleServerMessage(raw: string, fromCurrentSocket = true): void {
     return
 
   if (message.type === 'room_joined') {
-    outageStartedAtMs = null
+    // The outage ends when the room has taken this client back, and only a join answered on the current socket says so.
+    if (fromCurrentSocket && outageStartedAtMs !== null) {
+      recordDiagnostic('connection', 'room_rejoined', { outageMs: Date.now() - outageStartedAtMs })
+      outageStartedAtMs = null
+    }
     state.connection = 'connected'
     state.participantId = message.participantId
     state.sessionToken = message.sessionToken ?? null

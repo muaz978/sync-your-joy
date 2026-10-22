@@ -27,6 +27,7 @@ export const PINNED_DIAGNOSTIC_MESSAGES: ReadonlySet<string> = new Set([
   // The connection's own history: why and when the socket dropped, and how its health changed.
   'socket_opened',
   'socket_closed',
+  'room_rejoined',
   'heartbeat_timeout',
   'reconnect_scheduled',
   'connection_quality',

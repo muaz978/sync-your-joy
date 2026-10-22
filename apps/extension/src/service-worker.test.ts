@@ -1249,6 +1249,9 @@ describe('service worker observed episode identity', () => {
       const reopened = eventsFrom(third, 'report_outage').filter(event => event.message === 'socket_opened').at(-1)
       // Not from the second close, which was 20 s later.
       expect(reopened?.details.downMs as number).toBeGreaterThanOrEqual(40_000)
+      // The outage is closed off when the room took the client back, with its whole length.
+      const rejoined = eventsFrom(third, 'report_outage_end').filter(event => event.message === 'room_rejoined').at(-1)
+      expect(rejoined?.details.outageMs as number).toBeGreaterThanOrEqual(40_000)
     })
 
     it('does not tell a close that arrives late from the new socket\'s health, nor count a change of room as an outage', async () => {
@@ -1365,6 +1368,32 @@ describe('service worker observed episode identity', () => {
       finally {
         vi.useRealTimers()
       }
+    })
+
+    it('does not end an outage because a replaced socket was told the room was joined', async () => {
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test', onLine: true })
+      await resumeAtPage(sharedUrl)
+      const first = FakeWebSocket.instances[0]!
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      let second: FakeWebSocket
+      try {
+        first.simulateClose(1006, '')
+        await vi.advanceTimersByTimeAsync(20_000)
+        second = FakeWebSocket.instances[1]!
+        second.simulateOpen()
+        // An acknowledgement from the socket that dropped arrives late.
+        first.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia }) })
+        await vi.advanceTimersByTimeAsync(5_000)
+        second.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia }) })
+      }
+      finally {
+        vi.useRealTimers()
+      }
+
+      const rejoined = eventsFrom(second, 'report_stale_join').filter(event => event.message === 'room_rejoined')
+      expect(rejoined).toHaveLength(1)
+      expect(rejoined[0]!.details.outageMs as number).toBeGreaterThanOrEqual(25_000)
     })
 
     it('does not say the network failed when this client closed the socket on purpose', async () => {
