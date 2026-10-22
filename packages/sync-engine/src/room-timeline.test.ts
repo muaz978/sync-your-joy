@@ -210,7 +210,19 @@ describe('the coordinator\'s timeline', () => {
     ]))
   })
 
-  it('keeps two Play commands that set different positions, and a person asking to join', () => {
+  it('keeps two Play commands that set different positions', () => {
+    const clock = { now: 10_000 }
+    const room = createPair(clock)
+    clock.now += 100
+    expect(play(room, 12, 'action_first_play').ok).toBe(true)
+    clock.now += 100
+    expect(play(room, 300, 'action_second_play').ok).toBe(true)
+
+    const plays = room.roomDiagnostics().entries.filter(entry => entry.kind === 'change' && entry.playbackStatus === 'playing')
+    expect(plays.map(entry => Math.round(entry.positionSeconds))).toEqual(expect.arrayContaining([12, 300]))
+  })
+
+  it('keeps each person asking to join, by id', () => {
     const clock = { now: 10_000 }
     const room = new RoomCoordinator(
       { roomId: 'room_commands', code: 'COMMAND1' },
@@ -218,10 +230,21 @@ describe('the coordinator\'s timeline', () => {
       () => clock.now,
     )
     room.join({ id: 'participant_friend', name: 'Rana', media })
-    const pending = room.roomDiagnostics().entries.at(-1)!
-    expect(pending.pendingJoinIds).toEqual(['participant_friend'])
+    expect(room.roomDiagnostics().entries.at(-1)!.pendingJoinIds).toEqual(['participant_friend'])
     room.join({ id: 'participant_other', name: 'Sam', media })
     expect(room.roomDiagnostics().entries.at(-1)!.pendingJoinIds).toEqual(['participant_friend', 'participant_other'])
+  })
+
+  it('begins a restored coordinator with the room as it was restored, and says so', () => {
+    const clock = { now: 10_000 }
+    const original = createPair(clock)
+    const restored = RoomCoordinator.fromState(original.exportState(), () => clock.now)
+    const entries = restored.roomDiagnostics().entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ event: 'coordinator_started', detail: { restored: true } })
+    expect(entries[0]!.participants.map(participant => participant.id).sort()).toEqual(['participant_friend', 'participant_host'])
+    restored.setReady('participant_host', true, media)
+    expect(restored.roomDiagnostics().entries).toHaveLength(1)
   })
 
   it('lists connected participants first and says how many it left out', () => {

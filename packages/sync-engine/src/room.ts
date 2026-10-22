@@ -181,6 +181,7 @@ export class RoomCoordinator {
       if (!hasValidContractBoundary)
         this.migratePreContractState(restoredPendingSeek)
       this.refreshNegotiation()
+      this.startTimeline(true)
       return
     }
 
@@ -211,8 +212,12 @@ export class RoomCoordinator {
     })
     this.contract = normalizeRoomContractSnapshot(undefined)
     this.refreshNegotiation()
-    // Where the timeline begins: the room as this coordinator first held it, so the first change is read against something.
-    this.recordTimeline('transport', 'coordinator_started', { restored: restoredState !== undefined })
+    this.startTimeline(false)
+  }
+
+  /** Where the timeline begins: the room as this coordinator first held it, so the first change is read against something. */
+  private startTimeline(restored: boolean): void {
+    this.recordTimeline('transport', 'coordinator_started', { restored })
     // So that the first call which changes nothing is not recorded as a change.
     this.lastTimelineKey = this.timelineKeyOf(this.timeline[0]!)
   }
