@@ -3304,6 +3304,29 @@ describe('a membership change while a transactional Play is running', () => {
     return { room, operation, effectiveAtServerMs: operation.effectiveAtServerMs, setNow: (value: number) => { nowMs = value } }
   }
 
+  it('pauses where the room has got to when someone confirmed starting and a participant then leaves', () => {
+    const { room, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
+    setNow(effectiveAtServerMs + 2_000)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 42, 2))
+    expect(room.snapshot().contract?.operation?.phase).toBe('committed')
+
+    const left = room.disconnect('participant_friend', { intentional: true })
+
+    expect(left).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' } } })
+    expect(left?.snapshot.playback.positionSeconds).toBeCloseTo(42, 0)
+  })
+
+  it('pauses at the target when a start times out even though someone confirmed it', () => {
+    const { room, operation, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
+    setNow(effectiveAtServerMs + 500)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+    setNow(operation.deadlineAtServerMs + 1)
+
+    const released = room.releaseExpiredOperation()
+
+    expect(released).toMatchObject({ ok: true, reason: 'operation_timeout_paused', snapshot: { playback: { status: 'paused', positionSeconds: 40 } } })
+  })
+
   it('pauses at the target when a participant disconnects after the start time but before anyone confirmed starting', () => {
     const { room, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
     setNow(effectiveAtServerMs + 3_000)

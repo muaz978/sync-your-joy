@@ -739,7 +739,7 @@ export class RoomCoordinator {
     operation.reason = previousPhase === 'committed'
       ? 'start-timeout'
       : 'deadline-expired'
-    this.pauseAtOperationTarget(operation, nowMs)
+    this.pauseAtOperationTarget(operation, nowMs, false)
     this.markParticipantStatuses('recovery-required')
     this.revision += 1
     this.markStateBarrier()
@@ -1632,17 +1632,21 @@ export class RoomCoordinator {
     return expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
   }
 
-  private pauseAtOperationTarget(operation: RoomOperation, nowMs: number): void {
-    // Once every participant has started, the operation's target is only where
-    // playback began. A Play that was started a minute ago and is cancelled now
-    // (a participant disconnected, say) has to pause where the room has got to:
-    // pausing at the target moved the room back by everything watched since,
-    // to a position the players no longer have in their buffers, which
-    // Crunchyroll's player does not load (the 0.2.11 report of 2026-10-22).
-    // Before that, nobody is known to have played anything: a Play being
-    // prepared, or committed and not yet confirmed by everyone, pauses at its
-    // target, so a start that times out does not skip video nobody watched.
-    const positionSeconds = operation.phase === 'started' || operation.targetPositionSeconds === null
+  /**
+   * `playedOn` is true when the room is known to have been playing since the
+   * operation's target: at least one participant confirmed that it started. The
+   * target is only where playback began, so a Play started a minute ago and
+   * cancelled now (a participant disconnected, say) has to pause where the room
+   * has got to. Pausing at the target moved the room back by everything watched
+   * since, to a position the players no longer have in their buffers, which
+   * Crunchyroll's player does not load (the 0.2.11 report of 2026-10-22).
+   * Before any start is confirmed nobody is known to have played anything: a
+   * Play being prepared, or committed and not yet confirmed by anyone, pauses at
+   * its target, and so does a start that times out (it must not skip video that
+   * stalled participants never watched).
+   */
+  private pauseAtOperationTarget(operation: RoomOperation, nowMs: number, playedOn: boolean): void {
+    const positionSeconds = playedOn || operation.targetPositionSeconds === null
       ? expectedPosition(this.playback, nowMs, this.media?.durationSeconds ?? null)
       : operation.targetPositionSeconds
     this.playback = {
@@ -1658,7 +1662,7 @@ export class RoomCoordinator {
     if (!operation || operation.phase === 'cancelled' || operation.phase === 'failed')
       return
     if (preserveTarget)
-      this.pauseAtOperationTarget(operation, nowMs)
+      this.pauseAtOperationTarget(operation, nowMs, operation.phase === 'started' || operation.startedParticipantIds.length > 0)
     operation.phase = 'cancelled'
     operation.reason = reason
     operation.effectiveAtServerMs = null
