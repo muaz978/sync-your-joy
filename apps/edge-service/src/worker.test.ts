@@ -220,6 +220,19 @@ describe('RoomDurableObject: the coordinator\'s timeline for a detailed report',
     expect(JSON.stringify(timeline)).not.toContain('secret')
   })
 
+  it('tells an error from the close that follows it', async () => {
+    const { room, host, friend } = await roomWithPendingFriend()
+    await say(room, host, approve)
+
+    await room.webSocketError(friend as never)
+    await say(room, host, { type: 'request_diagnostics', reportId: 'report_edge_error' })
+
+    const timeline = host.sent.find(message => message.type === 'diagnostics_room')
+    if (timeline?.type !== 'diagnostics_room')
+      throw new Error('Expected diagnostics_room')
+    expect(timeline.room.entries.some(entry => entry.kind === 'transport' && entry.event === 'socket_error')).toBe(true)
+  })
+
   it('does not send it to a participant who asked without being the controller', async () => {
     const { room, host, friend } = await roomWithPendingFriend()
     await say(room, host, approve)

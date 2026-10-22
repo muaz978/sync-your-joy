@@ -1219,6 +1219,22 @@ describe('service worker observed episode identity', () => {
       expect(room.entries.at(-1)!.detail.index).toBe(299)
     })
 
+    it('names the room the report was asked for in, though the controller has left it by the time it is written', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      vi.stubGlobal('navigator', { userAgent: 'SyncYourJoy regression test' })
+      await request({ type: 'DOWNLOAD_DIAGNOSTICS' })
+      const reportId = requestedReportId(socket)
+
+      await request({ type: 'LEAVE_ROOM' })
+      socket.simulateMessage({ type: 'diagnostics_room', reportId, room: roomTimeline })
+
+      await vi.waitFor(() => expect(fake.downloadMock).toHaveBeenCalledTimes(1), { timeout: 4_000 })
+      const download = fake.downloadMock.mock.calls[0]![0] as { url: string, filename: string }
+      expect((JSON.parse(decodeURIComponent(download.url.split(',', 2)[1]!)) as { roomCode: string }).roomCode).toBe('ABCDEFGH')
+      expect(download.filename).toContain('ABCDEFGH')
+    })
+
     it('ignores a timeline for a report it did not ask for', async () => {
       const { fake, request } = await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!

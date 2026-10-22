@@ -552,6 +552,10 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   async webSocketClose(socket: WebSocket, code?: number, reason?: string): Promise<void> {
+    await this.socketGone(socket, 'socket_closed', code, reason)
+  }
+
+  private async socketGone(socket: WebSocket, event: 'socket_closed' | 'socket_error', code?: number, reason?: string): Promise<void> {
     await this.initialized
     const attachment = this.attachmentOf(socket)
     if (attachment === undefined) {
@@ -561,6 +565,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       // recovery planned if it was the controller, until the next restore.
       // It is closed first: webSocketError also arrives here, for a socket
       // that may still be open, and there may be no room left to reconcile.
+      // Whose socket it was is not known, but that one closed is.
+      this.coordinator?.recordTransportEvent(null, event, { code: code ?? null, reason: safeCloseReason(reason), attachmentReadable: false })
       this.closeUnreadable(socket)
       await this.reconcileAfterUnreadableClose()
       return
@@ -578,7 +584,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       else if (other.participantId === attachment.participantId)
         stillConnected = true
     }
-    this.coordinator.recordTransportEvent(attachment.participantId, 'socket_closed', {
+    this.coordinator.recordTransportEvent(attachment.participantId, event, {
       code: code ?? null,
       reason: safeCloseReason(reason),
       participantStillConnected: stillConnected,
@@ -662,7 +668,8 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {
-    await this.webSocketClose(socket)
+    // An error is followed by its close; the report tells them apart.
+    await this.socketGone(socket, 'socket_error')
   }
 
   async alarm(): Promise<void> {

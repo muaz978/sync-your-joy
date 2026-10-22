@@ -138,7 +138,7 @@ describe('the coordinator\'s timeline', () => {
     expect(room.roomDiagnostics().entries.length).toBe(count + 1)
   })
 
-  it('keeps a refusal every time it happens, however alike', () => {
+  it('counts the same refusal repeated, so repeating a command cannot push the history out', () => {
     const clock = { now: 10_000 }
     const room = new RoomCoordinator(
       { roomId: 'room_refusals', code: 'REFUSAL2' },
@@ -147,10 +147,25 @@ describe('the coordinator\'s timeline', () => {
     )
     room.join({ id: 'participant_friend', name: 'Rana', media })
     room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_friend', true)
-    play(room, 12, 'action_refused_a')
-    play(room, 12, 'action_refused_b')
-    const refusals = room.roomDiagnostics().entries.filter(entry => entry.kind === 'refused')
-    expect(refusals).toHaveLength(2)
+    const before = room.roomDiagnostics().entries.length
+    for (let index = 0; index < 50; index += 1) {
+      clock.now += 10
+      play(room, 12, `action_refused_${index}`)
+    }
+    const entries = room.roomDiagnostics().entries
+    expect(entries).toHaveLength(before + 1)
+    expect(entries.at(-1)).toMatchObject({ kind: 'refused', event: 'participants_not_ready', detail: { repeated: 50 } })
+
+    room.setReady('participant_host', true, media)
+    play(room, 12, 'action_refused_after_change')
+    expect(room.roomDiagnostics().entries.filter(entry => entry.kind === 'refused')).toHaveLength(2)
+  })
+
+  it('begins with the room as the coordinator first held it', () => {
+    const room = createPair({ now: 10_000 })
+    const first = room.roomDiagnostics().entries[0]!
+    expect(first).toMatchObject({ kind: 'transport', event: 'coordinator_started', detail: { restored: false } })
+    expect(first.participants).toEqual([expect.objectContaining({ id: 'participant_host' })])
   })
 
   it('records a connection event the transport reports, with its detail', () => {
@@ -226,12 +241,19 @@ describe('the coordinator\'s timeline', () => {
     expect(diagnostics.entries.at(-1)!.detail).toMatchObject({ index: ROOM_TIMELINE_LIMIT + 24 })
   })
 
-  it('hands out a copy: changing the report does not change the timeline', () => {
+  it('hands out a copy all the way down: changing the report does not change the timeline', () => {
     const clock = { now: 10_000 }
     const room = createPair(clock)
     const first = room.roomDiagnostics()
-    first.entries.length = 0
-    first.entries.push({ ...room.roomDiagnostics().entries[0]!, event: 'tampered' })
-    expect(room.roomDiagnostics().entries.some(entry => entry.event === 'tampered')).toBe(false)
+    first.entries.at(-1)!.participants[0]!.ready = false
+    first.entries.at(-1)!.participants.length = 0
+    first.entries.at(-1)!.event = 'tampered'
+    first.entries.at(-1)!.pendingJoinIds.push('participant_forged')
+
+    const again = room.roomDiagnostics().entries.at(-1)!
+    expect(again.event).not.toBe('tampered')
+    expect(again.participants.length).toBeGreaterThan(0)
+    expect(again.participants[0]!.ready).toBe(true)
+    expect(again.pendingJoinIds).not.toContain('participant_forged')
   })
 })

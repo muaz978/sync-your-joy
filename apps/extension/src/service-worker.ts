@@ -66,6 +66,8 @@ interface DiagnosticCollection {
   timer: ReturnType<typeof setTimeout>
   retryTimers: Array<ReturnType<typeof setTimeout>>
   attempts: number
+  /** The room this report is about, fixed when it was asked for: the controller may be in another room by the time it is written. */
+  roomCode: string | null
   /** The coordinator's own timeline, sent back to the controller when it asks for the report; the newest copy wins. */
   room: RoomDiagnostics | null
   timelineGraceTimer: ReturnType<typeof setTimeout> | null
@@ -583,6 +585,7 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         timer: setTimeout(() => finishDiagnosticCollection(reportId), DIAGNOSTIC_COLLECTION_TIMEOUT_MS),
         retryTimers: [],
         attempts: 0,
+        roomCode: snapshot.code,
         room: null,
         timelineGraceTimer: null,
       }
@@ -1851,7 +1854,7 @@ function finishDiagnosticCollection(reportId: string): void {
   const payload = {
     schemaVersion: 2,
     generatedAt: new Date().toISOString(),
-    roomCode: state.snapshot?.code ?? null,
+    roomCode: collection.roomCode,
     reportId,
     privacy: 'Playback diagnostics only. No cookies, passwords, media content, or URL query parameters.',
     collection: {
@@ -1866,7 +1869,7 @@ function finishDiagnosticCollection(reportId: string): void {
     participants: [...collection.responses.values()],
   }
   const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
-  const filename = `syncyourjoy-report-${state.snapshot?.code ?? 'room'}-${timestamp}.json`
+  const filename = `syncyourjoy-report-${collection.roomCode ?? 'room'}-${timestamp}.json`
   const url = reportDownloadUrl(payload)
   void chrome.downloads.download({ url, filename, saveAs: false }).catch(() => {
     state.lastError = 'Chrome could not download the detailed report.'

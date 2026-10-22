@@ -211,6 +211,8 @@ export class RoomCoordinator {
     })
     this.contract = normalizeRoomContractSnapshot(undefined)
     this.refreshNegotiation()
+    // Where the timeline begins: the room as this coordinator first held it, so the first change is read against something.
+    this.recordTimeline('transport', 'coordinator_started', { restored: restoredState !== undefined })
   }
 
   static fromState(state: RoomCoordinatorState, now: () => number = Date.now): RoomCoordinator {
@@ -1829,6 +1831,15 @@ export class RoomCoordinator {
       if (key === this.lastTimelineKey)
         return
       this.lastTimelineKey = key
+    }
+    // The same refusal again, with the room unchanged, is one entry with a count: a participant who
+    // repeats a refused command must not push the history out of a bounded timeline.
+    const previous = this.timeline.at(-1)
+    if (kind === 'refused' && previous?.kind === 'refused' && previous.event === event
+      && timelineStateKey(previous) === timelineStateKey(entry)) {
+      const repeated = typeof previous.detail?.repeated === 'number' ? previous.detail.repeated : 1
+      previous.detail = { ...previous.detail, repeated: repeated + 1, lastAtServerMs: entry.atServerMs }
+      return
     }
     this.timeline.push(entry)
     if (this.timeline.length > ROOM_TIMELINE_LIMIT) {
