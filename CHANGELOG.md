@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. This project follows semantic
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-10-23
+
+This release changes the extension (the connection history in the report and the coordinator's timeline in it) and is published together with a coordinator deploy, which carries the fixes for the stuck room reported on 2026-10-22: the room no longer goes back by everything watched when a participant disconnects during a running Play, and a connection that drops and returns within 8 seconds (ready, on the same video) no longer pauses everyone. The extension changes take effect when each participant loads this package; the coordinator changes apply to every room once the coordinator has been deployed (a separate step from publishing this package, done at the same time). Every tester should be on 0.2.12.
+
 ### Added
 
 - Coordinator and extension: the detailed report now carries the room's own account of what happened (`room`, report `schemaVersion` 2). The coordinator keeps a bounded in-memory timeline (the last 300 entries): every change of the room with where it was, who was connected and ready, what each player reported and the state of any Play or seek in progress; every command it refused, with the code; and every socket that closed, with its close code and a short reason (a socket whose participant cannot be identified is recorded without one). A state that changed nothing is not repeated. The controller receives it with the report and writes it beside each participant's own log, so a pause that only the middle of the room can explain (a participant's socket dropping, a Play cancelled, a refusal) is readable from one file. A coordinator that has not been updated sends none, and the report is written without it after a short wait. The timeline is kept in memory only, starts again when the coordinator restarts (`coverageStartedAtServerMs` says from when it can be trusted), and holds participant ids, positions and states, never media addresses, names or cookies.
