@@ -1661,8 +1661,14 @@ export class RoomCoordinator {
     const operation = this.contract.operation
     if (!operation || operation.phase === 'cancelled' || operation.phase === 'failed')
       return
-    if (preserveTarget)
-      this.pauseAtOperationTarget(operation, nowMs, operation.phase === 'started' || operation.startedParticipantIds.length > 0)
+    if (preserveTarget) {
+      // The room is past the target once the Play has started, or once anyone confirmed starting and the
+      // window for the rest has not closed. A start window that has closed is a start timeout whether or not
+      // its sweep has run yet, and a timeout stays at the target (see releaseExpiredOperation).
+      const playedOn = operation.phase === 'started'
+        || (operation.startedParticipantIds.length > 0 && nowMs < operation.deadlineAtServerMs)
+      this.pauseAtOperationTarget(operation, nowMs, playedOn)
+    }
     operation.phase = 'cancelled'
     operation.reason = reason
     operation.effectiveAtServerMs = null

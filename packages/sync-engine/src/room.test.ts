@@ -3316,6 +3316,18 @@ describe('a membership change while a transactional Play is running', () => {
     expect(left?.snapshot.playback.positionSeconds).toBeCloseTo(42, 0)
   })
 
+  it('pauses at the target when a participant leaves after the start deadline but before the timeout was handled, even though someone confirmed starting', () => {
+    const { room, operation, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
+    setNow(effectiveAtServerMs + 500)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.5, 2))
+    // The deadline has passed and the sweep that would have timed the start out has not run yet.
+    setNow(operation.deadlineAtServerMs + 1)
+
+    const left = room.disconnect('participant_friend')
+
+    expect(left).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: 40 }, contract: { operation: { phase: 'cancelled', reason: 'participant-disconnected' } } } })
+  })
+
   it('pauses at the target when a start times out even though someone confirmed it', () => {
     const { room, operation, effectiveAtServerMs, setNow } = committedPlayPastItsStart()
     setNow(effectiveAtServerMs + 500)
