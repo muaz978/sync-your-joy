@@ -191,9 +191,12 @@ test.describe('three-profile local browser matrix', () => {
       await profileC.panel.click('#ready-button')
     await profileA.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 20_000 })
 
-    // A one-shot NotAllowedError is a controlled browser permission fault. It
-    // must surface as blocked, then clear after one local gesture and the real
-    // in-panel recovery action.
+    // A NotAllowedError on every play request is a controlled browser permission
+    // fault, as an autoplay block is until a user gesture. It must surface as
+    // blocked, then clear after one local gesture and the real in-panel recovery
+    // action. It is not a single rejection: the extension may ask twice within
+    // milliseconds, and a second request that succeeded cleared the blocked state
+    // before this check could see it (the intermittent miss tracked as X1 on #119).
     await ensureRoomPaused(profileA, videoPages)
     await videoPages[2]!.locator('#reject-next-play').click()
     await profileA.panel.click('#primary-control')
