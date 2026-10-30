@@ -35,8 +35,8 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261012.1",
-    "@playwright/test": "^1.64.0",
+    "@cloudflare/workers-types": "^5.20261016.1",
+    "@playwright/test": "^1.64.1",
     "@types/chrome": "^0.3.5",
     "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",
@@ -46,7 +46,7 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "unocss": "^66.11.0",
-    "vitest": "^5.0.4",
-    "wrangler": "^4.149.0"
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.1"
   }
 }
