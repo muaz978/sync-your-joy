@@ -1,5 +1,6 @@
-import type { MediaFingerprint, PlayerSample, RoomSnapshot } from '@syncyourjoy/protocol'
+import type { ClientCapabilities, MediaFingerprint, OperationAcknowledgement, PlayerSample, RoomSnapshot } from '@syncyourjoy/protocol'
 import type { ControlIntent, OpenLinkIntent, RoomResult } from './room.ts'
+import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
 import { RoomCoordinator } from './room.ts'
 
@@ -79,7 +80,7 @@ function randomAlnum(rng: Rng, length: number): string {
 // Operation model
 // -----------------------------------------------------------------------
 
-interface JoinOp { kind: 'join', mode: 'new' | 'reconnect', id: string, name: string, media: MediaFingerprint | null, sessionToken?: string }
+interface JoinOp { kind: 'join', mode: 'new' | 'reconnect', id: string, name: string, media: MediaFingerprint | null, sessionToken?: string, capabilities?: ClientCapabilities }
 interface DisconnectOp { kind: 'disconnect', id: string }
 interface SetReadyOp { kind: 'setReady', id: string, ready: boolean, media: MediaFingerprint | null }
 interface ControlOp { kind: 'control', participantId: string, intent: ControlIntent, reusedActionId: boolean }
@@ -88,6 +89,13 @@ interface UpdatePlayerStatusOp { kind: 'updatePlayerStatus', participantId: stri
 interface OpenLinkOp { kind: 'openLink', participantId: string, intent: OpenLinkIntent, reusedActionId: boolean }
 interface TransferControlOp { kind: 'transferControl', fromParticipantId: string, toParticipantId: string, leaseEpoch: number }
 interface RespondToJoinOp { kind: 'respondToJoin', controllerId: string, leaseEpoch: number, participantId: string, approve: boolean }
+// Only generated for transactional runs: a room whose members all advertise
+// the current capabilities, so seeks run through operations, not the legacy barrier.
+// `atDeadlineMs` makes the coordinator's first clock read of the step return exactly that
+// instant, so the `>=` against the operation deadline is exercised on its boundary.
+interface AcknowledgeOperationOp { kind: 'acknowledgeOperation', participantId: string, acknowledgement: OperationAcknowledgement, atDeadlineMs?: number }
+interface ReleaseExpiredOp { kind: 'releaseExpired' }
+interface AdvanceClockOp { kind: 'advanceClock', ms: number }
 
 type FuzzOp =
   | JoinOp
@@ -99,6 +107,12 @@ type FuzzOp =
   | OpenLinkOp
   | TransferControlOp
   | RespondToJoinOp
+  | AcknowledgeOperationOp
+  | ReleaseExpiredOp
+  | AdvanceClockOp
+
+/** The coordinator clock. `pinNextMs`, when set, is returned by the next read instead of a random step. */
+interface FuzzClock { ms: number, pinNextMs: number | null }
 
 interface FuzzModel {
   // Real, confirmed room members (host-approval join, SYJ-AUD-003, means a
@@ -114,6 +128,9 @@ interface FuzzModel {
   nextActionCounter: number
   lastLocalSampleMs: Map<string, number>
   localClockMs: number
+  /** True when members advertise the current capabilities, so the room can be transactional. */
+  transactional: boolean
+  sampleSequences: Map<string, number>
 }
 
 // -----------------------------------------------------------------------
@@ -201,6 +218,15 @@ function randomPageUrl(rng: Rng): string {
 // -----------------------------------------------------------------------
 
 function generateJoinOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): JoinOp {
+  const op = generateJoinOpWithoutCapabilities(rng, model, snap)
+  // Most members of a transactional run advertise the current capabilities;
+  // the occasional one that does not turns the room into a legacy room, and
+  // the barrier invariants then stop applying until it is transactional again.
+  // A legacy run draws nothing here, so its sequences are unchanged.
+  return model.transactional && chance(rng, 0.97) ? { ...op, capabilities: CURRENT_CLIENT_CAPABILITIES } : op
+}
+
+function generateJoinOpWithoutCapabilities(rng: Rng, model: FuzzModel, snap: RoomSnapshot): JoinOp {
   const wantsReconnect = model.confirmedParticipantIds.length > 0 && chance(rng, 0.35)
 
   if (!wantsReconnect) {
@@ -212,7 +238,7 @@ function generateJoinOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): JoinOp 
       mode: 'new',
       id,
       name: `Fuzz-${randomAlnum(rng, 5)}`,
-      media: mediaVariant(rng, snap.media),
+      media: reportedMedia(rng, model, snap),
       ...(sessionToken !== undefined ? { sessionToken } : {}),
     }
   }
@@ -228,7 +254,7 @@ function generateJoinOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): JoinOp 
     mode: 'reconnect',
     id,
     name: `Rejoin-${randomAlnum(rng, 4)}`,
-    media: mediaVariant(rng, snap.media),
+    media: reportedMedia(rng, model, snap),
     ...(sessionToken !== undefined ? { sessionToken } : {}),
   }
 }
@@ -237,21 +263,30 @@ function generateDisconnectOp(rng: Rng, model: FuzzModel): DisconnectOp {
   return { kind: 'disconnect', id: pickParticipantId(rng, model, 0.1) }
 }
 
+/**
+ * A transactional run mostly reports the room's own media, so that the
+ * room is often fully ready and seeks can reach their commit. A legacy run
+ * draws exactly as before.
+ */
+function reportedMedia(rng: Rng, model: FuzzModel, snap: RoomSnapshot): MediaFingerprint | null {
+  if (model.transactional && snap.media && chance(rng, 0.9))
+    return { ...snap.media }
+  return mediaVariant(rng, snap.media)
+}
+
 function generateSetReadyOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): SetReadyOp {
   return {
     kind: 'setReady',
     id: pickParticipantId(rng, model, 0.1),
-    ready: chance(rng, 0.7),
-    media: mediaVariant(rng, snap.media),
+    ready: chance(rng, model.transactional ? 0.92 : 0.7),
+    media: reportedMedia(rng, model, snap),
   }
 }
 
 function generateControlOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): ControlOp {
-  const kind = weightedPick<ControlIntent['kind']>(rng, [
-    { weight: 30, value: 'play' },
-    { weight: 35, value: 'pause' },
-    { weight: 35, value: 'seek' },
-  ])
+  const kind = weightedPick<ControlIntent['kind']>(rng, model.transactional
+    ? [{ weight: 30, value: 'play' }, { weight: 15, value: 'pause' }, { weight: 55, value: 'seek' }]
+    : [{ weight: 30, value: 'play' }, { weight: 35, value: 'pause' }, { weight: 35, value: 'seek' }])
   const participantId = chance(rng, 0.7) ? snap.controller.participantId : pickParticipantId(rng, model, 0.1)
   const { actionId, reused } = pickOrCreateActionId(rng, model)
   return {
@@ -326,12 +361,12 @@ function generateUpdatePlayerStatusOp(rng: Rng, model: FuzzModel, snap: RoomSnap
   }
   model.lastLocalSampleMs.set(participantId, Math.max(model.lastLocalSampleMs.get(participantId) ?? 0, sampledAtLocalMs))
 
-  const playbackStartFailed = chance(rng, 0.2)
+  const playbackStartFailed = chance(rng, model.transactional ? 0.05 : 0.2)
   const sample: PlayerSample = {
     positionSeconds,
     durationSeconds: durationHint !== null && chance(rng, 0.7) ? durationHint : (chance(rng, 0.5) ? null : rng() * 10_000),
     paused: chance(rng, 0.4),
-    buffering: chance(rng, 0.45),
+    buffering: chance(rng, model.transactional ? 0.15 : 0.45),
     sampledAtLocalMs,
     ...(chance(rng, 0.5) ? { progressed: chance(rng, 0.5) } : {}),
     ...(playbackStartFailed ? { playbackStartFailed: true } : {}),
@@ -360,18 +395,76 @@ function generateRespondToJoinOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot)
   }
 }
 
-function generateOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): FuzzOp {
-  const kind = weightedPick<FuzzOp['kind']>(rng, [
-    { weight: 25, value: 'join' },
-    { weight: 15, value: 'disconnect' },
-    { weight: 15, value: 'setReady' },
-    { weight: 20, value: 'control' },
-    { weight: 8, value: 'acknowledgeSeek' },
-    { weight: 12, value: 'updatePlayerStatus' },
-    { weight: 3, value: 'openLink' },
-    { weight: 2, value: 'transferControl' },
-    { weight: 12, value: 'respondToJoin' },
-  ])
+function generateAcknowledgeOperationOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot, clock: FuzzClock): AcknowledgeOperationOp {
+  const operation = snap.contract?.operation ?? null
+  // Most acknowledgements come from a required participant that has not
+  // prepared yet and report the target, as a working player would. The rest
+  // are the stale, misaddressed and misaligned ones a client can also send.
+  const unprepared = operation?.phase === 'preparing'
+    ? operation.requiredParticipantIds.filter(id => !operation.preparedParticipantIds.includes(id))
+    : []
+  const cooperative = operation !== null && unprepared.length > 0 && chance(rng, 0.65)
+  const participantId = cooperative
+    ? pick(rng, unprepared)
+    : operation && operation.requiredParticipantIds.length > 0 && chance(rng, 0.8)
+      ? pick(rng, operation.requiredParticipantIds)
+      : pickParticipantId(rng, model, 0.15)
+  const previous = model.sampleSequences.get(participantId) ?? 0
+  // Mostly increasing, sometimes a repeat or an older sequence.
+  const sampleSequence = cooperative || chance(rng, 0.9) ? previous + 1 : Math.max(0, previous - randomInt(rng, 0, 2))
+  model.sampleSequences.set(participantId, Math.max(previous, sampleSequence))
+  model.localClockMs += randomInt(rng, 5, 50)
+  const aimed = cooperative || (operation !== null && chance(rng, 0.85))
+  // The clock only moves forward, so a deadline already behind it cannot be hit exactly.
+  const atDeadline = operation !== null && operation.deadlineAtServerMs > clock.ms && chance(rng, 0.12)
+  return {
+    kind: 'acknowledgeOperation',
+    participantId,
+    ...(atDeadline ? { atDeadlineMs: operation.deadlineAtServerMs } : {}),
+    acknowledgement: {
+      mediaEpoch: aimed ? operation!.mediaEpoch : snap.contract?.mediaEpoch ?? 0,
+      operationId: aimed ? operation!.operationId : `operation_${randomAlnum(rng, 16)}`,
+      phase: cooperative || chance(rng, 0.75) ? 'prepared' : 'started',
+      participantId: cooperative || chance(rng, 0.95) ? participantId : `ghost_${randomAlnum(rng, 10)}`,
+      bindingId: cooperative || chance(rng, 0.95) ? `binding_${participantId}` : `binding_other_${randomAlnum(rng, 6)}`,
+      sourceGeneration: 1,
+      sampleSequence,
+      observedPositionSeconds: operation !== null && operation.targetPositionSeconds !== null && (cooperative || chance(rng, 0.8))
+        ? operation.targetPositionSeconds + (rng() - 0.5) * 0.2
+        : rng() * 5_000,
+      observedAtLocalMs: model.localClockMs,
+    },
+  }
+}
+
+function generateOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot, clock: FuzzClock): FuzzOp {
+  // A transactional run spends fewer steps on membership churn, which cancels
+  // every pending seek, and more on controls and acknowledgements.
+  const kind = weightedPick<FuzzOp['kind']>(rng, model.transactional
+    ? [
+        { weight: 10, value: 'join' },
+        { weight: 5, value: 'disconnect' },
+        { weight: 16, value: 'setReady' },
+        { weight: 24, value: 'control' },
+        { weight: 6, value: 'updatePlayerStatus' },
+        { weight: 1, value: 'openLink' },
+        { weight: 1, value: 'transferControl' },
+        { weight: 10, value: 'respondToJoin' },
+        { weight: 30, value: 'acknowledgeOperation' },
+        { weight: 3, value: 'releaseExpired' },
+        { weight: 5, value: 'advanceClock' },
+      ]
+    : [
+        { weight: 25, value: 'join' },
+        { weight: 15, value: 'disconnect' },
+        { weight: 15, value: 'setReady' },
+        { weight: 20, value: 'control' },
+        { weight: 8, value: 'acknowledgeSeek' },
+        { weight: 12, value: 'updatePlayerStatus' },
+        { weight: 3, value: 'openLink' },
+        { weight: 2, value: 'transferControl' },
+        { weight: 12, value: 'respondToJoin' },
+      ])
 
   switch (kind) {
     case 'join': return generateJoinOp(rng, model, snap)
@@ -383,10 +476,14 @@ function generateOp(rng: Rng, model: FuzzModel, snap: RoomSnapshot): FuzzOp {
     case 'openLink': return generateOpenLinkOp(rng, model, snap)
     case 'transferControl': return generateTransferControlOp(rng, model, snap)
     case 'respondToJoin': return generateRespondToJoinOp(rng, model, snap)
+    case 'acknowledgeOperation': return generateAcknowledgeOperationOp(rng, model, snap, clock)
+    case 'releaseExpired': return { kind: 'releaseExpired' }
+    // Long enough for a barrier window to run out between two steps.
+    case 'advanceClock': return { kind: 'advanceClock', ms: randomInt(rng, 200, 4_000) }
   }
 }
 
-function applyOp(room: RoomCoordinator, op: FuzzOp): RoomResult | null {
+function applyOp(room: RoomCoordinator, op: FuzzOp, clock: FuzzClock): RoomResult | null {
   switch (op.kind) {
     case 'join':
       return room.join({
@@ -394,6 +491,7 @@ function applyOp(room: RoomCoordinator, op: FuzzOp): RoomResult | null {
         name: op.name,
         media: op.media,
         ...(op.sessionToken !== undefined ? { sessionToken: op.sessionToken } : {}),
+        ...(op.capabilities !== undefined ? { capabilities: op.capabilities } : {}),
       })
     case 'disconnect':
       return room.disconnect(op.id)
@@ -411,6 +509,21 @@ function applyOp(room: RoomCoordinator, op: FuzzOp): RoomResult | null {
       return room.transferControl(op.fromParticipantId, op.toParticipantId, op.leaseEpoch)
     case 'respondToJoin':
       return room.respondToJoin(op.controllerId, op.leaseEpoch, op.participantId, op.approve)
+    case 'acknowledgeOperation':
+      clock.pinNextMs = op.atDeadlineMs ?? null
+      try {
+        return room.acknowledgeOperation(op.participantId, op.acknowledgement)
+      }
+      finally {
+        // A step that never reads the clock must not leave the pin for a later step.
+        clock.pinNextMs = null
+      }
+    case 'releaseExpired':
+      // The coordinator's alarm: it releases whichever barrier has run out.
+      return room.releaseExpiredOperation() ?? room.releaseExpiredSeek()
+    case 'advanceClock':
+      clock.ms += op.ms
+      return null
   }
 }
 
@@ -553,42 +666,165 @@ function checkDuplicateActionIdempotency(options: {
     throw new Error(`Idempotency invariant violated: duplicate actionId "${op.intent.actionId}" mutated room state.\n${context()}`)
 }
 
+/** How often each barrier invariant was actually exercised, so a run cannot pass by never reaching one. */
+interface BarrierStats {
+  /** Steps that ended with a seek operation still collecting preparation. */
+  pendingSeekSteps: number
+  /** Acknowledgements received at or after the deadline of a pending seek. */
+  lateAcknowledgements: number
+  /** Those received exactly at the deadline, where `>=` and `>` differ. */
+  deadlineAcknowledgements: number
+  /** Pending seeks that the room committed, which is where playback may resume. */
+  committedSeeks: number
+  /** Committed seeks that resumed playback. */
+  resumedSeeks: number
+}
+
+/**
+ * Seek barrier invariants for a transactional room (CR-A07). They are checked
+ * only while the room is transactional before and after the step, because the
+ * legacy barrier recomputes its quorum and is no longer supported.
+ *
+ * A transactional seek is the `seek` operation in phase `preparing`; the
+ * legacy `snapshot.seek` field is not used in this mode.
+ *
+ * `clockBeforeMs` is the coordinator clock before the step. The coordinator
+ * reads the clock at least once during the step and the clock only moves
+ * forward, so a step that starts at or after a deadline receives its
+ * acknowledgement at or after that deadline.
+ */
+function checkSeekBarrierInvariants(options: {
+  seed: number
+  step: number
+  op: FuzzOp
+  before: RoomSnapshot
+  after: RoomSnapshot
+  clockBeforeMs: number
+  stats: BarrierStats
+  history: readonly string[]
+}): void {
+  const { seed, step, op, before, after, clockBeforeMs, stats, history } = options
+  const context = () => renderContext(seed, step, op, history)
+  if (after.contract?.mode !== 'transactional')
+    return
+
+  const afterOperation = after.contract.operation
+  const afterPending = afterOperation?.kind === 'seek' && afterOperation.phase === 'preparing'
+
+  // 1. A seek that is still collecting preparation holds the room paused.
+  if (afterPending) {
+    stats.pendingSeekSteps += 1
+    if (after.playback.status !== 'paused')
+      throw new Error(`Invariant violated: a pending seek to ${afterOperation.targetPositionSeconds} coexists with playback status "${after.playback.status}".\n${context()}`)
+
+    // The quorum is fixed when the seek starts, so a required participant who
+    // disconnects, becomes not ready or moves to other media must cancel the
+    // seek rather than leave it waiting on, or later shrinking to exclude, them.
+    const absent = after.participants
+      .filter(p => afterOperation.requiredParticipantIds.includes(p.id) && !(p.connected && p.ready && p.mediaMatches))
+      .map(p => p.id)
+    if (absent.length > 0)
+      throw new Error(`Invariant violated: a pending seek is still waiting on required participants who are no longer connected, ready and on the same media: ${absent.join(', ')}.\n${context()}`)
+  }
+
+  const beforeOperation = before.contract?.mode === 'transactional' ? before.contract.operation : null
+  if (beforeOperation?.kind !== 'seek' || beforeOperation.phase !== 'preparing')
+    return
+  const sameOperation = afterOperation?.operationId === beforeOperation.operationId
+
+  // 2. An acknowledgement received at or after the deadline never completes
+  // the seek: the operation fails and the room stays paused.
+  const receivedAtMs = op.kind === 'acknowledgeOperation' && op.atDeadlineMs !== undefined ? op.atDeadlineMs : clockBeforeMs
+  if (op.kind === 'acknowledgeOperation' && receivedAtMs >= beforeOperation.deadlineAtServerMs) {
+    stats.lateAcknowledgements += 1
+    if (receivedAtMs === beforeOperation.deadlineAtServerMs)
+      stats.deadlineAcknowledgements += 1
+    if (after.playback.status === 'playing')
+      throw new Error(`Invariant violated: an acknowledgement at or after the deadline ${beforeOperation.deadlineAtServerMs} (received at ${receivedAtMs}) left the room playing.\n${context()}`)
+    if (!sameOperation || afterOperation?.phase !== 'failed')
+      throw new Error(`Invariant violated: an acknowledgement at or after the deadline ${beforeOperation.deadlineAtServerMs} (received at ${receivedAtMs}) did not fail the seek: ${JSON.stringify(afterOperation)}.\n${context()}`)
+  }
+
+  // 3. The room only leaves a pending seek for playing through the commit,
+  // and the commit needs a preparation from every participant that was
+  // ready, connected and on the same media when it happened. A participant
+  // that dropped out would have cancelled the seek instead.
+  if (after.playback.status === 'playing' && before.playback.status !== 'playing') {
+    if (!sameOperation || afterOperation?.phase !== 'committed')
+      throw new Error(`Invariant violated: the room started playing out of a pending seek without committing it: ${JSON.stringify(afterOperation)}.\n${context()}`)
+  }
+  if (sameOperation && afterOperation !== null && afterOperation.phase !== 'preparing' && afterOperation.phase !== 'cancelled' && afterOperation.phase !== 'failed') {
+    stats.committedSeeks += 1
+    if (afterOperation.resumeWhenReady === true) {
+      stats.resumedSeeks += 1
+      if (after.playback.status !== 'playing')
+        throw new Error(`Invariant violated: a committed seek that resumes did not start playing.\n${context()}`)
+    }
+    const expected = before.participants.filter(p => p.ready && p.connected && p.mediaMatches).map(p => p.id)
+    const missing = expected.filter(id => !afterOperation.preparedParticipantIds.includes(id))
+    if (missing.length > 0)
+      throw new Error(`Invariant violated: the seek committed without a preparation from ${missing.join(', ')} (prepared: ${afterOperation.preparedParticipantIds.join(', ')}).\n${context()}`)
+    const unprepared = afterOperation.requiredParticipantIds.filter(id => !afterOperation.preparedParticipantIds.includes(id))
+    if (unprepared.length > 0)
+      throw new Error(`Invariant violated: the seek committed with required participants unprepared: ${unprepared.join(', ')}.\n${context()}`)
+  }
+}
+
 // -----------------------------------------------------------------------
 // Seed runner
 // -----------------------------------------------------------------------
 
-function createFuzzRoom(seed: number, rng: Rng): { room: RoomCoordinator, model: FuzzModel } {
+function createFuzzRoom(seed: number, rng: Rng, transactional: boolean): { room: RoomCoordinator, model: FuzzModel, clock: FuzzClock } {
   const hostToken = chance(rng, 0.7) ? `tok_host_${randomAlnum(rng, 24)}` : undefined
-  const initialMedia = chance(rng, 0.75) ? randomMedia(rng) : null
-  const clockState = { ms: 1_000_000 + seed * 97 }
+  const drawnMedia = chance(rng, 0.75) ? randomMedia(rng) : null
+  // A transactional run always starts with a video, so the room can get ready.
+  const initialMedia = transactional ? drawnMedia ?? randomMedia(rng) : drawnMedia
+  const clockState: FuzzClock = { ms: 1_000_000 + seed * 97, pinNextMs: null }
   const now = () => {
-    clockState.ms += randomInt(rng, 15, 140)
+    if (clockState.pinNextMs !== null) {
+      clockState.ms = clockState.pinNextMs
+      clockState.pinNextMs = null
+    }
+    else {
+      clockState.ms += randomInt(rng, 15, 140)
+    }
     return clockState.ms
   }
 
+  // Capability negotiation ignores an id shorter than six characters, so a
+  // transactional run needs a longer host id to be negotiated at all.
+  const hostId = transactional ? 'participant_host' : 'host'
   const room = new RoomCoordinator(
     { roomId: `room_fuzz_${seed}`, code: `FZ${String(seed).padStart(6, '0')}` },
-    { id: 'host', name: 'Host', media: initialMedia, ...(hostToken !== undefined ? { sessionToken: hostToken } : {}) },
+    {
+      id: hostId,
+      name: 'Host',
+      media: initialMedia,
+      ...(hostToken !== undefined ? { sessionToken: hostToken } : {}),
+      ...(transactional ? { capabilities: CURRENT_CLIENT_CAPABILITIES } : {}),
+    },
     now,
   )
 
   const model: FuzzModel = {
-    confirmedParticipantIds: ['host'],
+    confirmedParticipantIds: [hostId],
     pendingParticipantIds: [],
-    sessionTokens: new Map([['host', hostToken]]),
+    sessionTokens: new Map([[hostId, hostToken]]),
     actionIdPool: [],
     nextIdCounter: 0,
     nextActionCounter: 0,
     lastLocalSampleMs: new Map(),
     localClockMs: clockState.ms,
+    transactional,
+    sampleSequences: new Map(),
   }
 
-  return { room, model }
+  return { room, model, clock: clockState }
 }
 
-function runFuzzSeed(seed: number, opsPerSeed: number): void {
+function runFuzzSeed(seed: number, opsPerSeed: number, options: { transactional?: boolean, stats?: BarrierStats } = {}): void {
   const rng = mulberry32(seed)
-  const { room, model } = createFuzzRoom(seed, rng)
+  const { room, model, clock } = createFuzzRoom(seed, rng, options.transactional === true)
   const history: string[] = []
 
   let currentSnap: RoomSnapshot
@@ -600,12 +836,13 @@ function runFuzzSeed(seed: number, opsPerSeed: number): void {
   }
 
   for (let step = 0; step < opsPerSeed; step++) {
-    const op = generateOp(rng, model, currentSnap)
+    const op = generateOp(rng, model, currentSnap, clock)
     const before = currentSnap
+    const clockBeforeMs = clock.ms
 
     let result: RoomResult | null
     try {
-      result = applyOp(room, op)
+      result = applyOp(room, op, clock)
     }
     catch (error) {
       throw new Error(`Crash-resistance invariant violated: an operation threw.\n${renderContext(seed, step, op, history)}\nerror=${String(error)}`)
@@ -620,6 +857,8 @@ function runFuzzSeed(seed: number, opsPerSeed: number): void {
     }
 
     checkInvariants({ seed, step, op, before, after, history })
+    if (options.stats)
+      checkSeekBarrierInvariants({ seed, step, op, before, after, clockBeforeMs, stats: options.stats, history })
 
     if ((op.kind === 'control' || op.kind === 'openLink') && op.reusedActionId)
       checkDuplicateActionIdempotency({ seed, step, op, before, result, history })
@@ -644,11 +883,32 @@ function runFuzzSeed(seed: number, opsPerSeed: number): void {
 
 const SEED_COUNT = 240
 const OPS_PER_SEED = 55
+// The seek barrier invariants only bite once a run reaches a pending seek, a
+// late acknowledgement or a commit, which most random steps do not, so this
+// run uses more seeds.
+const BARRIER_SEED_COUNT = 600
 
 describe('RoomCoordinator property-based fuzz harness', () => {
   it(`holds core invariants across ${SEED_COUNT} random seeds x ${OPS_PER_SEED} operations each`, () => {
     for (let seed = 0; seed < SEED_COUNT; seed++)
       runFuzzSeed(seed, OPS_PER_SEED)
+  })
+
+  // The runs above build rooms whose members advertise nothing, so they are
+  // always legacy rooms. These seeds advertise the current capabilities, so
+  // the room is transactional and a seek is an operation with a fixed quorum.
+  it(`holds the seek barrier invariants in transactional rooms across ${BARRIER_SEED_COUNT} random seeds x ${OPS_PER_SEED} operations each`, () => {
+    const stats: BarrierStats = { pendingSeekSteps: 0, lateAcknowledgements: 0, deadlineAcknowledgements: 0, committedSeeks: 0, resumedSeeks: 0 }
+    for (let seed = 0; seed < BARRIER_SEED_COUNT; seed++)
+      runFuzzSeed(seed, OPS_PER_SEED, { transactional: true, stats })
+
+    // The seeds are fixed, so these counts are fixed. They fail if a change
+    // to the generators stops the run from reaching the situations above.
+    expect(stats.pendingSeekSteps).toBeGreaterThan(0)
+    expect(stats.lateAcknowledgements).toBeGreaterThan(0)
+    expect(stats.deadlineAcknowledgements).toBeGreaterThan(0)
+    expect(stats.committedSeeks).toBeGreaterThan(0)
+    expect(stats.resumedSeeks).toBeGreaterThan(0)
   })
 })
 
