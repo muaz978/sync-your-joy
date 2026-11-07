@@ -32,7 +32,7 @@
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "ws": "^8.22.0"
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261016.1",
