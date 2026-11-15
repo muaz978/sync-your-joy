@@ -22,6 +22,7 @@ import { parseClientMessage } from '@syncyourjoy/protocol'
 import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 import type { ContentRequest, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PLAYER_CONTEXT_STALE_MS } from './player-tab.ts'
 
 const SESSION_STATE_KEY = 'syncYourJoySessionState'
 const PLAYER_BINDING_KEY = 'syncYourJoyPlayerBinding'
@@ -405,17 +406,18 @@ describe('service worker observed episode identity', () => {
   }
   const nextMedia = { ...oldMedia, canonicalId: 'crunchyroll:GE00365017JAJP', pageUrl: nextUrl }
 
-  async function resumeAtPage(currentUrl: string) {
+  async function resumeAtPage(currentUrl: string, options: { snapshot?: Partial<RoomSnapshot>, playerFrameId?: number } = {}) {
     const snapshot = buildRoomSnapshot({
       media: oldMedia,
       navigation: { revision: 5, url: sharedUrl, effectiveAtServerMs: 0 },
+      ...options.snapshot,
     })
     const fake = buildFakeChrome({ sessionState: {
       participantId: 'participant_resumed',
       sessionToken: 'session_resumed',
       snapshot,
       playerTabId: 42,
-      playerFrameId: 0,
+      playerFrameId: options.playerFrameId ?? 0,
       playerAreaPixels: 500_000,
       currentMedia: oldMedia,
       lastOpenedNavigationRevision: 5,
@@ -797,6 +799,250 @@ describe('service worker observed episode identity', () => {
     const response = await request({ type: 'GET_STATE' })
     expect(response.state.playerFrameId).toBe(0)
     expect(response.state.currentMedia).toMatchObject(oldMedia)
+  })
+
+  // A page can hold several frames, each with its own content script: the
+  // top document, a nested player, an advertisement. The worker binds exactly
+  // one of them as the room's player, by tab and frame, and every frame other
+  // than that one is a bystander whatever token or document ID it claims.
+  describe('frames of the player tab that are not the bound frame', () => {
+    const embedUrl = 'https://player.example.test/embed/1'
+    const readyParticipant = { id: 'participant_resumed', name: 'Resumed Friend', role: 'controller' as const, ready: true, connected: true, mediaMatches: true, latencyMs: null }
+    type Resumed = Awaited<ReturnType<typeof resumeAtPage>>
+
+    function senderFor(frameId: number, documentId?: string, tabId = 42, tabUrl = sharedUrl): chrome.runtime.MessageSender {
+      return {
+        tab: { id: tabId, active: true, url: tabUrl },
+        frameId,
+        url: frameId === 0 ? tabUrl : embedUrl,
+        ...(documentId === undefined ? {} : { documentId }),
+      } as chrome.runtime.MessageSender
+    }
+
+    /** A content script reporting its video, as a new frame with no token yet. */
+    async function report(request: Resumed['request'], frameId: number, documentId: string, areaPixels: number, tabUrl = sharedUrl): Promise<RuntimeResponse> {
+      return request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels, bindingId: undefined }, senderFor(frameId, documentId, 42, tabUrl))
+    }
+
+    async function bind(request: Resumed['request'], frameId: number, documentId: string, areaPixels: number): Promise<string> {
+      const response = await report(request, frameId, documentId, areaPixels)
+      expect(response.state.playerFrameId).toBe(frameId)
+      expect(response.playerBindingId).toEqual(expect.any(String))
+      return response.playerBindingId!
+    }
+
+    const detachesSent = (fake: Resumed['fake']) => vi.mocked(fake.chrome.tabs.sendMessage).mock.calls
+      .filter(([, message]) => (message as { type?: string, state?: { snapshot: unknown } }).type === 'APPLY_ROOM_STATE' && (message as { state: { snapshot: unknown } }).state.snapshot === null)
+      .map(([tabId, , options]) => ({ tabId, options }))
+
+    const sample = { positionSeconds: 99, durationSeconds: 120, paused: false, buffering: false, sampledAtLocalMs: Date.now() }
+    const acknowledgement = (bindingId: string) => ({
+      mediaEpoch: 1,
+      operationId: 'operation_play_123456',
+      bindingId,
+      sourceGeneration: 2,
+      sampleSequence: 7,
+      phase: 'started' as const,
+      participantId: 'participant_resumed',
+      observedPositionSeconds: 12,
+      observedAtLocalMs: Date.now(),
+    })
+
+    it.each([0, 5])('answers GET_STATE from any frame other than the bound frame %i with a detached state', async (boundFrameId) => {
+      const { request } = await resumeAtPage(sharedUrl, { playerFrameId: boundFrameId })
+      await bind(request, boundFrameId, 'document-bound', 500_000)
+
+      const own = await request({ type: 'GET_STATE' }, senderFor(boundFrameId, 'document-bound'))
+      expect(own.state.snapshot?.code).toBe('ABCDEFGH')
+      expect(own.state.playerFrameId).toBe(boundFrameId)
+
+      const siblingFrameId = boundFrameId === 0 ? 3 : 0
+      for (const sibling of [
+        senderFor(siblingFrameId, 'document-sibling'),
+        // Firefox and Safari give a frame no document ID.
+        senderFor(siblingFrameId),
+        // The bound frame's number with another document, as a replaced page has.
+        senderFor(boundFrameId, 'document-other'),
+        // The bound frame's own document ID, claimed from another tab.
+        senderFor(boundFrameId, 'document-bound', 43),
+      ]) {
+        const response = await request({ type: 'GET_STATE' }, sibling)
+        expect(response.ok).toBe(true)
+        expect(response.state.snapshot).toBeNull()
+        expect(response.state.connection).toBe('disconnected')
+        expect(response.state.playerTabId).toBeNull()
+        expect(response.state.playerFrameId).toBeNull()
+        expect(response.state.currentMedia).toBeNull()
+      }
+    })
+
+    // The top frame is the one exception: until a player is bound it shows the
+    // shared page's shell, which needs the room. A nested frame never does,
+    // and neither does the top frame once the room has no shared page.
+    it('gives the top frame the room before a player is bound, but only when the room has a shared page, and never a nested frame', async () => {
+      const withLink = await resumeAtPage(sharedUrl)
+      withLink.fake.updatedListener(42, { status: 'loading' })
+      const top = await withLink.request({ type: 'GET_STATE' }, senderFor(0))
+      expect(top.state.playerFrameId).toBeNull()
+      expect(top.state.snapshot?.code).toBe('ABCDEFGH')
+      const nested = await withLink.request({ type: 'GET_STATE' }, senderFor(3, 'document-embed'))
+      expect(nested.state.snapshot).toBeNull()
+    })
+
+    it('gives even the top frame a detached state before a player is bound when the room has no shared page', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl, { snapshot: { navigation: null } })
+      fake.updatedListener(42, { status: 'loading' })
+      const top = await request({ type: 'GET_STATE' }, senderFor(0))
+      expect(top.state.snapshot).toBeNull()
+    })
+
+    it.each([
+      ['a sibling frame of the bound top frame', 0, 3, 42],
+      ['the top frame when a nested frame is bound', 5, 0, 42],
+      ['a frame of another tab', 0, 0, 43],
+    ])('ignores status, loss, seek, operation acknowledgement and intent messages from %s, even with the bound player\'s token', async (_label, boundFrameId, senderFrameId, senderTabId) => {
+      const { fake, request } = await resumeAtPage(sharedUrl, { playerFrameId: boundFrameId })
+      const boundToken = await bind(request, boundFrameId, 'document-bound', 500_000)
+      const socket = FakeWebSocket.instances[0]!
+      vi.mocked(fake.chrome.tabs.reload).mockClear()
+      const messagesFor = (bindingId: string | undefined, token: string): RuntimeRequest[] => [
+        { type: 'PLAYER_STATUS', basedOnRevision: 5, sample, bindingId },
+        { type: 'SEEK_APPLIED', revision: 5, positionSeconds: 99, bindingId },
+        { type: 'OPERATION_ACK', acknowledgement: acknowledgement(token) },
+        { type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: 99, bindingId },
+        { type: 'RELOAD_PLAYER_TAB', bindingId },
+        { type: 'MEDIA_LOST', bindingId },
+      ]
+
+      const sentBeforeSibling = socket.sentMessages.length
+      for (const claimedDocument of ['document-bound', 'document-sibling', undefined]) {
+        for (const bindingId of [boundToken, undefined]) {
+          for (const message of messagesFor(bindingId, boundToken))
+            await request(message, senderFor(senderFrameId, claimedDocument, senderTabId))
+        }
+      }
+      expect(socket.sentMessages).toHaveLength(sentBeforeSibling)
+      expect(fake.chrome.tabs.reload).not.toHaveBeenCalled()
+      const afterSibling = await request({ type: 'GET_STATE' }, senderFor(boundFrameId, 'document-bound'))
+      expect(afterSibling.state.playerTabId).toBe(42)
+      expect(afterSibling.state.playerFrameId).toBe(boundFrameId)
+      expect(afterSibling.state.currentMedia).toMatchObject(oldMedia)
+      expect(afterSibling.state.lastPlayerSample).toBeNull()
+
+      // The same messages from the bound frame are what the sibling's were not.
+      const boundMessages = messagesFor(boundToken, boundToken)
+      for (const message of boundMessages.slice(0, -1))
+        await request(message, senderFor(boundFrameId, 'document-bound'))
+      expect(fake.chrome.tabs.reload).toHaveBeenCalledWith(42)
+      expect((await request({ type: 'GET_STATE' }, senderFor(boundFrameId, 'document-bound'))).state.lastPlayerSample).toMatchObject(sample)
+      await request(boundMessages.at(-1)!, senderFor(boundFrameId, 'document-bound'))
+      expect((await request({ type: 'GET_STATE' }, senderFor(boundFrameId, 'document-bound'))).state.currentMedia).toBeNull()
+      expect(socket.sentMessages.slice(sentBeforeSibling).map(message => (message as { type: string }).type))
+        .toEqual(expect.arrayContaining(['player_status', 'seek_applied', 'operation_ack', 'control', 'set_ready']))
+    })
+
+    it('keeps the bound frame of a ready participant when a larger sibling frame reports a player', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl, { snapshot: { participants: [readyParticipant] } })
+      const topToken = await bind(request, 0, 'document-top', 500_000)
+      const socket = FakeWebSocket.instances[0]!
+      const sentBefore = socket.sentMessages.length
+      vi.mocked(fake.chrome.tabs.sendMessage).mockClear()
+
+      const response = await report(request, 3, 'document-embed', 2_000_000)
+
+      expect(response.playerBindingId).toBeUndefined()
+      expect(response.state.playerFrameId).toBe(0)
+      expect(response.state.playerAreaPixels).toBe(500_000)
+      expect(socket.sentMessages.slice(sentBefore)).toEqual([])
+      expect(detachesSent(fake)).toEqual([])
+      // The sibling holds no binding: it cannot speak for the room, and the top frame still can.
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample, bindingId: topToken }, senderFor(3, 'document-embed'))
+      expect(socket.sentMessages.slice(sentBefore)).toEqual([])
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample, bindingId: topToken }, senderFor(0, 'document-top'))
+      expect(socket.sentMessages.slice(sentBefore)).toEqual([expect.objectContaining({ type: 'player_status' })])
+      expect((await request({ type: 'GET_STATE' }, senderFor(3, 'document-embed'))).state.snapshot).toBeNull()
+    })
+
+    // Pinned as the current behaviour, not as an endorsement: while the
+    // participant is not ready, the room has no player to protect, so a frame
+    // that is larger than the bound one takes the binding. Whether that should
+    // count as the new frame inheriting the old one's authority is an open
+    // owner decision on #49.
+    describe('while the participant is not ready', () => {
+      it('hands the binding to a larger sibling frame, detaches the old frame, and refuses the old frame\'s token', async () => {
+        const { fake, request } = await resumeAtPage(sharedUrl)
+        const topToken = await bind(request, 0, 'document-top', 500_000)
+        const socket = FakeWebSocket.instances[0]!
+        vi.mocked(fake.chrome.tabs.sendMessage).mockClear()
+
+        const response = await report(request, 3, 'document-embed', 900_000)
+
+        expect(response.state.playerFrameId).toBe(3)
+        expect(response.state.playerAreaPixels).toBe(900_000)
+        expect(response.playerBindingId).toEqual(expect.any(String))
+        expect(response.playerBindingId).not.toBe(topToken)
+        // The frame that lost the binding is told so, by its own document, and is not released to compete again.
+        expect(detachesSent(fake)).toEqual([{ tabId: 42, options: { documentId: 'document-top' } }])
+        expect(vi.mocked(fake.chrome.tabs.sendMessage).mock.calls.some(([, message]) => (message as { bindingReleased?: boolean }).bindingReleased === true)).toBe(false)
+
+        const sentBefore = socket.sentMessages.length
+        await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample, bindingId: topToken }, senderFor(0, 'document-top'))
+        expect(socket.sentMessages).toHaveLength(sentBefore)
+        await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample, bindingId: response.playerBindingId }, senderFor(3, 'document-embed'))
+        expect(socket.sentMessages.slice(sentBefore)).toEqual([expect.objectContaining({ type: 'player_status' })])
+        expect((await request({ type: 'GET_STATE' }, senderFor(0, 'document-top'))).state.snapshot).toBeNull()
+      })
+
+      it.each([
+        ['an equally large', 500_000],
+        ['a smaller', 400_000],
+      ])('keeps the bound frame when %s sibling frame reports a player', async (_label, areaPixels) => {
+        const { fake, request } = await resumeAtPage(sharedUrl)
+        await bind(request, 0, 'document-top', 500_000)
+        vi.mocked(fake.chrome.tabs.sendMessage).mockClear()
+
+        const response = await report(request, 3, 'document-embed', areaPixels)
+
+        expect(response.playerBindingId).toBeUndefined()
+        expect(response.state.playerFrameId).toBe(0)
+        expect(detachesSent(fake)).toEqual([])
+      })
+    })
+
+    describe('once the bound frame has stopped reporting', () => {
+      it.each([
+        ['half the bound frame\'s size', 250_000, true],
+        ['less than half the bound frame\'s size', 249_999, false],
+      ])('lets a sibling frame of %s take the binding only if it is at least half the size', async (_label, areaPixels, takesOver) => {
+        const { request } = await resumeAtPage(sharedUrl, { snapshot: { participants: [readyParticipant] } })
+        await bind(request, 0, 'document-top', 500_000)
+        const now = vi.spyOn(Date, 'now')
+        try {
+          now.mockReturnValue(Date.now() + PLAYER_CONTEXT_STALE_MS + 1_000)
+          const response = await report(request, 3, 'document-embed', areaPixels)
+          expect(response.state.playerFrameId).toBe(takesOver ? 3 : 0)
+          expect(response.playerBindingId === undefined).toBe(!takesOver)
+        }
+        finally {
+          now.mockRestore()
+        }
+      })
+
+      it('keeps the bound frame when the tab no longer shows the room\'s episode', async () => {
+        const { request } = await resumeAtPage(sharedUrl, { snapshot: { participants: [readyParticipant] } })
+        await bind(request, 0, 'document-top', 500_000)
+        const now = vi.spyOn(Date, 'now')
+        try {
+          now.mockReturnValue(Date.now() + PLAYER_CONTEXT_STALE_MS + 1_000)
+          const response = await report(request, 3, 'document-embed', 900_000, nextUrl)
+          expect(response.state.playerFrameId).toBe(0)
+          expect(response.playerBindingId).toBeUndefined()
+        }
+        finally {
+          now.mockRestore()
+        }
+      })
+    })
   })
 
   it('includes playback progress and start evidence in validated diagnostic events', async () => {

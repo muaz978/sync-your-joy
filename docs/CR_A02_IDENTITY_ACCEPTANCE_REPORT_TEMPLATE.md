@@ -2,7 +2,9 @@
 
 Issue: [#49](https://github.com/muaz978/sync-your-joy/issues/49)
 
-This report verifies that one identity decision protects every player layout and every state path. It is an evidence template, not a completed result or release approval. The deterministic matrix in `apps/extension/src/content-script.test.ts` is supporting evidence. A real headed nested-frame run is still required before this issue can be accepted for release.
+This report verifies that one identity decision protects every player layout and every state path. It is an evidence template, not a completed result or release approval.
+
+Acceptance basis (owner decision recorded on #49 on 2026-10-31): acceptance rests on the unit and worker tests plus a nested-frame run of the owned fixture in a local browser (evidence class: controlled browser with a synthetic page). The signed-in Crunchyroll provider rows are carried by #30, #33 and #35, and the two-account, two-device, deployment and acceptance gates by #30, #33, #34, #35 and #69; none of them is required on #49. A row that was not run is still written down as `NOT RUN`, `BLOCKED` or `NOT CLAIMED`, never as a pass.
 
 ## Privacy and state-only boundary
 
@@ -70,20 +72,21 @@ For every `mismatch`, `unknown` or rejection, record the same identity and bindi
 
 The issue-specific test matrix must remain green:
 
-- `apps/extension/src/player-identity.test.ts` covers strong provider identity, unresolved nested identity, worker-bound authority, strong mismatch and top-document mismatch.
-- `apps/extension/src/content-script.test.ts` covers the four layouts for incoming playback, samples, controller play/pause/seek intents and seek acknowledgement.
-- `apps/extension/src/player-tab.test.ts` covers same-tab/frame binding, stale replacement, wrong-media rejection, larger replacement behavior and navigation identity reuse.
-- `apps/extension/src/service-worker.test.ts` covers observed episode identity, old-room protection, stale same-tab context and player binding generation.
+- `apps/extension/src/player-identity.test.ts` covers strong provider identity, unresolved nested identity, worker-bound authority, strong mismatch and top-document mismatch. It also pins that a nested frame reporting a stable provider ID for another episode is a `mismatch` even when the worker binding matches the room (every provider prefix), that a worker binding for another page is a `mismatch` whatever the generic wrapper says, and the nested Qfilm decision for its own and for another video ID, with and without a worker binding.
+- `apps/extension/src/content-script.test.ts` covers the four layouts for incoming playback, samples, controller play/pause/seek intents and seek acknowledgement. Wrong-episode and unbound rows per layout are recorded in the report row by row; do not assume them from this line.
+- `apps/extension/src/player-tab.test.ts` covers same-tab/frame binding, stale replacement, wrong-media rejection, larger replacement behavior and navigation identity reuse as pure decisions.
+- `apps/extension/src/service-worker.test.ts` covers observed episode identity, old-room protection, stale same-tab context and player binding generation. The describe block `frames of the player tab that are not the bound frame` sends from frames other than the bound one: a sibling frame, the top frame while a nested frame is bound, and a frame of another tab. It covers the detached `GET_STATE` answer (and the top-frame navigation-shell exception), that status, intent, seek acknowledgement, operation acknowledgement, media-lost and reload messages from such a frame change nothing even with the bound player's token, that a ready participant's bound frame is not replaced by a larger sibling, what an unready participant's larger sibling may do (it takes the binding; pinned as current behavior, not endorsed), and when a stale bound frame can be replaced.
 - `apps/extension/src/media-fingerprint.test.ts` covers Crunchyroll episode IDs, Qfilm page/embed variants and shared-page rebinding.
 
 These tests establish source and deterministic evidence only. They do not establish real browser injection, real nested frame lifecycle, provider playback, cross-origin behavior or release readiness.
 
 ## Headed browser gate
 
-Use a fresh extension package in a real headed browser and complete the following:
+Use a fresh extension package in a real headed browser and complete the following. The acceptance basis recorded above is the owned-fixture nested-frame row; the provider rows are carried by #30, #33 and #35 and are `NOT CLAIMED` on this report unless they were actually run.
 
 | Check | Result | Evidence |
 | --- | --- | --- |
+| Owned fixture: nested frame is bound and the other frame is not authoritative (selected frame, native state with real frame progress, replacement step) |  |  |
 | Top-document Crunchyroll identity and command path |  |  |
 | Origin-only Crunchyroll iframe identity and command path |  |  |
 | Generic nested embed identity and command path |  |  |
