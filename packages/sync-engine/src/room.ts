@@ -74,7 +74,7 @@ interface ReportOrder {
   latest: PlayerSample
   stepCandidate: { sampledAtLocalMs: number, positionSeconds: number } | null
   progressedSinceReset: boolean
-  /** An alive-only report showed progress after the stored report: a stored "not started" report is out of date. */
+  /** An alive-only report showed progress after the stored report: the stored report (not started, buffering, paused) is out of date. */
   aliveProgressSinceStored: boolean
   seen: string[]
 }
@@ -975,19 +975,19 @@ export class RoomCoordinator {
   /**
    * The report the timer judges a participant by: its stored report, or a report
    * that says it is playing and nothing else when
+   *   - an alive-only report has shown progress since the stored report: the player
+   *     is playing now, so the stored report is out of date whatever it says (not
+   *     started, buffering, paused, or no progress); or
    *   - it has no stored report because every report it sent was only evidence
-   *     that it is alive, and at least one of them showed progress; or
-   *   - its stored report says the player had not started, and an alive-only report
-   *     has shown progress since: startup completed, whatever the stored report says.
+   *     that it is alive, and at least one of them showed progress.
+   * A stored report that is newer than the last alive-only progress still wins.
    * Failure fields are never read from an alive-only report.
    */
   private healthSample(participant: InternalParticipant): PlayerSample | null {
     const order = this.reportOrders.get(participant.id)
     if (participant.lastSample === null)
       return order?.progressedSinceReset === true ? ALIVE_PLAYING_SAMPLE : null
-    if (participant.lastSample.playbackStarted === false && order?.aliveProgressSinceStored === true)
-      return ALIVE_PLAYING_SAMPLE
-    return participant.lastSample
+    return order?.aliveProgressSinceStored === true ? ALIVE_PLAYING_SAMPLE : participant.lastSample
   }
 
   private participantHealthDeadlineMs(participant: InternalParticipant): number | null {

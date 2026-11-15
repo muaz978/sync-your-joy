@@ -2680,14 +2680,70 @@ describe('RoomCoordinator', () => {
         room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.3, 2))
         // The guest then plays, but each of its reports misses a start acknowledgement, so each is alive-only.
         let position = 40.3
+        const friend = () => room.exportState().participants.find(participant => participant.id === 'participant_friend')
         for (let step = 1; clock.value < startAtMs + 12_000; step++) {
           clock.value = startAtMs + 300 + step * 1_000
           position += 1
-          room.updatePlayerStatus('participant_friend', playRevision, report(clock.value, position))
+          expect(room.updatePlayerStatus('participant_friend', playRevision, report(clock.value, position))).toBeNull()
+          // The report only shows the guest is alive and progressing: the stored report is still the startup one.
+          expect(friend()).toMatchObject({
+            lastSample: { positionSeconds: 40, playbackStarted: false },
+            lastSampleReceivedAtMs: clock.value,
+            lastProgressAtServerMs: clock.value,
+          })
           room.updatePlayerStatus('participant_host', room.snapshot().revision, report(clock.value, position))
           expect(room.evaluateHealth(), `at ${clock.value - startAtMs} ms`).toBeNull()
         }
         expect(room.snapshot().playback.status).toBe('playing')
+      })
+
+      describe('a stored report that says the player is not playing, followed by alive-only reports', () => {
+        // The guest's report at the started revision is stored; a join request then raises the revision, so
+        // everything the guest sends afterwards is alive-only.
+        function guestStoredThenBehind(state: Partial<PlayerSample>) {
+          const { room, clock, startedRevision } = startedPlay()
+          clock.value += 500
+          room.updatePlayerStatus('participant_friend', startedRevision, { ...report(clock.value, 40.5), progressed: false, ...state })
+          room.updatePlayerStatus('participant_host', startedRevision, report(clock.value, 40.5))
+          clock.value += 300
+          expect(room.join({ id: 'participant_new', name: 'Sam', media, capabilities: CURRENT_CLIENT_CAPABILITIES })).toMatchObject({ ok: true, reason: 'join_pending' })
+          clock.value += 700
+          expect(room.updatePlayerStatus('participant_friend', startedRevision, report(clock.value, 41.5))).toBeNull()
+          return { room, clock, startedRevision, progressAtMs: clock.value }
+        }
+
+        it.each([
+          ['buffering', { buffering: true }],
+          ['paused', { paused: true }],
+          ['not started', { playbackStarted: false }],
+        ])('retires a stored %s report once an alive-only report shows progress: a guest that then stops is paused by its progress deadline', (_name, state) => {
+          const { room, clock, startedRevision, progressAtMs } = guestStoredThenBehind(state)
+          let hostPosition = 41.5
+          let result: RoomResult | null = null
+          for (let elapsedMs = 1_000; elapsedMs <= 15_000 && result === null; elapsedMs += 1_000) {
+            clock.value = progressAtMs + elapsedMs
+            // Newer reports that show no progress, at the revision from before the join request.
+            room.updatePlayerStatus('participant_friend', startedRevision, { ...report(clock.value, 41.5), progressed: false })
+            hostPosition += 1
+            room.updatePlayerStatus('participant_host', room.snapshot().revision, report(clock.value, hostPosition))
+            result = room.evaluateHealth()
+          }
+          expect(result).toMatchObject({ ok: true, reason: 'participant_playback_stalled', snapshot: { playback: { status: 'paused' } } })
+          expect(clock.value).toBeLessThanOrEqual(progressAtMs + PLAYBACK_PROGRESS_TIMEOUT_MS + 1_000)
+          expect(room.snapshot().participants.find(participant => participant.id === 'participant_friend')?.playbackStatus).toBe('recovery-required')
+        })
+
+        it('still reads a stored report that is newer than the alive-only progress: the player is buffering again, so no progress deadline applies', () => {
+          const { room, clock, progressAtMs } = guestStoredThenBehind({ buffering: true })
+          // A report for the current revision is stored, and says the guest is buffering again.
+          clock.value = progressAtMs + 500
+          room.updatePlayerStatus('participant_friend', room.snapshot().revision, { ...report(clock.value, 41.6), buffering: true, progressed: false })
+          room.updatePlayerStatus('participant_host', room.snapshot().revision, report(clock.value, 41.6))
+          clock.value = progressAtMs + PLAYBACK_PROGRESS_TIMEOUT_MS + 300
+          room.updatePlayerStatus('participant_host', room.snapshot().revision, report(clock.value, 43))
+          expect(room.evaluateHealth()).toBeNull()
+          expect(room.snapshot().playback.status).toBe('playing')
+        })
       })
 
       it('does not count a report in flight across a change of controller, because the change pauses a transactional Play', () => {

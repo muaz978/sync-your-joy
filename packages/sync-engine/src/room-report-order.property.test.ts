@@ -45,6 +45,21 @@ const CLIENT_EPOCH_MS = 1_700_000_000_000
 const SEED_COUNT = 3_000
 const SEEDS = Array.from({ length: SEED_COUNT }, (_, index) => index + 1)
 
+/**
+ * Every shape of report that says a player is not playing, drawn over every field the health timer reads:
+ * `playbackStarted` (false, true or omitted), `paused`, `buffering` and `progressed` (false or omitted:
+ * none of them shows progress). A report that says "playing" with no progress is not among them: held for
+ * more than 1.8 seconds it is a stalled player, which the room rightly pauses (the frozen sequences). A stored report of any of these shapes must stop mattering once a later
+ * alive-only report shows progress (review round 5: the first version drew only `playbackStarted: false`).
+ */
+const NOT_PLAYING_STATES: ReadonlyArray<(random: () => number) => Pick<PlayerSample, 'paused' | 'buffering' | 'playbackStarted' | 'progressed'>> = [
+  random => ({ playbackStarted: false, paused: random() < 0.5, buffering: random() < 0.3, ...(random() < 0.5 ? { progressed: false } : {}) }),
+  random => ({ playbackStarted: true, paused: true, buffering: random() < 0.3, ...(random() < 0.5 ? { progressed: false } : {}) }),
+  random => ({ paused: true, buffering: random() < 0.3, ...(random() < 0.5 ? { progressed: false } : {}) }),
+  random => ({ playbackStarted: true, paused: false, buffering: true, ...(random() < 0.5 ? { progressed: false } : {}) }),
+  random => ({ paused: false, buffering: true, ...(random() < 0.5 ? { progressed: false } : {}) }),
+]
+
 function mulberry32(seed: number): () => number {
   let state = seed >>> 0
   return () => {
@@ -165,11 +180,8 @@ function run(seed: number, mode: 'progressing' | 'frozen', durationMs: number): 
         ? {
             positionSeconds: 20,
             durationSeconds: media.durationSeconds,
-            paused: random() < 0.5,
-            buffering: random() < 0.3,
             sampledAtLocalMs: CLIENT_EPOCH_MS + clock.value + guestOffsetMs,
-            playbackStarted: false,
-            ...(random() < 0.5 ? { progressed: false } : {}),
+            ...pick(NOT_PLAYING_STATES)(random),
           }
         : {
             positionSeconds: frozen ? frozenPosition! : 20 + elapsedMs / 1_000,
