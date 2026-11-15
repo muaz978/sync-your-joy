@@ -38,9 +38,6 @@ import {
 } from './three-profile-room.ts'
 
 test.describe('three-profile fault matrix', () => {
-  // One room and about 45 s of scenarios, with room to spare on a busy machine.
-  test.describe.configure({ timeout: 420_000 })
-
   let profiles: [ExtensionProfile, ExtensionProfile, ExtensionProfile]
 
   test.beforeAll(async () => {
@@ -164,7 +161,11 @@ test.describe('three-profile fault matrix', () => {
         return !!state && state.sourceGeneration > previous && state.readyState >= 1
       }, before, { timeout: 15_000 })
       await profileC.panel.waitForSelector('#ready-button', { timeout: 20_000 })
+      // The reset made C unready: the button offers "I'm ready" again, so the
+      // readyUp below is a real re-admission and not a click that was skipped.
+      await expect(profileC.panel.locator('#ready-button')).toContainText("I'm ready", { timeout: 20_000 })
       await readyUp(profileC)
+      await expect(profileC.panel.locator('#ready-button')).toContainText('Ready', { timeout: 10_000 })
       await profileB.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 20_000 })
     })
 
@@ -180,6 +181,9 @@ test.describe('three-profile fault matrix', () => {
       await profileC.panel.waitForSelector('#sync-now:not([disabled])', { timeout: 15_000 })
       await profileC.panel.click('#sync-now')
       await expect(profileC.panel.getByText('Playback blocked', { exact: true })).toHaveCount(0, { timeout: 15_000 })
+      // The rejected play cleared C's readiness: it has to say it is ready again.
+      await profileC.panel.waitForSelector('#ready-button', { timeout: 15_000 })
+      await expect(profileC.panel.locator('#ready-button')).toContainText("I'm ready", { timeout: 15_000 })
       await readyUp(profileC)
       await ensureRoomPlaying(profileB, pages)
       await assertConverged(pages)

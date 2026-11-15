@@ -109,7 +109,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
   type TestFaultMode = 'hold_acks' | 'drop_acks' | 'silent'
   const TEST_FAULT_MODES: readonly string[] = ['hold_acks', 'drop_acks', 'silent']
   const MAX_HELD_TEST_MESSAGES = 64
-  const testFaults = new Map<string, { mode: TestFaultMode, held: ClientMessage[] }>()
+  const testFaults = new Map<string, { mode: TestFaultMode, held: ClientMessage[], dropped: number }>()
 
   function interceptFaultedMessage(client: ConnectedClient, message: ClientMessage): boolean {
     const fault = testFaults.get(`${client.roomCode}:${client.participantId}`)
@@ -117,8 +117,11 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       return false
     const isAcknowledgement = message.type === 'operation_ack' || message.type === 'seek_applied'
     if (fault.mode === 'hold_acks' && isAcknowledgement) {
+      // Past the cap a message is not kept, and the release response says how many were not.
       if (fault.held.length < MAX_HELD_TEST_MESSAGES)
         fault.held.push(message)
+      else
+        fault.dropped += 1
       return true
     }
     if (fault.mode === 'drop_acks' && isAcknowledgement)
@@ -205,6 +208,9 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
     //   mode=silent     discard its player status and acknowledgements
     //   mode=release    deliver the held acknowledgements, in order, and end the fault
     //   mode=clear      end the fault and forget what was held
+    // Changing from one fault mode to another keeps what is already held; only
+    // release and clear end it. The release response reports how many held
+    // messages were delivered and how many were not kept (past the cap).
     if (request.method === 'POST' && url.pathname === '/__test/fault' && testControlToken !== null) {
       if (request.headers['x-syncyourjoy-test-token'] !== testControlToken) {
         response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
@@ -222,9 +228,11 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       }
       const key = `${roomCode}:${participantId}`
       let released = 0
+      let dropped = 0
       if (mode === 'release') {
         const fault = testFaults.get(key)
         testFaults.delete(key)
+        dropped = fault?.dropped ?? 0
         const target = [...room.sockets].find(socket => clients.get(socket)?.participantId === participantId)
         if (fault && target) {
           for (const held of fault.held) {
@@ -237,10 +245,11 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
         testFaults.delete(key)
       }
       else {
-        testFaults.set(key, { mode: mode as TestFaultMode, held: [] })
+        const existing = testFaults.get(key)
+        testFaults.set(key, { mode: mode as TestFaultMode, held: existing?.held ?? [], dropped: existing?.dropped ?? 0 })
       }
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      response.end(JSON.stringify({ ok: true, mode, released }))
+      response.end(JSON.stringify({ ok: true, mode, released, dropped }))
       return
     }
 
