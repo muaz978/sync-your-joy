@@ -517,15 +517,25 @@ describe('player reports: a replayed report, a client clock step and the order o
 
     it('still pauses a player that has stopped, however its clock moved', () => {
       const { room, clock, revision, startedAtMs } = playingWithProgress()
-      const stoppedAtMs = clock.value
-      // The host's clock steps back and its player stops: the position stays put and nothing progresses.
-      for (let second = 1; second <= 3; second++) {
-        clock.value = stoppedAtMs + second * 600
-        room.updatePlayerStatus('host', revision, sample(startedAtMs - 4_000 + second * 600, 20.5, { progressed: false, playbackStarted: true }))
-        room.updatePlayerStatus('guest', revision, sample(clock.value, 20.5 + second * 0.6, { progressed: true, playbackStarted: true }))
+      // The host's clock steps back 5 s while it plays: two reports follow the step, the second one confirming it.
+      for (const second of [1, 2]) {
+        clock.value = startedAtMs + 500 + second * 1_000
+        room.updatePlayerStatus('host', revision, sample(clock.value - 5_000, 20.5 + second, { progressed: true, playbackStarted: true }))
+        room.updatePlayerStatus('guest', revision, sample(clock.value, 20.5 + second, { progressed: true, playbackStarted: true }))
       }
+      expect(evidenceOf(room, 'host').sampledAtLocalMs).toBe(clock.value - 5_000)
+      const stoppedAtMs = clock.value
+
+      // Then the host's player stops: the position stays put, nothing progresses, and its reports keep arriving on the stepped clock.
+      for (let step = 1; step <= 3; step++) {
+        clock.value = stoppedAtMs + step * 500
+        room.updatePlayerStatus('host', revision, sample(clock.value - 5_000, 22.5, { progressed: false, playbackStarted: true }))
+        room.updatePlayerStatus('guest', revision, sample(clock.value, 22.5 + step * 0.5, { progressed: true, playbackStarted: true }))
+        expect(evidenceOf(room, 'host').sampledAtLocalMs, `report ${step}`).toBe(clock.value - 5_000)
+      }
+      expect(evidenceOf(room, 'host').progressAtMs).toBe(stoppedAtMs)
       clock.value = stoppedAtMs + 1_800
-      room.updatePlayerStatus('guest', revision, sample(clock.value, 22.3, { progressed: true, playbackStarted: true }))
+      room.updatePlayerStatus('guest', revision, sample(clock.value, 24.3, { progressed: true, playbackStarted: true }))
 
       expect(room.evaluateHealth()).toMatchObject({
         reason: 'participant_playback_stalled',
@@ -616,7 +626,8 @@ describe('a report in flight across a revision that is not a new command (CR-B04
       reportInFlight(scene)
 
       expect(progressAtMs(scene.room, 'guest')).toBe(scene.clock.value)
-      expect(recordedSample(scene.room, 'guest')).toMatchObject({ positionSeconds: 21.3 })
+      // It proves the player is alive; it is not kept as the report a failure is classified from.
+      expect(recordedSample(scene.room, 'guest')).toMatchObject({ positionSeconds: 20.5 })
       expect(scene.room.evaluateHealth()).toBeNull()
       expect(scene.room.snapshot().playback.status).toBe('playing')
     })
@@ -730,5 +741,127 @@ describe('a report in flight across a revision that is not a new command (CR-B04
     expect(progressAtMs(restored, 'guest')).toBe(progressBefore)
     restored.updatePlayerStatus('guest', restored.snapshot().revision, sample(scene.clock.value, 21.3, { progressed: true, playbackStarted: true }))
     expect(progressAtMs(restored, 'guest')).toBe(scene.clock.value)
+  })
+})
+
+describe('a report that is only evidence the player is alive (CR-B04, review findings)', () => {
+  function playing(): { room: RoomCoordinator, clock: { value: number }, revision: number, startedAtMs: number } {
+    const clock = { value: 10_000 }
+    const room = readyRoom(() => clock.value)
+    control(room, 'play', 20)
+    const state = room.snapshot()
+    return { room, clock, revision: state.revision, startedAtMs: state.playback.effectiveAtServerMs }
+  }
+  const stored = (room: RoomCoordinator, id: string) => room.exportState().participants.find(item => item.id === id)
+  const publicStatus = (room: RoomCoordinator, id: string) => room.snapshot().participants.find(item => item.id === id)?.playbackStatus
+
+  describe('a delayed report from before a correction the player made on its own', () => {
+    it('does not pause the room when it is older, further along, and says the start failed', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 2_000
+      room.updatePlayerStatus('host', revision, sample(startedAtMs + 2_000, 91, { progressed: true, playbackStarted: true }))
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 2_000, 91, { progressed: true, playbackStarted: true }))
+      clock.value += 100
+
+      // The player pulled itself back from 100 s to 91 s; the report from before the correction arrives afterwards.
+      const late = room.updatePlayerStatus('guest', revision, sample(startedAtMs + 1_000, 100, { paused: true, progressed: false, playbackStarted: true, playbackStartFailed: true }))
+
+      expect(late).not.toMatchObject({ reason: 'participant_playback_blocked' })
+      expect(room.snapshot().playback.status).toBe('playing')
+      expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 91 })
+      expect(stored(room, 'guest')?.playbackBlocked).toBe(false)
+      expect(publicStatus(room, 'guest')).not.toBe('blocked')
+    })
+
+    it('rejects it outright when the player has made more corrections since it was sent', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 2_000
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 2_000, 30.1, { progressed: true, playbackStarted: true, correctionCount: 1 }))
+      const before = stored(room, 'guest')
+      clock.value += 300
+
+      expect(room.updatePlayerStatus('guest', revision, sample(startedAtMs + 1_000, 40, { progressed: true, playbackStarted: true, correctionCount: 0 }))).toBeNull()
+
+      expect(stored(room, 'guest')?.lastSample).toEqual(before?.lastSample)
+      expect(stored(room, 'guest')?.lastProgressAtServerMs).toBe(before?.lastProgressAtServerMs)
+      expect(stored(room, 'guest')?.lastSampleReceivedAtMs).toBe(before?.lastSampleReceivedAtMs)
+    })
+  })
+
+  describe('a report stamped with an older revision that only counts as progress', () => {
+    it('does not become the evidence the timer classifies a failure from: a report that says the player had not started', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 11_000
+      for (const id of ['host', 'guest'])
+        room.updatePlayerStatus(id, revision, sample(clock.value, 31, { progressed: true, playbackStarted: true }))
+      room.join({ id: 'newcomer', name: 'Newcomer', media })
+      clock.value += 200
+
+      room.updatePlayerStatus('guest', revision, sample(clock.value, 31.2, { progressed: false, playbackStarted: false, paused: true }))
+
+      expect(stored(room, 'guest')?.lastSample).toMatchObject({ playbackStarted: true, paused: false })
+      expect(room.evaluateHealth()).toBeNull()
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('does not show the participant as blocked, because an older report must not classify a failure', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 1_000
+      for (const id of ['host', 'guest'])
+        room.updatePlayerStatus(id, revision, sample(clock.value, 21, { progressed: true, playbackStarted: true }))
+      room.join({ id: 'newcomer', name: 'Newcomer', media })
+      clock.value += 200
+
+      room.updatePlayerStatus('guest', revision, sample(clock.value, 21.2, { paused: true, progressed: false, playbackStartFailed: true }))
+
+      expect(publicStatus(room, 'guest')).not.toBe('blocked')
+      expect(room.snapshot().playback.status).toBe('playing')
+    })
+
+    it('still proves the player is alive: progress and the last time it was heard from move', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 1_000
+      for (const id of ['host', 'guest'])
+        room.updatePlayerStatus(id, revision, sample(clock.value, 21, { progressed: true, playbackStarted: true }))
+      room.join({ id: 'newcomer', name: 'Newcomer', media })
+      clock.value += 700
+
+      room.updatePlayerStatus('guest', revision, sample(clock.value, 21.7, { progressed: true, playbackStarted: true }))
+
+      expect(stored(room, 'guest')?.lastProgressAtServerMs).toBe(clock.value)
+      expect(stored(room, 'guest')?.lastSampleReceivedAtMs).toBe(clock.value)
+    })
+  })
+
+  describe('a clock step is told from a late report by the next report', () => {
+    it('takes the first stepped-back report as evidence that the player is alive, and the next one that follows it as the newest report', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 1_000
+      room.updatePlayerStatus('host', revision, sample(clock.value, 21, { progressed: true, playbackStarted: true }))
+      room.updatePlayerStatus('guest', revision, sample(clock.value, 21, { progressed: true, playbackStarted: true }))
+
+      // The guest's clock steps back 5 s: older timestamp, further along.
+      clock.value = startedAtMs + 2_000
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 2_000 - 5_000, 22, { progressed: true, playbackStarted: true }))
+      expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 21 })
+      expect(stored(room, 'guest')?.lastProgressAtServerMs).toBe(clock.value)
+
+      clock.value = startedAtMs + 3_000
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 3_000 - 5_000, 23, { progressed: true, playbackStarted: true }))
+      expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 23, sampledAtLocalMs: startedAtMs - 2_000 })
+    })
+
+    it('does not confirm a step from a second late report that is older than the first, or not further along', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 2_000
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 2_000, 91, { progressed: true, playbackStarted: true }))
+      clock.value += 100
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 1_000, 100, { progressed: true, playbackStarted: true }))
+      clock.value += 100
+      // Older than the first late report: not a step forward of it.
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 500, 101, { progressed: true, playbackStarted: true }))
+
+      expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 91 })
+    })
   })
 })

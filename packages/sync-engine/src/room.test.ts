@@ -2479,12 +2479,16 @@ describe('RoomCoordinator', () => {
         playbackStartFailed: true,
       })
 
-      expect(stalePlaybackFailure).toMatchObject({ ok: true, reason: 'participant_status_changed' })
+      // An older report only shows the player is alive. It is not kept as the player's last report, so it
+      // neither changes the participant's status nor feeds the timer's classification.
+      expect(stalePlaybackFailure).toBeNull()
       expect(room.snapshot()).toMatchObject({
         revision: revisionBeforeStaleReport,
         playback: { status: 'playing' },
         contract: { operation: { phase: 'started' } },
       })
+      expect(room.snapshot().participants.find(participant => participant.id === 'participant_host')?.playbackStatus).not.toBe('blocked')
+      expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastSample?.playbackStartFailed).not.toBe(true)
 
       const staleBuffering = room.updatePlayerStatus('participant_friend', hostRevision, {
         positionSeconds: 41.5,
@@ -2601,7 +2605,7 @@ describe('RoomCoordinator', () => {
       // null here only because 'playing' was already the visible status, the
       // same no-op result an exact-revision report of unchanged status gets.
       expect(chained).toBeNull()
-      expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastSample).toMatchObject({ positionSeconds: 40.7 })
+      expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastProgressAtServerMs).toBe(nowMs)
       const chainedRevision = room.snapshot().revision
       nowMs = startAtMs + 700 + PLAYBACK_PROGRESS_TIMEOUT_MS - 1
       expect(room.evaluateHealth()).toBeNull()

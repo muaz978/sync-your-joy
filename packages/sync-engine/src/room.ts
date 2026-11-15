@@ -1133,14 +1133,55 @@ export class RoomCoordinator {
     // binding one came from (the extension checks that before it sends one). A
     // report it already holds, delivered again, changes nothing: it must not
     // refresh when the player was last heard from or last seen to progress. A
-    // report stamped earlier than the recorded one is a late delivery only
-    // while its position is not further along; one that is clearly further along
-    // came from a client clock that stepped back, and is the newer report.
+    // report stamped earlier than the recorded one is a late delivery while its
+    // position is not further along, or while the player has made fewer
+    // corrections than the recorded report shows (it was sent before a correction
+    // the player made on its own, which moved the position back). Otherwise it
+    // is either a client clock that stepped back or a late report from before such
+    // a correction, and one report cannot tell which: it only shows the player is
+    // alive. The next report that follows it, on the same clock, confirms the
+    // step and is taken as the newest.
+    //
+    // A report that only shows the player is alive, because it was stamped with
+    // an older revision of a run of events that change nothing the players are
+    // playing against, or because it is the first after a possible clock step,
+    // never becomes the report the coordinator classifies a failure from, now
+    // or when its timer next looks (it is not kept as the participant's last
+    // sample and sets no status or block).
     const priorSample = participant.lastSample
-    if (priorSample !== null && (isDuplicateSample(priorSample, sample) || isStaleSample(priorSample, sample)))
-      return null
+    let aliveOnly = basedOnRevision !== this.revision
+    if (priorSample !== null) {
+      if (isDuplicateSample(priorSample, sample) || isStaleSample(priorSample, sample))
+        return null
+      if (sample.sampledAtLocalMs < priorSample.sampledAtLocalMs) {
+        if ((sample.correctionCount ?? 0) < (priorSample.correctionCount ?? 0))
+          return null
+        const candidate = this.clockStepCandidates.get(participantId)
+        if (candidate !== undefined
+          && sample.sampledAtLocalMs > candidate.sampledAtLocalMs
+          && sample.positionSeconds - candidate.positionSeconds >= PLAYBACK_POSITION_ADVANCE_SECONDS) {
+          this.clockStepCandidates.delete(participantId)
+        }
+        else {
+          this.clockStepCandidates.set(participantId, { sampledAtLocalMs: sample.sampledAtLocalMs, positionSeconds: sample.positionSeconds })
+          aliveOnly = true
+        }
+      }
+      else if (!aliveOnly) {
+        this.clockStepCandidates.delete(participantId)
+      }
+    }
 
     const nowMs = this.now()
+    if (aliveOnly) {
+      participant.lastSampleReceivedAtMs = nowMs
+      if (sample.progressed === true)
+        participant.lastProgressAtServerMs = nowMs
+      // A report that says the player recovered still ends a buffering run (ending it twice is harmless).
+      if (sample.buffering !== true)
+        this.bufferingRuns.delete(participantId)
+      return null
+    }
     const previousStatus = participant.playbackStatus ?? this.participantPlaybackStatus(participant, nowMs)
     const activeTransactionalOperation = this.contract.mode === 'transactional'
       && this.contract.operation
@@ -1277,6 +1318,13 @@ export class RoomCoordinator {
    * the grace period again.
    */
   private readonly bufferingRuns = new Map<string, { sinceMs: number; lastMs: number }>()
+
+  /**
+   * The first report after a possible client clock step (older timestamp, further
+   * along), kept until the next report confirms or replaces it. Coordinator-local
+   * and not saved: a restored room waits for a fresh pair.
+   */
+  private readonly clockStepCandidates = new Map<string, { sampledAtLocalMs: number; positionSeconds: number }>()
 
   /**
    * Record one fresh status report for the buffering grace period: a report
@@ -1882,6 +1930,7 @@ export class RoomCoordinator {
     // A new command starts a new period: buffering reported before it must not
     // count towards the grace period of the play that follows.
     this.bufferingRuns.clear()
+    this.clockStepCandidates.clear()
     for (const participant of this.participants.values()) {
       participant.lastSample = null
       participant.lastSampleReceivedAtMs = effectiveAtServerMs
