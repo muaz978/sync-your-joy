@@ -3,9 +3,19 @@ import type { ExtensionState, RuntimeEvent, RuntimeRequest, RuntimeResponse } fr
 import { expectedPosition } from '@syncyourjoy/sync-engine'
 import { retainedPanelScrollTop } from './panel-scroll.ts'
 import { shouldDeferPanelRender } from './panel-interaction.ts'
-import { localPlaybackStatus, playbackStatusCopy } from './playback-status.ts'
+import {
+  escapeHtml,
+  panelStatusKey,
+  participantRowHtml,
+  participantStatusKey,
+  REDETECT_LABEL,
+  statusCardHtml,
+  statusCardView,
+  syncControlsView,
+  type PanelIconName,
+  type PanelStatusKey,
+} from './panel-status-view.ts'
 import { isAwaitingApproval } from './room-membership.ts'
-import type { ParticipantPlaybackStatus } from '@syncyourjoy/protocol'
 
 const appElement = document.querySelector<HTMLElement>('#app')
 if (!appElement)
@@ -229,7 +239,17 @@ function roomView(current: ExtensionState): string {
   const localPosition = current.lastPlayerSample?.positionSeconds ?? roomPosition
   const localPlaybackBlocked = snapshot.playback.status === 'playing'
     && current.lastPlayerSample?.playbackStartFailed === true
-  const localStatus = panelPlaybackStatus(current, me)
+  const localKey = panelStatusKey({
+    connection: current.connection,
+    hasVideo: current.currentMedia !== null,
+    me,
+    roomPlaying: snapshot.playback.status === 'playing',
+    pendingSeek: snapshot.seek !== null,
+    operationKind: snapshot.contract?.operation?.kind ?? null,
+    sample: current.lastPlayerSample,
+    health: current.playerDiagnostics?.health,
+    nowMs: Date.now(),
+  })
   return `
     <section class="flex flex-col gap-4">
       ${privacyDisclosure()}
@@ -277,8 +297,8 @@ function roomView(current: ExtensionState): string {
       ${isController && (snapshot.pendingJoinRequests ?? []).length > 0 ? pendingJoinRequestsCard(snapshot.pendingJoinRequests ?? []) : ''}
       ${readinessControls(me, isController, controller, snapshot.media !== null, current.currentMedia !== null, pendingReadyValue !== null)}
       ${isController ? sharedLinkControls(current.currentMedia?.pageUrl ?? null, pendingOpenLinkUrl !== null) : ''}
-      ${playbackStatusCard(localStatus, isController)}
-      ${localSyncControls(current.currentMedia !== null, snapshot.media !== null, localStatus)}
+      ${statusCardHtml(statusCardView({ key: localKey, controller: isController, errorCode: current.playerDiagnostics?.errorCode }))}
+      ${localSyncControls(current.currentMedia !== null, snapshot.media !== null, localKey)}
       ${playerDiagnosticsCard(current)}
       ${isController && snapshot.media ? controllerControls(snapshot.playback.status, roomPosition, allReady, snapshot.seek ?? null, connected.length) : ''}
 
@@ -288,7 +308,7 @@ function roomView(current: ExtensionState): string {
           <span class="font-mono text-[0.6875rem] leading-4 tabular-nums color-fade">${connected.length}/10 connected</span>
         </div>
         <div class="soft-panel overflow-hidden">
-          ${snapshot.participants.map(participant => participantRow(participant, current, isController)).join('')}
+          ${snapshot.participants.map(participant => participantRow(participant, current, isController, localKey)).join('')}
         </div>
       </div>
 
@@ -301,53 +321,6 @@ function roomView(current: ExtensionState): string {
         Leave room
       </button>
     </section>
-  `
-}
-
-function panelPlaybackStatus(current: ExtensionState, me: ParticipantState | undefined): ParticipantPlaybackStatus {
-  if (me?.playbackStatus)
-    return me.playbackStatus
-  const sample = current.lastPlayerSample
-  const health = current.playerDiagnostics?.health
-  const nowMs = Date.now()
-  const statusAgeMs = sample ? Math.max(0, nowMs - sample.sampledAtLocalMs) : null
-  return localPlaybackStatus({
-    connected: current.connection === 'connected',
-    hasVideo: current.currentMedia !== null,
-    mediaMatches: me?.mediaMatches ?? false,
-    ready: me?.ready ?? false,
-    roomPlaying: current.snapshot?.playback.status === 'playing',
-    pendingSeek: current.snapshot?.seek !== null,
-    operationKind: current.snapshot?.contract?.operation?.kind ?? null,
-    paused: sample?.paused ?? null,
-    buffering: sample?.buffering ?? health?.buffering ?? false,
-    playbackStartFailed: sample?.playbackStartFailed ?? health?.playbackStartFailed ?? false,
-    playbackStarted: sample?.playbackStarted ?? null,
-    progressed: sample?.progressed ?? health?.hasRealPlaybackProgress ?? false,
-    progressAgeMs: sample && !sample.progressed ? statusAgeMs : 0,
-    statusAgeMs,
-    nowMs,
-  })
-}
-
-function playbackStatusCard(status: ParticipantPlaybackStatus, controller: boolean): string {
-  const copy = playbackStatusCopy(status, controller)
-  const tone = status === 'playing' || status === 'ready'
-    ? 'border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-    : status === 'wrong-media' || status === 'blocked' || status === 'recovery-required'
-      ? 'border-rose-600/20 bg-rose-500/10 text-rose-700 dark:text-rose-300'
-      : 'border-amber-600/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-  return `
-    <div class="soft-panel p-4">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <p class="section-label m-0">Playback status</p>
-          <p class="mt-1 mb-0 text-xs leading-5 color-fade">${escapeHtml(copy.detail)}</p>
-        </div>
-        <span class="status-badge ${tone}">${escapeHtml(copy.label)}</span>
-      </div>
-      <p class="mt-3 mb-0 text-[0.6875rem] leading-4 color-fade">Next action: ${escapeHtml(copy.action)}</p>
-    </div>
   `
 }
 
@@ -499,28 +472,21 @@ function readinessControls(me: ParticipantState | undefined, isController: boole
   `
 }
 
-function localSyncControls(hasLocalPlayer: boolean, roomHasMedia: boolean, status: ParticipantPlaybackStatus): string {
-  if (!roomHasMedia)
+function localSyncControls(hasLocalPlayer: boolean, roomHasMedia: boolean, key: PanelStatusKey): string {
+  const controls = syncControlsView({ hasLocalPlayer, roomHasMedia, key })
+  if (!controls)
     return ''
-  const syncLabel = status === 'blocked'
-    ? 'Use Sync gesture'
-    : status === 'seeking'
-      ? 'Retry seek'
-      : status === 'preparing'
-        ? 'Retry preparation'
-        : 'Sync me now'
-  const syncDisabled = !hasLocalPlayer || status === 'wrong-media' || status === 'silent'
   return `
     <div class="soft-panel p-4">
       <p class="section-label m-0">Playback repair</p>
       <p class="mt-1 mb-0 text-xs leading-5 color-fade">Use the action that matches the current player state. The selected video stays local to your browser.</p>
-      <button id="sync-now" class="btn-action mt-3 w-full tap-scale" type="button" ${syncDisabled ? 'disabled' : ''}>
+      <button id="sync-now" class="btn-action mt-3 w-full tap-scale" type="button" ${controls.syncDisabled ? 'disabled' : ''}>
         ${syncIcon('h-4 w-4')}
-        ${syncLabel}
+        ${controls.syncLabel}
       </button>
       <button id="redetect-player" class="btn-action mt-2 w-full tap-scale" type="button">
         ${screenIcon('h-4 w-4')}
-        Redetect player
+        ${REDETECT_LABEL}
       </button>
     </div>
   `
@@ -566,44 +532,15 @@ function playerDiagnosticsCard(current: ExtensionState): string {
   `
 }
 
-function participantRow(participant: ParticipantState, current: ExtensionState, canTransfer: boolean): string {
+function participantRow(participant: ParticipantState, current: ExtensionState, canTransfer: boolean, localKey: PanelStatusKey): string {
   const isMe = participant.id === current.participantId
-  const isController = participant.id === current.snapshot?.controller.participantId
-  const status: ParticipantPlaybackStatus = participant.connected
-    ? participant.playbackStatus ?? (participant.mediaMatches ? participant.ready ? 'ready' : 'preparing' : 'wrong-media')
-    : 'unknown'
-  const statusText = playbackStatusCopy(status, canTransfer && isController).label
-  const statusTone = status === 'playing' || status === 'ready'
-    ? 'border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-    : status === 'wrong-media' || status === 'blocked' || status === 'recovery-required'
-      ? 'border-rose-600/20 bg-rose-500/10 text-rose-700 dark:text-rose-300'
-      : 'border-amber-600/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-  return `
-    <div class="flex min-h-14 items-center gap-3 border-b border-base px-3 py-2 last:border-b-0 ${participant.connected ? '' : 'opacity-50'}">
-      <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-secondary text-xs font-700 color-active" aria-hidden="true">
-        ${escapeHtml(initials(participant.name))}
-      </span>
-      <div class="min-w-0 flex-1">
-        <p class="m-0 truncate text-sm font-700" title="${escapeAttribute(participant.name)}">
-          ${escapeHtml(participant.name)}${isMe ? ' (you)' : ''}
-        </p>
-        <p class="m-0 mt-0.5 text-[0.6875rem] leading-4 color-fade">
-          ${!participant.connected
-            ? 'Disconnected'
-            : isController
-              ? `Controller · ${participant.ready ? 'Ready' : 'Not ready'}`
-              : participant.ready ? 'Ready' : 'Not ready'}${participant.latencyMs !== null ? `, ${participant.latencyMs} ms` : ''}
-        </p>
-      </div>
-      <div class="flex shrink-0 items-center gap-2">
-        <span class="status-badge hidden sm:inline-flex ${statusTone}">${escapeHtml(statusText)}</span>
-        ${statusIcon(participant)}
-        ${canTransfer && !isMe && participant.connected
-          ? `<button class="btn-action min-h-10 px-3 text-xs" type="button" data-transfer="${escapeAttribute(participant.id)}">Pass</button>`
-          : ''}
-      </div>
-    </div>
-  `
+  return participantRowHtml({
+    participant,
+    key: participantStatusKey({ participant, isMe, connection: current.connection, localKey }),
+    isMe,
+    isController: participant.id === current.snapshot?.controller.participantId,
+    canTransfer,
+  }, panelIcon)
 }
 
 function bindCommonActions(): void {
@@ -900,14 +837,15 @@ function connectionBadge(current: ExtensionState): string {
   `
 }
 
-function statusIcon(participant: ParticipantState): string {
-  if (!participant.connected)
-    return `<span class="color-fade" title="Disconnected">${offlineIcon('h-4 w-4')}</span>`
-  if (!participant.mediaMatches)
-    return `<span class="text-rose-600 dark:text-rose-300" title="Wrong video">${warningIcon('h-4 w-4')}</span>`
-  if (participant.ready)
-    return `<span class="text-emerald-600 dark:text-emerald-300" title="Ready">${checkIcon('h-4 w-4')}</span>`
-  return `<span class="color-fade" title="Not ready">${waitingIcon('h-4 w-4')}</span>`
+function panelIcon(name: PanelIconName, classes: string): string {
+  switch (name) {
+    case 'play': return playIcon(classes)
+    case 'check': return checkIcon(classes)
+    case 'waiting': return waitingIcon(classes)
+    case 'sync': return syncIcon(classes)
+    case 'warning': return warningIcon(classes)
+    case 'offline': return offlineIcon(classes)
+  }
 }
 
 function showToast(message: string): void {
@@ -983,10 +921,6 @@ function formatClock(uncertaintyMs: number): string {
   return `±${Math.round(uncertaintyMs)} ms`
 }
 
-function initials(name: string): string {
-  return name.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase() ?? '').join('') || 'SY'
-}
-
 function serviceLabel(service: string): string {
   const labels: Record<string, string> = {
     netflix: 'Netflix',
@@ -997,16 +931,6 @@ function serviceLabel(service: string): string {
     'shared-link': 'Shared video page',
   }
   return labels[service] ?? service
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>'"]/g, character => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    "'": '&#39;',
-    '"': '&quot;',
-  })[character] ?? character)
 }
 
 function escapeAttribute(value: string): string {
