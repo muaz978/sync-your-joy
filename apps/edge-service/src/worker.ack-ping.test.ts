@@ -65,6 +65,8 @@ class FakeSocket {
 interface Harness {
   store: Map<string, unknown>
   alarms: number[]
+  /** Calls to `deleteAlarm()`: the platform alarm is gone after one, whatever `alarms` says. */
+  deletedAlarms: { count: number }
   puts: { count: number }
   room: Room
   host: FakeSocket
@@ -79,6 +81,7 @@ async function twoMembers(options: { transactional: boolean }): Promise<Harness>
   vi.useFakeTimers({ toFake: ['Date'], now: START_MS })
   const store = new Map<string, unknown>()
   const alarms: number[] = []
+  const deletedAlarms = { count: 0 }
   const puts = { count: 0 }
   const host = new FakeSocket()
   const friend = new FakeSocket()
@@ -94,7 +97,7 @@ async function twoMembers(options: { transactional: boolean }): Promise<Harness>
       deleteAll: async () => { store.clear() },
       setAlarm: async (at: number) => { alarms.push(at) },
       getAlarm: async () => null,
-      deleteAlarm: async () => {},
+      deleteAlarm: async () => { deletedAlarms.count += 1 },
     },
     blockConcurrencyWhile: async <T>(fn: () => Promise<T>) => fn(),
     getWebSockets: () => sockets,
@@ -111,6 +114,7 @@ async function twoMembers(options: { transactional: boolean }): Promise<Harness>
   return {
     store,
     alarms,
+    deletedAlarms,
     puts,
     room,
     host,
@@ -150,11 +154,13 @@ describe('RoomDurableObject: an operation_ack that is not accepted changes nothi
     return { room, operation, acknowledgement }
   }
 
-  /** What a refused acknowledgement must leave: no snapshot to anyone, nothing written, the stored room as it was. */
+  /** What a refused acknowledgement must leave: no snapshot to anyone, nothing written, the alarm that was scheduled neither replaced nor deleted, the stored room as it was. */
   async function expectNothing(room: Harness, send: () => Promise<void>) {
     const snapshotsHeard = [room.host, room.friend].map(socket => socket.snapshots().length)
     const writes = room.puts.count
     const alarms = room.alarms.length
+    const lastAlarm = room.alarms.at(-1)
+    const deleted = room.deletedAlarms.count
     const stored = structuredClone(room.store.get('room'))
 
     await send()
@@ -162,6 +168,9 @@ describe('RoomDurableObject: an operation_ack that is not accepted changes nothi
     expect([room.host, room.friend].map(socket => socket.snapshots().length)).toEqual(snapshotsHeard)
     expect(room.puts.count).toBe(writes)
     expect(room.alarms).toHaveLength(alarms)
+    // The scheduled alarm is still the one that was set, and nothing deleted it.
+    expect(room.alarms.at(-1)).toBe(lastAlarm)
+    expect(room.deletedAlarms.count).toBe(deleted)
     expect(room.store.get('room')).toEqual(stored)
   }
 
@@ -202,6 +211,39 @@ describe('RoomDurableObject: an operation_ack that is not accepted changes nothi
     await expectNothing(room, () => room.say(room.friend, acknowledgement({ mediaEpoch: 7 })))
     await expectNothing(room, () => room.say(room.friend, acknowledgement({ observedPositionSeconds: 400 })))
     await expectNothing(room, () => room.say(room.friend, acknowledgement({ phase: 'started', observedPositionSeconds: 20 })))
+  })
+
+  // FINDING (not fixed here, tests-only change): `acknowledgeOperation()` in
+  // packages/sync-engine/src/room.ts stores `participant.lastOperationObservation`
+  // (the binding, source generation and sample sequence) before the phase and
+  // position checks that can still refuse the acknowledgement. A refused
+  // acknowledgement therefore raises the sequence floor in memory, announces
+  // nothing and writes nothing, and a later valid acknowledgement with a lower
+  // sequence from the same binding is dropped as stale. Whether a real client
+  // can send a lower sequence after a higher one is not shown here: the sequence
+  // is meant to rise, so the case needs a reordered or restarted sender. This
+  // test pins what happens today so a change to it is a decision.
+  it('lets a refused acknowledgement raise the sequence floor, so a later valid one with a lower sequence is dropped as stale (current behaviour, finding)', async () => {
+    const { room, acknowledgement } = await preparing()
+
+    // Refused: the position is not the target. Sequence 5.
+    await expectNothing(room, () => room.say(room.friend, acknowledgement({ observedPositionSeconds: 400, sampleSequence: 5 })))
+    // Valid in every respect, sequence 1: dropped as stale.
+    await expectNothing(room, () => room.say(room.friend, acknowledgement({ sampleSequence: 1 })))
+    expect(room.host.reasons().at(-1)).toBe('control_play_pending')
+
+    // A valid acknowledgement above the floor is accepted, so only the order is at fault.
+    await room.say(room.friend, acknowledgement({ sampleSequence: 6 }))
+    expect(room.host.reasons().at(-1)).toBe('operation_participant_prepared')
+  })
+
+  // The same acknowledgement without the refused one before it: accepted.
+  it('accepts that same valid acknowledgement with sequence 1 when no refused one came before it (the comparison for the finding)', async () => {
+    const { room, acknowledgement } = await preparing()
+
+    await room.say(room.friend, acknowledgement({ sampleSequence: 1 }))
+
+    expect(room.host.reasons().at(-1)).toBe('operation_participant_prepared')
   })
 
   it('does not accept an acknowledgement that the protocol cannot parse', async () => {
