@@ -11,7 +11,7 @@ Per the owner decision of 2026-10-31 on #53, the provider, two-account, two-devi
 | Issue | #53, CR-A06: Make health evidence stable and consistent |
 | PR | The pull request that adds this file |
 | Commit under test | Base `257afb6` (main, extension 0.2.12) plus that pull request. A file cannot name the commit that contains it; the head SHA of the pull request is the candidate. |
-| Candidate package SHA-256 | No package was built or loaded. For the bundle only: `npm run build` at the code commit gives `apps/extension/dist/content-script.js` SHA-256 `ba2ee0f27e447116c985320f2b1f05b0d4e94f8445ca7d7fa3dc59af903ad34a` (the documentation commit does not change it). This is the hash of one built file, not a release archive. |
+| Candidate package SHA-256 | No package was built or loaded. For the bundle only: `npm run build` at the code commit gives `apps/extension/dist/content-script.js` SHA-256 `cfbb45316a71982675fe6e2baad0c5ad48d5dc3af05afaf8a147c9cdaa9e8a67` (the documentation commit does not change it). This is the hash of one built file, not a release archive. |
 | Repository version | 0.2.12 |
 | Test date and timezone | 2026-11-15, UTC+03:00 |
 | Tester or verification owner | Implementation agent for the owner, muaz978 |
@@ -33,7 +33,7 @@ No credential, cookie, storage state, signed URL or media byte appears in this r
 | Content-script integration tests | Pass, fake element | `apps/extension/src/content-script.test.ts`, the block "player health evidence in the content script (CR-A06, #53)". |
 | Service-worker diagnostics tests | Pass | `apps/extension/src/service-worker.test.ts` runs in `npm test`. |
 | Typecheck | Pass | `npm run typecheck`, clean. |
-| Full test and build | Pass | `npm test`: 50 files, 1,081 tests. `npm run build`: built. |
+| Full test and build | Pass | `npm test`: 51 files, 1,136 tests (main merged in). `npm run build`: built. |
 | Controlled browser observation | Not run | |
 | Live Crunchyroll/provider acceptance | Not run | |
 | Two-profile or two-account acceptance | Not run | |
