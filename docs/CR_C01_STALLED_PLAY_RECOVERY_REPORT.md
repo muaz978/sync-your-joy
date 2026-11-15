@@ -67,9 +67,38 @@ The extension lifecycle test now proves that:
 
 Existing tests continue to cover stale play rejection after a newer pause, source replacement, genuine `NotAllowedError`, `AbortError`, missing progress, player health refresh and replaced or invalidated player operations.
 
+## Transactional path and further coverage (2026-11-15)
+
+The original change bounded a never-settling `play()` for the room's ordinary play command. A transactional play (a committed operation) reached the same deadline, but the heartbeat then started a new `play()` of its own, because the operation's attempt marker is cleared on failure and the transactional path did not look at the recovery barrier. Within 15 seconds the extension made two `play()` calls, with no Sync and no coordinator reply. `applyTransactionalOperation()` and `requestTransactionalPlay()` now honour the barrier: only an explicit Sync or a newer room command (which resets it) can start another attempt.
+
+Unit tests (`content-script.test.ts`, "a play() that never settles (CR-C01, #62)", with a fake element that reports itself unpaused while the promise is pending and rejects the pending promise with an `AbortError` when paused):
+
+| Behaviour | Test |
+| --- | --- |
+| A committed operation whose `play()` never settles: one call, the notice at 10 s, still one call after 30 s without a coordinator reply | "is asked for once, then left alone for 30 seconds without a coordinator reply" |
+| An explicit Sync starts one fresh `play()` and no more | "starts one fresh play() on an explicit Sync, and only one" |
+| A newer operation starts again without a Sync | "lets a newer operation start again without a Sync" |
+| The deadline pauses the unpaused element once, the interruption it causes is the old attempt's and is ignored, buffering is reported and the failure is not a permission failure | "pauses the unpaused element once at the deadline, ignores the interruption it causes and reports buffering" |
+| A replaced element: the old attempt's late result does not touch it and its deadline goes away | "does not let the old element's late result touch a replacement element" |
+| Other native rejections give an actionable notice and no permission claim | "reports a NotSupportedError ..." and "... a TypeError ..." |
+| Sync with no player says the shared player is still loading | "says that the shared player is still loading" |
+
+Mutation checks: 10 mutations, 8 killed. Removing both guards fails three tests; each guard alone survives because the other still stops the request (defence in depth). The mutation that leaves the old attempt's timer in place on replacement survives, because the timer's own `isCurrent()` check already makes it a no-op.
+
+### Measured, not decided
+
+With the room kept playing and a position that advances, a `play()` that is rejected with `NotSupportedError`, `AbortError` or `NotAllowedError` is asked for again on every heartbeat: 31 calls in 30 seconds in each case. In a connected room the coordinator ends the start (on `NotAllowedError` at once, otherwise through the buffering grace), so the loop is bounded there, but the content script has no bound of its own. No owner decision on a bound is recorded, so none was built and no test pins this behaviour.
+
+### Not done
+
+- Sync pressed inside the ten-second window returns silently (the pending play is neither retired nor reported). The owner has not decided whether it should retire the play and show a notice or whether the criterion should say "after the deadline".
+- A native media error resets the player's operations but has no notice or participant status of its own (the same open decision).
+- The "Hang next play" control in `apps/room-service/static/test-player.html` and a scenario in `tests/e2e/three-profile-browser-matrix.spec.ts`: outside this change, and Chromium could not be run.
+- Mapping an expired deadline to "Needs recovery" in the participant status (overlaps #64).
+
 ## Verification
 
-Focused local verification completed:
+Focused local verification completed when the change was written (historical, version 0.2.4):
 
 - `npm exec vitest run apps/extension/src/content-script.test.ts apps/extension/src/player-operations.test.ts --pool=forks --poolOptions.forks.singleFork=true`: 2 files, 64 tests passed.
 - `git diff --check`: passed.
@@ -95,4 +124,4 @@ This report does not establish:
 - remote staging or production deployment;
 - final user acceptance or release qualification.
 
-Issue #62 must remain open until its applicable source, browser, live-provider, device, deployment and user-acceptance gates are recorded. The package version remains `0.2.4`. Release `1.0.0` remains reserved for complete milestone acceptance.
+Issue #62 must remain open until its applicable source, browser, live-provider, device, deployment and user-acceptance gates are recorded. The extension is at 0.2.12 at the refresh of 2026-11-15; no #62 evidence is recorded against v0.2.7 to v0.2.12, and no release or deployment is authorized by this report. Release `1.0.0` remains reserved for complete milestone acceptance.
