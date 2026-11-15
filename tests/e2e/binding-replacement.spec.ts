@@ -91,6 +91,8 @@ test.describe('player binding while the bound player is replaced live', () => {
     await page.evaluate(() => (window as unknown as FixtureWindow).__SYNCYOURJOY_ADAPTIVE_FIXTURE__!.load())
     await expect.poll(() => completedLoads(page), { timeout: 60_000 }).toBe(2)
     await expect(page.locator('#adaptive-player')).toHaveCount(0)
+    // A missing player is not a paused one.
+    await expect(expectPaused(page, '#adaptive-player', 1_000)).rejects.toThrow(/should pause/)
     await page.waitForTimeout(3_000)
     await waitForSampleAfter(profile, Date.now() - 2_000)
     expect(await readBoundPlayer(profile)).toMatchObject({

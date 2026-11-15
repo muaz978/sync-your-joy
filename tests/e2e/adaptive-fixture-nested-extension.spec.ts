@@ -191,6 +191,10 @@ test.describe('cross-origin nested frame with the real extension', () => {
       await waitForSampleAfter(profile, Date.now())
       const afterReplacement = await waitForBoundPlayer(profile, player => player.frameId === nestedFrameId, 'The extension should stay bound to the nested frame.')
       expect(afterReplacement.origin).toBe('light-dom')
+      // The replaced node is gone, and a missing player is not a paused one.
+      await expect(nested.locator('#adaptive-player')).toHaveCount(0)
+      await expect(expectPaused(nested, '#adaptive-player', 1_000)).rejects.toThrow(/should pause/)
+      await expect(expectPlaying(nested, '#adaptive-player', 1_000)).rejects.toThrow(/should be playing/)
       await readyAndPlayAll(profile)
       await expectPlaying(nested, '#replacement-player')
       expect((await readBoundPlayer(profile)).frameId).toBe(nestedFrameId)

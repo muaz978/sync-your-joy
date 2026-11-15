@@ -75,7 +75,8 @@ export async function pauseAll(profile: ExtensionProfile): Promise<void> {
 
 export interface VideoReading {
   present: boolean
-  paused: boolean
+  /** The element's own `paused`; null when there is no such element, so a missing player is neither paused nor playing. */
+  paused: boolean | null
   currentTime: number
   readyState: number
 }
@@ -86,18 +87,19 @@ export async function readVideo(target: Page | Frame, selector = 'video'): Promi
     const video = document.querySelector<HTMLVideoElement>(query)
     return video
       ? { present: true, paused: video.paused, currentTime: video.currentTime, readyState: video.readyState }
-      : { present: false, paused: true, currentTime: 0, readyState: 0 }
+      : { present: false, paused: null, currentTime: 0, readyState: 0 }
   }, selector)
 }
 
-export async function expectPlaying(target: Page | Frame, selector = 'video'): Promise<void> {
-  await expect.poll(async () => (await readVideo(target, selector)).paused, { timeout: 20_000, message: `The player ${selector} should be playing.` }).toBe(false)
+export async function expectPlaying(target: Page | Frame, selector = 'video', timeout = 20_000): Promise<void> {
+  await expect.poll(async () => (await readVideo(target, selector)).paused, { timeout, message: `The player ${selector} should be playing.` }).toBe(false)
   const first = (await readVideo(target, selector)).currentTime
   await expect.poll(async () => (await readVideo(target, selector)).currentTime, { timeout: 10_000, message: `The player ${selector} should advance while it plays.` }).toBeGreaterThan(first + 0.5)
 }
 
-export async function expectPaused(target: Page | Frame, selector = 'video'): Promise<void> {
-  await expect.poll(async () => (await readVideo(target, selector)).paused, { timeout: 15_000, message: `The player ${selector} should pause.` }).toBe(true)
+/** The element exists and reports itself paused. A removed or replaced element does not pass. */
+export async function expectPaused(target: Page | Frame, selector = 'video', timeout = 15_000): Promise<void> {
+  await expect.poll(async () => (await readVideo(target, selector)).paused, { timeout, message: `The player ${selector} should pause.` }).toBe(true)
 }
 
 /** The page's only child frame, once it exists. */
