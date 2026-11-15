@@ -173,6 +173,12 @@ describe('the /__test/* hooks', () => {
     expect(service.inspectTestFaults(empty.code)).toBe(1)
     empty.socket.close()
     await new Promise(resolve => empty.socket.once('close', resolve))
+    // The empty clock starts at the first cleanup tick that sees nobody
+    // connected. Advancing the fake clock before that tick would start the
+    // clock at the advanced time, and the room would not be due.
+    for (let attempt = 0; attempt < 100 && service.inspectRoom(empty.code)?.emptySinceMs == null; attempt += 1)
+      await new Promise(resolve => setTimeout(resolve, 20))
+    expect(service.inspectRoom(empty.code)?.emptySinceMs).not.toBeNull()
     clockMs += 60 * 60 * 1000
     expect(await expired(empty.code)).toBe(true)
     expect(service.inspectTestFaults(empty.code)).toBe(0)
