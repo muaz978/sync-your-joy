@@ -497,10 +497,10 @@ describe('room service', () => {
     const report = diagnosticReport()
     const ownResponse = nextMessageOfType(host, 'diagnostics_response')
     host.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_123456', report }))
-    await expect(ownResponse).resolves.toMatchObject({ type: 'diagnostics_response', participantId: 'participant_host', participantName: 'Muaz' })
+    await expect(ownResponse).resolves.toMatchObject({ type: 'diagnostics_response', reportId: 'report_123456', participantId: 'participant_host', participantName: 'Muaz' })
     const friendResponse = nextMessageOfType(host, 'diagnostics_response')
     friend.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_123456', report }))
-    await expect(friendResponse).resolves.toMatchObject({ type: 'diagnostics_response', participantId: 'participant_friend', participantName: 'Rana' })
+    await expect(friendResponse).resolves.toMatchObject({ type: 'diagnostics_response', reportId: 'report_123456', participantId: 'participant_friend', participantName: 'Rana' })
 
     const rejectedMemberRequest = nextMessage(friend)
     friend.send(JSON.stringify({ type: 'request_diagnostics', reportId: 'report_654321' }))
