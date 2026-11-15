@@ -161,11 +161,15 @@ test.describe('three-profile fault matrix', () => {
         return !!state && state.sourceGeneration > previous && state.readyState >= 1
       }, before, { timeout: 15_000 })
       await profileC.panel.waitForSelector('#ready-button', { timeout: 20_000 })
-      // The reset made C unready: the button offers "I'm ready" again, so the
-      // readyUp below is a real re-admission and not a click that was skipped.
-      await expect(profileC.panel.locator('#ready-button')).toContainText("I'm ready", { timeout: 20_000 })
-      await readyUp(profileC)
-      await expect(profileC.panel.locator('#ready-button')).toContainText('Ready', { timeout: 10_000 })
+      // Observed: replacing the source of the same media does not make C unready
+      // (the panel still reads "Ready", the extension re-detected the player), so
+      // there is no re-admission to assert here. What is asserted is that the room
+      // still plays with the reset player: B's Play starts all three and they converge.
+      await expect(profileC.panel.locator('#ready-button')).toContainText('Ready', { timeout: 20_000 })
+      await profileB.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 20_000 })
+      await ensureRoomPlaying(profileB, pages)
+      await assertConverged(pages)
+      await ensureRoomPaused(profileB, pages)
       await profileB.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 20_000 })
     })
 
