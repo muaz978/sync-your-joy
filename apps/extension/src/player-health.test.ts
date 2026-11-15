@@ -532,3 +532,119 @@ describe('clearing a waiting latch with and without a frame counter', () => {
     expect(state.hasRenderedFrameProgress).toBe(false)
   })
 })
+
+describe('the evidence a verdict claims comes from the comparison that made it', () => {
+  const event = (previous: ReturnType<typeof createPlayerHealthState>, overrides: Partial<Parameters<typeof observePlayerHealth>[1]> = {}) =>
+    playing(previous, { periodic: false, ...overrides })
+
+  it('is clock when a counter that went missing between two reports comes back and only the clock moved', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: null })
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = event(state, { nowMs: 1_100, positionSeconds: 1.1, frames: null })
+    state = event(state, { nowMs: 1_400, positionSeconds: 1.4, frames: 10 })
+
+    expect(state.progressed).toBe(true)
+    expect(state.progressEvidence).toBe('clock')
+    expect(state.hasRenderedFrameProgress).toBe(false)
+  })
+
+  it('is clock in the same sequence during the startup grace window', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: null })
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10, playShouldHaveStarted: false })
+    state = event(state, { nowMs: 1_100, positionSeconds: 1.1, frames: null, playShouldHaveStarted: false })
+    state = event(state, { nowMs: 1_400, positionSeconds: 1.4, frames: 10, playShouldHaveStarted: false })
+
+    expect(state.progressEvidence).toBe('clock')
+    expect(state.hasRenderedFrameProgress).toBe(false)
+  })
+
+  it('is frames when the counter itself advanced, even across a report that could not read it', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = event(state, { nowMs: 1_100, positionSeconds: 1.1, frames: null })
+    state = playing(state, { nowMs: 2_000, positionSeconds: 2, frames: 40 })
+
+    expect(state.progressed).toBe(true)
+    expect(state.progressEvidence).toBe('frames')
+    expect(state.hasRenderedFrameProgress).toBe(true)
+  })
+
+  it('does not end a waiting latch with clock progress while the counter is readable', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: null })
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = markPlayerHealthBuffering(state)
+    state = event(state, { nowMs: 1_100, positionSeconds: 1.1, frames: null, explicitlyBuffering: true })
+    state = event(state, { nowMs: 1_400, positionSeconds: 1.4, frames: 10, explicitlyBuffering: true })
+
+    expect(state.buffering).toBe(true)
+    expect(state.progressed).toBe(false)
+  })
+
+  function mulberry32(seed: number): () => number {
+    let value = seed
+    return () => {
+      value = (value + 0x6D2B79F5) | 0
+      let t = Math.imul(value ^ (value >>> 15), 1 | value)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+
+  it('never claims frames, or a rendered frame, without a frame counter that advanced (random sequences of periodic and event observations)', () => {
+    let claims = 0
+    for (let seed = 1; seed <= 3_000; seed += 1) {
+      const random = mulberry32(seed)
+      let frames: number | null = random() < 0.4 ? null : 0
+      let state = createPlayerHealthState({ nowMs: 0, positionSeconds: 0, frames })
+      const seen: Array<number | null> = [frames]
+      let nowMs = 0
+      let positionSeconds = 0
+      for (let step = 0; step < 16; step += 1) {
+        nowMs += 20 + Math.floor(random() * 900)
+        positionSeconds += random() < 0.3 ? 0 : random() * 0.8
+        const mode = random()
+        if (mode < 0.2)
+          frames = null
+        else if (mode < 0.28)
+          frames = Math.floor(random() * 20)
+        else
+          frames = (frames ?? Math.floor(random() * 30)) + (random() < 0.5 ? 0 : Math.floor(random() * 30))
+        seen.push(frames)
+        state = observePlayerHealth(state, {
+          nowMs,
+          positionSeconds,
+          frames,
+          periodic: random() < 0.4,
+          paused: random() < 0.05,
+          seeking: random() < 0.03,
+          localSeeking: false,
+          roomPlaying: random() < 0.95,
+          playShouldHaveStarted: random() < 0.9,
+          lacksPlayableData: random() < 0.03,
+          explicitlyBuffering: random() < 0.1,
+          localIntentHold: false,
+        })
+
+        // A frame counter advanced somewhere in the sequence: some value is larger than an earlier one.
+        let counterAdvanced = false
+        let lowest = Number.POSITIVE_INFINITY
+        for (const value of seen) {
+          if (value === null)
+            continue
+          if (value > lowest)
+            counterAdvanced = true
+          lowest = Math.min(lowest, value)
+        }
+        if (state.progressed && state.progressEvidence === 'frames') {
+          claims += 1
+          expect(counterAdvanced, `seed ${seed} step ${step}: progress claimed as frames without an advanced counter`).toBe(true)
+        }
+        if (state.hasRenderedFrameProgress)
+          expect(counterAdvanced, `seed ${seed} step ${step}: rendered frame claimed without an advanced counter`).toBe(true)
+        expect(state.progressed && state.buffering, `seed ${seed} step ${step}: progressed while waiting`).toBe(false)
+      }
+    }
+    // The run is not vacuous: frames were claimed many times.
+    expect(claims).toBeGreaterThan(1_000)
+  })
+})

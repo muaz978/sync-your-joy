@@ -183,6 +183,22 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
   }
 }
 
+/**
+ * One model for what an observation says about progress.
+ *
+ * Two comparisons are made, each with the evidence quality it was made with:
+ * - against the latest observation of any kind ("fresh"): is there anything new?
+ * - against the last periodic sample ("accumulated"): has the player progressed since then?
+ *
+ * The quality of a comparison is `frames` only when both sides had a frame counter, `clock` when the media clock was
+ * the only thing compared, and `unknown` after a counter reset. Whatever a verdict claims, it takes from the
+ * comparison that established it, so clock progress can never be labelled `frames`.
+ *
+ * Fresh progress records the time of progress, sets `hasRenderedFrameProgress` only for frames, and ends a waiting
+ * latch only if it is a new frame, or the media clock while no frame counter is readable at all (a hidden tab or a
+ * browser without one), where nothing else could end it. Accumulated progress that is not fresh still counts as
+ * progress since the last periodic sample, unless the player is waiting.
+ */
 function observeAgainstCursor(previous: PlayerHealthState, input: PlayerHealthObservation): PlayerHealthState {
   const observation = normalizedObservation(input)
   const next: PlayerHealthState = {
@@ -212,41 +228,60 @@ function observeAgainstCursor(previous: PlayerHealthState, input: PlayerHealthOb
     return next
   }
 
-  const evidence = compareProgress(previous, observation)
-  const latest = compareProgress(previous, observation, 'latest')
-  next.progressEvidence = evidence.quality
-  if (latest.counterReset) {
-    next.progressEvidence = 'unknown'
+  const outcome = judgeProgress(previous, next, observation)
+  if (outcome === 'reset') {
     next.buffering = observation.explicitlyBuffering || previous.buffering
     return next
   }
-
-  if (latest.advanced) {
-    next.progressed = true
-    next.buffering = false
-    next.lastProgressAtMs = observation.nowMs
-    next.hasRealPlaybackProgress = true
-    next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || latest.quality === 'frames'
-  }
-  else {
-    // Once the element has said it is waiting, keep saying so until frames
-    // advance again. Recomputing the flag from each heartbeat dropped it for the
-    // first 2.5 s of a stall, which is shorter than the coordinator's 1.8 s
-    // no-progress deadline plus a report interval, so the room was paused as a
-    // failed player instead of waiting for the buffering grace period.
+  if (outcome !== 'fresh') {
+    // Once the element has said it is waiting, keep saying so until new progress is seen. Recomputing the flag
+    // from each heartbeat dropped it for the first 2.5 s of a stall, which is shorter than the coordinator's
+    // 1.8 s no-progress deadline plus a report interval, so the room was paused as a failed player instead of
+    // waiting for the buffering grace period.
     next.buffering = observation.explicitlyBuffering
       || previous.buffering
       || observation.nowMs - next.lastProgressAtMs >= 2_500
-    // Frames that an earlier media-event report saw are still progress since the
-    // last periodic sample, unless the player has stalled since.
-    next.progressed = evidence.advanced && !next.buffering
+    next.progressed = outcome === 'accumulated' && !next.buffering
   }
   return next
 }
 
+type ProgressOutcome = 'reset' | 'fresh' | 'accumulated' | 'none'
+
+/** Applies the progress model above to `next`. Does not decide `buffering` unless fresh progress ends the wait. */
+function judgeProgress(previous: PlayerHealthState, next: PlayerHealthState, observation: PlayerHealthObservation): ProgressOutcome {
+  const fresh = compareProgress(previous, observation, 'latest')
+  if (fresh.counterReset) {
+    next.progressEvidence = 'unknown'
+    return 'reset'
+  }
+  const accumulated = compareProgress(previous, observation, 'periodic')
+  // The counter really advanced if either comparison saw it advance, even across a report that could not read it.
+  const framesAdvanced = (fresh.advanced && fresh.quality === 'frames') || (accumulated.advanced && accumulated.quality === 'frames')
+  if (fresh.advanced) {
+    next.progressEvidence = framesAdvanced ? 'frames' : fresh.quality
+    next.lastProgressAtMs = observation.nowMs
+    next.hasRealPlaybackProgress = true
+    if (framesAdvanced)
+      next.hasRenderedFrameProgress = true
+    if (fresh.quality === 'frames' || observation.frames === null)
+      next.buffering = false
+    next.progressed = !next.buffering
+    return 'fresh'
+  }
+  next.progressEvidence = accumulated.counterReset ? 'unknown' : accumulated.quality
+  if (accumulated.advanced) {
+    next.hasRealPlaybackProgress = true
+    if (accumulated.quality === 'frames')
+      next.hasRenderedFrameProgress = true
+    return 'accumulated'
+  }
+  return 'none'
+}
+
 function observeStartupGrace(previous: PlayerHealthState, next: PlayerHealthState, observation: PlayerHealthObservation): PlayerHealthState {
   next.unexpectedPauseSinceMs = 0
-  // A waiting latch survives the startup window; only advancing frames clear it.
+  // A waiting latch survives the startup window; only new progress clears it.
   next.buffering = previous.buffering
   // A transactional player can render real frames before the server's
   // startup grace boundary. Keep that evidence so the extension can send
@@ -255,20 +290,10 @@ function observeStartupGrace(previous: PlayerHealthState, next: PlayerHealthStat
   // classification on the coordinator; it must not suppress proof that
   // native playback has actually begun.
   if (!observation.paused && !observation.seeking && !observation.localSeeking && !observation.lacksPlayableData) {
-    const evidence = compareProgress(previous, observation)
-    const latest = compareProgress(previous, observation, 'latest')
-    next.progressEvidence = evidence.quality
-    if (latest.advanced) {
-      next.progressed = true
-      next.buffering = false
-      next.lastProgressAtMs = observation.nowMs
-      next.hasRealPlaybackProgress = true
-      next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || latest.quality === 'frames'
+    const outcome = judgeProgress(previous, next, observation)
+    if (outcome === 'fresh')
       return next
-    }
-    // Progress that an earlier report already used does not clear a waiting latch,
-    // but it still counts as progress since the last periodic sample.
-    next.progressed = evidence.advanced && !next.buffering
+    next.progressed = outcome === 'accumulated' && !next.buffering
   }
   next.lastProgressAtMs = observation.nowMs
   return next
