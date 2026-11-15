@@ -28,7 +28,7 @@ const mediaPath = resolve(root, 'fixtures/adaptive-test-clip.mp4')
 const fixtureHost = [127, 0, 0, 1].join('.')
 const fixtureProtocol = ['h', 't', 't', 'p'].join('')
 
-export async function createAdaptiveFixtureServer(): Promise<AdaptiveFixtureServer> {
+export async function createAdaptiveFixtureServer(options: { port?: number } = {}): Promise<AdaptiveFixtureServer> {
   const [page, media] = await Promise.all([readFile(pagePath), readFile(mediaPath)])
   const fragmentedMedia = parseFragmentedMp4(media)
 
@@ -37,7 +37,7 @@ export async function createAdaptiveFixtureServer(): Promise<AdaptiveFixtureServ
   })
   await new Promise<void>((resolveServer, reject) => {
     server.once('error', reject)
-    server.listen(0, fixtureHost, () => resolveServer())
+    server.listen(options.port ?? 0, fixtureHost, () => resolveServer())
   })
   const address = server.address()
   if (!address || typeof address === 'string') {

@@ -287,6 +287,12 @@ The reconnect assertion uses a local-only, ephemeral-token room-service control 
 
 The detailed scope, metrics, route boundary, reconnect single-flight protection and limitations are recorded in [`CR_D03_BROWSER_MATRIX.md`](CR_D03_BROWSER_MATRIX.md). This deterministic local run is not Crunchyroll acceptance, protected-media acceptance, physical two-device acceptance, navigation coverage or deployment evidence.
 
+### Nested frame and player binding, with the real extension
+
+Two specs run the real extension against the owned adaptive fixture (local browser, one participant, synthetic media; not Crunchyroll, not two accounts, not two devices). `tests/e2e/adaptive-fixture-nested-extension.spec.ts` opens the fixture's cross-origin nested frame (`127.0.0.1` and `localhost`) and reads the extension's own session state to see which frame it bound: the nested frame when it holds the only media, the top frame when it was bound first and a nested frame with media appears later. In both cases the room's Play and Pause reach only the bound frame's `<video>` and the other one stays paused at 0, and a player node replaced in the bound frame is followed. `tests/e2e/binding-replacement.spec.ts` checks the binding token across the page's reports and a replaced node (unchanged) and a reloaded document (a new token for the new document). Run them with `npx playwright test --config tests/e2e/playwright.config.ts tests/e2e/adaptive-fixture-nested-extension.spec.ts tests/e2e/binding-replacement.spec.ts`.
+
+To look at the same fixture by hand (headed Chrome with the unpacked extension), serve it on a fixed port with `npm run dev:fixture -- --adaptive` (it prints `http://127.0.0.1:8788/adaptive-player.html`; `SYNCYOURJOY_FIXTURE_PORT` changes the port; it needs a Node that runs TypeScript files directly, 22.18 or newer). Open it on `127.0.0.1` so the nested frame lands on `localhost`. Its controls and query parameters are listed in [`CR_D02_ADAPTIVE_FIXTURES.md`](CR_D02_ADAPTIVE_FIXTURES.md).
+
 ### Authenticated Crunchyroll two-profile E2E
 
 Issue [#30](https://github.com/muaz978/sync-your-joy/issues/30) adds an opt-in provider run beside the generic fixture. The spec is `tests/e2e/crunchyroll-two-profile.spec.ts`. It launches two isolated extension profiles, opens the same authorized Crunchyroll `/watch/` URL in both profiles, waits for a visible metadata-ready native video, and drives the real room flow through play, forward seek, native backward seek, frame-progress observation, convergence, and pause.
