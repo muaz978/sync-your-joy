@@ -15,7 +15,7 @@ Nothing in this report is a credential, cookie, storage state, signed URL, media
 | Field | Value |
 | --- | --- |
 | Report ID | `SYJ-CR-A03-20261115-001` |
-| Candidate commit SHA | Base `257afb6` (main, extension 0.2.12) plus the pull request that adds this report. The head SHA of that pull request is the candidate; a file cannot name the commit that contains it. |
+| Candidate commit SHA | The evidence below was run against commit `6efd57cc8bf8a5313cff478f4f056b5e2b61772f`, the last commit that changes code or tests, on base `257afb6` (main, extension 0.2.12). This report was first added in that commit and is revised in a following docs-only commit, so the SHA above is not the head of the branch. A file cannot name the commit that contains it; the merged head of the pull request is the candidate. Code or test changes made after `6efd57c` would need a new SHA here. |
 | Extension package name and SHA-256 | No package was built or loaded. For the bundle only: `npm run build:extension` at the code commit gives `apps/extension/dist/content-script.js` SHA-256 `6851586494ec1bea10f2e26617cb15ee9111c61ba82a73131ea02f802b9a4aed` (the test and documentation commits do not change it). This is a hash of one built file, not of a release archive, and was not loaded into a browser. |
 | Coordinator deployment identity | NOT RUN. No coordinator was involved. |
 | Browser and version | NOT RUN. Vitest 5.1.0 on Node, with a fake `HTMLVideoElement`. |
