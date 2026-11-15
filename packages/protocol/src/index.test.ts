@@ -1,6 +1,6 @@
 import type { MediaFingerprint } from './index.ts'
 import { describe, expect, it } from 'vitest'
-import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomContractSnapshot, isRoomOperation, mediaMatches, mediaMatchesPageUrl, negotiateRoomMode, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
+import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomContractSnapshot, isRoomOperation, mediaMatches, mediaMatchesPageUrl, negotiateRoomMode, normalizeCanonicalId, normalizeClientCapabilities, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
 
 describe('media identity matching', () => {
   it('does not treat two missing players as a video match', () => {
@@ -546,5 +546,169 @@ describe('operation identity and compatibility contract', () => {
     expect(isRoomContractSnapshot({
       mode: 'legacy', mediaEpoch: 0, sharedCapabilities: ['unknown-capability'], operation: null,
     })).toBe(false)
+  })
+})
+
+describe('media epoch bound and operation identity parsing', () => {
+  const identity = { mediaEpoch: 3, operationId: 'operation_seek_123456' }
+  const acknowledgement = {
+    ...identity,
+    phase: 'prepared',
+    participantId: 'participant_guest',
+    bindingId: 'binding_123456',
+    sourceGeneration: 2,
+    sampleSequence: 9,
+    observedPositionSeconds: 120,
+    observedAtLocalMs: 50_000,
+  }
+  const operation = {
+    ...identity,
+    kind: 'seek',
+    phase: 'preparing',
+    requiredParticipantIds: ['participant_host', 'participant_guest'],
+    preparedParticipantIds: [],
+    startedParticipantIds: [],
+    targetPositionSeconds: 120,
+    effectiveAtServerMs: null,
+    deadlineAtServerMs: 10_000,
+  }
+  const diagnosticsReport = {
+    extensionVersion: '0.2.12',
+    generatedAtLocalMs: 10_000,
+    userAgent: 'Chrome test',
+    connection: 'connected',
+    roomRevision: 7,
+    playbackStatus: 'playing',
+    playerFrameId: 0,
+    playerAreaPixels: 500_000,
+    playerLastSeenAtMs: 9_900,
+    mediaService: 'html5',
+    mediaCanonicalId: 'page:https://video.example/watch/42',
+    mediaPageUrl: 'https://video.example/watch/42',
+    sample: null,
+    events: [],
+  }
+  /** Epochs that are not a safe, non-negative integer. 2 ** 53 and 1e300 are integers but cannot be advanced or compared exactly. */
+  const unsafeEpochs: unknown[] = [Number.MAX_SAFE_INTEGER + 1, 2 ** 53, 1e300, Number.MAX_VALUE, 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, '3', null]
+  const safeEpochs = [0, 1, 3, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER]
+
+  it('accepts an acknowledgement epoch up to the largest safe integer and rejects every other value', () => {
+    for (const mediaEpoch of safeEpochs)
+      expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, mediaEpoch } }), String(mediaEpoch)).not.toBeNull()
+    for (const mediaEpoch of unsafeEpochs)
+      expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, mediaEpoch } }), String(mediaEpoch)).toBeNull()
+    expect(parseOperationAcknowledgement({ ...acknowledgement, mediaEpoch: 1e300 })).toBeNull()
+  })
+
+  it('accepts an operation epoch up to the largest safe integer and rejects every other value', () => {
+    for (const mediaEpoch of safeEpochs)
+      expect(isRoomOperation({ ...operation, mediaEpoch }), String(mediaEpoch)).toBe(true)
+    for (const mediaEpoch of unsafeEpochs)
+      expect(isRoomOperation({ ...operation, mediaEpoch }), String(mediaEpoch)).toBe(false)
+  })
+
+  it('accepts a diagnostics report epoch up to the largest safe integer and rejects every other value', () => {
+    const parse = (mediaEpoch: unknown) => parseClientMessage({ type: 'diagnostics_response', reportId: 'report_123456', report: { ...diagnosticsReport, mediaEpoch } })
+    for (const mediaEpoch of [null, ...safeEpochs])
+      expect(parse(mediaEpoch), String(mediaEpoch)).not.toBeNull()
+    for (const mediaEpoch of unsafeEpochs.filter(value => value !== null))
+      expect(parse(mediaEpoch), String(mediaEpoch)).toBeNull()
+  })
+
+  it('restores a stored epoch only when it is a safe integer, and otherwise to the paused-safe default', () => {
+    const stored = (mediaEpoch: unknown) => ({
+      mode: 'transactional', mediaEpoch, sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities], operation: null,
+    })
+    expect(normalizeRoomContractSnapshot(stored(Number.MAX_SAFE_INTEGER)).mediaEpoch).toBe(Number.MAX_SAFE_INTEGER)
+    expect(isRoomContractSnapshot(stored(Number.MAX_SAFE_INTEGER))).toBe(true)
+    for (const mediaEpoch of [2 ** 53, 1e300]) {
+      expect(normalizeRoomContractSnapshot(stored(mediaEpoch)).mediaEpoch, String(mediaEpoch)).toBe(0)
+      expect(isRoomContractSnapshot(stored(mediaEpoch)), String(mediaEpoch)).toBe(false)
+    }
+  })
+
+  it('keeps the capabilities every peer shares in a legacy room, and normalizes advertisements as documented', () => {
+    const [mediaEpochCapability, operationIdentity, prepareStart] = CURRENT_CLIENT_CAPABILITIES.capabilities
+    const older = negotiateRoomMode([
+      { participantId: 'participant_host', capabilities: CURRENT_CLIENT_CAPABILITIES },
+      { participantId: 'participant_old', capabilities: { contractVersion: 1, capabilities: [mediaEpochCapability!, operationIdentity!, prepareStart!] } },
+    ])
+    expect(older).toMatchObject({ mode: 'legacy', incompatibleParticipantIds: ['participant_old'], sharedCapabilities: [mediaEpochCapability, operationIdentity, prepareStart] })
+    expect(negotiateRoomMode([
+      { participantId: 'participant_host', capabilities: CURRENT_CLIENT_CAPABILITIES },
+      { participantId: 'participant_none', capabilities: { contractVersion: 0, capabilities: [] } },
+    ]).sharedCapabilities).toEqual([])
+    // A current-version advertisement with an unknown capability keeps version 1 and an empty list; negotiation rejects it.
+    expect(normalizeClientCapabilities({ contractVersion: 1, capabilities: ['media-epoch', 'unknown-capability'] })).toEqual({ contractVersion: 1, capabilities: [] })
+    expect(normalizeClientCapabilities({ contractVersion: 2, capabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities] })).toEqual({ contractVersion: 0, capabilities: [] })
+    expect(normalizeClientCapabilities('nonsense')).toEqual({ contractVersion: 0, capabilities: [] })
+    expect(negotiateRoomMode([{ participantId: 'participant_odd', capabilities: { contractVersion: 1, capabilities: ['unknown-capability'] as never } }]))
+      .toMatchObject({ mode: 'legacy', incompatibleParticipantIds: ['participant_odd'] })
+  })
+
+  it('drops an active epoch-0 operation when the stored room epoch is invalid, instead of matching it to the defaulted epoch', () => {
+    for (const invalidEpoch of [1e300, 2 ** 53, -1, 1.5, '3', null, Number.NaN]) {
+      const restored = normalizeRoomContractSnapshot({
+        mode: 'transactional',
+        mediaEpoch: invalidEpoch,
+        sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+        operation: { ...operation, mediaEpoch: 0 },
+      })
+      expect(restored, String(invalidEpoch)).toMatchObject({ mediaEpoch: 0, operation: null })
+    }
+    // A valid stored epoch of 0 still keeps the matching operation.
+    expect(normalizeRoomContractSnapshot({
+      mode: 'transactional',
+      mediaEpoch: 0,
+      sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+      operation: { ...operation, mediaEpoch: 0 },
+    }).operation).not.toBeNull()
+  })
+
+  it('drops a stored operation whose epoch is beyond the safe range even when the room epoch is equally unsafe', () => {
+    const restored = normalizeRoomContractSnapshot({
+      mode: 'transactional',
+      mediaEpoch: 2 ** 53,
+      sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+      operation: { ...operation, mediaEpoch: 2 ** 53 },
+    })
+    expect(restored).toMatchObject({ mediaEpoch: 0, operation: null })
+  })
+
+  it('rejects a malformed operation id, participant id or binding id in an acknowledgement', () => {
+    const malformed = ['', 'abc', 'bad!id', 'has space', 'x'.repeat(81), 7, null, ['operation_seek_123456']]
+    for (const field of ['operationId', 'participantId', 'bindingId'] as const) {
+      for (const value of malformed)
+        expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, [field]: value } }), `${field}=${String(value)}`).toBeNull()
+    }
+    expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, operationId: 'x'.repeat(80) } })).not.toBeNull()
+    expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, operationId: 'x'.repeat(6) } })).not.toBeNull()
+  })
+
+  it('rejects an acknowledgement that is missing any required field', () => {
+    for (const field of Object.keys(acknowledgement)) {
+      const { [field]: _removed, ...incomplete } = acknowledgement as Record<string, unknown>
+      expect(parseClientMessage({ type: 'operation_ack', acknowledgement: incomplete }), `missing ${field}`).toBeNull()
+    }
+    expect(parseClientMessage({ type: 'operation_ack' })).toBeNull()
+    expect(parseClientMessage({ type: 'operation_ack', acknowledgement: null })).toBeNull()
+    expect(parseClientMessage({ type: 'operation_ack', acknowledgement: [acknowledgement] })).toBeNull()
+  })
+
+  it('rejects a malformed participant id inside an operation record, and a repeated one', () => {
+    expect(isRoomOperation({ ...operation, requiredParticipantIds: ['participant_host', 'bad!'] })).toBe(false)
+    expect(isRoomOperation({ ...operation, requiredParticipantIds: ['participant_host', 'participant_host'] })).toBe(false)
+    expect(isRoomOperation({ ...operation, requiredParticipantIds: [] })).toBe(false)
+    expect(isRoomOperation({ ...operation, operationId: 'bad!' })).toBe(false)
+    const { operationId: _removed, ...withoutId } = operation
+    expect(isRoomOperation(withoutId)).toBe(false)
+  })
+
+  it('parses a stale but well-formed epoch, because only the coordinator knows which epoch is current', () => {
+    const parsed = parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, mediaEpoch: 2 } })
+    if (parsed?.type !== 'operation_ack')
+      throw new Error('Expected a parsed acknowledgement.')
+    expect(isCurrentOperation({ mediaEpoch: 3, operationId: acknowledgement.operationId }, parsed.acknowledgement)).toBe(false)
+    expect(isCurrentOperation({ mediaEpoch: 2, operationId: acknowledgement.operationId }, parsed.acknowledgement)).toBe(true)
   })
 })

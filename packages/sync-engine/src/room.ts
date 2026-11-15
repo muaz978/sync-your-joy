@@ -19,6 +19,7 @@ import type {
 import {
   isCurrentOperation,
   isRoomContractSnapshot,
+  MAX_MEDIA_EPOCH,
   mediaMatches,
   mediaMatchesPageUrl,
   negotiateRoomMode,
@@ -1059,6 +1060,14 @@ export class RoomCoordinator {
       this.rememberAction(intent.actionId)
       return this.success('navigation_unchanged')
     }
+
+    // The epoch separates one selected media from the next, so it must be able
+    // to advance. At the largest value the contract can carry it cannot, and
+    // reusing the epoch would let an acknowledgement for the old media pass for
+    // the new one. Refuse before anything changes, and do not remember the
+    // action, so a repeat is refused the same way instead of reported as done.
+    if (this.contract.mediaEpoch >= MAX_MEDIA_EPOCH)
+      return this.failure('media_epoch_exhausted', 'This room has opened as many pages as it can. Create a new room to open another page.')
 
     this.rememberAction(intent.actionId)
     this.pauseForMembershipChange('media-changed')

@@ -12,6 +12,13 @@ export const MAX_OPERATION_PARTICIPANTS = 10
 export const MAX_CAPABILITIES = 16
 export const MAX_SOURCE_GENERATION = Number.MAX_SAFE_INTEGER
 export const MAX_SAMPLE_SEQUENCE = Number.MAX_SAFE_INTEGER
+/**
+ * Largest media epoch the contract can carry. The epoch only ever advances by
+ * one, and a value beyond the safe range could neither be compared exactly nor
+ * advanced, so such a value is never valid on the wire or in stored state. A
+ * room already at this epoch cannot open another link (see `openLink`).
+ */
+export const MAX_MEDIA_EPOCH = Number.MAX_SAFE_INTEGER
 
 export type RoomMode = 'legacy' | 'transactional'
 
@@ -671,9 +678,14 @@ export function canAcknowledgeOperation(
     && supportsTransactionalOperations(capabilities)
 }
 
+/** A media epoch is a safe, non-negative integer no larger than `MAX_MEDIA_EPOCH`. */
+export function isMediaEpoch(value: unknown): value is number {
+  return isBoundedSafeInteger(value, MAX_MEDIA_EPOCH)
+}
+
 export function isOperationIdentity(value: unknown): value is OperationIdentity {
   return isRecord(value)
-    && isNonNegativeInteger(value.mediaEpoch)
+    && isMediaEpoch(value.mediaEpoch)
     && validId(value.operationId)
 }
 
@@ -745,12 +757,17 @@ export function normalizeRoomContractSnapshot(value: unknown): RoomContractSnaps
     return cloneLegacyRoomContractDefaults()
 
   const sharedCapabilities = normalizeCapabilities(value.sharedCapabilities)
-  const mediaEpoch = isNonNegativeInteger(value.mediaEpoch) ? value.mediaEpoch : 0
+  const storedEpoch: number | null = isMediaEpoch(value.mediaEpoch) ? value.mediaEpoch : null
+  const storedEpochIsValid = storedEpoch !== null
+  const mediaEpoch = storedEpoch ?? 0
   const mode = value.mode === 'transactional'
     && supportsTransactionalOperations(sharedCapabilities)
     ? 'transactional'
     : 'legacy'
+  // The defaulted epoch is not evidence: an operation is kept only against a
+  // stored epoch that was itself valid, never against the 0 an invalid one became.
   const operation = mode === 'transactional'
+    && storedEpochIsValid
     && isRoomOperation(value.operation)
     && value.operation.mediaEpoch === mediaEpoch
     ? value.operation
@@ -773,7 +790,7 @@ export function normalizeRoomContractSnapshot(value: unknown): RoomContractSnaps
 export function isRoomContractSnapshot(value: unknown): value is RoomContractSnapshot {
   if (!isRecord(value)
     || (value.mode !== 'legacy' && value.mode !== 'transactional')
-    || !isNonNegativeInteger(value.mediaEpoch)
+    || !isMediaEpoch(value.mediaEpoch)
     || !Array.isArray(value.sharedCapabilities))
     return false
 
@@ -1122,7 +1139,7 @@ function validDiagnosticsReport(value: unknown): value is DiagnosticsReport {
     && (value.playerPendingSeekAgeMs === undefined || value.playerPendingSeekAgeMs === null || isFiniteNonNegative(value.playerPendingSeekAgeMs))
     && (value.playerHasMediaKeys === undefined || value.playerHasMediaKeys === null || typeof value.playerHasMediaKeys === 'boolean')
     && (value.sample === null || validPlayerSample(value.sample))
-    && (value.mediaEpoch === undefined || value.mediaEpoch === null || isNonNegativeInteger(value.mediaEpoch))
+    && (value.mediaEpoch === undefined || value.mediaEpoch === null || isMediaEpoch(value.mediaEpoch))
     && (value.operationId === undefined || value.operationId === null || validId(value.operationId))
     && (value.operationKind === undefined || value.operationKind === null || isOperationKind(value.operationKind))
     && (value.operationPhase === undefined || value.operationPhase === null || isOperationPhase(value.operationPhase))

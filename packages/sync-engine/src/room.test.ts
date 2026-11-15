@@ -4122,3 +4122,313 @@ describe('a pending seek when the quorum or the authority changes', () => {
     })
   })
 })
+
+describe('CR-B01 operation contract on a live room', () => {
+  const nextLink = 'https://video.example/watch?id=next'
+
+  function openLinkFor(room: RoomCoordinator, url: string, actionId: string): RoomResult {
+    const snapshot = room.snapshot()
+    return room.openLink('participant_host', {
+      actionId,
+      basedOnRevision: snapshot.revision,
+      leaseEpoch: snapshot.controller.leaseEpoch,
+      url,
+    })
+  }
+
+  /** The same room, restored from its own stored state with the media epoch replaced. */
+  function restoreAtEpoch(room: RoomCoordinator, mediaEpoch: number, now: () => number): RoomCoordinator {
+    const state = room.exportState()
+    state.contract = { ...state.contract!, mediaEpoch }
+    return RoomCoordinator.fromState(state, now)
+  }
+
+  function startedPlay(nowMs: { value: number }): RoomCoordinator {
+    const room = createTransactionalRoom(() => nowMs.value)
+    controlTransactional(room, 'play', 40)
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+    const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+    if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+      throw new Error('Expected a committed transactional operation.')
+    nowMs.value = committed.snapshot.contract.operation.effectiveAtServerMs
+    room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40, 2))
+    const started = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40, 2))
+    if (!started?.ok || started.reason !== 'operation_started')
+      throw new Error('Expected a started transactional operation.')
+    return room
+  }
+
+  describe('the media epoch limit', () => {
+    it('opens a link that reaches the largest safe epoch, and refuses the next one without touching the room', () => {
+      const nowMs = { value: 10_000 }
+      const base = createTransactionalRoom(() => nowMs.value)
+      const room = restoreAtEpoch(base, Number.MAX_SAFE_INTEGER - 1, () => nowMs.value)
+
+      expect(openLinkFor(room, nextLink, 'action_reach_limit')).toMatchObject({
+        ok: true,
+        reason: 'link_opened',
+        snapshot: { contract: { mediaEpoch: Number.MAX_SAFE_INTEGER } },
+      })
+      const atLimit = room.snapshot()
+      expect(Number.isSafeInteger(atLimit.contract!.mediaEpoch)).toBe(true)
+
+      const refused = openLinkFor(room, 'https://video.example/watch?id=beyond', 'action_beyond_limit')
+      expect(refused).toMatchObject({ ok: false, code: 'media_epoch_exhausted' })
+      expect(room.snapshot()).toEqual(atLimit)
+    })
+
+    it('does not remember a refused link, so the same action is refused again rather than reported as a duplicate', () => {
+      const nowMs = { value: 10_000 }
+      const room = restoreAtEpoch(createTransactionalRoom(() => nowMs.value), Number.MAX_SAFE_INTEGER, () => nowMs.value)
+      const before = room.snapshot()
+
+      expect(openLinkFor(room, nextLink, 'action_repeat_at_limit')).toMatchObject({ ok: false, code: 'media_epoch_exhausted' })
+      expect(openLinkFor(room, nextLink, 'action_repeat_at_limit')).toMatchObject({ ok: false, code: 'media_epoch_exhausted' })
+      expect(room.snapshot()).toEqual(before)
+      expect(before.participants.every(participant => participant.ready)).toBe(true)
+    })
+
+    it('still treats the page the room is already on as unchanged at the largest epoch', () => {
+      const nowMs = { value: 10_000 }
+      const base = createRoomWithMedia(crunchyMedia, () => nowMs.value)
+      const room = restoreAtEpoch(base, Number.MAX_SAFE_INTEGER, () => nowMs.value)
+      const before = room.snapshot()
+
+      expect(openLinkFor(room, 'https://www.crunchyroll.com/watch/GE00345558JAJP/original-title', 'action_same_at_limit'))
+        .toMatchObject({ ok: true, reason: 'navigation_unchanged' })
+      expect(room.snapshot()).toEqual(before)
+    })
+
+    it('does not restore an active epoch-0 operation under an invalid stored epoch, and ignores its late acknowledgements', () => {
+      const nowMs = { value: 10_000 }
+      const base = createTransactionalRoom(() => nowMs.value)
+      controlTransactional(base, 'play', 40)
+      const lateAck = operationAcknowledgement(base, 'participant_host', 'prepared', 40, 1)
+      expect(lateAck.mediaEpoch).toBe(0)
+      for (const invalidEpoch of [2 ** 53, 1e300, -1, '3']) {
+        const state = base.exportState()
+        state.contract = { ...state.contract!, mediaEpoch: invalidEpoch as unknown as number }
+        const restored = RoomCoordinator.fromState(state, () => nowMs.value)
+        expect(restored.snapshot().contract, String(invalidEpoch)).toMatchObject({ mediaEpoch: 0, operation: null })
+        expect(restored.snapshot().playback.status, String(invalidEpoch)).toBe('paused')
+        const settled = restored.snapshot()
+        expect(restored.acknowledgeOperation('participant_host', lateAck), String(invalidEpoch)).toBeNull()
+        expect(restored.snapshot(), String(invalidEpoch)).toEqual(settled)
+      }
+    })
+
+    it('restores a stored epoch beyond the safe range to epoch zero, paused, and lets the room advance again', () => {
+      const nowMs = { value: 10_000 }
+      const base = createTransactionalRoom(() => nowMs.value)
+      for (const unsafeEpoch of [2 ** 53, 1e300]) {
+        const room = restoreAtEpoch(base, unsafeEpoch, () => nowMs.value)
+        expect(room.snapshot()).toMatchObject({ playback: { status: 'paused' }, contract: { mediaEpoch: 0, operation: null } })
+        expect(openLinkFor(room, nextLink, `action_after_${String(unsafeEpoch)}`)).toMatchObject({
+          ok: true,
+          reason: 'link_opened',
+          snapshot: { contract: { mediaEpoch: 1 } },
+        })
+      }
+    })
+  })
+
+  describe('a peer without the capabilities', () => {
+    it('is approved mid-Play: the operation is cancelled, the room is paused at the target and legacy, and later acknowledgements are ignored', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const friendPrepared = operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1)
+
+      nowMs = 10_100
+      room.join({ id: 'participant_old', name: 'Legacy', media })
+      const approved = room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_old', true)
+      // The approval path cancels through the membership change, so the recorded
+      // reason is the one for a membership change, not 'legacy-peer'.
+      expect(approved).toMatchObject({
+        ok: true,
+        reason: 'join_approved',
+        snapshot: {
+          playback: { status: 'paused', positionSeconds: 40 },
+          contract: { mode: 'legacy', sharedCapabilities: [], operation: { phase: 'cancelled', reason: 'participant-disconnected' } },
+        },
+      })
+      const settled = room.snapshot()
+
+      expect(room.acknowledgeOperation('participant_friend', friendPrepared)).toBeNull()
+      expect(room.acknowledgeOperation('participant_host', { ...friendPrepared, participantId: 'participant_host', bindingId: 'binding_participant_host' })).toBeNull()
+      expect(room.snapshot()).toEqual(settled)
+      expect(room.releaseExpiredOperation(20_000)).toBeNull()
+      expect(room.operationDeadlineMs()).toBeNull()
+    })
+
+    it('returns mid-Play after a dropped connection with fewer capabilities: the operation is cancelled as legacy-peer and the room pauses where it has got to', () => {
+      const nowMs = { value: 10_000 }
+      const room = startedPlay(nowMs)
+      const startedAtMs = nowMs.value
+
+      nowMs.value = startedAtMs + 500
+      expect(room.disconnect('participant_friend')).toMatchObject({ ok: true, snapshot: { playback: { status: 'playing' }, contract: { mode: 'transactional' } } })
+      nowMs.value = startedAtMs + 2_000
+      const returned = room.join({ id: 'participant_friend', name: 'Rana', media })
+
+      expect(returned).toMatchObject({
+        ok: true,
+        reason: 'participant_reconnected',
+        snapshot: {
+          contract: { mode: 'legacy', sharedCapabilities: [], operation: { phase: 'cancelled', reason: 'legacy-peer' } },
+          playback: { status: 'paused' },
+        },
+      })
+      expect(returned.snapshot.playback.positionSeconds).toBeCloseTo(42, 3)
+      expect(room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 42, 3))).toBeNull()
+    })
+
+    it('is restored with an operation in flight: the operation is cancelled as legacy-peer and paused at the target', () => {
+      let nowMs = 10_000
+      const room = createTransactionalRoom(() => nowMs)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const friendPrepared = operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1)
+      const stored = room.exportState()
+      delete stored.participants.find(participant => participant.id === 'participant_friend')!.capabilities
+
+      nowMs = 10_400
+      const restored = RoomCoordinator.fromState(stored, () => nowMs)
+
+      expect(restored.snapshot()).toMatchObject({
+        playback: { status: 'paused', positionSeconds: 40 },
+        contract: { mode: 'legacy', operation: { phase: 'cancelled', reason: 'legacy-peer' } },
+      })
+      expect(restored.snapshot().revision).toBeGreaterThan(stored.revision)
+      expect(restored.acknowledgeOperation('participant_friend', friendPrepared)).toBeNull()
+    })
+  })
+
+  describe('binding and sample evidence', () => {
+    function playWithHostPrepared(nowMs: { value: number }, sampleSequence = 1): RoomCoordinator {
+      const room = createTransactionalRoom(() => nowMs.value)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, sampleSequence))
+      return room
+    }
+
+    it('cancels the operation when a participant acknowledges from a different binding', () => {
+      const nowMs = { value: 10_000 }
+      const room = playWithHostPrepared(nowMs)
+      const before = room.snapshot()
+
+      nowMs.value = 10_200
+      const changed = room.acknowledgeOperation('participant_host', {
+        ...operationAcknowledgement(room, 'participant_host', 'prepared', 40, 2),
+        bindingId: 'binding_participant_host_replacement',
+      })
+
+      expect(changed).toMatchObject({
+        ok: true,
+        reason: 'operation_binding_changed',
+        snapshot: {
+          playback: { status: 'paused', positionSeconds: 40 },
+          contract: { operation: { phase: 'cancelled', reason: 'binding-changed' } },
+        },
+      })
+      expect(changed!.snapshot.revision).toBe(before.revision + 1)
+      expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))).toBeNull()
+      expect(room.snapshot().playback.status).toBe('paused')
+    })
+
+    it('cancels the operation when a participant acknowledges from a different source generation of the same binding', () => {
+      const nowMs = { value: 10_000 }
+      const room = playWithHostPrepared(nowMs)
+
+      const replaced = room.acknowledgeOperation('participant_host', {
+        ...operationAcknowledgement(room, 'participant_host', 'prepared', 40, 2),
+        sourceGeneration: 2,
+      })
+
+      expect(replaced).toMatchObject({
+        ok: true,
+        reason: 'operation_binding_changed',
+        snapshot: { contract: { operation: { phase: 'cancelled', reason: 'binding-changed' } } },
+      })
+    })
+
+    it('treats a lower source generation as a changed binding too, not as a stale sample', () => {
+      const nowMs = { value: 10_000 }
+      const room = createTransactionalRoom(() => nowMs.value)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', { ...operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1), sourceGeneration: 3 })
+
+      expect(room.acknowledgeOperation('participant_host', { ...operationAcknowledgement(room, 'participant_host', 'prepared', 40, 2), sourceGeneration: 2 }))
+        .toMatchObject({ ok: true, reason: 'operation_binding_changed', snapshot: { contract: { operation: { phase: 'cancelled', reason: 'binding-changed' } } } })
+    })
+
+    it('ignores an acknowledgement with a lower sample sequence than the one already accepted, and keeps the newer evidence', () => {
+      const nowMs = { value: 10_000 }
+      const room = playWithHostPrepared(nowMs, 5)
+      const friendPrepared = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 5))
+      expect(friendPrepared).toMatchObject({ reason: 'operation_committed' })
+      const committed = room.snapshot()
+      const sequenceOf = () => room.exportState().participants.find(participant => participant.id === 'participant_friend')?.lastOperationObservation?.sampleSequence
+
+      nowMs.value = committed.contract!.operation!.effectiveAtServerMs!
+      expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40, 4))).toBeNull()
+      expect(sequenceOf()).toBe(5)
+      expect(room.snapshot()).toEqual(committed)
+      expect(room.snapshot().contract!.operation!.startedParticipantIds).toEqual([])
+
+      expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40, 5)))
+        .toMatchObject({ ok: true, reason: 'operation_participant_started' })
+      expect(sequenceOf()).toBe(5)
+    })
+
+    it('counts a repeated acknowledgement at the same sequence as a duplicate, not as stale', () => {
+      const nowMs = { value: 10_000 }
+      const room = playWithHostPrepared(nowMs, 5)
+
+      expect(room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 5)))
+        .toMatchObject({ ok: true, reason: 'operation_prepare_duplicate' })
+    })
+
+    it('does not let an acknowledgement for a cancelled operation change the room, even from a different binding', () => {
+      const nowMs = { value: 10_000 }
+      const room = playWithHostPrepared(nowMs)
+      const hostAcknowledgement = operationAcknowledgement(room, 'participant_host', 'prepared', 40, 2)
+      controlTransactional(room, 'pause', 40)
+      const paused = room.snapshot()
+      expect(paused.contract!.operation).toMatchObject({ phase: 'cancelled', reason: 'controller-request' })
+
+      expect(room.acknowledgeOperation('participant_host', { ...hostAcknowledgement, bindingId: 'binding_participant_host_replacement' })).toBeNull()
+      expect(room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))).toBeNull()
+      expect(room.snapshot()).toEqual(paused)
+    })
+  })
+
+  describe('snapshot order and operation validity', () => {
+    it('keeps accepting preparation evidence for the same operation after unrelated revisions, such as a join request', () => {
+      const nowMs = { value: 10_000 }
+      const room = createTransactionalRoom(() => nowMs.value)
+      const pending = controlTransactional(room, 'play', 40)
+      if (!pending.ok || !pending.snapshot.contract?.operation)
+        throw new Error('Expected a pending transactional operation.')
+      const { operationId, requiredParticipantIds } = pending.snapshot.contract.operation
+
+      room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+      const beforeJoin = room.snapshot()
+      nowMs.value = 10_300
+      const requested = room.join({ id: 'participant_new', name: 'Sam', media, capabilities: CURRENT_CLIENT_CAPABILITIES })
+      expect(requested).toMatchObject({ ok: true, reason: 'join_pending' })
+      expect(requested.snapshot.revision).toBeGreaterThan(beforeJoin.revision)
+      expect(requested.snapshot.contract!.operation).toEqual(beforeJoin.contract!.operation)
+      expect(requested.snapshot.playback).toEqual(beforeJoin.playback)
+
+      const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+      expect(committed).toMatchObject({
+        ok: true,
+        reason: 'operation_committed',
+        snapshot: { playback: { status: 'playing' }, contract: { operation: { operationId, phase: 'committed', requiredParticipantIds } } },
+      })
+      expect(committed!.snapshot.contract!.operation!.requiredParticipantIds).not.toContain('participant_new')
+    })
+  })
+})
