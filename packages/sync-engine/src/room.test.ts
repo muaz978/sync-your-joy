@@ -2697,6 +2697,78 @@ describe('RoomCoordinator', () => {
         expect(room.snapshot().playback.status).toBe('playing')
       })
 
+      describe('the fact that alive-only progress made a stored report out of date survives a restart (review round 6)', () => {
+        // The edge worker restores the coordinator from saved state after an eviction or a restart.
+        function guestBehindForElevenSeconds(options: { storedStartupReport: boolean }) {
+          const clock = { value: 10_000 }
+          const room = createTransactionalRoom(() => clock.value)
+          controlTransactional(room, 'play', 40)
+          room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+          const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+          if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+            throw new Error('Expected a committed transactional operation.')
+          clock.value = committed.snapshot.contract.operation.effectiveAtServerMs
+          const startAtMs = clock.value
+          const playRevision = room.snapshot().revision
+          if (options.storedStartupReport) {
+            clock.value = startAtMs + 300
+            room.updatePlayerStatus('participant_friend', playRevision, { ...report(clock.value, 40), paused: true, progressed: false, playbackStarted: false })
+          }
+          room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.3, 2))
+          room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40.3, 2))
+          // Every guest report from here on is stamped with the revision from before the acknowledgements: alive-only.
+          let position = 40.3
+          for (let step = 1; clock.value < startAtMs + 11_000; step++) {
+            clock.value = startAtMs + 300 + step * 1_000
+            position += 1
+            room.updatePlayerStatus('participant_friend', playRevision, report(clock.value, position))
+            room.updatePlayerStatus('participant_host', room.snapshot().revision, report(clock.value, position))
+            expect(room.evaluateHealth(), `at ${clock.value - startAtMs} ms`).toBeNull()
+          }
+          return { room, clock, startAtMs }
+        }
+        const restore = (room: RoomCoordinator, clock: { value: number }) => RoomCoordinator.fromState(room.exportState(), () => clock.value)
+
+        it('does not pause a guest whose stored startup report was retired by alive-only progress, after the coordinator is restored', () => {
+          const { room, clock } = guestBehindForElevenSeconds({ storedStartupReport: true })
+          const restored = restore(room, clock)
+          expect(restored.evaluateHealth()).toBeNull()
+          expect(restored.snapshot().playback.status).toBe('playing')
+          expect(restored.nextHealthDeadlineMs()).toBeGreaterThan(clock.value)
+        })
+
+        it('does not pause a guest whose every report was alive-only, after the coordinator is restored', () => {
+          const { room, clock } = guestBehindForElevenSeconds({ storedStartupReport: false })
+          const restored = restore(room, clock)
+          expect(restored.evaluateHealth()).toBeNull()
+          expect(restored.snapshot().playback.status).toBe('playing')
+        })
+
+        it('keeps the fact off the snapshot, off non-progressing reports and off a newer stored report', () => {
+          const { room, clock, startAtMs } = guestBehindForElevenSeconds({ storedStartupReport: true })
+          const friend = (coordinator: RoomCoordinator) => coordinator.exportState().participants.find(participant => participant.id === 'participant_friend')
+          expect(friend(room)?.aliveProgressed).toBe(true)
+          expect(JSON.stringify(room.snapshot())).not.toContain('aliveProgressed')
+          // A stored report at the current revision replaces the stored report and ends the fact.
+          clock.value += 200
+          room.updatePlayerStatus('participant_friend', room.snapshot().revision, report(clock.value, 60))
+          expect(friend(room)?.aliveProgressed).toBeUndefined()
+          // A new command ends it too.
+          room.control('participant_host', { actionId: 'pause-after', basedOnRevision: room.snapshot().revision, leaseEpoch: room.snapshot().controller.leaseEpoch, kind: 'pause', positionSeconds: 60 })
+          expect(friend(room)?.aliveProgressed).toBeUndefined()
+          expect(clock.value).toBeGreaterThan(startAtMs)
+        })
+
+        it('reads state saved before the field existed as before: the stored startup report is judged by the startup deadline', () => {
+          const { room, clock } = guestBehindForElevenSeconds({ storedStartupReport: true })
+          const saved = room.exportState()
+          for (const participant of saved.participants)
+            delete participant.aliveProgressed
+          const restored = RoomCoordinator.fromState(saved, () => clock.value)
+          expect(restored.evaluateHealth()).toMatchObject({ ok: true, reason: 'participant_playback_startup_timeout' })
+        })
+      })
+
       describe('a stored report that says the player is not playing, followed by alive-only reports', () => {
         // The guest's report at the started revision is stored; a join request then raises the revision, so
         // everything the guest sends afterwards is alive-only.

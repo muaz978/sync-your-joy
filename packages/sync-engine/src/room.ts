@@ -67,15 +67,19 @@ export interface InternalParticipant extends ParticipantState {
   /** Optional for migration: old persisted participants predate CR-B02. */
   capabilities?: ClientCapabilities
   lastOperationObservation?: OperationObservationIdentity
+  /**
+   * An alive-only report showed progress after the stored report (or after the last
+   * command, when there is none): the stored report is out of date and the timer
+   * reads a playing report in its place. Saved with the participant so it survives a
+   * restart, and left out of snapshots. Absent in state saved before this field existed.
+   */
+  aliveProgressed?: true
 }
 
 /** What the coordinator keeps, per participant, to order and deduplicate reports. Never persisted, never in a snapshot. */
 interface ReportOrder {
   latest: PlayerSample
   stepCandidate: { sampledAtLocalMs: number, positionSeconds: number } | null
-  progressedSinceReset: boolean
-  /** An alive-only report showed progress after the stored report: the stored report (not started, buffering, paused) is out of date. */
-  aliveProgressSinceStored: boolean
   seen: string[]
 }
 
@@ -974,20 +978,16 @@ export class RoomCoordinator {
 
   /**
    * The report the timer judges a participant by: its stored report, or a report
-   * that says it is playing and nothing else when
-   *   - an alive-only report has shown progress since the stored report: the player
-   *     is playing now, so the stored report is out of date whatever it says (not
-   *     started, buffering, paused, or no progress); or
-   *   - it has no stored report because every report it sent was only evidence
-   *     that it is alive, and at least one of them showed progress.
-   * A stored report that is newer than the last alive-only progress still wins.
+   * that says it is playing and nothing else when an alive-only report has shown
+   * progress since the stored report was stored (or since the last command, when it
+   * has none): the player is playing now, so the stored report is out of date
+   * whatever it says (not started, buffering, paused, or no progress), and a player
+   * whose every report was alive-only is judged by that progress. A stored report
+   * that is newer than the last alive-only progress still wins.
    * Failure fields are never read from an alive-only report.
    */
   private healthSample(participant: InternalParticipant): PlayerSample | null {
-    const order = this.reportOrders.get(participant.id)
-    if (participant.lastSample === null)
-      return order?.progressedSinceReset === true ? ALIVE_PLAYING_SAMPLE : null
-    return order?.aliveProgressSinceStored === true ? ALIVE_PLAYING_SAMPLE : participant.lastSample
+    return participant.aliveProgressed === true ? ALIVE_PLAYING_SAMPLE : participant.lastSample
   }
 
   private participantHealthDeadlineMs(participant: InternalParticipant): number | null {
@@ -1237,15 +1237,17 @@ export class RoomCoordinator {
       && Math.abs(sample.positionSeconds - latest.positionSeconds) >= PLAYBACK_POSITION_ADVANCE_SECONDS)
     if (aliveOnly) {
       participant.lastSampleReceivedAtMs = nowMs
-      if (progressed)
+      if (progressed) {
         participant.lastProgressAtServerMs = nowMs
-      this.recordReportOrder(participantId, sample, reportKey, stepCandidate, progressed, true)
+        participant.aliveProgressed = true
+      }
+      this.recordReportOrder(participantId, sample, reportKey, stepCandidate)
       // A report that says the player recovered still ends a buffering run (ending it twice is harmless).
       if (sample.buffering !== true)
         this.bufferingRuns.delete(participantId)
       return null
     }
-    this.recordReportOrder(participantId, sample, reportKey, null, progressed, false)
+    this.recordReportOrder(participantId, sample, reportKey, null)
     const previousStatus = participant.playbackStatus ?? this.participantPlaybackStatus(participant, nowMs)
     const activeTransactionalOperation = this.contract.mode === 'transactional'
       && this.contract.operation
@@ -1257,6 +1259,7 @@ export class RoomCoordinator {
       && !isSettledPausedSeek(activeTransactionalOperation)
       && !activeTransactionalOperation.startedParticipantIds.includes(participantId)
     participant.lastSample = sample
+    delete participant.aliveProgressed
     participant.lastSampleReceivedAtMs = nowMs
     // A report that says the player cannot play ends the stability window an
     // automatic resume is counting, even if the player recovers before the next
@@ -1381,15 +1384,16 @@ export class RoomCoordinator {
   /**
    * Per participant: the last report accepted (stored or alive-only), the first
    * report after a possible client clock step until the next report confirms or
-   * replaces it, whether any report since the last command showed progress, and a
-   * bounded set of the reports already seen. Coordinator-local and not saved: a
-   * restored room starts with none, and it never reaches a snapshot.
+   * replaces it, and a bounded set of the reports already seen. Coordinator-local
+   * and not saved: a restored room starts with none, and it never reaches a
+   * snapshot. (The one fact that must outlive a restart, that alive-only progress
+   * made the stored report out of date, is `aliveProgressed` on the participant.)
    */
   private readonly reportOrders = new Map<string, ReportOrder>()
 
   /** Adds a dropped report's content to the replay memory; `latest` seeds the record when the participant has none. */
   private rememberSeenReport(participantId: string, latest: PlayerSample, reportKey: string): void {
-    const order = this.reportOrders.get(participantId) ?? { latest, stepCandidate: null, progressedSinceReset: false, aliveProgressSinceStored: false, seen: [] }
+    const order = this.reportOrders.get(participantId) ?? { latest, stepCandidate: null, seen: [] }
     order.seen.push(reportKey)
     if (order.seen.length > SEEN_REPORTS_LIMIT)
       order.seen.shift()
@@ -1401,14 +1405,10 @@ export class RoomCoordinator {
     sample: PlayerSample,
     reportKey: string,
     stepCandidate: ReportOrder['stepCandidate'],
-    progressed: boolean,
-    aliveOnly: boolean,
   ): void {
-    const order = this.reportOrders.get(participantId) ?? { latest: sample, stepCandidate: null, progressedSinceReset: false, aliveProgressSinceStored: false, seen: [] }
+    const order = this.reportOrders.get(participantId) ?? { latest: sample, stepCandidate: null, seen: [] }
     order.latest = sample
     order.stepCandidate = stepCandidate
-    order.progressedSinceReset = order.progressedSinceReset || progressed
-    order.aliveProgressSinceStored = aliveOnly ? order.aliveProgressSinceStored || progressed : false
     order.seen.push(reportKey)
     if (order.seen.length > SEEN_REPORTS_LIMIT)
       order.seen.shift()
@@ -1761,6 +1761,7 @@ export class RoomCoordinator {
             playbackBlocked: _playbackBlocked,
             capabilities: _capabilities,
             lastOperationObservation: _lastOperationObservation,
+            aliveProgressed: _aliveProgressed,
             ...publicParticipant
           } = participant
           return { ...publicParticipant }
@@ -2022,6 +2023,7 @@ export class RoomCoordinator {
     this.reportOrders.clear()
     for (const participant of this.participants.values()) {
       participant.lastSample = null
+      delete participant.aliveProgressed
       participant.lastSampleReceivedAtMs = effectiveAtServerMs
       participant.lastProgressAtServerMs = effectiveAtServerMs
     }
