@@ -55,8 +55,14 @@ for (const [name, entry] of entries) {
   })
 }
 
+// UnoCSS reads class names out of source text, and only out of the files listed
+// here: the entry points and the modules that build markup the panel shows.
+// panel-status-view.ts builds the status card and the people list, so a class
+// used only there would otherwise never reach styles.css.
+const markupModules = [resolve(sourceDirectory, 'panel-status-view.ts')]
 const sourceText = await Promise.all([
   ...entries.map(([, path]) => readFile(path, 'utf8')),
+  ...markupModules.map(path => readFile(path, 'utf8')),
   readFile(resolve(staticDirectory, 'sidepanel.html'), 'utf8'),
 ])
 const generator = await createGenerator(unoConfig)
