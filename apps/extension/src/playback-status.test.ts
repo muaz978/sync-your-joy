@@ -15,6 +15,7 @@ function base(overrides: Partial<Parameters<typeof localPlaybackStatus>[0]> = {}
     playbackStartFailed: false,
     playbackStarted: true,
     progressed: true,
+    progressEvidence: 'frames' as const,
     progressAgeMs: 0,
     statusAgeMs: 0,
     nowMs: 10_000,
@@ -53,29 +54,25 @@ describe('extension playback status copy', () => {
 
 describe('what confirms that a player is playing (#53)', () => {
   it('needs rendered-frame evidence for "Playing, confirmed"', () => {
-    expect(classifyLocalPlayback(base({ progressEvidence: 'frames' }))).toEqual({ status: 'playing', clockOnly: false })
+    expect(classifyLocalPlayback(base({ progressEvidence: 'frames' }))).toEqual({ status: 'playing', clockOnly: false, framesUnconfirmed: false })
     expect(playbackStatusCopy('playing', false).label).toBe('Playing, confirmed')
   })
 
   it('does not confirm progress that only the media clock shows', () => {
-    expect(classifyLocalPlayback(base({ progressEvidence: 'clock' }))).toEqual({ status: 'preparing', clockOnly: true })
+    expect(classifyLocalPlayback(base({ progressEvidence: 'clock' }))).toEqual({ status: 'preparing', clockOnly: true, framesUnconfirmed: false })
     expect(localPlaybackStatus(base({ progressEvidence: 'clock' }))).toBe('preparing')
   })
 
-  it('does not confirm progress of unknown quality either', () => {
-    expect(localPlaybackStatus(base({ progressEvidence: 'unknown' }))).toBe('preparing')
-  })
-
-  it('keeps the earlier behaviour for a caller that does not say what the progress was measured with', () => {
-    expect(localPlaybackStatus(base())).toBe('playing')
+  it('does not confirm progress of unknown quality either, and does not call it clock progress', () => {
+    expect(classifyLocalPlayback(base({ progressEvidence: 'unknown' }))).toEqual({ status: 'preparing', clockOnly: false, framesUnconfirmed: true })
   })
 
   it('does not call a state other than steady progress clock-only', () => {
-    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', paused: true }))).toEqual({ status: 'recovery-required', clockOnly: false })
-    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', buffering: true }))).toEqual({ status: 'buffering', clockOnly: false })
-    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', progressed: false }))).toEqual({ status: 'preparing', clockOnly: false })
-    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', roomPlaying: false }))).toEqual({ status: 'ready', clockOnly: false })
-    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', progressAgeMs: 1_800 }))).toEqual({ status: 'recovery-required', clockOnly: false })
+    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', paused: true }))).toEqual({ status: 'recovery-required', clockOnly: false, framesUnconfirmed: false })
+    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', buffering: true }))).toEqual({ status: 'buffering', clockOnly: false, framesUnconfirmed: false })
+    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', progressed: false }))).toEqual({ status: 'preparing', clockOnly: false, framesUnconfirmed: false })
+    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', roomPlaying: false }))).toEqual({ status: 'ready', clockOnly: false, framesUnconfirmed: false })
+    expect(classifyLocalPlayback(base({ progressEvidence: 'clock', progressAgeMs: 1_800 }))).toEqual({ status: 'recovery-required', clockOnly: false, framesUnconfirmed: false })
   })
 
   it('has a label of its own, different from every protocol status label', () => {

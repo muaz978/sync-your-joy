@@ -15,10 +15,10 @@ export interface LocalPlaybackStatusInput {
   progressed: boolean
   /**
    * What the progress was measured with. Only `frames` confirms playback; the
-   * media clock alone does not (owner decision on #53). A caller that omits it
-   * keeps the earlier behaviour, in which progress confirms playback.
+   * media clock alone does not, and neither does unknown evidence (owner
+   * decision on #53). Required, so no caller can leave the question out.
    */
-  progressEvidence?: ProgressEvidenceQuality
+  progressEvidence: ProgressEvidenceQuality
   drifted?: boolean
   progressAgeMs: number | null
   statusAgeMs: number | null
@@ -34,11 +34,13 @@ export interface PlaybackStatusCopy {
 export interface LocalPlaybackClassification {
   status: ParticipantPlaybackStatus
   /**
-   * The player is playing and its clock advances, but no frame counter confirms
-   * rendered video. The status is then `preparing`, never `playing`, and the
-   * person should be told why with `CLOCK_ONLY_PLAYBACK_COPY`.
+   * The player is playing and its media clock advances, but no frame counter
+   * confirms rendered video. The status is then `preparing`, never `playing`,
+   * and the person should be told why with `CLOCK_ONLY_PLAYBACK_COPY`.
    */
   clockOnly: boolean
+  /** Progress was reported, but of unknown quality (for example after a counter reset): not confirmed, and not the clock either. */
+  framesUnconfirmed: boolean
 }
 
 /** Shown instead of "Playing, confirmed" for a player whose progress is measured by the media clock alone. */
@@ -61,7 +63,7 @@ export function localPlaybackStatus(input: LocalPlaybackStatusInput): Participan
 
 export function classifyLocalPlayback(input: LocalPlaybackStatusInput): LocalPlaybackClassification {
   const unavailable = classifyUnlessRoomPlaying(input)
-  return unavailable !== null ? { status: unavailable, clockOnly: false } : classifyWhileRoomPlays(input)
+  return unavailable !== null ? { status: unavailable, clockOnly: false, framesUnconfirmed: false } : classifyWhileRoomPlays(input)
 }
 
 /** The status that does not depend on playback progress, or null when the room plays and the player is usable. */
@@ -85,7 +87,7 @@ function classifyUnlessRoomPlaying(input: LocalPlaybackStatusInput): Participant
 }
 
 function classifyWhileRoomPlays(input: LocalPlaybackStatusInput): LocalPlaybackClassification {
-  const plain = (status: ParticipantPlaybackStatus): LocalPlaybackClassification => ({ status, clockOnly: false })
+  const plain = (status: ParticipantPlaybackStatus): LocalPlaybackClassification => ({ status, clockOnly: false, framesUnconfirmed: false })
   if (input.statusAgeMs !== null && input.statusAgeMs >= SILENCE_TIMEOUT_MS)
     return plain('silent')
   if (input.buffering)
@@ -98,9 +100,9 @@ function classifyWhileRoomPlays(input: LocalPlaybackStatusInput): LocalPlaybackC
     return plain('recovery-required')
   if (!input.progressed)
     return plain('preparing')
-  if (input.progressEvidence === undefined || input.progressEvidence === 'frames')
+  if (input.progressEvidence === 'frames')
     return plain('playing')
-  return { status: 'preparing', clockOnly: true }
+  return { status: 'preparing', clockOnly: input.progressEvidence === 'clock', framesUnconfirmed: input.progressEvidence !== 'clock' }
 }
 
 /**
