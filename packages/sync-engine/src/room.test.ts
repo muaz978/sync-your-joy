@@ -3622,3 +3622,503 @@ describe('the wait for a dropped connection, at its edges', () => {
     expect(room.exportState().disconnectGrace).toEqual([])
   })
 })
+
+describe('a pending seek when the quorum or the authority changes', () => {
+  type RoomMode = 'legacy' | 'transactional'
+
+  const targetSeconds = 120
+  const memberIds = ['participant_host', 'participant_friend', 'participant_third']
+  const otherMedia: MediaFingerprint = {
+    service: 'youtube',
+    canonicalId: 'youtube:other456',
+    title: 'A different video',
+    durationSeconds: 600,
+  }
+
+  function advertised(mode: RoomMode): { capabilities?: typeof CURRENT_CLIENT_CAPABILITIES } {
+    return mode === 'transactional' ? { capabilities: CURRENT_CLIENT_CAPABILITIES } : {}
+  }
+
+  interface SeekScenario {
+    room: RoomCoordinator
+    /** Sends, in member order, an acknowledgement for the barrier this scenario started. */
+    replayAcknowledgements: () => Array<RoomResult | null>
+  }
+
+  /**
+   * Three ready members in a room that is playing, then a seek to 120 that
+   * the host (and nobody else) has completed. A legacy room has no
+   * capability advertisement; a transactional room has every member
+   * advertising the current set. `thirdAway` takes the third member off the
+   * room before the play, so the seek starts with only two required members.
+   */
+  function startPendingSeek(mode: RoomMode, options: { thirdAway?: boolean, hostAcknowledged?: boolean, now?: () => number } = {}): SeekScenario {
+    const { thirdAway = false, hostAcknowledged = true, now = () => 10_000 } = options
+    const room = new RoomCoordinator(
+      { roomId: 'seek_cancel_room', code: 'SEEKCNCL' },
+      { id: 'participant_host', name: 'Muaz', media, ...advertised(mode) },
+      now,
+    )
+    for (const [id, name] of [['participant_friend', 'Rana'], ['participant_third', 'Sam']] as const) {
+      room.join({ id, name, media, ...advertised(mode) })
+      room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, id, true)
+    }
+    for (const id of memberIds)
+      room.setReady(id, true, media)
+    if (thirdAway)
+      room.disconnect('participant_third', { intentional: true })
+
+    if (mode === 'legacy') {
+      const played = room.control('participant_host', {
+        actionId: 'seek_scenario_play',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'play',
+        positionSeconds: 20,
+      })
+      expect(played).toMatchObject({ ok: true, snapshot: { playback: { status: 'playing' } } })
+      const sought = room.control('participant_host', {
+        actionId: 'seek_scenario_seek',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'seek',
+        positionSeconds: targetSeconds,
+      })
+      expect(sought).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused', positionSeconds: targetSeconds }, seek: { resumeWhenReady: true } } })
+      const seekRevision = sought.snapshot.seek!.revision
+      if (hostAcknowledged)
+        expect(room.acknowledgeSeek('participant_host', seekRevision, targetSeconds)).toMatchObject({ ok: true, reason: 'seek_participant_aligned' })
+      return {
+        room,
+        replayAcknowledgements: () => memberIds.map(id => room.acknowledgeSeek(id, seekRevision, targetSeconds)),
+      }
+    }
+
+    controlTransactional(room, 'play', 20)
+    const present = memberIds.filter(id => !(thirdAway && id === 'participant_third'))
+    for (const id of present)
+      room.acknowledgeOperation(id, operationAcknowledgement(room, id, 'prepared', 20, 1))
+    expect(room.snapshot()).toMatchObject({ playback: { status: 'playing' }, contract: { mode: 'transactional', operation: { kind: 'play', phase: 'committed' } } })
+
+    const sought = controlTransactional(room, 'seek', targetSeconds)
+    expect(sought).toMatchObject({
+      ok: true,
+      snapshot: {
+        playback: { status: 'paused', positionSeconds: targetSeconds },
+        seek: null,
+        contract: { operation: { kind: 'seek', phase: 'preparing', resumeWhenReady: true, requiredParticipantIds: present } },
+      },
+    })
+    const replay = memberIds.map(id => operationAcknowledgement(room, id, 'prepared', targetSeconds, 3))
+    if (hostAcknowledged)
+      expect(room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', targetSeconds, 2))).toMatchObject({ ok: true, reason: 'operation_participant_prepared' })
+    return {
+      room,
+      replayAcknowledgements: () => memberIds.map((id, index) => room.acknowledgeOperation(id, replay[index]!)),
+    }
+  }
+
+  interface Cause {
+    name: string
+    thirdAway?: boolean
+    /** Runs before the revision is measured, for steps that are not the cause itself. */
+    stage?: (room: RoomCoordinator, mode: RoomMode) => void
+    apply: (room: RoomCoordinator, mode: RoomMode) => void
+    /** The cancelled operation's reason in a transactional room; null when the operation is dropped outright. */
+    reason: string | null
+    positionSeconds: number
+    /** A new page is a new media epoch, so the old operation's acknowledgements can never match it. */
+    advancesMediaEpoch?: boolean
+  }
+
+  const causes: Cause[] = [
+    {
+      name: 'a required participant disconnects',
+      apply: room => room.disconnect('participant_third'),
+      reason: 'participant-disconnected',
+      positionSeconds: targetSeconds,
+    },
+    {
+      name: 'a required participant becomes not ready',
+      apply: room => room.setReady('participant_third', false, media),
+      reason: 'participant-not-ready',
+      positionSeconds: targetSeconds,
+    },
+    {
+      name: 'a required participant moves to different media',
+      apply: room => room.setReady('participant_third', true, otherMedia),
+      reason: 'participant-not-ready',
+      positionSeconds: targetSeconds,
+    },
+    {
+      name: 'a participant who was away reconnects',
+      thirdAway: true,
+      apply: (room, mode) => room.join({ id: 'participant_third', name: 'Sam', media, ...advertised(mode) }),
+      reason: 'participant-disconnected',
+      positionSeconds: targetSeconds,
+    },
+    {
+      name: 'the controller approves a new participant',
+      stage: (room, mode) => room.join({ id: 'participant_newcomer', name: 'Lee', media, ...advertised(mode) }),
+      apply: room => room.respondToJoin('participant_host', room.snapshot().controller.leaseEpoch, 'participant_newcomer', true),
+      reason: 'participant-disconnected',
+      positionSeconds: targetSeconds,
+    },
+    {
+      // A new page is an unrelated video, so the room restarts at zero
+      // instead of holding the old seek target.
+      name: 'the controller shares a new link',
+      apply: room => room.openLink('participant_host', {
+        actionId: 'seek_scenario_new_link',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        url: 'https://video.example/watch/next-episode',
+      }),
+      reason: null,
+      positionSeconds: 0,
+      advancesMediaEpoch: true,
+    },
+  ]
+
+  for (const mode of ['legacy', 'transactional'] as const) {
+    describe(`${mode} room`, () => {
+      for (const cause of causes) {
+        it(`drops the barrier instead of shrinking the quorum when ${cause.name}`, () => {
+          const { room, replayAcknowledgements } = startPendingSeek(mode, { thirdAway: cause.thirdAway === true })
+          cause.stage?.(room, mode)
+          const before = room.snapshot()
+          expect(before.playback).toMatchObject({ status: 'paused', positionSeconds: targetSeconds })
+          if (mode === 'legacy')
+            expect(before.seek).toMatchObject({ positionSeconds: targetSeconds, acknowledgedParticipantIds: ['participant_host'] })
+          else
+            expect(before.contract?.operation).toMatchObject({ phase: 'preparing', preparedParticipantIds: ['participant_host'] })
+
+          cause.apply(room, mode)
+          const after = room.snapshot()
+
+          expect(after.revision).toBe(before.revision + 1)
+          expect(after.seek).toBeNull()
+          expect(after.playback).toMatchObject({ status: 'paused', positionSeconds: cause.positionSeconds })
+          expect(after.contract?.mediaEpoch).toBe((before.contract?.mediaEpoch ?? 0) + (cause.advancesMediaEpoch ? 1 : 0))
+          // In a transactional room openLink resets the operation and the
+          // playback itself straight after the pause, so the pause call in
+          // openLink changes nothing observable there (removing it is an
+          // equivalent mutation). The legacy case is the one that pins it;
+          // the transactional case pins the media epoch advance, the
+          // dropped operation and the rejected late acknowledgements.
+          if (mode === 'legacy') {
+            expect(after.contract?.operation ?? null).toBeNull()
+          }
+          else if (cause.reason === null) {
+            expect(after.contract?.operation).toBeNull()
+          }
+          else {
+            expect(after.contract?.operation).toMatchObject({ kind: 'seek', phase: 'cancelled', reason: cause.reason })
+          }
+
+          // Every member now sends the acknowledgement that would have
+          // completed the barrier. None may be accepted, and none may change
+          // the room.
+          expect(replayAcknowledgements()).toEqual([null, null, null])
+          expect(room.snapshot()).toEqual(after)
+        })
+      }
+    })
+  }
+
+  describe('legacy room, authority and failure', () => {
+    it('drops the barrier when the controller lease moves to another participant', () => {
+      const { room, replayAcknowledgements } = startPendingSeek('legacy')
+      const before = room.snapshot()
+      expect(before.seek).not.toBeNull()
+
+      const transferred = room.transferControl('participant_host', 'participant_friend', before.controller.leaseEpoch)
+
+      expect(transferred).toMatchObject({
+        ok: true,
+        reason: 'control_transferred',
+        snapshot: {
+          controller: { participantId: 'participant_friend', leaseEpoch: before.controller.leaseEpoch + 1 },
+          playback: { status: 'paused', positionSeconds: targetSeconds },
+          seek: null,
+        },
+      })
+      expect(transferred.snapshot.revision).toBe(before.revision + 1)
+      expect(replayAcknowledgements()).toEqual([null, null, null])
+      expect(room.snapshot()).toEqual(transferred.snapshot)
+    })
+
+    it('drops the barrier when a required member reports that playback failed, instead of resuming without it', () => {
+      const { room, replayAcknowledgements } = startPendingSeek('legacy')
+      const before = room.snapshot()
+      expect(before.seek?.revision).toBe(before.revision)
+
+      // The sampled position is far from the seek target: the room must pause
+      // at the target the barrier was holding, not where the failing player was.
+      const failure = room.updatePlayerStatus('participant_friend', before.revision, {
+        positionSeconds: 20,
+        durationSeconds: 600,
+        paused: true,
+        buffering: false,
+        sampledAtLocalMs: 10_100,
+        playbackStarted: false,
+        playbackStartFailed: true,
+      })
+
+      expect(failure).toMatchObject({
+        ok: true,
+        reason: 'participant_playback_blocked',
+        snapshot: {
+          playback: { status: 'paused', positionSeconds: targetSeconds },
+          seek: null,
+          participants: expect.arrayContaining([expect.objectContaining({ id: 'participant_friend', ready: false })]),
+        },
+      })
+      expect(failure!.snapshot.revision).toBe(before.revision + 1)
+      expect(replayAcknowledgements()).toEqual([null, null, null])
+      expect(room.snapshot()).toEqual(failure!.snapshot)
+    })
+  })
+
+  describe('a legacy acknowledgement at the deadline', () => {
+    /** Host and friend have aligned; the third member's acknowledgement would complete the barrier. */
+    function lastAcknowledgementPending(clock: { nowMs: number }) {
+      const { room } = startPendingSeek('legacy', { now: () => clock.nowMs })
+      const pending = room.snapshot().seek!
+      expect(room.acknowledgeSeek('participant_friend', pending.revision, targetSeconds)).toMatchObject({
+        ok: true,
+        reason: 'seek_participant_aligned',
+        snapshot: { seek: { acknowledgedParticipantIds: ['participant_host', 'participant_friend'] } },
+      })
+      return { room, pending }
+    }
+
+    it('still completes the barrier one millisecond before the deadline', () => {
+      const clock = { nowMs: 10_000 }
+      const { room, pending } = lastAcknowledgementPending(clock)
+      clock.nowMs = pending.deadlineAtServerMs - 1
+
+      expect(room.acknowledgeSeek('participant_third', pending.revision, targetSeconds)).toMatchObject({
+        ok: true,
+        reason: 'seek_aligned_play_scheduled',
+        snapshot: { playback: { status: 'playing', positionSeconds: targetSeconds }, seek: null },
+      })
+    })
+
+    it.each([0, 1])('releases the seek and pauses at the target for an acknowledgement %i ms after the deadline, before any timer runs', (lateByMs) => {
+      const clock = { nowMs: 10_000 }
+      const { room, pending } = lastAcknowledgementPending(clock)
+      const revisionBefore = room.snapshot().revision
+      clock.nowMs = pending.deadlineAtServerMs + lateByMs
+
+      const result = room.acknowledgeSeek('participant_third', pending.revision, targetSeconds)
+
+      expect(result).toMatchObject({
+        ok: true,
+        reason: 'seek_timeout_paused',
+        snapshot: { playback: { status: 'paused', positionSeconds: targetSeconds }, seek: null },
+      })
+      expect(result!.snapshot.revision).toBe(revisionBefore + 1)
+      expect(result!.snapshot.participants.map(participant => participant.playbackStatus)).toEqual(['recovery-required', 'recovery-required', 'recovery-required'])
+
+      // The seek is gone, so another acknowledgement finds nothing to revive
+      // and the sweep that runs afterwards finds nothing left to release.
+      expect(room.acknowledgeSeek('participant_host', pending.revision, targetSeconds)).toBeNull()
+      expect(room.releaseExpiredSeek(clock.nowMs)).toBeNull()
+      expect(room.snapshot().playback).toMatchObject({ status: 'paused', positionSeconds: targetSeconds })
+    })
+  })
+
+  describe('transactional room', () => {
+    it('drops the barrier when the controller lease moves to another participant', () => {
+      const { room, replayAcknowledgements } = startPendingSeek('transactional')
+      const before = room.snapshot()
+
+      const transferred = room.transferControl('participant_host', 'participant_friend', before.controller.leaseEpoch)
+
+      expect(transferred).toMatchObject({
+        ok: true,
+        reason: 'control_transferred',
+        snapshot: {
+          controller: { participantId: 'participant_friend', leaseEpoch: before.controller.leaseEpoch + 1 },
+          playback: { status: 'paused', positionSeconds: targetSeconds },
+          contract: { operation: { kind: 'seek', phase: 'cancelled', reason: 'superseded' } },
+        },
+      })
+      expect(transferred.snapshot.revision).toBe(before.revision + 1)
+      expect(replayAcknowledgements()).toEqual([null, null, null])
+      expect(room.snapshot()).toEqual(transferred.snapshot)
+    })
+
+    it('drops the barrier when a required member reports that playback failed, instead of resuming without it', () => {
+      const { room, replayAcknowledgements } = startPendingSeek('transactional')
+      const before = room.snapshot()
+
+      const failure = room.updatePlayerStatus('participant_friend', before.revision, {
+        positionSeconds: targetSeconds,
+        durationSeconds: 600,
+        paused: true,
+        buffering: false,
+        sampledAtLocalMs: 10_100,
+        playbackStarted: false,
+        playbackStartFailed: true,
+      })
+
+      expect(failure).toMatchObject({
+        ok: true,
+        reason: 'participant_playback_blocked',
+        snapshot: {
+          playback: { status: 'paused', positionSeconds: targetSeconds },
+          contract: { operation: { kind: 'seek', phase: 'cancelled', reason: 'start-rejected' } },
+          participants: expect.arrayContaining([expect.objectContaining({ id: 'participant_friend', ready: false })]),
+        },
+      })
+      expect(failure!.snapshot.revision).toBe(before.revision + 1)
+      expect(replayAcknowledgements()).toEqual([null, null, null])
+      expect(room.snapshot()).toEqual(failure!.snapshot)
+    })
+  })
+
+  describe('a transactional acknowledgement at the deadline', () => {
+    /** Host and friend have prepared; the third member's acknowledgement would complete the barrier. */
+    function lastAcknowledgementPending(clock: { nowMs: number }) {
+      const { room } = startPendingSeek('transactional', { now: () => clock.nowMs })
+      const friendPrepared = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', targetSeconds, 2))
+      expect(friendPrepared).toMatchObject({ ok: true, reason: 'operation_participant_prepared' })
+      const operation = room.snapshot().contract!.operation!
+      expect(operation.preparedParticipantIds).toEqual(['participant_host', 'participant_friend'])
+      return { room, operation, thirdAcknowledgement: operationAcknowledgement(room, 'participant_third', 'prepared', targetSeconds, 2) }
+    }
+
+    it('still completes the barrier one millisecond before the deadline', () => {
+      const clock = { nowMs: 10_000 }
+      const { room, operation, thirdAcknowledgement } = lastAcknowledgementPending(clock)
+      clock.nowMs = operation.deadlineAtServerMs - 1
+
+      expect(room.acknowledgeOperation('participant_third', thirdAcknowledgement)).toMatchObject({
+        ok: true,
+        reason: 'operation_committed',
+        snapshot: {
+          playback: { status: 'playing', positionSeconds: targetSeconds },
+          contract: { operation: { operationId: operation.operationId, phase: 'committed' } },
+        },
+      })
+    })
+
+    it.each([0, 1])('fails the operation and pauses at the target for an acknowledgement %i ms after the deadline, before any timer runs', (lateByMs) => {
+      const clock = { nowMs: 10_000 }
+      const { room, operation, thirdAcknowledgement } = lastAcknowledgementPending(clock)
+      const revisionBefore = room.snapshot().revision
+      clock.nowMs = operation.deadlineAtServerMs + lateByMs
+
+      const result = room.acknowledgeOperation('participant_third', thirdAcknowledgement)
+
+      expect(result).toMatchObject({
+        ok: true,
+        reason: 'operation_timeout_paused',
+        snapshot: {
+          playback: { status: 'paused', positionSeconds: targetSeconds },
+          contract: { operation: { operationId: operation.operationId, phase: 'failed', reason: 'deadline-expired' } },
+        },
+      })
+      expect(result!.snapshot.revision).toBe(revisionBefore + 1)
+      expect(result!.snapshot.participants.map(participant => participant.playbackStatus)).toEqual(['recovery-required', 'recovery-required', 'recovery-required'])
+
+      // The failed operation cannot be revived by another acknowledgement,
+      // and the sweep that runs afterwards finds nothing left to release.
+      expect(room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', targetSeconds, 4))).toBeNull()
+      expect(room.releaseExpiredOperation()).toBeNull()
+      expect(room.snapshot().playback).toMatchObject({ status: 'paused', positionSeconds: targetSeconds })
+    })
+  })
+
+  describe('a legacy acknowledgement sent twice', () => {
+    it('is counted once and does not complete the barrier while a third member is outstanding', () => {
+      const { room } = startPendingSeek('legacy', { hostAcknowledged: false })
+      const pending = room.snapshot().seek!
+      const revisionBefore = room.snapshot().revision
+
+      const first = room.acknowledgeSeek('participant_host', pending.revision, targetSeconds)
+      const second = room.acknowledgeSeek('participant_host', pending.revision, targetSeconds)
+      const third = room.acknowledgeSeek('participant_host', pending.revision, targetSeconds)
+
+      for (const repeated of [first, second, third])
+        expect(repeated).toMatchObject({ ok: true, reason: 'seek_participant_aligned', snapshot: { playback: { status: 'paused' }, seek: { acknowledgedParticipantIds: ['participant_host'] } } })
+      expect(room.snapshot().revision).toBe(revisionBefore)
+
+      // One more member makes two distinct acknowledgements out of four
+      // sends, which is still short of the three members the barrier needs.
+      expect(room.acknowledgeSeek('participant_friend', pending.revision, targetSeconds)).toMatchObject({
+        ok: true,
+        reason: 'seek_participant_aligned',
+        snapshot: { playback: { status: 'paused' }, seek: { acknowledgedParticipantIds: ['participant_host', 'participant_friend'] } },
+      })
+      expect(room.acknowledgeSeek('participant_friend', pending.revision, targetSeconds)).toMatchObject({
+        snapshot: { seek: { acknowledgedParticipantIds: ['participant_host', 'participant_friend'] } },
+      })
+      expect(room.snapshot().playback.status).toBe('paused')
+
+      expect(room.acknowledgeSeek('participant_third', pending.revision, targetSeconds)).toMatchObject({
+        ok: true,
+        reason: 'seek_aligned_play_scheduled',
+        snapshot: { playback: { status: 'playing', positionSeconds: targetSeconds }, seek: null },
+      })
+    })
+  })
+
+  describe('a transactional preparation sent twice', () => {
+    it('is counted once and does not commit the seek while a third member is outstanding', () => {
+      const { room } = startPendingSeek('transactional')
+      const prepare = (id: string, sampleSequence: number, positionSeconds = targetSeconds) =>
+        room.acknowledgeOperation(id, operationAcknowledgement(room, id, 'prepared', positionSeconds, sampleSequence))
+      const operationId = room.snapshot().contract!.operation!.operationId
+
+      expect(prepare('participant_friend', 2)).toMatchObject({ ok: true, reason: 'operation_participant_prepared' })
+      const revisionBefore = room.snapshot().revision
+
+      // The host's preparation is already on record from the scenario set-up.
+      for (const [id, sequence] of [['participant_host', 5], ['participant_friend', 6], ['participant_host', 7]] as const) {
+        const repeated = prepare(id, sequence)
+        expect(repeated).toMatchObject({
+          ok: true,
+          reason: 'operation_prepare_duplicate',
+          snapshot: {
+            playback: { status: 'paused', positionSeconds: targetSeconds },
+            contract: { operation: { operationId, phase: 'preparing', preparedParticipantIds: ['participant_host', 'participant_friend'] } },
+          },
+        })
+        expect(repeated!.snapshot.revision).toBe(revisionBefore)
+      }
+
+      // A misaligned preparation from the member who is still outstanding
+      // does not count either.
+      expect(prepare('participant_third', 2, targetSeconds + 30)).toBeNull()
+      expect(room.snapshot().contract!.operation).toMatchObject({ phase: 'preparing', preparedParticipantIds: ['participant_host', 'participant_friend'] })
+      expect(room.snapshot().playback.status).toBe('paused')
+
+      expect(prepare('participant_third', 3)).toMatchObject({
+        ok: true,
+        reason: 'operation_committed',
+        snapshot: { playback: { status: 'playing', positionSeconds: targetSeconds }, contract: { operation: { operationId, phase: 'committed' } } },
+      })
+    })
+
+    it('still answers a repeated preparation as a duplicate after the commit, wherever the player has moved on to', () => {
+      const { room } = startPendingSeek('transactional')
+      for (const id of ['participant_friend', 'participant_third'])
+        room.acknowledgeOperation(id, operationAcknowledgement(room, id, 'prepared', targetSeconds, 2))
+      const committed = room.snapshot()
+      expect(committed.contract!.operation).toMatchObject({ kind: 'seek', phase: 'committed', preparedParticipantIds: ['participant_host', 'participant_friend', 'participant_third'] })
+
+      // The player has played on since it prepared, so its position is no
+      // longer aligned with the target; the repeat must not be judged as a
+      // fresh preparation, and must not commit the operation a second time.
+      const repeated = room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', targetSeconds + 45, 6))
+
+      expect(repeated).toMatchObject({ ok: true, reason: 'operation_prepare_duplicate' })
+      expect(repeated!.snapshot.revision).toBe(committed.revision)
+      expect(repeated!.snapshot.playback).toEqual(committed.playback)
+      expect(repeated!.snapshot.contract!.operation).toEqual(committed.contract!.operation)
+    })
+  })
+})
