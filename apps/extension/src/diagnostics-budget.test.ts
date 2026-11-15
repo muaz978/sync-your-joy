@@ -1,6 +1,7 @@
-import type { DiagnosticsReport } from '@syncyourjoy/protocol'
+import type { DiagnosticsReport, ParticipantState } from '@syncyourjoy/protocol'
+import { parseClientMessage } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
-import { DIAGNOSTIC_MESSAGE_BUDGET_BYTES, diagnosticEvictionIndex, fitDiagnosticsReport, roomPositionJump, serializedDiagnosticsBytes } from './diagnostics-budget.ts'
+import { DIAGNOSTIC_MESSAGE_BUDGET_BYTES, diagnosticEvictionIndex, diagnosticReasonForRoomReason, fitDiagnosticsReport, roomPositionJump, serializedDiagnosticsBytes } from './diagnostics-budget.ts'
 
 function report(eventCount: number): DiagnosticsReport {
   return {
@@ -207,5 +208,87 @@ describe('a burst of one kind of event does not push out the incident', () => {
     const next = diagnosticEvictionIndex([drop, ordinary])
 
     expect(next).toBe(1)
+  })
+})
+
+describe('diagnosticReasonForRoomReason', () => {
+  const participant = (playbackStatus?: ParticipantState['playbackStatus'], connected = true): ParticipantState => ({
+    id: 'participant_a', name: 'A', role: 'member', ready: true, connected, mediaMatches: true, latencyMs: null,
+    ...(playbackStatus ? { playbackStatus } : {}),
+  })
+  const mapped = [
+    ['operation_timeout_paused', 'deadline-expired'],
+    ['seek_timeout_paused', 'deadline-expired'],
+    ['operation_binding_changed', 'binding-changed'],
+    ['participant_not_ready', 'participant-not-ready'],
+    ['participants_not_ready', 'participant-not-ready'],
+    ['participant_buffering', 'waiting-for-data'],
+    ['participant_playback_stalled', 'stalled'],
+    ['participant_playback_silent', 'stalled'],
+    ['participant_playback_startup_timeout', 'startup-timeout'],
+    ['participant_playback_blocked', 'permission-denied'],
+    ['participant_disconnected', 'participant-disconnected'],
+    ['participant_disconnect_timeout', 'participant-disconnected'],
+  ] as const
+
+  it.each(mapped)('maps %s to %s', (reason, code) => {
+    expect(diagnosticReasonForRoomReason(reason, [])).toBe(code)
+  })
+
+  // A coordinator from before a code existed drops the whole report that carries it, so
+  // every code used here must be one the protocol validates today.
+  it('only produces codes that a report with that reason passes protocol validation with', () => {
+    const statuses = ['blocked', 'recovery-required', 'silent', 'buffering', 'wrong-media'] as const
+    const codes = new Set([
+      ...mapped.map(([reason]) => diagnosticReasonForRoomReason(reason, [])),
+      ...statuses.map(status => diagnosticReasonForRoomReason('participant_status_changed', [participant(status)])),
+    ])
+    expect(codes.has(undefined)).toBe(false)
+    for (const reason of codes) {
+      const parsed = parseClientMessage({ type: 'diagnostics_response', reportId: 'report_validation_check', report: { ...report(0), reason } })
+      expect(parsed?.type, String(reason)).toBe('diagnostics_response')
+    }
+  })
+
+  it.each([
+    'participant_ready',
+    'operation_started',
+    'operation_committed',
+    'control_play',
+    'auto_resume_play_pending',
+    'auto_resume_abandoned',
+    'room_joined',
+    'something_the_coordinator_added_later',
+    'Participant-Buffering',
+    '',
+  ])('says nothing for %s, which does not explain why the room stopped', (reason) => {
+    expect(diagnosticReasonForRoomReason(reason, [participant('blocked')])).toBeUndefined()
+  })
+
+  describe('participant_status_changed', () => {
+    it.each([
+      ['blocked', 'permission-denied'],
+      ['recovery-required', 'recovery-required'],
+      ['silent', 'stalled'],
+      ['buffering', 'waiting-for-data'],
+      ['wrong-media', 'media-changed'],
+    ] as const)('is read from a participant whose status is %s: %s', (status, code) => {
+      expect(diagnosticReasonForRoomReason('participant_status_changed', [participant('playing'), participant(status)])).toBe(code)
+    })
+
+    it('says nothing when every connected participant is fine, or the one with a problem is not connected', () => {
+      expect(diagnosticReasonForRoomReason('participant_status_changed', [participant('playing'), participant()])).toBeUndefined()
+      expect(diagnosticReasonForRoomReason('participant_status_changed', [participant('blocked', false)])).toBeUndefined()
+      expect(diagnosticReasonForRoomReason('participant_status_changed', [])).toBeUndefined()
+    })
+
+    it('lets the worst status win: blocked over recovery, recovery over silent, silent over buffering, buffering over a wrong video', () => {
+      const order = ['blocked', 'recovery-required', 'silent', 'buffering', 'wrong-media'] as const
+      const expected = ['permission-denied', 'recovery-required', 'stalled', 'waiting-for-data', 'media-changed']
+      order.slice(0, -1).forEach((worse, index) => {
+        const mixed = [participant(order[index + 1]), participant(worse)]
+        expect(diagnosticReasonForRoomReason('participant_status_changed', mixed)).toBe(expected[index])
+      })
+    })
   })
 })
