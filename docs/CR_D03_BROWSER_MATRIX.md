@@ -219,3 +219,19 @@ Observed first, then pinned (one room, in this order):
 Run record (macOS arm64, Playwright 1.65.0, Chromium 158, headless): the new spec passed 12 of 12 consecutive runs at 44 to 48 s each, and 10 of 10 more after its waits were changed to the page's own timeout (44 to 46 s); the original matrix spec passed 10 of 10 against the changed room service. Each mutation was shown to fail the spec: acknowledgements never held (step 2 sees players running), Play enabled with a member unready (step 1), a silent participant that keeps reporting (step 6 times out waiting for the pause).
 
 Not covered here: visibility and navigation scenarios (navigation needs #65 and a second route on the test server), a p95 drift or pause-latency metric, a 30-minute soak, a per-run batch summary kept outside the repository, a faulted controller during a seek barrier (that is #54, in a separate pull request), and every owner-only gate.
+
+## Seek barrier under faults (#54)
+
+`tests/e2e/seek-barrier-faults.spec.ts` runs a seek that is pending while a member's acknowledgement is late or missing, a socket drops and the controller lease moves. It uses the fault control above (`hold_acks`, `release`) and `/__test/disconnect`, three profiles, the real extension, the in-process Node room service (not `apps/edge-service`) and the local test player. It is class (b) evidence: a local browser on the owned synthetic fixture. The engine rules are pinned by the coordinator's unit tests; no Crunchyroll, two-account, two-device or deployment evidence is claimed.
+
+Observed first, then pinned. While a seek is pending every player is paused at the destination read from the exact `+10` button that was clicked (within 0.75 s, on both `lastSeekedTime` and `currentTime`) and the controller is offered Play, not Pause. Then:
+
+1. A late acknowledgement inside the 3 s window: the held acknowledgement is released after about a second and all three players resume together from the destination and converge.
+2. An acknowledgement after the window: held for 4.5 s the room stays paused at the destination (the barrier timed out); released late, nothing resumes in the next 3 s, and a new Play converges.
+3. A dropped socket while the seek is pending: C is dropped, reconnects, and its held acknowledgement is released after the reconnect; the room stays paused at the destination and a new Play converges.
+4. A lease transfer while the seek is pending: B receives the controller and is offered Play; releasing C's acknowledgement does not resume the room; B's Play converges.
+5. With B as controller, a pending seek completes when the late acknowledgement is released.
+
+Mutations: removing the cancellation in `transferControlCore` (`packages/sync-engine/src/room.ts`) fails step 4 (the room resumes after the release); a fault control that never holds fails the first step.
+
+Not covered: a member that fails (not just a late or missing acknowledgement), the legacy path for participants older than 0.2.5 (the owner decision of 2026-10-31 records that as an accepted limit), Crunchyroll, and the owner-only gates. This spec does not replace the engine-level tests the card lists.
