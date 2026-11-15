@@ -4,11 +4,12 @@ Issue: [#59](https://github.com/muaz978/sync-your-joy/issues/59)
 Dependency: [CR-B04 / #58](https://github.com/muaz978/sync-your-joy/issues/58)
 Branch: `codex/issue-59-local-health-deadlines`
 Base: CR-B04 merge `c9149219c86a2c2c995c72e42a699640ed13b51f`
-Version when written: `0.2.4`
+Version when written: `0.2.4` (historical; sections 1 to 9 describe the state at that version)
+Current version when refreshed (2026-11-15): `0.2.12`; section 10 describes everything that came after
 Scope: local Node room-service deadline evaluation, timer-driven health recovery, WebSocket broadcast behavior and regression evidence
-Status when written (historical): implementation and final local verification complete; PR review, merge and post-merge issue verification remain separate gates. Update 2026-10-16: merged as PR #87 and shipped in v0.2.5; #59 stays open for acceptance evidence.
+Status when written (historical): implementation and final local verification complete; PR review, merge and post-merge issue verification remain separate gates. Update 2026-10-16: merged as PR #87 and shipped in v0.2.5; #59 stays open for acceptance evidence. Update 2026-11-15: the socket tests for seek, operation, startup and silence expiry exist (PR #168) and the exactly-one-broadcast and room-cleanup tests were added (section 10); #59 stays open.
 
-This report is intentionally specific about what was verified. It covers the local room service and its WebSocket contract. It does not claim authenticated Crunchyroll visible-output acceptance, a second account, a second physical device, deployment, migration, or final user acceptance.
+This report is intentionally specific about what was verified. It covers the local room service and its WebSocket contract. It does not claim authenticated Crunchyroll visible-output acceptance, a second account, a second physical device, deployment, migration, or final user acceptance. Under the owner decision recorded on #59 on 2026-10-31, those gates are carried by #30, #33, #34, #35 and #69; this card is judged on its own acceptance criteria and local evidence.
 
 ## 1. Problem statement and acceptance interpretation
 
@@ -234,6 +235,85 @@ The user's signed-in Crunchyroll account is available for the separate headed pr
 
 ## 9. Closure and release decision
 
-This report does not close issue #59. The issue remains open until the issue-specific PR is source-reviewed at its exact head, all PR checks pass, the PR is merged, and the post-merge state is verified. After merge, the issue should move to the public project `Verification`, not be silently marked complete if any applicable gate remains outstanding.
+Issue #59 stays open after this report. The issue remains open until the issue-specific PR is source-reviewed at its exact head, all PR checks pass, the PR is merged, and the post-merge state is verified. After merge, the issue should move to the public project `Verification`, not be silently marked complete if any applicable gate remains outstanding.
 
-CR-B05 does not bump the extension version and does not create a release. The current version remains `0.2.4`. The `1.0.0` release remains reserved for the end of the milestone after the dependent reliability, real-device, deployment and user-acceptance gates are complete.
+CR-B05 does not bump the extension version and does not create a release. When this section was written the version was `0.2.4`; the extension is at `0.2.12` now, and none of the later work on this card changes it. The `1.0.0` release remains reserved for the end of the milestone after the dependent reliability, real-device, deployment and user-acceptance gates are complete.
+
+## 10. Refresh at version 0.2.12 (2026-11-15)
+
+Sections 1 to 9 describe the state at `0.2.4`, when the change was PR #87. This section records what was added afterwards. Evidence class throughout: unit and local socket tests on synthetic fixtures (an injected clock and the `ws` client). Nothing here was observed in a browser, on Crunchyroll, in production, with two accounts or two devices, or as user acceptance.
+
+### 10.1 Where the change is released
+
+- PR #87 (the timer evaluating the deadlines, one transition per turn) is in `v0.2.5` and `v0.2.6`.
+- Since then the timer chain has grown to five calls, in this order: `releaseExpiredSeek`, `releaseExpiredOperation`, `evaluateHealth`, `evaluateDisconnectGrace`, `evaluateAutoResume`. The first one that returns a result is broadcast, and the rest wait for the next turn (`apps/room-service/src/server.ts`, the cleanup timer). The extension is at `0.2.12`.
+- PR #168 (test only) and the tests of this section are on `main` and in no release tag.
+
+### 10.2 What PR #168 added
+
+Twenty-seven socket tests on an injected clock (`now` and `cleanupIntervalMs`), each asserting the exact snapshot reason, the revision step and that no second snapshot follows: seek expiry (`seek_timeout_paused`); a negotiated Play with the prepare acknowledgement withheld and with the start acknowledgement withheld (`operation_timeout_paused`); startup timeout; report silence, including a player that last reported paused or buffering; a silent player beside a reporting one in legacy and negotiated rooms; WebSocket pings that are not reports; one transition per timer turn when several windows have run out; participant replacement while a seek, an operation or a silence deadline is pending; a healthy room across a join request and a denial; and a healthy legacy room across a control transfer. At its base, deleting `releaseExpiredSeek` or `releaseExpiredOperation` from the timer left every test passing; after it, each of the five calls, the exclusive chain and the broadcast are pinned.
+
+That PR met the owner condition on #59 ("stays open until the socket tests for seek, operation, startup and silence expiry exist").
+
+### 10.3 What this change adds (14 tests, `apps/room-service/src/server.test.ts`)
+
+At the base the file had 71 tests; it has 85 now (84 pass and 1 is an expected failure, see 10.5). The full run is 50 files and 1050 passed plus the 1 expected failure.
+
+Exactly one broadcast per inbound message, in a negotiated two-player room, asserted for both sockets with the revision step and a check that nothing follows later:
+
+- an inbound `player_status` that pauses the room (`participant_playback_blocked`, revision plus one), one that only changes what the room shows for that player (`participant_status_changed`, revision unchanged), and a repeat that changes nothing (no snapshot at all);
+- each `operation_ack`: the first and the last `prepared` (`operation_participant_prepared`, then `operation_committed`) and the first and the last `started` (`operation_participant_started`, then `operation_started`), and a repeated start (`operation_start_duplicate`, revision unchanged).
+
+Room cleanup, on the injected clock:
+
+- the per-IP room cap is lifted by exactly one slot when a room ends, whether its empty-room clock runs out or it reaches its maximum lifetime (this replaces the old test of the same title, which only checked the 21st-room cap);
+- a room that still has a member ends at its maximum lifetime and not one millisecond before, and every socket of it, a waiting request included, is told `room_expired`;
+- a controller's recovery plan is cancelled when its room ends, by empty expiry and by maximum lifetime (the test watches `clearTimeout` receive the very timer the service made);
+- an empty-room clock is measured from the last time the room became empty, not from the first;
+- one timer turn acts on two rooms, for a seek deadline and for empty expiry, so a timer that stops at the first room fails.
+
+Control transfer in a negotiated room:
+
+- the transfer is announced once, with the other player as controller, one revision step, and no timer transition afterwards;
+- the test that the room keeps playing is an `it.fails`, see 10.5.
+
+### 10.4 Mutation checks
+
+Each production edit below was made in place, `apps/room-service/src/server.test.ts` was run, and the file was restored from its saved original bytes (`git status` showed only the intended files afterwards). 16 mutations: 15 are caught, 1 survives.
+
+| Mutation | Result |
+| --- | --- |
+| `player_status` broadcast sent twice | 17 tests fail |
+| `operation_ack` broadcast sent twice | 5 tests fail |
+| empty expiry does not release the IP slot | 1 fails |
+| lifetime expiry does not release the IP slot | 1 fails |
+| empty expiry does not clear the recovery timers | 1 fails |
+| lifetime expiry does not clear the recovery timers | 1 fails |
+| maximum lifetime never fires (`else if (false)`) | 4 fail |
+| maximum lifetime one millisecond late (`>` for `>=`) | 4 fail |
+| timer visits only the first room | 2 fail |
+| join no longer clears the empty-room clock | 1 fails |
+| neither the join nor the timer clears the clock | 2 fail |
+| empty expiry never fires | 6 fail |
+| coordinator: a started Play stops counting as live on a control transfer | the `it.fails` test of 10.5 fails (as it should once the room keeps playing) |
+| coordinator: a status-only report moves the revision | 10 fail |
+| coordinator: the first prepare moves the revision | 1 fails |
+| the timer no longer calls `reconcileEmptyClock` | survives, 0 fail |
+
+The survivor is a redundant defence, not a gap in the test: every path that makes a room non-empty (the join, the only way a member returns) already clears the clock, so removing the timer's reconciliation alone changes nothing a socket can observe. With both removed the tests fail (the row "neither the join nor the timer clears the clock"). The helper itself is unit-tested in `packages/sync-engine/src/empty-room-clock.test.ts`. A room that is empty with no clock cannot be built through the socket interface.
+
+### 10.5 Open question, not decided and not changed
+
+In a negotiated room, `transferControl` in `packages/sync-engine/src/room.ts` pauses a Play that has already started and is healthy, because `hasActiveOperation()` is true for the `started` phase and the transfer pauses for any live operation. A legacy room in the same situation keeps playing. The comment above that code speaks only of cancelling a pending seek, so the pause may be intended. It was first raised on PR #168. The test `keeps a healthy two-player negotiated room playing after control passes to the other player` states the behaviour a healthy room would have and is an `it.fails`: it passes while the room pauses and fails the moment that changes. It needs the owner's decision (intended, or a fix, which belongs in `packages/sync-engine/src/room.ts` and not in this change); then it becomes a plain `it`, or is deleted.
+
+### 10.6 What is not evidenced
+
+- The five deadline calls are pinned through the server timer; their relative order is pinned for the pairs a test makes due together (operation before health, health before grace). Two orders are still free: `evaluateAutoResume` moved ahead of the others, and swapped with the disconnect grace, because no test has them due in the same turn (this was already the case after PR #168).
+- A ping-only health test exists (PR #168), but the real wall clock is not exercised beyond the one pre-existing silent-player test; every other timing here is on the injected clock.
+- Windows, Linux and a loaded CI runner were not run for the new tests; a macOS run was repeated six times without a failure.
+- The headed Crunchyroll run with a silent participant, a second account, a second physical device, a deployed coordinator and user acceptance remain with #30, #33, #34, #35 and #69 by the owner decision of 2026-10-31. Production runs the edge service, not this local service.
+- The edge Durable Object has its own cleanup and is not covered by anything in this section.
+
+### 10.7 Closure
+
+Issue #59 stays open after this section. The owner's stated condition on the card is met (10.2), the two criteria that the second verification pass found only partly pinned (one broadcast per transition, room cleanup) now have tests with mutation checks (10.3, 10.4), and one question needs the owner (10.5). Closing the card is the owner's call.
