@@ -7,7 +7,7 @@ Base: CR-B04 merge `c9149219c86a2c2c995c72e42a699640ed13b51f`
 Version when written: `0.2.4` (historical; sections 1 to 9 describe the state at that version)
 Current version when refreshed (2026-11-15): `0.2.12`; section 10 describes everything that came after
 Scope: local Node room-service deadline evaluation, timer-driven health recovery, WebSocket broadcast behavior and regression evidence
-Status when written (historical): implementation and final local verification complete; PR review, merge and post-merge issue verification remain separate gates. Update 2026-10-16: merged as PR #87 and shipped in v0.2.5; #59 stays open for acceptance evidence. Update 2026-11-15: the socket tests for seek, operation, startup and silence expiry exist (PR #168) and the exactly-one-broadcast and room-cleanup tests were added (section 10); #59 stays open.
+Status when written (historical): implementation and final local verification complete; PR review, merge and post-merge issue verification remain separate gates. Update 2026-10-16: merged as PR #87 and shipped in v0.2.5; #59 stays open for acceptance evidence. Update 2026-11-15: the socket tests for seek, operation, startup and silence expiry are merged on `main` (PR #168); the exactly-one-broadcast and room-cleanup tests described in 10.3 are added by PR #183, which is a draft and is not merged; #59 stays open.
 
 This report is intentionally specific about what was verified. It covers the local room service and its WebSocket contract. It does not claim authenticated Crunchyroll visible-output acceptance, a second account, a second physical device, deployment, migration, or final user acceptance. Under the owner decision recorded on #59 on 2026-10-31, those gates are carried by #30, #33, #34, #35 and #69; this card is judged on its own acceptance criteria and local evidence.
 
@@ -241,23 +241,24 @@ CR-B05 does not bump the extension version and does not create a release. When t
 
 ## 10. Refresh at version 0.2.12 (2026-11-15)
 
-Sections 1 to 9 describe the state at `0.2.4`, when the change was PR #87. This section records what was added afterwards. Evidence class throughout: unit and local socket tests on synthetic fixtures (an injected clock and the `ws` client). Nothing here was observed in a browser, on Crunchyroll, in production, with two accounts or two devices, or as user acceptance.
+Sections 1 to 9 describe the state at `0.2.4`, when the change was PR #87. This section records what was added afterwards, and keeps two sets of tests apart: those already merged on `main` by PR #168 (10.2) and those added by PR #183, a draft that is not merged (10.3 and 10.4). Evidence class throughout: unit and local socket tests on synthetic fixtures (an injected clock and the `ws` client). Nothing here was observed in a browser, on Crunchyroll, in production, with two accounts or two devices, or as user acceptance.
 
-### 10.1 Where the change is released
+### 10.1 What is released, what is merged, what is not
 
-- PR #87 (the timer evaluating the deadlines, one transition per turn) is in `v0.2.5` and `v0.2.6`.
+- Released: PR #87 (the timer evaluating the deadlines, one transition per turn) is in `v0.2.5` and `v0.2.6`.
 - Since then the timer chain has grown to five calls, in this order: `releaseExpiredSeek`, `releaseExpiredOperation`, `evaluateHealth`, `evaluateDisconnectGrace`, `evaluateAutoResume`. The first one that returns a result is broadcast, and the rest wait for the next turn (`apps/room-service/src/server.ts`, the cleanup timer). The extension is at `0.2.12`.
-- PR #168 (test only) and the tests of this section are on `main` and in no release tag.
+- Merged on `main`, in no release tag: PR #168 (test only, commit `cfc9db0` on `main`), described in 10.2.
+- Not merged: the tests of 10.3 and the mutation checks of 10.4 belong to PR #183, a draft. Until it merges, none of them is on `main`.
 
-### 10.2 What PR #168 added
+### 10.2 Merged in PR #168 (on `main`)
 
 Twenty-seven socket tests on an injected clock (`now` and `cleanupIntervalMs`), each asserting the exact snapshot reason, the revision step and that no second snapshot follows: seek expiry (`seek_timeout_paused`); a negotiated Play with the prepare acknowledgement withheld and with the start acknowledgement withheld (`operation_timeout_paused`); startup timeout; report silence, including a player that last reported paused or buffering; a silent player beside a reporting one in legacy and negotiated rooms; WebSocket pings that are not reports; one transition per timer turn when several windows have run out; participant replacement while a seek, an operation or a silence deadline is pending; a healthy room across a join request and a denial; and a healthy legacy room across a control transfer. At its base, deleting `releaseExpiredSeek` or `releaseExpiredOperation` from the timer left every test passing; after it, each of the five calls, the exclusive chain and the broadcast are pinned.
 
 That PR met the owner condition on #59 ("stays open until the socket tests for seek, operation, startup and silence expiry exist").
 
-### 10.3 What this change adds (14 tests, `apps/room-service/src/server.test.ts`)
+### 10.3 Added by PR #183 (a draft, not on `main`): 14 tests in `apps/room-service/src/server.test.ts`
 
-At the base the file had 71 tests; it has 85 now (84 pass and 1 is an expected failure, see 10.5). The full run is 50 files and 1050 passed plus the 1 expected failure.
+These tests are in addition to the 27 of 10.2, which are already merged. At `main` as of PR #168 and #171 the file had 71 tests; with PR #183 it has 85 (84 pass and 1 is an expected failure, see 10.5). The full run on the PR branch is 50 files and 1050 passed plus the 1 expected failure.
 
 Exactly one broadcast per inbound message, in a negotiated two-player room, asserted for both sockets with the revision step and a check that nothing follows later:
 
@@ -277,7 +278,7 @@ Control transfer in a negotiated room:
 - the transfer is announced once, with the other player as controller, one revision step, and no timer transition afterwards;
 - the test that the room keeps playing is an `it.fails`, see 10.5.
 
-### 10.4 Mutation checks
+### 10.4 Mutation checks (of the tests added by PR #183)
 
 Each production edit below was made in place, `apps/room-service/src/server.test.ts` was run, and the file was restored from its saved original bytes (`git status` showed only the intended files afterwards). 16 mutations: 15 are caught, 1 survives.
 
@@ -302,9 +303,11 @@ Each production edit below was made in place, `apps/room-service/src/server.test
 
 The survivor is a redundant defence, not a gap in the test: every path that makes a room non-empty (the join, the only way a member returns) already clears the clock, so removing the timer's reconciliation alone changes nothing a socket can observe. With both removed the tests fail (the row "neither the join nor the timer clears the clock"). The helper itself is unit-tested in `packages/sync-engine/src/empty-room-clock.test.ts`. A room that is empty with no clock cannot be built through the socket interface.
 
+Two more scratch edits were made to the test file itself (not to production code) to check that the expected-failure test of 10.5 cannot pass for a reason other than the one it states. (a) The helper that sets up the control-transfer room throws before it starts. (b) The room is given no healthy reports for a minute, so the silence timer pauses it before control moves. In the first version of that test (head `4308f01`), where the setup ran inside the `it.fails` body, (a) left it green, because `it.fails` counts any throw as the expected failure. With the setup inside a guard that returns when it throws, and a precondition that the room is playing before the transfer, both (a) and (b) turn the test red ("Expect test to fail") while the plain tests report the real cause. A first attempt at (b) with only three seconds without reports survived: no deadline had passed yet, so it did not break the setup; the one-minute version is the one reported. Both edits were restored from a saved copy and the file was confirmed byte-identical.
+
 ### 10.5 Open question, not decided and not changed
 
-In a negotiated room, `transferControl` in `packages/sync-engine/src/room.ts` pauses a Play that has already started and is healthy, because `hasActiveOperation()` is true for the `started` phase and the transfer pauses for any live operation. A legacy room in the same situation keeps playing. The comment above that code speaks only of cancelling a pending seek, so the pause may be intended. It was first raised on PR #168. The test `keeps a healthy two-player negotiated room playing after control passes to the other player` states the behaviour a healthy room would have and is an `it.fails`: it passes while the room pauses and fails the moment that changes. It needs the owner's decision (intended, or a fix, which belongs in `packages/sync-engine/src/room.ts` and not in this change); then it becomes a plain `it`, or is deleted.
+In a negotiated room, `transferControl` in `packages/sync-engine/src/room.ts` pauses a Play that has already started and is healthy, because `hasActiveOperation()` is true for the `started` phase and the transfer pauses for any live operation. A legacy room in the same situation keeps playing. The comment above that code speaks only of cancelling a pending seek, so the pause may be intended. It was first raised on PR #168. The test `keeps a healthy two-player negotiated room playing after control passes to the other player` states the behaviour a healthy room would have and is an `it.fails`: it passes while the room pauses and fails the moment that changes. Its setup runs inside a guard, so a broken setup makes it fail instead of pass (see 10.4); only its single assertion that the room is `playing` can satisfy it. It needs the owner's decision (intended, or a fix, which belongs in `packages/sync-engine/src/room.ts` and not in this change); then it becomes a plain `it`, or is deleted.
 
 ### 10.6 What is not evidenced
 
@@ -316,4 +319,4 @@ In a negotiated room, `transferControl` in `packages/sync-engine/src/room.ts` pa
 
 ### 10.7 Closure
 
-Issue #59 stays open after this section. The owner's stated condition on the card is met (10.2), the two criteria that the second verification pass found only partly pinned (one broadcast per transition, room cleanup) now have tests with mutation checks (10.3, 10.4), and one question needs the owner (10.5). Closing the card is the owner's call.
+Issue #59 stays open after this section. The owner's stated condition on the card is met by the tests already merged in PR #168 (10.2). The two criteria that the second verification pass found only partly pinned (one broadcast per transition, room cleanup) have tests with mutation checks in PR #183 (10.3, 10.4), which are not on `main` until that draft is reviewed and merged. One question needs the owner (10.5). Closing the card is the owner's call.
