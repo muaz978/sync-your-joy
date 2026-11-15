@@ -651,6 +651,93 @@ describe('service worker observed episode identity', () => {
     expect(replacement.playerBindingId).not.toBe(firstBindingId)
   })
 
+  // Firefox and Safari give a content script no document ID. The token the
+  // worker issues is then the only thing that tells a page's messages from those
+  // of the page it replaced, and the frame the only thing that tells a second
+  // frame from the bound one.
+  describe('on a browser that gives frames no document ID', () => {
+    const senderFor = (frameId: number): chrome.runtime.MessageSender => ({
+      tab: { id: 42, active: true, url: sharedUrl },
+      frameId,
+      url: sharedUrl,
+    }) as chrome.runtime.MessageSender
+    const sample = { positionSeconds: 99, durationSeconds: 120, paused: false, buffering: false, sampledAtLocalMs: Date.now() }
+    const playerMessages = (bindingId: string): RuntimeRequest[] => [
+      { type: 'PLAYER_STATUS', basedOnRevision: 5, sample, bindingId },
+      { type: 'SEEK_APPLIED', revision: 5, positionSeconds: 99, bindingId },
+      {
+        type: 'OPERATION_ACK',
+        acknowledgement: {
+          mediaEpoch: 1,
+          operationId: 'operation_play_123456',
+          bindingId,
+          sourceGeneration: 2,
+          sampleSequence: 7,
+          phase: 'started',
+          participantId: 'participant_resumed',
+          observedPositionSeconds: 12,
+          observedAtLocalMs: Date.now(),
+        },
+      },
+      { type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: 99, bindingId },
+      { type: 'MEDIA_LOST', bindingId },
+    ]
+    const sentTypes = (socket: FakeWebSocket, from: number) => socket.sentMessages.slice(from).map(message => (message as { type: string }).type)
+
+    it('ignores status, seek, acknowledgement, intent and loss messages that carry a forged token', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const sentBefore = socket.sentMessages.length
+
+      for (const message of playerMessages('binding_forged'))
+        await request(message, senderFor(0))
+
+      expect(socket.sentMessages).toHaveLength(sentBefore)
+      const afterForged = await request({ type: 'GET_STATE' }, {})
+      expect(afterForged.state.lastPlayerSample).toBeNull()
+      expect(afterForged.state.currentMedia).toMatchObject(oldMedia)
+
+      // The token the worker did issue is accepted for every one of them.
+      for (const message of playerMessages('binding_resumed'))
+        await request(message, senderFor(0))
+      expect(sentTypes(socket, sentBefore)).toEqual(expect.arrayContaining(['player_status', 'seek_applied', 'operation_ack', 'control', 'set_ready']))
+    })
+
+    it('ignores the messages of a page whose token was rotated, whichever message it sends', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const first = await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: 'binding_resumed' }, senderFor(0))
+      fake.updatedListener(42, { status: 'loading' })
+      const replacement = await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: undefined }, senderFor(0))
+      expect(replacement.playerBindingId).toEqual(expect.any(String))
+      expect(replacement.playerBindingId).not.toBe(first.playerBindingId)
+      const socket = FakeWebSocket.instances[0]!
+      const sentBefore = socket.sentMessages.length
+
+      for (const message of playerMessages(first.playerBindingId!))
+        await request(message, senderFor(0))
+
+      expect(socket.sentMessages).toHaveLength(sentBefore)
+      const afterStale = await request({ type: 'GET_STATE' }, {})
+      expect(afterStale.state.lastPlayerSample).toBeNull()
+      expect(afterStale.state.currentMedia).toMatchObject(oldMedia)
+      await request(playerMessages(replacement.playerBindingId!)[0]!, senderFor(0))
+      expect((await request({ type: 'GET_STATE' }, {})).state.lastPlayerSample).toMatchObject(sample)
+    })
+
+    it('gives a second frame no binding while the bound frame holds one, with no token or a forged one', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      for (const bindingId of [undefined, 'binding_forged']) {
+        const response = await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 900_000, bindingId }, senderFor(3))
+        expect(response.playerBindingId).toBeUndefined()
+        expect(response.state.playerFrameId).toBe(0)
+      }
+      // The bound frame's own heartbeat keeps the token it holds.
+      const heartbeat = await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: 'binding_resumed' }, senderFor(0))
+      expect(heartbeat.playerBindingId).toBe('binding_resumed')
+      expect(heartbeat.state.playerFrameId).toBe(0)
+    })
+  })
+
   // A report writes the worker's state after it has told the previous player
   // that it is no longer bound, and that takes a round trip to the tab. Another
   // report can bind the room's player in that time; the slower one must then
@@ -691,9 +778,10 @@ describe('service worker observed episode identity', () => {
     }
 
     it.each([
-      ['in another frame', 3, 4],
-      ['in the same frame after the page was replaced', 0, 0],
-    ])('lets the report that bound last keep the binding, the media and the diagnostics when the earlier one was %s', async (_label, frameOfA, frameOfB) => {
+      // Without a document ID on the page being replaced, it is detached by frame.
+      ['in another frame', 3, 4, { frameId: 0 }],
+      ['in the same frame after the page was replaced', 0, 0, { documentId: 'document-first' }],
+    ])('lets the report that bound last keep the binding, the media and the diagnostics when the earlier one was %s', async (_label, frameOfA, frameOfB, expectedDetachTarget) => {
       const { fake, request } = await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!
       // A same-frame replacement only has a previous document to detach once the frame has one.
@@ -703,6 +791,8 @@ describe('service worker observed episode identity', () => {
 
       const reportA = request({ type: 'MEDIA_DETECTED', media: mediaA, areaPixels: 700_000, diagnostics: diagnostics(1), bindingId: undefined }, senderFor(frameOfA, 'document-a'))
       await vi.waitFor(() => expect(sendToTab).toHaveBeenCalledTimes(1))
+      // The page that held the binding is the one being told it no longer does.
+      expect(sendToTab.mock.calls[0]).toEqual([42, expect.objectContaining({ type: 'APPLY_ROOM_STATE', state: expect.objectContaining({ snapshot: null }) }), expectedDetachTarget])
       const responseB = await request({ type: 'MEDIA_DETECTED', media: mediaB, areaPixels: 900_000, diagnostics: diagnostics(4), bindingId: undefined }, senderFor(frameOfB, 'document-b'))
       expect(responseB.state.playerFrameId).toBe(frameOfB)
       expect(responseB.playerBindingId).toEqual(expect.any(String))
