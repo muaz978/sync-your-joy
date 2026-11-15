@@ -361,3 +361,147 @@ describe('progress that media events report between periodic samples', () => {
     expect(state.observedAtMs).toBe(1_020)
   })
 })
+
+describe('a stall after progress that an event report already saw', () => {
+  const event = (previous: ReturnType<typeof createPlayerHealthState>, overrides: Partial<Parameters<typeof observePlayerHealth>[1]> = {}) =>
+    playing(previous, { periodic: false, ...overrides })
+
+  /** A periodic sample sees frame 24, a media event sees frame 26, and then the element says it is waiting. */
+  function stalledAfterEventSawFrames() {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 24 })
+    state = event(state, { nowMs: 1_500, positionSeconds: 1.5, frames: 26 })
+    expect(state.progressed).toBe(true)
+    return markPlayerHealthBuffering(state)
+  }
+
+  it('is not cleared by a delayed buffering report that sees the same frames again', () => {
+    let state = stalledAfterEventSawFrames()
+    state = event(state, { nowMs: 2_200, positionSeconds: 1.5, frames: 26, explicitlyBuffering: true })
+
+    expect(state.buffering).toBe(true)
+    expect(state.progressed).toBe(false)
+  })
+
+  it('is not cleared by an event report without the explicit flag either', () => {
+    let state = stalledAfterEventSawFrames()
+    state = event(state, { nowMs: 2_200, positionSeconds: 1.5, frames: 26 })
+
+    expect(state.buffering).toBe(true)
+    expect(state.progressed).toBe(false)
+  })
+
+  it('is not cleared by the next periodic sample, which sees no frame that no report has seen', () => {
+    let state = stalledAfterEventSawFrames()
+    state = event(state, { nowMs: 2_200, positionSeconds: 1.5, frames: 26, explicitlyBuffering: true })
+    state = playing(state, { nowMs: 3_000, positionSeconds: 1.5, frames: 26 })
+
+    expect(state.buffering).toBe(true)
+    expect(state.progressed).toBe(false)
+  })
+
+  it('is cleared by a frame that no earlier report has seen, from an event or the periodic sample', () => {
+    let state = stalledAfterEventSawFrames()
+    state = event(state, { nowMs: 2_200, positionSeconds: 1.6, frames: 27 })
+    expect(state.buffering).toBe(false)
+    expect(state.progressed).toBe(true)
+
+    state = stalledAfterEventSawFrames()
+    state = playing(state, { nowMs: 3_000, positionSeconds: 2, frames: 30 })
+    expect(state.buffering).toBe(false)
+    expect(state.progressed).toBe(true)
+  })
+
+  it('still counts progress that an event saw towards the next periodic sample when nothing stalled', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 24 })
+    state = event(state, { nowMs: 1_600, positionSeconds: 1.6, frames: 26 })
+    state = playing(state, { nowMs: 2_000, positionSeconds: 2, frames: 26 })
+
+    expect(state.progressed).toBe(true)
+    expect(state.buffering).toBe(false)
+  })
+})
+
+describe('the evidence quality of a carried verdict', () => {
+  const event = (previous: ReturnType<typeof createPlayerHealthState>, overrides: Partial<Parameters<typeof observePlayerHealth>[1]> = {}) =>
+    playing(previous, { periodic: false, ...overrides })
+
+  /** The frame counter was unavailable and has just come back: the periodic sample that sees its first value still reports clock progress. */
+  function counterJustRecovered() {
+    let state = createPlayerHealthState({ ...baseline, frames: null })
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: null })
+    state = playing(state, { nowMs: 2_000, positionSeconds: 2, frames: 10 })
+    expect(state.progressed).toBe(true)
+    expect(state.progressEvidence).toBe('clock')
+    return state
+  }
+
+  it('is not promoted to frames by an event that sees the first counter value again', () => {
+    const state = event(counterJustRecovered(), { nowMs: 2_020, positionSeconds: 2.02, frames: 10 })
+
+    expect(state.progressed).toBe(true)
+    expect(state.progressEvidence).toBe('clock')
+    expect(state.hasRenderedFrameProgress).toBe(false)
+  })
+
+  it('keeps the evidence of the verdict through a chain of events, until a frame advances', () => {
+    let state = event(counterJustRecovered(), { nowMs: 2_020, positionSeconds: 2.02, frames: 10 })
+    state = event(state, { nowMs: 2_400, positionSeconds: 2.4, frames: 10 })
+    expect(state.progressEvidence).toBe('clock')
+    expect(state.hasRenderedFrameProgress).toBe(false)
+
+    state = event(state, { nowMs: 2_600, positionSeconds: 2.6, frames: 14 })
+    expect(state.progressEvidence).toBe('frames')
+    expect(state.hasRenderedFrameProgress).toBe(true)
+  })
+
+  it('carries frames evidence when the periodic verdict was made with frames', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = event(state, { nowMs: 1_020, positionSeconds: 1.02, frames: 10 })
+
+    expect(state.progressEvidence).toBe('frames')
+    expect(state.hasRenderedFrameProgress).toBe(true)
+  })
+
+  it('is not frame-confirmed by the next periodic sample either, as long as no frame has advanced', () => {
+    let state = event(counterJustRecovered(), { nowMs: 2_020, positionSeconds: 2.02, frames: 10 })
+    state = playing(state, { nowMs: 3_000, positionSeconds: 3, frames: 10 })
+
+    expect(state.progressed).toBe(false)
+    expect(state.hasRenderedFrameProgress).toBe(false)
+  })
+
+  it('judges a counter reset against the latest observation, not an older sample', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 24 })
+    state = event(state, { nowMs: 1_400, positionSeconds: 1.4, frames: 40 })
+    state = event(state, { nowMs: 1_600, positionSeconds: 1.6, frames: 30 })
+
+    expect(state.progressEvidence).toBe('unknown')
+    expect(state.progressed).toBe(false)
+  })
+
+  it('clears a waiting latch inside the startup grace window only with a frame no report has seen', () => {
+    let state = createPlayerHealthState(baseline)
+    state = event(state, { nowMs: 500, positionSeconds: 0.5, frames: 12, playShouldHaveStarted: false })
+    state = markPlayerHealthBuffering(state)
+    state = event(state, { nowMs: 900, positionSeconds: 0.5, frames: 12, playShouldHaveStarted: false })
+    expect(state.buffering).toBe(true)
+
+    state = event(state, { nowMs: 1_200, positionSeconds: 0.7, frames: 13, playShouldHaveStarted: false })
+    expect(state.buffering).toBe(false)
+  })
+
+  it('moves the latest cursor with a rebase, so the first value after a visibility change is not read as new progress', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = markPlayerHealthBuffering(state)
+    state = resetPlayerHealthBaseline(state, { nowMs: 1_500, positionSeconds: 1, frames: 400 }, true)
+    state = event(state, { nowMs: 1_600, positionSeconds: 1, frames: 400, explicitlyBuffering: true })
+
+    expect(state.buffering).toBe(true)
+    expect(state.progressed).toBe(false)
+  })
+})

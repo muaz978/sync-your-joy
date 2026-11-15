@@ -2591,9 +2591,9 @@ describe('player health evidence in the content script (CR-A06, #53)', () => {
       expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames', buffering: false })
     })
 
-    it('treats the switch from the playback-quality counter to the first callbacks as a counter reset, not as a freeze', async () => {
+    it('moves the baseline when the counter changes from the playback-quality count to the first callbacks, so the switch is neither a reset nor a freeze', async () => {
       // The element has a large quality count before the first callback has run; the callback count
-      // then starts again from one, which is a smaller number.
+      // then starts again from one, which is a smaller number but not a counter reset.
       video.totalFrames = 500
       startPlaying()
       await playOneSecond({ quality: 30 })
@@ -2602,11 +2602,13 @@ describe('player health evidence in the content script (CR-A06, #53)', () => {
 
       const before = statuses().length
       await playOneSecond({ callbacks: 24 })
-      expect(statuses().slice(before).map(message => message.sample.progressEvidence)).toEqual(['unknown'])
-      expect(statuses().slice(before).some(message => message.sample.buffering)).toBe(false)
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
 
-      await playOneSecond({ callbacks: 24 })
-      await playOneSecond({ callbacks: 24 })
+      const samples = statuses().slice(before).map(message => message.sample)
+      expect(samples.length).toBeGreaterThanOrEqual(3)
+      expect(samples.map(sample => sample.progressEvidence)).not.toContain('unknown')
+      expect(samples.some(sample => sample.buffering)).toBe(false)
       expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames', buffering: false })
     })
   })
@@ -2730,6 +2732,28 @@ describe('player health evidence in the content script (CR-A06, #53)', () => {
       }
 
       expect(lastSample()).toMatchObject({ progressed: false, buffering: true })
+    })
+  })
+
+  describe('a stall after progress that an event report already saw', () => {
+    it('keeps reporting buffering when the delayed buffering report and the next samples see the same frames', async () => {
+      startPlaying()
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
+
+      // A playing event sees two more frames, and then the player stalls.
+      video.presentFrames(2)
+      video.dispatchEvent(new Event('playing'))
+      expect(lastSample().progressed).toBe(true)
+      video.dispatchEvent(new Event('waiting'))
+      await vi.advanceTimersByTimeAsync(900)
+      expect(lastSample()).toMatchObject({ buffering: true, progressed: false })
+
+      for (let second = 0; second < 3; second += 1) {
+        video.position += 1
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(lastSample()).toMatchObject({ buffering: true, progressed: false })
+      }
     })
   })
 
