@@ -73,7 +73,6 @@ test.describe('a pending seek under faults', () => {
   })
 
   test('a late acknowledgement, a missing one, a dropped socket and a lease transfer while the seek is pending', async () => {
-    test.setTimeout(300_000)
     const [profileA, profileB, profileC] = profiles
     const { pages, roomCode } = await createRoomWithPlayers(profiles)
     await readyUp(profileA)
