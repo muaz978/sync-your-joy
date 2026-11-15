@@ -182,11 +182,11 @@ Local Chromium, headless, macOS arm64, Playwright 1.65.0 (Chromium 158), on a ch
 
 | Check | Result |
 | --- | --- |
-| `adaptive-fixture.spec.ts` and `adaptive-fixture-extension.spec.ts`, 10 consecutive runs | 10 of 10 runs passed, 12 of 12 tests each (120 of 120), 24 to 27 seconds per run |
-| Non-matrix, non-provider E2E suite (22 tests: the two adaptive specs, `extension-profile-storage-state`, `pending-approval`, `rejoin-after-leaving`, `room-ended-notice`, `two-profile-sync`), 1 run | 22 passed, 0 failed, 1.2 minutes. The opt-in authenticated provider spec was not run |
-| `npm run typecheck`, `npm test` | clean; 50 files, 1042 tests passed (7 in `tests/adaptive-fixture-server.test.ts`) |
+| `adaptive-fixture.spec.ts` and `adaptive-fixture-extension.spec.ts`, 10 consecutive runs | 10 of 10 runs passed, 15 of 15 tests each (150 of 150), 28 to 33 seconds per run |
+| Non-matrix, non-provider E2E suite (25 tests: the two adaptive specs, `extension-profile-storage-state`, `pending-approval`, `rejoin-after-leaving`, `room-ended-notice`, `two-profile-sync`), 1 run | 25 passed, 0 failed, 1.2 minutes. The opt-in authenticated provider spec was not run |
+| `npm run typecheck`, `npm test` | clean; 51 files, 1085 tests passed (8 in `tests/adaptive-fixture-server.test.ts`) |
 
-The page's event log of each test is in the run's output directory as `fixture-events-<name>.json`, and `run-summary.json` names them (`fixture-events-starvation.json`, `fixture-events-same-element-source.json`, `fixture-events-extension-lifecycles.json` and so on).
+The page's event log of each test is written as `fixture-events-<name>.json` in the test's output directory and attached by path. The run's `run-summary.json` names each one (16 in the last batch run, each with a path, none containing a home directory path).
 
 Each new check was shown to fail when the behavior it pins is broken (scratch edit, run, restore):
 
@@ -199,6 +199,9 @@ Each new check was shown to fail when the behavior it pins is broken (scratch ed
 | the server always reports a zero applied delay | the 120 ms fault test, the 500 ms first-segment test and two server unit tests fail |
 | the media duration is a constant 120 | the server unit test that truncates the media to 40 s fails |
 | the open shadow root becomes `closed` | the extension lifecycle test fails: the extension binds no player |
+| the manifest-window check removed (`superseded()` replaced by `false` after the manifest) | the manifest-window test fails: a second native `loadstart` (the stale loader took the element's source) |
+| the per-load reset removed from the start of a load | the node-replacement reload test fails: 60 loaded segments instead of 30 |
+| a released hold's callback clears the shared handle unconditionally and its timer is not cleared | the stale-hold test fails: the second hold is released by the first one's timeout |
 
 Not covered by any of this: visible video output (a moving `currentTime` or a `playing` event is the element's own report), authenticated Crunchyroll or DRM playback, two accounts, two devices, a deployment, any browser but local Chromium, and the SPA and nested-frame transitions with the extension.
 
