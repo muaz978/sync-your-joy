@@ -93,13 +93,14 @@ The last two tests exercise the real `RoomCoordinator` export and `RoomCoordinat
 
 ## 4A. Durable Object tests added on 2026-11-15
 
-`apps/edge-service/src/worker.alarm.test.ts` (new, 22 tests) drives the real `RoomDurableObject` class over a hand-written storage harness. Its `put` can be held or made to fail, it counts `put` and `setAlarm` calls, and a "restart" is a second object built over the same store with the sockets that are still attached. It is a different file from `worker.test.ts` only so that the three open test branches for #57, #58, #60 and #61 do not edit the same file; the helpers are repeated in each.
+`apps/edge-service/src/worker.alarm.test.ts` (new, 22 tests: 12 in the due-alarm describe, four per family, and 10 in the others) drives the real `RoomDurableObject` class over a hand-written storage harness. Its `put` can be held or made to fail, it counts `put` and `setAlarm` calls, and a "restart" is a second object built over the same store with the sockets that are still attached. It is a different file from `worker.test.ts` only so that the three open test branches for #57, #58, #60 and #61 do not edit the same file; the helpers are repeated in each.
 
 | Behaviour | Test (describe: it) |
 | --- | --- |
 | A due seek, operation and health alarm are written before any member hears them (the write is held; the store is read at the moment each member hears it) | `a due alarm is saved before it is announced`, three tests, one per family |
 | A failed write announces nothing for each family | same describe, three tests |
-| The first alarm delivered 30 s after its deadline makes one saved and announced transition per family (an exact-deadline-only release fails it). The same alarm delivered again, and an hour late, makes one transition: nothing more is announced, the revision and the stored room do not change | same describe, three tests |
+| The first alarm delivered 30 s after its deadline makes one saved and announced transition per family (an exact-deadline-only release fails it) | same describe, three tests |
+| The same alarm delivered again, and an hour late, makes one transition: nothing more is announced, the revision and the stored room do not change | same describe, three tests |
 | A cancelled operation is cancelled after a restart, no alarm is asked for its old deadline, and the alarm at that deadline releases nothing | `a cancelled operation across a restart` |
 | A restart after samples that were never written restores the evidence that was written, not the time of the restore or the later samples | `a restart after a sample that was not saved`, first test |
 | Stored evidence older than 1.8 s: the first alarm after the restore pauses a healthy room as `participant_playback_stalled`, although the last real sample was 100 ms earlier. No grace exists (pinned, see section 6) | same describe, second test |
@@ -196,15 +197,15 @@ Corrected 2026-11-15 against `main` at `257afb6`. The text of the first version 
 **When it is written.** Each of these causes one `storage.put('room', ...)` followed by one `setAlarm()` (`persistAndSchedule()` in `worker.ts`):
 
 - every state-changing message that the coordinator accepts (create, join, approval, readiness, control, transfer, link, seek and operation acknowledgements, and a `player_status` report that changes a status or pauses the room);
-- every alarm turn, whether or not it changed anything;
-- every `client_metrics` report. The extension sends one after each pong, and pings every five seconds, so each connected client causes one write and one alarm call every five seconds for as long as it is connected. A room of two is two writes and two alarm calls per five seconds. Pinned by `what a report from a client costs in storage calls`. A ping alone writes nothing;
+- every non-terminal alarm turn, whether or not it changed anything. A terminal turn (the six-hour lifetime limit or the empty-room expiry) closes the sockets, deletes the room's storage and returns, with no write and no `setAlarm()` (`alarm()` in `worker.ts`);
+- every `client_metrics` report. The extension sends one after each pong, and pings every five seconds, so in the normal case, where the pong arrives and the client reports, each connected client causes one write and one alarm call every five seconds for as long as it is connected, and a room of two is two writes and two alarm calls per five seconds. A missed pong gives no report for that ping, and a client that does not send `client_metrics` (the protocol does not require it) causes none, so the real count can be lower. Pinned by `what a report from a client costs in storage calls`. A ping alone writes nothing;
 - every restore, including one that repaired nothing (the alarm that is set belongs to whichever code last wrote the room, so it is derived again);
 - a retry of a restore whose save failed, at most once every five seconds, triggered by a frame from any client;
 - the reconcile after a socket whose attachment cannot be read closes (PR #133).
 
 A `player_status` report that changes nothing a member can see is accepted in memory and is not written (`updatePlayerStatus` returns null). The saved evidence is therefore the evidence of the last write, which can lag the last report by up to the ping interval (section 6A).
 
-**Which alarm.** The alarm is always set. Candidates are the pending controller recovery, the empty-room expiry, the six-hour lifetime limit (always present, so the minimum is always finite), the pending seek, the operation, the next health deadline, the disconnect grace and the automatic-resume deadline. `setAlarm()` is called on every save, not only when a deadline exists; this section previously said the opposite.
+**Which alarm.** On every non-terminal save an alarm is set (a terminal expiry deletes the room and sets none). Candidates are the pending controller recovery, the empty-room expiry, the six-hour lifetime limit (always present while the room exists, so the minimum is always finite), the pending seek, the operation, the next health deadline, the disconnect grace and the automatic-resume deadline. `setAlarm()` is called on every save, not only when a deadline exists; this section previously said the opposite.
 
 **Ordering.** The write completes before the transition is announced, for every path that announces (`persistThenObserve`). For the alarm, `persistAndSchedule()` is awaited before the broadcasts. If the write fails the alarm throws and nothing is announced (tested for the seek, operation and health families).
 
