@@ -1760,7 +1760,7 @@ export class RoomCoordinator {
       playback: this.playback,
       operation: this.contract.operation,
       pendingSeek: this.pendingSeek !== null,
-      sample: this.healthSample(participant),
+      sample: participant.lastSample,
       lastSampleReceivedAtMs: participant.lastSampleReceivedAtMs,
       lastProgressAtServerMs: participant.lastProgressAtServerMs,
       nowMs,

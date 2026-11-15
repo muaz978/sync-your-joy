@@ -1045,4 +1045,35 @@ describe('alive-only reports are ordered, deduplicated and read by the timer (CR
 
     expect(room.evaluateHealth()).toMatchObject({ reason: 'participant_playback_stalled' })
   })
+
+  it('drops a late report that is older and not further along than the alive-only report it follows', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    clock.value = startedAtMs + 2_000
+    for (const id of ['host', 'guest'])
+      room.updatePlayerStatus(id, revision, sample(clock.value, 91, { progressed: true, playbackStarted: true }))
+    clock.value += 100
+    // A possible clock step: older timestamp, further along. It is evidence that the player is alive, and the latest report.
+    room.updatePlayerStatus('guest', revision, sample(startedAtMs + 1_000, 100, { progressed: true, playbackStarted: true }))
+    const progressAfterCandidate = stored(room, 'guest')?.lastProgressAtServerMs
+    clock.value += 300
+
+    // Older than that one and not further along: late, although it is further along than the stored report.
+    room.updatePlayerStatus('guest', revision, sample(startedAtMs + 900, 99.9, { progressed: true, playbackStarted: true }))
+
+    expect(stored(room, 'guest')?.lastProgressAtServerMs).toBe(progressAfterCandidate)
+  })
+
+  it('forgets the reports it has seen when a new Play starts, so the same content reported for the new Play is taken', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    clock.value = startedAtMs + 500
+    const report = sample(clock.value, 20.5, { progressed: true, playbackStarted: true })
+    room.updatePlayerStatus('guest', revision, report)
+    control(room, 'play', 20)
+    const next = room.snapshot()
+    clock.value = next.playback.effectiveAtServerMs + 500
+
+    room.updatePlayerStatus('guest', next.revision, report)
+
+    expect(stored(room, 'guest')?.lastSample).toEqual(report)
+  })
 })
