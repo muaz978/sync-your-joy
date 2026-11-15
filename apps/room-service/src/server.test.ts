@@ -495,12 +495,12 @@ describe('room service', () => {
     await expect(friendRequest).resolves.toMatchObject({ type: 'diagnostics_requested', reportId: 'report_123456' })
 
     const report = diagnosticReport()
-    const ownResponse = nextMessage(host)
+    const ownResponse = nextMessageOfType(host, 'diagnostics_response')
     host.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_123456', report }))
-    await expect(ownResponse).resolves.toMatchObject({ type: 'diagnostics_response', participantId: 'participant_host', participantName: 'Muaz' })
-    const friendResponse = nextMessage(host)
+    await expect(ownResponse).resolves.toMatchObject({ type: 'diagnostics_response', reportId: 'report_123456', participantId: 'participant_host', participantName: 'Muaz' })
+    const friendResponse = nextMessageOfType(host, 'diagnostics_response')
     friend.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_123456', report }))
-    await expect(friendResponse).resolves.toMatchObject({ type: 'diagnostics_response', participantId: 'participant_friend', participantName: 'Rana' })
+    await expect(friendResponse).resolves.toMatchObject({ type: 'diagnostics_response', reportId: 'report_123456', participantId: 'participant_friend', participantName: 'Rana' })
 
     const rejectedMemberRequest = nextMessage(friend)
     friend.send(JSON.stringify({ type: 'request_diagnostics', reportId: 'report_654321' }))
@@ -584,9 +584,9 @@ describe('room service', () => {
     host.send(JSON.stringify({ type: 'request_diagnostics', reportId: 'report_real12' }))
     await expect(hostRequest).resolves.toMatchObject({ type: 'diagnostics_requested', reportId: 'report_real12' })
 
-    const firstResponse = nextMessage(host)
+    const firstResponse = nextMessageOfType(host, 'diagnostics_response')
     friend.send(JSON.stringify({ type: 'diagnostics_response', reportId: 'report_real12', report: diagnosticReport() }))
-    await expect(firstResponse).resolves.toMatchObject({ type: 'diagnostics_response', participantId: 'participant_friend' })
+    await expect(firstResponse).resolves.toMatchObject({ type: 'diagnostics_response', reportId: 'report_real12', participantId: 'participant_friend' })
 
     // A second response from the same participant for the same reportId is dropped, so the
     // fabricated report above -- and any replay -- never arrives at the controller.
@@ -2437,6 +2437,35 @@ async function nextMessage(socket: WebSocket): Promise<ServerMessage> {
     }
     timeout.addEventListener('abort', onAbort, { once: true })
     socket.once('message', onMessage)
+  })
+}
+
+/**
+ * Like nextMessage, but waits for the next message of `type` and ignores any
+ * other frame that arrives first. Use it where the server may legitimately
+ * interleave an unrelated message -- request_diagnostics also sends the
+ * controller a diagnostics_room, so "the next frame" after the request is not
+ * reliably the diagnostics_response a test is waiting for. The listener stays
+ * attached (unlike nextMessage's once) so a skipped frame cannot be mistaken
+ * for the answer or slip past between two awaits.
+ */
+async function nextMessageOfType<T extends ServerMessage['type']>(socket: WebSocket, type: T): Promise<Extract<ServerMessage, { type: T }>> {
+  return new Promise<Extract<ServerMessage, { type: T }>>((resolve, reject) => {
+    const timeout = AbortSignal.timeout(4_000)
+    const onAbort = () => {
+      socket.off('message', onMessage)
+      reject(new Error(`Timed out waiting for a ${type} server message.`))
+    }
+    const onMessage = (data: Buffer) => {
+      const message = JSON.parse(data.toString()) as ServerMessage
+      if (message.type !== type)
+        return
+      socket.off('message', onMessage)
+      timeout.removeEventListener('abort', onAbort)
+      resolve(message as Extract<ServerMessage, { type: T }>)
+    }
+    timeout.addEventListener('abort', onAbort, { once: true })
+    socket.on('message', onMessage)
   })
 }
 
