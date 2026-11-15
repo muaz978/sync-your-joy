@@ -864,6 +864,19 @@ describe('a report that is only evidence the player is alive (CR-B04, review fin
       expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 91 })
     })
 
+    it('forgets a possible step once a report arrives in order, so an old late report cannot confirm a later one', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 2_000
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 2_000, 91, { progressed: true, playbackStarted: true }))
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 1_000, 100, { progressed: true, playbackStarted: true }))
+      clock.value += 1_000
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 3_000, 92, { progressed: true, playbackStarted: true }))
+      clock.value += 100
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 2_500, 120, { progressed: true, playbackStarted: true }))
+
+      expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 92 })
+    })
+
     it('forgets a possible step when a new Play starts, so an old late report cannot confirm a new one', () => {
       const { room, clock, revision, startedAtMs } = playing()
       clock.value = startedAtMs + 2_000
