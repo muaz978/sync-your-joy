@@ -1090,6 +1090,52 @@ describe('service worker observed episode identity', () => {
       expect(reportFrom(socket, 'report_operation_over').reason).toBe('none')
     })
 
+    // The room's explanation and this player's own are separate: a local stall
+    // that ends must not take the room's explanation with it while the room is
+    // still waiting for someone else.
+    it('falls back to the room\'s reason when the local player recovers from a reason of its own', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const paused = { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } as const
+      // No operation supplies a reason of its own here, as in a legacy room.
+      snapshotWith(socket, 'participant_playback_startup_timeout', { playback: paused })
+      expect(reportFrom(socket, 'report_room_first').reason).toBe('startup-timeout')
+
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: stalledSample() }, boundSender)
+      expect(reportFrom(socket, 'report_local_newer').reason).toBe('stalled')
+
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: healthySample() }, boundSender)
+      expect(reportFrom(socket, 'report_room_again').reason).toBe('startup-timeout')
+    })
+
+    it('prefers the newer of the room\'s reason and the player\'s, and a room reason that comes later over an earlier local one', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const paused = { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } as const
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: stalledSample() }, boundSender)
+      snapshotWith(socket, 'participant_buffering', { playback: paused })
+      expect(reportFrom(socket, 'report_room_newer').reason).toBe('waiting-for-data')
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: healthySample() }, boundSender)
+      expect(reportFrom(socket, 'report_player_gone').reason).toBe('waiting-for-data')
+    })
+
+    // A reason recorded while no operation was current is hidden, not ended, by
+    // a comparison of identities: it would come back when the operation did.
+    it('does not bring back a reason from before an operation once that operation is over', async () => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const paused = { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } as const
+      snapshotWith(socket, 'participant_not_ready', { playback: paused })
+      expect(reportFrom(socket, 'report_before_operation').reason).toBe('participant-not-ready')
+
+      // Everyone is ready and a paused seek runs, then settles: the operation goes back to none.
+      snapshotWith(socket, 'operation_started', { playback: paused, contract: { ...operation('operation_seek_000001'), operation: { ...operation('operation_seek_000001').operation, kind: 'seek' as const } } })
+      expect(reportFrom(socket, 'report_during_operation').reason).toBe('none')
+      snapshotWith(socket, 'operation_seek_settled', { playback: paused, contract: { ...operation('operation_seek_000001'), operation: null } })
+
+      expect(reportFrom(socket, 'report_after_operation').reason).toBe('none')
+    })
+
     it('reports an operation\'s own reason in preference to anything the worker saw', async () => {
       const { request } = await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!
