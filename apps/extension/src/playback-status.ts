@@ -60,40 +60,47 @@ export function localPlaybackStatus(input: LocalPlaybackStatusInput): Participan
 }
 
 export function classifyLocalPlayback(input: LocalPlaybackStatusInput): LocalPlaybackClassification {
-  const plain = (status: ParticipantPlaybackStatus): LocalPlaybackClassification => ({ status, clockOnly: false })
+  const unavailable = classifyUnlessRoomPlaying(input)
+  return unavailable !== null ? { status: unavailable, clockOnly: false } : classifyWhileRoomPlays(input)
+}
+
+/** The status that does not depend on playback progress, or null when the room plays and the player is usable. */
+function classifyUnlessRoomPlaying(input: LocalPlaybackStatusInput): ParticipantPlaybackStatus | null {
   if (!input.connected)
-    return plain('unknown')
+    return 'unknown'
   if (!input.hasVideo)
-    return plain('preparing')
+    return 'preparing'
   if (!input.mediaMatches)
-    return plain('wrong-media')
+    return 'wrong-media'
   if (input.playbackStartFailed)
-    return plain('blocked')
+    return 'blocked'
   if (input.pendingSeek || input.operationKind === 'seek')
-    return plain('seeking')
+    return 'seeking'
   if (!input.roomPlaying) {
     if (!input.ready)
-      return plain('preparing')
-    return plain(input.buffering ? 'buffering' : 'ready')
+      return 'preparing'
+    return input.buffering ? 'buffering' : 'ready'
   }
+  return null
+}
+
+function classifyWhileRoomPlays(input: LocalPlaybackStatusInput): LocalPlaybackClassification {
+  const plain = (status: ParticipantPlaybackStatus): LocalPlaybackClassification => ({ status, clockOnly: false })
   if (input.statusAgeMs !== null && input.statusAgeMs >= SILENCE_TIMEOUT_MS)
     return plain('silent')
   if (input.buffering)
     return plain('buffering')
-  if (input.paused === true)
-    return plain('recovery-required')
-  if (input.drifted)
+  if (input.paused === true || input.drifted)
     return plain('recovery-required')
   if (input.playbackStarted === false)
     return plain('preparing')
   if (input.progressAgeMs !== null && input.progressAgeMs >= PROGRESS_TIMEOUT_MS)
     return plain('recovery-required')
-  if (input.progressed) {
-    if (input.progressEvidence === undefined || input.progressEvidence === 'frames')
-      return plain('playing')
-    return { status: 'preparing', clockOnly: true }
-  }
-  return plain('preparing')
+  if (!input.progressed)
+    return plain('preparing')
+  if (input.progressEvidence === undefined || input.progressEvidence === 'frames')
+    return plain('playing')
+  return { status: 'preparing', clockOnly: true }
 }
 
 /**

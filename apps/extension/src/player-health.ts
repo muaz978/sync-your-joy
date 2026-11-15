@@ -174,42 +174,13 @@ function observeAgainstCursor(previous: PlayerHealthState, input: PlayerHealthOb
     progressed: false,
   }
 
-  if (observation.roomPlaying && !observation.playShouldHaveStarted) {
-    next.unexpectedPauseSinceMs = 0
-    // A waiting latch survives the startup window; only advancing frames clear it.
-    next.buffering = previous.buffering
-    // A transactional player can render real frames before the server's
-    // startup grace boundary. Keep that evidence so the extension can send
-    // its started acknowledgement before the coordinator's first bounded
-    // no-progress deadline. The grace window still suppresses failure
-    // classification on the coordinator; it must not suppress proof that
-    // native playback has actually begun.
-    if (!observation.paused && !observation.seeking && !observation.localSeeking && !observation.lacksPlayableData) {
-      const evidence = compareProgress(previous, observation)
-      next.progressEvidence = evidence.quality
-      if (evidence.advanced) {
-        next.progressed = true
-        next.buffering = false
-        next.lastProgressAtMs = observation.nowMs
-        next.hasRealPlaybackProgress = true
-        next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || evidence.quality === 'frames'
-        return next
-      }
-    }
-    next.lastProgressAtMs = observation.nowMs
-    return next
-  }
+  if (observation.roomPlaying && !observation.playShouldHaveStarted)
+    return observeStartupGrace(previous, next, observation)
 
   if (observation.playShouldHaveStarted
     && (observation.paused || observation.lacksPlayableData)
-    && !observation.localIntentHold) {
-    if (next.unexpectedPauseSinceMs === 0)
-      next.unexpectedPauseSinceMs = observation.nowMs
-    next.buffering = observation.explicitlyBuffering
-      || previous.buffering
-      || observation.nowMs - next.unexpectedPauseSinceMs >= 1_500
-    return next
-  }
+    && !observation.localIntentHold)
+    return observeUnexpectedPause(previous, next, observation)
 
   next.unexpectedPauseSinceMs = 0
   if (!observation.roomPlaying || observation.paused || observation.seeking || observation.localSeeking) {
@@ -244,6 +215,41 @@ function observeAgainstCursor(previous: PlayerHealthState, input: PlayerHealthOb
       || previous.buffering
       || observation.nowMs - next.lastProgressAtMs >= 2_500
   }
+  return next
+}
+
+function observeStartupGrace(previous: PlayerHealthState, next: PlayerHealthState, observation: PlayerHealthObservation): PlayerHealthState {
+  next.unexpectedPauseSinceMs = 0
+  // A waiting latch survives the startup window; only advancing frames clear it.
+  next.buffering = previous.buffering
+  // A transactional player can render real frames before the server's
+  // startup grace boundary. Keep that evidence so the extension can send
+  // its started acknowledgement before the coordinator's first bounded
+  // no-progress deadline. The grace window still suppresses failure
+  // classification on the coordinator; it must not suppress proof that
+  // native playback has actually begun.
+  if (!observation.paused && !observation.seeking && !observation.localSeeking && !observation.lacksPlayableData) {
+    const evidence = compareProgress(previous, observation)
+    next.progressEvidence = evidence.quality
+    if (evidence.advanced) {
+      next.progressed = true
+      next.buffering = false
+      next.lastProgressAtMs = observation.nowMs
+      next.hasRealPlaybackProgress = true
+      next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || evidence.quality === 'frames'
+      return next
+    }
+  }
+  next.lastProgressAtMs = observation.nowMs
+  return next
+}
+
+function observeUnexpectedPause(previous: PlayerHealthState, next: PlayerHealthState, observation: PlayerHealthObservation): PlayerHealthState {
+  if (next.unexpectedPauseSinceMs === 0)
+    next.unexpectedPauseSinceMs = observation.nowMs
+  next.buffering = observation.explicitlyBuffering
+    || previous.buffering
+    || observation.nowMs - next.unexpectedPauseSinceMs >= 1_500
   return next
 }
 
