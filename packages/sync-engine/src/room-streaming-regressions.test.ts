@@ -1076,4 +1076,53 @@ describe('alive-only reports are ordered, deduplicated and read by the timer (CR
 
     expect(stored(room, 'guest')?.lastSample).toEqual(report)
   })
+
+  it('remembers a report it dropped as late, so a replay of it cannot look newer after the client clock steps back', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    const base = 1_700_000_000_000
+    clock.value = startedAtMs + 1_000
+    room.updatePlayerStatus('guest', revision, sample(base + 1_000, 21, { progressed: true, playbackStarted: true }))
+    // An alive-only report: it carries the revision before a join request.
+    room.join({ id: 'newcomer', name: 'Newcomer', media })
+    clock.value += 500
+    room.updatePlayerStatus('guest', revision, sample(base + 2_000, 22, { progressed: true, playbackStarted: true }))
+    // Late: older than that report and not further along. Newer than the stored one, so only the latest report drops it.
+    clock.value += 100
+    const late = sample(base + 1_500, 21.5, { progressed: true, playbackStarted: true })
+    room.updatePlayerStatus('guest', revision, late)
+    // The client clock steps back: the next report is older than everything recorded, and further along.
+    clock.value += 400
+    room.updatePlayerStatus('guest', revision, sample(base + 500, 23, { progressed: true, playbackStarted: true }))
+    // The late report is delivered again. Its timestamp is now newer than the latest report's, but it is the same old report.
+    clock.value += 100
+    room.updatePlayerStatus('guest', room.snapshot().revision, late)
+
+    expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 21 })
+  })
+
+  it('judges by a newer stored report that says the player had not started, even after alive-only progress', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    clock.value = startedAtMs + 500
+    for (const id of ['host', 'guest'])
+      room.updatePlayerStatus(id, revision, sample(clock.value, 20.5, { progressed: true, playbackStarted: true }))
+    room.join({ id: 'newcomer', name: 'Newcomer', media })
+    clock.value = startedAtMs + 1_000
+    room.updatePlayerStatus('guest', revision, sample(clock.value, 21, { progressed: true, playbackStarted: true }))
+    // The player restarted: a current report says it has not started, and it is stored.
+    clock.value = startedAtMs + 1_500
+    room.updatePlayerStatus('guest', room.snapshot().revision, sample(clock.value, 21, { paused: true, progressed: false, playbackStarted: false }))
+
+    expect(stored(room, 'guest')?.lastSample).toMatchObject({ playbackStarted: false })
+    // The timer reads that report, not the older alive-only progress: the startup deadline applies.
+    let hostPosition = 21
+    while (clock.value < startedAtMs + 9_500) {
+      clock.value += 500
+      hostPosition += 0.5
+      room.updatePlayerStatus('host', room.snapshot().revision, sample(clock.value, hostPosition, { progressed: true, playbackStarted: true }))
+      expect(room.evaluateHealth(), `at ${clock.value - startedAtMs} ms`).toBeNull()
+    }
+    clock.value = startedAtMs + 10_000
+    room.updatePlayerStatus('host', room.snapshot().revision, sample(clock.value, hostPosition + 0.5, { progressed: true, playbackStarted: true }))
+    expect(room.evaluateHealth()).toMatchObject({ reason: 'participant_playback_startup_timeout' })
+  })
 })
