@@ -590,16 +590,54 @@ describe('the evidence a verdict claims comes from the comparison that made it',
     }
   }
 
-  it('never claims frames, or a rendered frame, without a frame counter that advanced (random sequences of periodic and event observations)', () => {
+  interface RandomStep {
+    periodic: boolean
+    nowMs: number
+    positionSeconds: number
+    frames: number | null
+    paused: boolean
+    seeking: boolean
+    roomPlaying: boolean
+    playShouldHaveStarted: boolean
+    lacksPlayableData: boolean
+    explicitlyBuffering: boolean
+  }
+
+  function formatStep(step: RandomStep, index: number): string {
+    const flags = [
+      step.paused && 'paused',
+      step.seeking && 'seeking',
+      !step.roomPlaying && 'room-paused',
+      !step.playShouldHaveStarted && 'startup-grace',
+      step.lacksPlayableData && 'no-data',
+      step.explicitlyBuffering && 'waiting',
+    ].filter(Boolean).join(',')
+    return `  ${index}: ${step.periodic ? 'periodic' : 'event   '} t=${step.nowMs} position=${step.positionSeconds.toFixed(2)} frames=${step.frames}${flags ? ` [${flags}]` : ''}`
+  }
+
+  // The oracle reads the sequence, not the model: a counter value "advanced" or "was reset" only against a readable
+  // cursor, which is the counter of the last periodic sample (the accumulation cursor) or of the last report of any
+  // kind (the latest cursor), and only when that cursor itself had a value. A report that could not read the counter
+  // leaves a gap, and a gap is not a lower bound for the next one.
+  it('claims frames only for a counter that advanced against a readable cursor and never reset, and reports no progress after a reset (random sequences, seeds 1 to 3000)', () => {
     let claims = 0
+    let resets = 0
+    let carriedClaims = 0
     for (let seed = 1; seed <= 3_000; seed += 1) {
       const random = mulberry32(seed)
       let frames: number | null = random() < 0.4 ? null : 0
+      const initialFrames = frames
       let state = createPlayerHealthState({ nowMs: 0, positionSeconds: 0, frames })
-      const seen: Array<number | null> = [frames]
+      let periodicFrames = frames
+      let latestFrames = frames
+      let periodicClaimAtMs = Number.NEGATIVE_INFINITY
+      const steps: RandomStep[] = []
+      const fail = (index: number, message: string): never => {
+        throw new Error(`seed ${seed}, step ${index}: ${message}\nsequence (baseline counter ${initialFrames}, position 0, t=0):\n${steps.map(formatStep).join('\n')}`)
+      }
       let nowMs = 0
       let positionSeconds = 0
-      for (let step = 0; step < 16; step += 1) {
+      for (let index = 0; index < 16; index += 1) {
         nowMs += 20 + Math.floor(random() * 900)
         positionSeconds += random() < 0.3 ? 0 : random() * 0.8
         const mode = random()
@@ -609,43 +647,121 @@ describe('the evidence a verdict claims comes from the comparison that made it',
           frames = Math.floor(random() * 20)
         else
           frames = (frames ?? Math.floor(random() * 30)) + (random() < 0.5 ? 0 : Math.floor(random() * 30))
-        seen.push(frames)
-        state = observePlayerHealth(state, {
+        const step: RandomStep = {
+          periodic: random() < 0.4,
           nowMs,
           positionSeconds,
           frames,
-          periodic: random() < 0.4,
           paused: random() < 0.05,
           seeking: random() < 0.03,
-          localSeeking: false,
           roomPlaying: random() < 0.95,
           playShouldHaveStarted: random() < 0.9,
           lacksPlayableData: random() < 0.03,
           explicitlyBuffering: random() < 0.1,
-          localIntentHold: false,
-        })
+        }
+        steps.push(step)
+        const hadRenderedFrame = state.hasRenderedFrameProgress
+        state = observePlayerHealth(state, { ...step, localSeeking: false, localIntentHold: false })
 
-        // A frame counter advanced somewhere in the sequence: some value is larger than an earlier one.
-        let counterAdvanced = false
-        let lowest = Number.POSITIVE_INFINITY
-        for (const value of seen) {
-          if (value === null)
-            continue
-          if (value > lowest)
-            counterAdvanced = true
-          lowest = Math.min(lowest, value)
-        }
-        if (state.progressed && state.progressEvidence === 'frames') {
+        const advanced = frames !== null
+          && ((latestFrames !== null && frames > latestFrames) || (periodicFrames !== null && frames > periodicFrames))
+        const reset = frames !== null
+          && ((latestFrames !== null && frames < latestFrames) || (periodicFrames !== null && frames < periodicFrames))
+        const justified = advanced && !reset
+        // The report was judged for progress at all (it was not a paused, seeking, room-paused or no-data report).
+        const judged = step.roomPlaying && !step.paused && !step.seeking && !step.lacksPlayableData
+        const claimed = state.progressed && state.progressEvidence === 'frames'
+
+        if (claimed) {
           claims += 1
-          expect(counterAdvanced, `seed ${seed} step ${step}: progress claimed as frames without an advanced counter`).toBe(true)
+          // A report between two periodic samples may carry the periodic verdict made at most 1.5 s earlier.
+          const carried = !step.periodic && nowMs - periodicClaimAtMs < 1_500
+          if (!justified && !carried)
+            fail(index, `progress claimed as frames, but the counter did not advance against a readable cursor (or it was reset), and no fresh periodic claim could be carried`)
+          if (!justified)
+            carriedClaims += 1
         }
-        if (state.hasRenderedFrameProgress)
-          expect(counterAdvanced, `seed ${seed} step ${step}: rendered frame claimed without an advanced counter`).toBe(true)
-        expect(state.progressed && state.buffering, `seed ${seed} step ${step}: progressed while waiting`).toBe(false)
+        if (!hadRenderedFrame && state.hasRenderedFrameProgress && !justified)
+          fail(index, `a rendered frame was claimed, but the counter did not advance against a readable cursor, or it was reset`)
+        if (reset) {
+          if (state.progressed)
+            fail(index, `progress was reported (${state.progressEvidence}) after the counter went below a readable cursor`)
+          if (judged) {
+            resets += 1
+            if (state.progressEvidence !== 'unknown')
+              fail(index, `the evidence after a counter reset is ${state.progressEvidence}, not unknown`)
+          }
+        }
+        if (state.progressed && state.buffering)
+          fail(index, `progressed while waiting`)
+
+        if (step.periodic) {
+          periodicFrames = frames
+          periodicClaimAtMs = claimed ? nowMs : Number.NEGATIVE_INFINITY
+        }
+        latestFrames = frames
       }
     }
-    // The run is not vacuous: frames were claimed many times.
+    // The run is not vacuous: frames were claimed, resets were judged, and carried verdicts were exercised.
     expect(claims).toBeGreaterThan(1_000)
+    expect(resets).toBeGreaterThan(300)
+    expect(carriedClaims).toBeGreaterThan(50)
+  })
+})
+
+describe('a counter reset seen by either comparison', () => {
+  const event = (previous: ReturnType<typeof createPlayerHealthState>, overrides: Partial<Parameters<typeof observePlayerHealth>[1]> = {}) =>
+    playing(previous, { periodic: false, ...overrides })
+
+  it('reports no progress, with unknown evidence, when the counter went missing and came back below the last periodic sample', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: 10 })
+    state = event(state, { nowMs: 1_100, positionSeconds: 1.1, frames: null })
+    // The latest report could not read the counter, so the latest comparison sees the clock move; the periodic one sees 10 -> 4.
+    state = event(state, { nowMs: 1_400, positionSeconds: 1.4, frames: 4 })
+
+    expect(state.progressed).toBe(false)
+    expect(state.progressEvidence).toBe('unknown')
+    expect(state.hasRenderedFrameProgress).toBe(false)
+  })
+
+  it('keeps reporting no progress for event reports that climb again, until a periodic sample takes the lower value as its cursor', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: 10 })
+    state = event(state, { nowMs: 1_100, positionSeconds: 1.1, frames: 4 })
+    // 4 -> 6 is a new frame against the latest report, but both are below the last periodic sample of 10.
+    state = event(state, { nowMs: 1_300, positionSeconds: 1.3, frames: 6 })
+    expect(state.progressed).toBe(false)
+    expect(state.progressEvidence).toBe('unknown')
+    expect(state.hasRenderedFrameProgress).toBe(false)
+
+    // The periodic sample is itself compared with the old cursor, then becomes the new one.
+    state = playing(state, { nowMs: 2_000, positionSeconds: 2, frames: 9 })
+    expect(state.progressed).toBe(false)
+    expect(state.progressEvidence).toBe('unknown')
+    state = playing(state, { nowMs: 3_000, positionSeconds: 3, frames: 40 })
+    expect(state.progressed).toBe(true)
+    expect(state.progressEvidence).toBe('frames')
+  })
+
+  it('does not call a player that shows a new frame after a reset a stall, however long since the last periodic progress', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: 10 })
+    state = event(state, { nowMs: 1_000, positionSeconds: 1, frames: 4 })
+    // 4 -> 6 is a new frame (the latest comparison) but still below the last periodic sample of 10.
+    state = event(state, { nowMs: 4_000, positionSeconds: 1.4, frames: 6 })
+
+    expect(state.progressed).toBe(false)
+    expect(state.progressEvidence).toBe('unknown')
+    expect(state.buffering).toBe(false)
+  })
+
+  it('still runs the stall timer when only the periodic comparison reports the reset and nothing new was seen', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: 10 })
+    state = event(state, { nowMs: 1_000, positionSeconds: 1, frames: 4 })
+    // 4 -> 4 is not new, and 4 is below the last periodic sample of 10: no progress, and no progress for 4 s is a stall.
+    state = event(state, { nowMs: 4_000, positionSeconds: 1, frames: 4 })
+
+    expect(state.progressed).toBe(false)
+    expect(state.progressEvidence).toBe('unknown')
+    expect(state.buffering).toBe(true)
   })
 })
 

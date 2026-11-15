@@ -256,6 +256,13 @@ function judgeProgress(previous: PlayerHealthState, next: PlayerHealthState, obs
     return 'reset'
   }
   const accumulated = compareProgress(previous, observation, 'periodic')
+  if (accumulated.counterReset) {
+    // The counter is below the last periodic sample. Whatever the latest report could or could not read, the
+    // counter has been reset since that sample, so nothing that was seen since can be called progress. With
+    // nothing new in the latest comparison either, this is an ordinary stall and the stall timer decides.
+    next.progressEvidence = 'unknown'
+    return fresh.advanced ? 'reset' : 'none'
+  }
   // The counter really advanced if either comparison saw it advance, even across a report that could not read it.
   const framesAdvanced = (fresh.advanced && fresh.quality === 'frames') || (accumulated.advanced && accumulated.quality === 'frames')
   if (fresh.advanced) {
@@ -269,7 +276,7 @@ function judgeProgress(previous: PlayerHealthState, next: PlayerHealthState, obs
     next.progressed = !next.buffering
     return 'fresh'
   }
-  next.progressEvidence = accumulated.counterReset ? 'unknown' : accumulated.quality
+  next.progressEvidence = accumulated.quality
   if (accumulated.advanced) {
     next.hasRealPlaybackProgress = true
     if (accumulated.quality === 'frames')
