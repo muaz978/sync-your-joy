@@ -651,6 +651,194 @@ describe('service worker observed episode identity', () => {
     expect(replacement.playerBindingId).not.toBe(firstBindingId)
   })
 
+  // A report writes the worker's state after it has told the previous player
+  // that it is no longer bound, and that takes a round trip to the tab. Another
+  // report can bind the room's player in that time; the slower one must then
+  // neither write over what the newer one recorded nor be handed the newer
+  // one's binding ID as its own.
+  describe('two media reports that overlap while the first one detaches the previous player', () => {
+    const mediaA = { ...oldMedia, title: 'Report A' }
+    const mediaB = { ...oldMedia, title: 'Report B' }
+    const diagnostics = (readyState: number) => ({
+      origin: 'light-dom' as const,
+      readyState,
+      networkState: 2,
+      currentSrcKind: 'blob' as const,
+      hasSourceObject: false,
+    })
+    const senderFor = (frameId: number, documentId: string): chrome.runtime.MessageSender => ({
+      tab: { id: 42, active: true, url: sharedUrl },
+      frameId,
+      documentId,
+      url: sharedUrl,
+    }) as chrome.runtime.MessageSender
+    const sample = { positionSeconds: 99, durationSeconds: 120, paused: false, buffering: false, sampledAtLocalMs: Date.now() }
+
+    function reportsFrom(socket: FakeWebSocket, reportId: string) {
+      socket.simulateMessage({ type: 'diagnostics_requested', reportId })
+      const response = socket.sentMessages.find(message => typeof message === 'object' && message !== null
+        && (message as { reportId?: unknown }).reportId === reportId) as { report: DiagnosticsReport }
+      return response.report.events
+    }
+
+    /** The next message the worker sends to a tab is held until the returned function is called. */
+    function holdNextTabMessage(fake: Awaited<ReturnType<typeof resumeAtPage>>['fake']) {
+      const sendToTab = fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>
+      sendToTab.mockClear()
+      let release: () => void = () => {}
+      sendToTab.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
+      return { sendToTab, release: () => release() }
+    }
+
+    it.each([
+      ['in another frame', 3, 4],
+      ['in the same frame after the page was replaced', 0, 0],
+    ])('lets the report that bound last keep the binding, the media and the diagnostics when the earlier one was %s', async (_label, frameOfA, frameOfB) => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      // A same-frame replacement only has a previous document to detach once the frame has one.
+      if (frameOfA === 0)
+        await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: undefined }, senderFor(0, 'document-first'))
+      const { sendToTab, release } = holdNextTabMessage(fake)
+
+      const reportA = request({ type: 'MEDIA_DETECTED', media: mediaA, areaPixels: 700_000, diagnostics: diagnostics(1), bindingId: undefined }, senderFor(frameOfA, 'document-a'))
+      await vi.waitFor(() => expect(sendToTab).toHaveBeenCalledTimes(1))
+      const responseB = await request({ type: 'MEDIA_DETECTED', media: mediaB, areaPixels: 900_000, diagnostics: diagnostics(4), bindingId: undefined }, senderFor(frameOfB, 'document-b'))
+      expect(responseB.state.playerFrameId).toBe(frameOfB)
+      expect(responseB.playerBindingId).toEqual(expect.any(String))
+
+      release()
+      const responseA = await reportA
+
+      // The earlier report is answered without a binding: it does not own one, and the page learns that
+      // from the next heartbeat it sends instead of holding the newer page's token.
+      expect(responseA.playerBindingId).toBeUndefined()
+      const current = await request({ type: 'GET_STATE' }, senderFor(frameOfB, 'document-b'))
+      expect(current.state.playerFrameId).toBe(frameOfB)
+      expect(current.state.currentMedia).toMatchObject({ title: 'Report B' })
+      expect(current.state.playerDiagnostics).toMatchObject({ readyState: 4 })
+
+      // The newer page's token still speaks for the room; the earlier page's report left no trace.
+      const sentBefore = socket.sentMessages.length
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample, bindingId: responseB.playerBindingId }, senderFor(frameOfB, 'document-b'))
+      expect(socket.sentMessages.slice(sentBefore)).toEqual([expect.objectContaining({ type: 'player_status' })])
+      const reported = reportsFrom(socket, 'report_overlap')
+        .filter(event => event.message === 'media_detected')
+        .map(event => event.details?.frameId)
+      expect(reported.at(-1)).toBe(frameOfB)
+    })
+
+    it('writes nothing for a report whose page started loading again while the previous player was being detached', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const { sendToTab, release } = holdNextTabMessage(fake)
+
+      const reportA = request({ type: 'MEDIA_DETECTED', media: mediaA, areaPixels: 700_000, diagnostics: diagnostics(1), bindingId: undefined }, senderFor(3, 'document-a'))
+      await vi.waitFor(() => expect(sendToTab).toHaveBeenCalledTimes(1))
+      // The tab navigates: the worker drops the binding the report had just taken.
+      fake.updatedListener(42, { status: 'loading' })
+      release()
+      const responseA = await reportA
+
+      expect(responseA.playerBindingId).toBeUndefined()
+      const current = await request({ type: 'GET_STATE' }, {})
+      expect(current.state.playerFrameId).toBeNull()
+      expect(current.state.currentMedia).toBeNull()
+      expect(current.state.playerDiagnostics).toBeNull()
+    })
+
+    it('keeps the replacement binding through routine heartbeats, and does not give it back to the page it replaced', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const first = await request({ type: 'MEDIA_DETECTED', media: mediaA, areaPixels: 700_000, bindingId: undefined }, senderFor(3, 'document-a'))
+      const replacement = await request({ type: 'MEDIA_DETECTED', media: mediaB, areaPixels: 900_000, bindingId: undefined }, senderFor(4, 'document-b'))
+      expect(first.playerBindingId).toEqual(expect.any(String))
+      expect(replacement.playerBindingId).toEqual(expect.any(String))
+      expect(replacement.playerBindingId).not.toBe(first.playerBindingId)
+
+      // The replaced page keeps reporting with the token it was given, and is refused.
+      for (let beat = 0; beat < 3; beat += 1) {
+        const stale = await request({ type: 'MEDIA_DETECTED', media: mediaA, areaPixels: 700_000, diagnostics: diagnostics(1), bindingId: first.playerBindingId }, senderFor(3, 'document-a'))
+        expect(stale.playerBindingId).toBeUndefined()
+        expect(stale.state.playerFrameId).toBe(4)
+      }
+      // The current page's own heartbeats keep the same binding, with or without its token.
+      for (const bindingId of [replacement.playerBindingId, undefined]) {
+        const heartbeat = await request({ type: 'MEDIA_DETECTED', media: mediaB, areaPixels: 900_000, diagnostics: diagnostics(4), bindingId }, senderFor(4, 'document-b'))
+        expect(heartbeat.playerBindingId).toBe(replacement.playerBindingId)
+      }
+      const current = await request({ type: 'GET_STATE' }, senderFor(4, 'document-b'))
+      expect(current.state.playerFrameId).toBe(4)
+      expect(current.state.currentMedia).toMatchObject({ title: 'Report B' })
+      expect(current.state.playerDiagnostics).toMatchObject({ readyState: 4 })
+    })
+
+    it('does not hand its token to a page whose report was superseded while the new state was being stored', async () => {
+      let holdWrites = false
+      let releaseWrite: () => void = () => {}
+      const fake = buildFakeChrome({
+        sessionState: {
+          participantId: 'participant_resumed',
+          sessionToken: 'session_resumed',
+          snapshot: buildRoomSnapshot({ media: oldMedia }),
+          playerTabId: 42,
+          playerFrameId: 0,
+          playerAreaPixels: 500_000,
+          playerLastSeenAtMs: Date.now(),
+          currentMedia: oldMedia,
+          lastOpenedNavigationRevision: 5,
+        },
+        playerBindingState: { id: 'binding_resumed', documentId: null },
+        sessionSet: () => holdWrites
+          ? new Promise<void>((resolve) => { holdWrites = false; releaseWrite = resolve })
+          : undefined,
+      })
+      ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ media: oldMedia, diagnostics: null, sample: null })
+      ;(fake.chrome.tabs.get as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 42, url: sharedUrl })
+      vi.stubGlobal('chrome', fake.chrome)
+      vi.stubGlobal('WebSocket', FakeWebSocket)
+      await import('./service-worker.ts')
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+      FakeWebSocket.instances[0]!.simulateOpen()
+      const ask = (message: RuntimeRequest, sender: chrome.runtime.MessageSender = {}) => new Promise<RuntimeResponse>((resolve) => {
+        fake.messageListener(message, sender, response => resolve(response as RuntimeResponse))
+      })
+      await ask({ type: 'GET_STATE' })
+
+      // Report A is accepted, binds, and waits for the storage write that publishes its state.
+      holdWrites = true
+      const reportA = ask({ type: 'MEDIA_DETECTED', media: mediaA, areaPixels: 700_000, bindingId: undefined }, senderFor(3, 'document-a'))
+      await vi.waitFor(() => expect(holdWrites).toBe(false))
+      // Report B binds another frame before that write finishes.
+      const responseB = await ask({ type: 'MEDIA_DETECTED', media: mediaB, areaPixels: 900_000, bindingId: undefined }, senderFor(4, 'document-b'))
+      expect(responseB.playerBindingId).toEqual(expect.any(String))
+
+      releaseWrite()
+      const responseA = await reportA
+      expect(responseA.playerBindingId).toBeUndefined()
+      expect((await ask({ type: 'GET_STATE' }, senderFor(4, 'document-b'))).state.playerFrameId).toBe(4)
+    })
+
+    it('keeps a replacement that binds while the previous player is still being released', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      await request({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: undefined }, senderFor(0, 'document-first'))
+      ;(fake.chrome.tabs.query as ReturnType<typeof vi.fn>).mockResolvedValue([])
+      const { sendToTab, release } = holdNextTabMessage(fake)
+
+      // No tab can be found to bind, so the bound page is released, and that waits on the page.
+      const recheck = request({ type: 'RECHECK_MEDIA' })
+      await vi.waitFor(() => expect(sendToTab).toHaveBeenCalledTimes(1))
+      const replacement = await request({ type: 'MEDIA_DETECTED', media: mediaB, areaPixels: 900_000, bindingId: undefined }, senderFor(4, 'document-b'))
+      expect(replacement.state.playerFrameId).toBe(4)
+
+      release()
+      await recheck
+      const current = await request({ type: 'GET_STATE' }, senderFor(4, 'document-b'))
+      expect(current.state.playerFrameId).toBe(4)
+      expect(current.state.currentMedia).toMatchObject({ title: 'Report B' })
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample, bindingId: replacement.playerBindingId }, senderFor(4, 'document-b'))
+      expect((await request({ type: 'GET_STATE' }, senderFor(4, 'document-b'))).state.lastPlayerSample).toMatchObject(sample)
+    })
+  })
+
   it('does not restore a delayed context after the bound tab starts a new navigation', async () => {
     let resolveTab: (tab: unknown) => void = () => {}
     const tabGate = new Promise<unknown>(resolve => { resolveTab = resolve })
