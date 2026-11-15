@@ -1975,6 +1975,351 @@ describe('autoplay permission rejection (#68)', () => {
   })
 })
 
+describe('local operation ownership (CR-A03, #50)', () => {
+  const NOTICE_ALIGNED = 'Playback aligned with the room.'
+  type PendingPlay = { resolve: () => void; reject: (error: Error) => void }
+  let pendingPlays: PendingPlay[]
+
+  async function settle(): Promise<void> {
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  const seekIntents = () => messages.filter(message => message.type === 'PLAYER_INTENT' && message.kind === 'seek')
+  const anyIntents = () => messages.filter(message => message.type === 'PLAYER_INTENT')
+  const notice = () => pill('#syj-notice').textContent
+
+  function playbackStartFailed(): boolean | undefined {
+    let failed: boolean | undefined
+    listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, (response) => {
+      failed = (response as { sample: { playbackStartFailed: boolean } }).sample.playbackStartFailed
+    })
+    return failed
+  }
+
+  /** The room changes hands without any playback command, as a lease transfer or a re-lease does. */
+  function changeController(participantId: string, leaseEpoch: number): void {
+    state = structuredClone(state)
+    state.snapshot!.revision++
+    state.snapshot!.controller = { participantId, leaseEpoch }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+  }
+
+  function leaveRoom(): void {
+    state = structuredClone(state)
+    state.snapshot = null
+    listener({ type: 'APPLY_ROOM_STATE', state })
+  }
+
+  /** A play() that the test settles by hand, so a late callback can be replayed after the room moved on. */
+  function holdPlays(): void {
+    pendingPlays = []
+    video.play.mockImplementation(() => new Promise<void>((resolve, reject) => { pendingPlays.push({ resolve, reject }) }))
+  }
+
+  /**
+   * The participant presses Sync in a playing room and the browser has not answered yet. The room's own play command
+   * is held back by a player without data, so this is the only play() in flight.
+   */
+  function pressSyncWithPlayPending(): void {
+    holdPlays()
+    video.readyState = FakeVideo.HAVE_NOTHING
+    apply('playing')
+    video.readyState = 4
+    pill('#syj-sync').dispatchEvent(new Event('click'))
+    expect(video.play).toHaveBeenCalledOnce()
+    expect(pendingPlays).toHaveLength(1)
+  }
+
+  const staleTriggers: Array<[string, () => void]> = [
+    ['a room pause', () => apply('paused')],
+    ['a source reset', () => { video.currentSrc = 'blob:replacement'; video.dispatchEvent(new Event('emptied')) }],
+    ['the room being left', () => leaveRoom()],
+    ['a controller change to another participant', () => changeController('other', 2)],
+    ['a higher lease epoch for the same controller', () => changeController('host', 2)],
+  ]
+
+  describe('a play() that settles after the room has moved on', () => {
+    it('is acted on while it is still the current attempt, which is what the stale cases below must differ from', async () => {
+      pressSyncWithPlayPending()
+      pendingPlays[0]!.resolve()
+      await settle()
+      expect(notice()).toBe(NOTICE_ALIGNED)
+    })
+
+    it('reports a refusal while it is still the current attempt', async () => {
+      pressSyncWithPlayPending()
+      pendingPlays[0]!.reject(new DOMException('User activation required', 'NotAllowedError'))
+      await settle()
+      expect(playbackStartFailed()).toBe(true)
+    })
+
+    it.each(staleTriggers)('does not act on a success that arrives after %s', async (_name, trigger) => {
+      pressSyncWithPlayPending()
+      trigger()
+      pendingPlays[0]!.resolve()
+      await settle()
+
+      expect(notice()).not.toBe(NOTICE_ALIGNED)
+    })
+
+    it.each(staleTriggers)('does not report a refused start for a rejection that arrives after %s', async (_name, trigger) => {
+      pressSyncWithPlayPending()
+      trigger()
+      pendingPlays[0]!.reject(new DOMException('User activation required', 'NotAllowedError'))
+      await settle()
+
+      expect(playbackStartFailed()).toBe(false)
+      expect(notice()).not.toMatch(/still blocked playback|could not start/)
+    })
+
+    it('leaves the deadline of a retry in place when the play it replaced settles late', async () => {
+      // The retry's own deadline is what bounds a player that never answers it. A late success of the
+      // retired attempt used to be able to cancel that deadline, which left the retry unbounded.
+      holdPlays()
+      apply('playing')
+      expect(video.play).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(video.play).toHaveBeenCalledOnce()
+
+      state.snapshot!.playback.effectiveAtServerMs = Date.now()
+      listener({ type: 'FORCE_SYNC' })
+      expect(video.play).toHaveBeenCalledTimes(2)
+      messages.length = 0
+
+      pendingPlays[0]!.resolve()
+      await settle()
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(notice()).not.toMatch(/did not respond/)
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(notice()).toMatch(/did not respond/)
+      expect(statuses().at(-1)?.sample.buffering).toBe(true)
+    })
+  })
+
+  describe('a controller scrub whose debounce is still running', () => {
+    function scrubAsController(): void {
+      state.participantId = 'host'
+      video.position = 210
+      video.seeking = true
+      video.dispatchEvent(new Event('seeking'))
+    }
+
+    it('is sent when nothing about the room changes', async () => {
+      scrubAsController()
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(seekIntents()).toEqual([{ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: 210 }])
+    })
+
+    it('is dropped when another participant becomes the controller', async () => {
+      scrubAsController()
+      changeController('other', 2)
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(anyIntents()).toEqual([])
+    })
+
+    it('is dropped when the same participant takes the lease again with a higher epoch', async () => {
+      scrubAsController()
+      changeController('host', 2)
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(anyIntents()).toEqual([])
+    })
+
+    it('is dropped when the room is left', async () => {
+      scrubAsController()
+      leaveRoom()
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(anyIntents()).toEqual([])
+    })
+  })
+
+  describe('a seek the room started, completing late after the controller changed', () => {
+    it.each([
+      ['the local participant becomes the controller', 'guest', 'guest', 2],
+      ['the controller takes a higher lease epoch', 'host', 'host', 2],
+    ])('is not sent as a new seek intent when %s', async (_name, local, controller, leaseEpoch) => {
+      state.participantId = local
+      state.snapshot!.seek = { revision: 2, positionSeconds: 120, acknowledgedParticipantIds: [], resumeWhenReady: true, deadlineAtServerMs: Date.now() + 5_000 }
+      apply('paused', 120)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(video.writes).toEqual([120])
+      messages.length = 0
+
+      changeController(controller, leaseEpoch)
+      video.seeking = false
+      video.dispatchEvent(new Event('seeked'))
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(seekIntents()).toEqual([])
+    })
+  })
+
+  describe('a seek the room started, finished by readiness before the native seeked arrives', () => {
+    async function roomSeekAsController(): Promise<void> {
+      state.participantId = 'host'
+      apply('paused', 120)
+      expect(video.writes).toEqual([120])
+      video.seeking = false
+    }
+
+    it('is not sent as the controller\'s own seek when a readiness event completes it first', async () => {
+      await roomSeekAsController()
+      video.dispatchEvent(new Event('canplay'))
+      messages.length = 0
+
+      video.dispatchEvent(new Event('seeked'))
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(seekIntents()).toEqual([])
+    })
+
+    it('is not sent as the controller\'s own seek when the completion probe finishes it first', async () => {
+      await roomSeekAsController()
+      await vi.advanceTimersByTimeAsync(100)
+      messages.length = 0
+
+      video.dispatchEvent(new Event('seeked'))
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(seekIntents()).toEqual([])
+    })
+
+    it('is not sent as the controller\'s own seek when the next room update finishes it first', async () => {
+      state.participantId = 'host'
+      state.snapshot!.seek = { revision: 2, positionSeconds: 120, acknowledgedParticipantIds: [], resumeWhenReady: true, deadlineAtServerMs: Date.now() + 5_000 }
+      apply('paused', 120)
+      expect(video.writes).toEqual([120])
+      video.seeking = false
+      // The same barrier again: the player is already on target, so the room update completes the seek.
+      apply('paused', 120)
+      expect(video.writes).toEqual([120])
+      messages.length = 0
+
+      video.dispatchEvent(new Event('seeked'))
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(seekIntents()).toEqual([])
+    })
+
+    it('still sends a scrub the controller makes to another position afterwards', async () => {
+      await roomSeekAsController()
+      video.dispatchEvent(new Event('canplay'))
+      video.dispatchEvent(new Event('seeked'))
+      messages.length = 0
+
+      video.currentTime = 300
+      video.seeking = false
+      video.dispatchEvent(new Event('seeked'))
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(seekIntents()).toEqual([{ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: 300 }])
+    })
+  })
+
+  describe('Skip Intro as the controller', () => {
+    const echoOfTheScrub = (revision: number, positionSeconds: number) => {
+      state.snapshot!.seek = { revision, positionSeconds, acknowledgedParticipantIds: [], resumeWhenReady: true, deadlineAtServerMs: Date.now() + 3_000 }
+      apply('paused', positionSeconds)
+    }
+
+    async function skipIntro(): Promise<void> {
+      state.participantId = 'host'
+      apply('paused', 120)
+      video.currentTime = 210
+      await vi.advanceTimersByTimeAsync(100)
+    }
+
+    it('reaches the room once through its scrub, the room\'s seek barrier and the element finishing', async () => {
+      await skipIntro()
+      expect(seekIntents()).toEqual([{ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: 210 }])
+
+      echoOfTheScrub(3, 210)
+      video.seeking = false
+      video.dispatchEvent(new Event('seeked'))
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(seekIntents()).toHaveLength(1)
+      expect(messages.find(message => message.type === 'SEEK_APPLIED')).toEqual({ type: 'SEEK_APPLIED', revision: 3, positionSeconds: 210 })
+      // The page wrote the scrub once itself and then followed the room without a second native write.
+      expect(video.writes).toEqual([120, 210])
+    })
+
+    it('reaches the room once when the element finishes long after the barrier timed out locally', async () => {
+      await skipIntro()
+      echoOfTheScrub(3, 210)
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      video.seeking = false
+      video.dispatchEvent(new Event('seeked'))
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(seekIntents()).toHaveLength(1)
+      expect(video.writes).toEqual([120, 210])
+    })
+
+    it('does not send the same scrub again when the element finishes inside the duplicate window', async () => {
+      await skipIntro()
+      await vi.advanceTimersByTimeAsync(400)
+
+      video.seeking = false
+      video.dispatchEvent(new Event('seeked'))
+      await vi.advanceTimersByTimeAsync(300)
+
+      expect(seekIntents()).toEqual([{ type: 'PLAYER_INTENT', kind: 'seek', positionSeconds: 210 }])
+    })
+  })
+
+  describe('the 1,500 ms local seek timeout', () => {
+    // The completion probe runs every 80 ms and a native seeked event restarts it, so a seeked event
+    // dispatched 80 ms before the wanted instant puts a probe exactly on it.
+    async function seekWithProbeAt(elapsedMs: number): Promise<void> {
+      apply('paused', 120)
+      // The element has not landed yet; it keeps reporting that it is seeking.
+      video.position = 100
+      await vi.advanceTimersByTimeAsync(elapsedMs - 80)
+      video.dispatchEvent(new Event('seeked'))
+      await vi.advanceTimersByTimeAsync(80)
+    }
+
+    it('keeps adopting the seek at 1,499 ms and leaves Sync with nothing to retry yet', async () => {
+      await seekWithProbeAt(1_499)
+
+      listener({ type: 'FORCE_SYNC' })
+      expect(video.writes).toEqual([120])
+    })
+
+    it('treats the seek as timed out at 1,500 ms, so Sync writes the target again', async () => {
+      await seekWithProbeAt(1_500)
+
+      listener({ type: 'FORCE_SYNC' })
+      expect(video.writes).toEqual([120, 120])
+    })
+
+    it('does not rewrite a timed-out seek on a heartbeat once the element stopped seeking short of the target, and Sync writes it once', async () => {
+      apply('paused', 120)
+      video.position = 100
+      await vi.advanceTimersByTimeAsync(1_600)
+      expect(video.writes).toEqual([120])
+
+      // The element gave up and sits at 100. Heartbeats alone must not restart the slow load; the
+      // stuck-seek ladder does not reissue for another six seconds.
+      video.seeking = false
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(video.writes).toEqual([120])
+
+      listener({ type: 'FORCE_SYNC' })
+      expect(video.writes).toEqual([120, 120])
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(video.writes).toEqual([120, 120])
+    })
+  })
+})
+
 describe('an unapproved join request', () => {
   const localEpisode: MediaFingerprint = {
     service: 'crunchyroll', canonicalId: 'crunchyroll:GE00365016JAJP', title: 'Episode', durationSeconds: 1420,

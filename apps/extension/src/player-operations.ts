@@ -124,10 +124,21 @@ export class PlayerOperations {
     return this.activeSeek !== null && this.sameToken(this.activeSeek.token, token)
   }
 
-  completeSeek(token: OperationToken): boolean {
+  /**
+   * `nativeEventStillDueAtMs` is the time of a completion the page decided on
+   * itself, from a readiness event or the completion probe. The element's own
+   * `seeked` can still arrive afterwards, and for the controller that event
+   * would be taken for a scrub of its own, so the completed target stays
+   * attributable for the same window as a retired seek. A completion that the
+   * `seeked` event itself delivered leaves nothing to attribute.
+   */
+  completeSeek(token: OperationToken, nativeEventStillDueAtMs?: number): boolean {
     if (!this.isCurrentSeek(token))
       return false
-    this.activeSeek = null
+    if (nativeEventStillDueAtMs === undefined)
+      this.activeSeek = null
+    else
+      this.retireSeek(nativeEventStillDueAtMs)
     return true
   }
 
