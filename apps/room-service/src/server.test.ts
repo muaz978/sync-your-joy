@@ -2736,6 +2736,8 @@ describe('deadlines the cleanup timer enforces, seen over sockets', () => {
       : await press(room, 'play', 20)
     const players = [room.host, friend]
     await reportHealthyUntil(players, clockMs + 3_000)
+    // The room is playing, with both players reporting, before control moves: the state the question is asked in.
+    expect(room.host.latest().playback.status).toBe('playing')
     const mark = room.host.mark()
 
     room.host.socket.send(JSON.stringify({ type: 'transfer_control', participantId: 'participant_friend', leaseEpoch: 1 }))
@@ -2762,9 +2764,20 @@ describe('deadlines the cleanup timer enforces, seen over sockets', () => {
   // reporting progress, because transferControl pauses for any live operation, the started phase included. The
   // legacy room above keeps playing. This test states what a healthy room should do; `it.fails` makes it pass
   // while the room pauses and fail as soon as that changes, which is the moment to turn it into a plain `it`.
+  //
+  // `it.fails` counts any throw as the expected failure, a broken setup included. So the setup (and the checks of
+  // the state it must reach, which `announces a control transfer ...` above also makes as a plain test) runs inside
+  // a guard that returns without throwing when it fails: nothing is then left to fail, and `it.fails` reports
+  // "Expect test to fail". The one assertion after the guard is the only thing that can make this test pass.
   it.fails('keeps a healthy two-player negotiated room playing after control passes to the other player', async () => {
-    const transferred = await healthyPairAfterControlTransfer(true)
-    expect(transferred.snapshot.playback.status).toBe('playing')
+    let status: string
+    try {
+      status = (await healthyPairAfterControlTransfer(true)).snapshot.playback.status
+    }
+    catch {
+      return
+    }
+    expect(status).toBe('playing')
   })
 })
 
