@@ -182,7 +182,7 @@ Local Chromium, headless, macOS arm64, Playwright 1.65.0 (Chromium 158), on a ch
 
 | Check | Result |
 | --- | --- |
-| `adaptive-fixture.spec.ts` and `adaptive-fixture-extension.spec.ts`, 10 consecutive runs | 10 of 10 runs passed, 15 of 15 tests each (150 of 150), 29 to 34 seconds per run (run again after the stale-hold test was made independent of runner speed) |
+| `adaptive-fixture.spec.ts` and `adaptive-fixture-extension.spec.ts`, 10 consecutive runs | 10 of 10 runs passed, 15 tests per run (13 in `adaptive-fixture.spec.ts` and 2 in `adaptive-fixture-extension.spec.ts`), 150 of 150 across the 10 runs, 29 to 34 seconds per run (run again after the stale-hold test was made independent of runner speed) |
 | Non-matrix, non-provider E2E suite (25 tests: the two adaptive specs, `extension-profile-storage-state`, `pending-approval`, `rejoin-after-leaving`, `room-ended-notice`, `two-profile-sync`), 1 run | 25 passed, 0 failed, 1.2 minutes. The opt-in authenticated provider spec was not run |
 | `npm run typecheck`, `npm test` | clean; 51 files, 1085 tests passed (8 in `tests/adaptive-fixture-server.test.ts`) |
 
