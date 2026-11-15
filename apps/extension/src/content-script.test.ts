@@ -2118,6 +2118,7 @@ describe('a transactional play through the extension (CR-B03, #57)', () => {
       operationSnapshot('operation_play_gesture', {})
       await settle()
       await vi.advanceTimersByTimeAsync(5_000)
+      expect(video.play.mock.calls.length).toBeGreaterThanOrEqual(3)
       expect(video.play.mock.calls.length).toBeLessThanOrEqual(6)
       expect(acknowledgements('started')).toEqual([])
 
