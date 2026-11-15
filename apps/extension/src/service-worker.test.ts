@@ -17,7 +17,7 @@
 // the persistence/restoration functions" called for when a real Playwright
 // service-worker-restart simulation is impractical (see the note at the
 // bottom of this file for why that path was not taken).
-import type { DiagnosticsReport, RoomSnapshot } from '@syncyourjoy/protocol'
+import type { DiagnosticsReport, OperationPhase, OperationReason, RoomSnapshot } from '@syncyourjoy/protocol'
 import { parseClientMessage } from '@syncyourjoy/protocol'
 import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 import type { ContentRequest, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
@@ -927,6 +927,216 @@ describe('service worker observed episode identity', () => {
       expect.objectContaining({ message: 'command_rejected', details: { code: 'session_invalid' } }),
       expect.objectContaining({ message: 'server_error', details: { code: 'provider-error' } }),
     ]))
+  })
+
+  // The report's `reason` says why the room or the player is not playing. It
+  // must be one of the codes the protocol already validates (a coordinator that
+  // does not know a new code drops the whole report), it must come from what
+  // really happened, and it must not outlive what it explained.
+  describe('the reason a report gives', () => {
+    const boundSender = { tab: { id: 42 }, frameId: 0 } as chrome.runtime.MessageSender
+    const healthySample = () => ({ positionSeconds: 12, durationSeconds: 1_440, paused: false, buffering: false, sampledAtLocalMs: Date.now(), progressed: true })
+    const stalledSample = () => ({ positionSeconds: 12, durationSeconds: 1_440, paused: false, buffering: true, sampledAtLocalMs: Date.now(), progressed: false })
+    const blockedSample = () => ({ positionSeconds: 12, durationSeconds: 1_440, paused: true, buffering: false, sampledAtLocalMs: Date.now(), playbackStartFailed: true })
+    const me = (playbackStatus?: 'blocked' | 'recovery-required' | 'silent' | 'buffering' | 'wrong-media' | 'playing', connected = true) => ({
+      id: 'participant_resumed', name: 'Resumed Friend', role: 'controller' as const, ready: true, connected, mediaMatches: true, latencyMs: null,
+      ...(playbackStatus ? { playbackStatus } : {}),
+    })
+    let revision = 5
+
+    function reportFrom(socket: FakeWebSocket, reportId: string): DiagnosticsReport {
+      socket.simulateMessage({ type: 'diagnostics_requested', reportId })
+      const response = socket.sentMessages.find(message => typeof message === 'object' && message !== null
+        && (message as { reportId?: unknown }).reportId === reportId) as { report: DiagnosticsReport } | undefined
+      return response!.report
+    }
+    function snapshotWith(socket: FakeWebSocket, reason: string, overrides: Partial<RoomSnapshot> = {}): void {
+      revision += 1
+      socket.simulateMessage({ type: 'room_snapshot', reason, snapshot: buildRoomSnapshot({ media: oldMedia, revision, ...overrides }) })
+    }
+    function operation(operationId: string, extra: { phase?: OperationPhase, reason?: OperationReason } = {}) {
+      return {
+        mode: 'transactional' as const,
+        mediaEpoch: 4,
+        sharedCapabilities: ['media-epoch', 'operation-identity', 'prepare-start', 'binding-sequence'] as const,
+        operation: {
+          mediaEpoch: 4,
+          operationId,
+          kind: 'play' as const,
+          phase: 'committed' as const,
+          requiredParticipantIds: ['participant_resumed'],
+          preparedParticipantIds: ['participant_resumed'],
+          startedParticipantIds: [],
+          targetPositionSeconds: 12,
+          effectiveAtServerMs: 1_000,
+          deadlineAtServerMs: 10_000,
+          ...extra,
+        },
+      }
+    }
+
+    beforeEach(() => {
+      revision = 5
+    })
+
+    it.each([
+      ['operation_timeout_paused', 'deadline-expired'],
+      ['seek_timeout_paused', 'deadline-expired'],
+      ['participant_not_ready', 'participant-not-ready'],
+      ['participants_not_ready', 'participant-not-ready'],
+      ['participant_buffering', 'waiting-for-data'],
+      ['participant_playback_stalled', 'stalled'],
+      ['participant_playback_silent', 'stalled'],
+      ['participant_playback_startup_timeout', 'startup-timeout'],
+      ['participant_playback_blocked', 'permission-denied'],
+      ['participant_disconnected', 'participant-disconnected'],
+      ['participant_disconnect_timeout', 'participant-disconnected'],
+      ['operation_binding_changed', 'binding-changed'],
+    ])('reports a room snapshot sent for %s as %s', async (roomReason, code) => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      snapshotWith(socket, roomReason, { playback: { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } })
+
+      const report = reportFrom(socket, 'report_reason')
+      // A report the protocol rejected would have been replaced by one with no reason at all.
+      expect(report.reason).toBe(code)
+      // The coordinator's own string is still in the event that carries it.
+      expect(report.events).toContainEqual(expect.objectContaining({ message: 'room_snapshot', details: expect.objectContaining({ reason: roomReason }) }))
+    })
+
+    it.each([
+      ['blocked', 'permission-denied'],
+      ['recovery-required', 'recovery-required'],
+      ['silent', 'stalled'],
+      ['buffering', 'waiting-for-data'],
+      ['wrong-media', 'media-changed'],
+    ] as const)('reads participant_status_changed from the participants: %s is %s', async (status, code) => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      snapshotWith(socket, 'participant_status_changed', { participants: [me(status)], playback: { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } })
+
+      expect(reportFrom(socket, 'report_status_changed').reason).toBe(code)
+    })
+
+    it('does not read participant_status_changed from a participant who is not connected, or when every status is fine', async () => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const paused = { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } as const
+      snapshotWith(socket, 'participant_status_changed', { participants: [me('blocked', false)], playback: paused })
+      expect(reportFrom(socket, 'report_disconnected_blocked').reason).toBe('none')
+      snapshotWith(socket, 'participant_status_changed', { participants: [me('playing')], playback: paused })
+      expect(reportFrom(socket, 'report_fine').reason).toBe('none')
+    })
+
+    it.each([
+      ['a stalled player', (socket: FakeWebSocket, request: Awaited<ReturnType<typeof resumeAtPage>>['request']) => request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: stalledSample() }, boundSender), 'stalled'],
+      ['a browser that refused to play', (socket: FakeWebSocket, request: Awaited<ReturnType<typeof resumeAtPage>>['request']) => request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: blockedSample() }, boundSender), 'permission-denied'],
+      ['a command the coordinator refused', async (socket: FakeWebSocket) => socket.simulateMessage({ type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'refused', snapshot: null }), 'command-rejected'],
+      ['an error from the coordinator', async (socket: FakeWebSocket) => socket.simulateMessage({ type: 'error', code: 'internal_error', message: 'broken' }), 'server-error'],
+    ])('reports %s as %s', async (_label, cause, code) => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      await cause(socket, request)
+
+      expect(reportFrom(socket, 'report_cause').reason).toBe(code)
+    })
+
+    it('drops the reason a player status gave once the player reports healthy playback, and leaves the room\'s reason alone', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: stalledSample() }, boundSender)
+      expect(reportFrom(socket, 'report_stalled').reason).toBe('stalled')
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: healthySample() }, boundSender)
+      expect(reportFrom(socket, 'report_recovered').reason).toBe('none')
+
+      snapshotWith(socket, 'participant_buffering', { playback: { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } })
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: healthySample() }, boundSender)
+      expect(reportFrom(socket, 'report_room_reason_kept').reason).toBe('waiting-for-data')
+    })
+
+    it('drops the room\'s reason when the room plays again without a new one, and keeps it while the room stays paused', async () => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const paused = { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } as const
+      snapshotWith(socket, 'participant_buffering', { playback: paused })
+      expect(reportFrom(socket, 'report_paused').reason).toBe('waiting-for-data')
+      snapshotWith(socket, 'participant_ready', { playback: paused })
+      expect(reportFrom(socket, 'report_still_paused').reason).toBe('waiting-for-data')
+      snapshotWith(socket, 'control_play', { playback: { status: 'playing', positionSeconds: 12, effectiveAtServerMs: Date.now(), playbackRate: 1 } })
+      expect(reportFrom(socket, 'report_playing').reason).toBe('none')
+    })
+
+    it('does not take a reason from a snapshot that is older than the room state it would replace', async () => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      socket.simulateMessage({ type: 'room_snapshot', reason: 'participant_buffering', snapshot: buildRoomSnapshot({ media: oldMedia, revision: 2 }) })
+
+      expect(reportFrom(socket, 'report_old_snapshot').reason).toBe('none')
+    })
+
+    it('ties the reason to its operation: a new operation, or none, no longer shows a reason that belonged to the old one', async () => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const paused = { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } as const
+      snapshotWith(socket, 'participant_buffering', { playback: paused, contract: operation('operation_play_000001') })
+      expect(reportFrom(socket, 'report_first_operation').reason).toBe('waiting-for-data')
+
+      snapshotWith(socket, 'operation_started', { playback: paused, contract: operation('operation_play_000002') })
+      expect(reportFrom(socket, 'report_second_operation').reason).toBe('none')
+
+      snapshotWith(socket, 'participant_buffering', { playback: paused, contract: operation('operation_play_000002') })
+      expect(reportFrom(socket, 'report_second_reason').reason).toBe('waiting-for-data')
+      snapshotWith(socket, 'participant_ready', { playback: paused, contract: { ...operation('operation_play_000002'), operation: null } })
+      expect(reportFrom(socket, 'report_operation_over').reason).toBe('none')
+    })
+
+    it('reports an operation\'s own reason in preference to anything the worker saw', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: stalledSample() }, boundSender)
+      snapshotWith(socket, 'operation_timeout_paused', {
+        playback: { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 },
+        contract: operation('operation_play_000003', { phase: 'failed', reason: 'start-timeout' }),
+      })
+
+      expect(reportFrom(socket, 'report_own_reason').reason).toBe('start-timeout')
+    })
+
+    it('says the connection was lost after an unintended close, and drops that once the room has taken the client back, or it leaves', async () => {
+      await resumeAtPage(sharedUrl)
+      const first = FakeWebSocket.instances[0]!
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      try {
+        first.simulateClose(1006, '')
+        await vi.advanceTimersByTimeAsync(20_000)
+        const second = FakeWebSocket.instances[1]!
+        second.simulateOpen()
+        // The socket is back but the room has not answered: the outage is still what the report explains.
+        expect(reportFrom(second, 'report_down').reason).toBe('connection-lost')
+        second.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia, revision: 9 }) })
+        expect(reportFrom(second, 'report_back').reason).toBe('none')
+      }
+      finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('starts a room with no reason left from the last one, and does not take a close the client made for a lost connection', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      socket.simulateMessage({ type: 'error', code: 'internal_error', message: 'broken' })
+      expect(reportFrom(socket, 'report_before_leaving').reason).toBe('server-error')
+
+      await request({ type: 'LEAVE_ROOM' })
+      expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
+      const joining = request({ type: 'JOIN_ROOM', code: 'ABCDEFGH' })
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+      const next = FakeWebSocket.instances[1]!
+      next.simulateOpen()
+      await joining
+
+      expect(reportFrom(next, 'report_after_leaving').reason).toBe('none')
+    })
   })
 
   describe('a scrub the room refused because someone was not ready', () => {
