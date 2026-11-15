@@ -671,7 +671,7 @@ describe('RoomCoordinator', () => {
         'https://www.crunchyroll.com/unavailable?from=watch',
         'https://crunchyroll.com.evil.example/watch/GOTHER123456/lookalike',
         'https://video.example/watch/GOTHER123456',
-        'http://example.invalid:8080/watch/GOTHER123456',
+        'https://example.invalid/watch/GOTHER123456',
       ]
 
       for (const [index, url] of rejectedPages.entries()) {
