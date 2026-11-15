@@ -101,7 +101,7 @@ This switch is test-only and must never be used as a product result. It is an ar
 
 ## Verification record
 
-The following checks were performed in September 2026 against the CR-D01 branch, at repository version `0.2.4`. They are a historical record of that branch. They have not been repeated on the current code (see "What is not evidenced" below):
+The following checks were performed in September 2026 against the CR-D01 branch, at repository version `0.2.4`. They are a historical record of that branch. They were repeated on `main` at `257afb6` on 2026-11-15 (see "Re-run" below):
 
 - `npm run typecheck` passed.
 - The first run without an installed Playwright browser produced a per-profile `browser-launch-failure` event and a run summary classified as `browser-launch/setup`.
@@ -120,12 +120,34 @@ These run under `npm test` with no browser (`tests/artifact-utils.test.ts`, `tes
 - the working-tree flag for a clean tree, a modified tracked file, a deleted one and an untracked file, in temporary Git repositories;
 - the output directory guard, including that two default runs get different directories, its wiring in the Playwright configuration, the setup and the reporter, and that `scripts/build-extension.mjs` stops, in a throwaway copy, before deleting the repository it is pointed at.
 
+### Re-run on `main` at `257afb6` (2026-11-15)
+
+The browser runs of the September record were repeated on a clean checkout of `main` at `257afb6` (extension 0.2.12, Playwright 1.65.0, Chromium 158, macOS arm64, headless), each on `tests/e2e/two-profile-sync.spec.ts`. Local browser on the owned synthetic fixture only; nothing about a provider, an account, a second device or a deployment.
+
+| Run | Result |
+| --- | --- |
+| normal | passed (11 s). `provenance.json` has `workingTree.dirty: false` (0 modified, 0 untracked), `run-summary.json` has outcome `passed` and every failure class 0, `a.events.json` and `b.events.json` and an `extension/` directory are present. `apps/extension/dist` did not exist before and does not exist after |
+| `SYNCYOURJOY_E2E_INJECT_FAILURE=1` | failed as intended: one `product-assertion`, `browserLaunchOrSetup` 0, both profile logs kept, Playwright's own `error-context.md` written |
+| `SYNCYOURJOY_E2E_TRACE=1` | passed; `a.trace.zip` and `b.trace.zip` written, and each profile log records `trace-started` and `trace-stopped` |
+| browser cannot start (`PLAYWRIGHT_BROWSERS_PATH` set to an empty directory) | failed in 0 ms with `browserLaunchOrSetup` 1 and a `browser-launch-failure` event in each profile log |
+
+After each of the four runs there was no `syncyourjoy-e2e-*` directory in the system temporary directory (0 before the first run and 0 after each). These are one run each, not a repetition count.
+
 ### What is not evidenced
 
-- The September 2026 browser runs (normal fixture, controlled `SYNCYOURJOY_E2E_INJECT_FAILURE=1` failure, opt-in trace, launch failure, profile cleanup) were not run again for this change. Chromium cannot launch where this change was made, so nothing here shows that those runs still behave as recorded on the current code.
-- No acceptance row is ticked by this change. It adds no provider, account, two-device or deployment evidence.
-- `tests/e2e/playwright.config.ts` and `tests/e2e/global-setup.ts` are not executed by any test, because Playwright cannot start here. The tests read their source and check that both call the output directory guard with the repository root (two levels above `tests/e2e`), and that `global-setup.ts` passes that root to the error sanitizer. They do not show that Playwright accepts the resulting configuration.
-- The trace lifecycle (`context.tracing.start()` and `stop()`) and the profile cleanup path can only be exercised with a browser and are not covered by the unit tests.
+- No acceptance row is ticked by any of this. There is no provider, account, two-device or deployment evidence.
+- The four runs above are single runs. They do not show how often the artifact pipeline holds across many runs or on another operating system. Windows path handling in the output directory guard was tested on POSIX only.
+- `tests/e2e/playwright.config.ts` and `tests/e2e/global-setup.ts` are executed by every browser run, so the earlier statement that Playwright cannot start here no longer holds on the machine of the re-run; the unit tests still check them only by reading their source, and a different Playwright version could behave differently.
+- The opt-in storage-state and authenticated-provider paths are not part of these runs.
+
+### Residual gaps (not fixed by this work)
+
+These were checked on `257afb6` and are real, in the sense that sensitive text can reach a file under `test-results/`:
+
+- **Playwright's own `error-context.md` is not sanitized.** Playwright writes it next to each failed test (in the injected-failure run it holds the test name, the error text and a window of test source). It is not produced by `artifact-reporter.ts`, so it never passes through `sanitizeDiagnosticText`. Any path, URL or credential in a failure message reaches it as written.
+- **The opt-in trace archives are not sanitized.** A `*.trace.zip` is a Playwright trace (metadata-only here: no screenshots, snapshots or sources) and in the traced run it contained the home directory path. The sanitizer is applied to text the harness writes itself, not to the archive. Treat a trace as local-only evidence, not as something to attach to an issue.
+- **A WebSocket URL in failure text keeps its query string.** `sanitizeDiagnosticText` reduces HTTP and HTTPS URLs only: a WebSocket URL for the room service, with a `code` query parameter, passes through unchanged (while `sanitizeBrowserUrl` on that string returns a redacted placeholder). The extension puts the room code in that query parameter, so a failure message that quotes the room-service URL would carry a live room code into `run-summary.json`.
+- **Playwright's `--output` option is not guarded.** `scripts/output-directory-guard.mjs` checks `SYNCYOURJOY_E2E_OUTPUT_DIR`. A run with `--output <directory>` was accepted (it wrote its `run-summary.json` there) with no check, and Playwright empties its output directory, so `--output` pointing at a directory that matters is not refused.
 
 ### Replaying the artifact checks
 
