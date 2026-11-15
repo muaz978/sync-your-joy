@@ -133,7 +133,7 @@ The second opens the page without autostart and goes through three player lifecy
 2. the node is replaced and the new element loads: the shadow host is gone, the extension binds frame 0 with origin `light-dom`, and Play starts the new element;
 3. the source of that same element is replaced: a marker set on the element survives, the browser raised `emptied`, the extension is still bound to frame 0 and `light-dom`, and Play starts it again.
 
-The nested cross-origin frame, the SPA transition and navigation are not driven through the extension in this file. A nested-frame run with the extension is a follow-up under #49 and is not in this change. The SPA transition is a navigation scenario (#65). Neither extension test claims Crunchyroll or DRM acceptance.
+The nested cross-origin frame, the SPA transition and navigation are not driven through the extension in this file. The nested-frame run with the extension lives in pull request #189 (`adaptive-fixture-nested-extension.spec.ts`, under #49 and #51); it is not part of this change and is not evidence here until that pull request merges. The SPA transition is a navigation scenario (#65). Neither extension test claims Crunchyroll or DRM acceptance.
 
 The full E2E command still includes the existing generic two-profile test and the opt-in Crunchyroll test remains separately gated:
 
