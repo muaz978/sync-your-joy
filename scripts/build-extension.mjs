@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { createGenerator } from 'unocss'
 import unoConfig from '../uno.config.mjs'
+import { assertSafeBuildOutputDirectory } from './output-directory-guard.mjs'
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const root = resolve(scriptDirectory, '..')
@@ -15,6 +16,17 @@ const roomServerUrl = process.env.SYNCYOURJOY_ROOM_SERVER_URL ?? 'ws://127.0.0.1
 const browserTarget = process.env.SYNCYOURJOY_BROWSER === 'firefox' ? 'firefox' : 'chrome'
 const e2eTestMode = process.env.SYNCYOURJOY_E2E_TEST_MODE === '1'
 const e2eTestPlayerOrigin = process.env.SYNCYOURJOY_E2E_TEST_ORIGIN ?? ''
+
+// The output is deleted before it is built, so refuse the clearly dangerous
+// ones (the repository, its ancestors, home, .git, node_modules, the build's
+// own inputs). The default and ordinary scratch directories are unaffected.
+try {
+  assertSafeBuildOutputDirectory(outputDirectory, { repoRoot: root })
+}
+catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+}
 
 await rm(outputDirectory, { recursive: true, force: true })
 await mkdir(outputDirectory, { recursive: true })

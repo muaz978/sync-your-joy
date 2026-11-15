@@ -1,5 +1,6 @@
 import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
 import type { ServerMessage } from '@syncyourjoy/protocol'
+import { DISCONNECT_PAUSE_GRACE_MS, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_REPORT_SILENCE_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS, SEEK_BARRIER_MAX_WAIT_MS } from '@syncyourjoy/sync-engine'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { createRoomService, type RoomService } from './server.ts'
@@ -1526,6 +1527,888 @@ describe('controller recovery', () => {
         timers.release()
       }
     })
+  })
+})
+
+describe('deadlines the cleanup timer enforces, seen over sockets', () => {
+  const startMs = 1_800_000_000_000
+  let clockMs = startMs
+  let opened: WebSocket[] = []
+  const realWait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+  // Eight 10 ms cleanup ticks of real time, for the timer to act on a clock that has moved.
+  const ticks = () => realWait(80)
+  const media = { service: 'youtube', canonicalId: 'youtube:socket-deadlines', title: 'Socket deadline test video', durationSeconds: 600 }
+  type Snapshot = Extract<ServerMessage, { type: 'room_snapshot' }>
+  type Operation = NonNullable<NonNullable<Snapshot['snapshot']['contract']>['operation']>
+  const label = (message: ServerMessage) => message.type === 'room_snapshot' ? message.reason : message.type
+
+  afterEach(() => {
+    for (const socket of opened)
+      socket.terminate()
+    opened = []
+  })
+
+  /** A socket and every message it receives, so a test can count exactly what one transition sent. */
+  async function watch(url: string, participantId: string) {
+    const socket = await connect(url)
+    opened.push(socket)
+    const received: ServerMessage[] = []
+    socket.on('message', (data: Buffer) => {
+      received.push(JSON.parse(data.toString()) as ServerMessage)
+    })
+    const until = async (matches: (message: ServerMessage) => boolean, what: string, from = 0) => {
+      const deadline = AbortSignal.timeout(3_000)
+      for (;;) {
+        const found = received.slice(from).find(matches)
+        if (found)
+          return found
+        if (deadline.aborted)
+          throw new Error(`Timed out waiting for ${what} (saw ${JSON.stringify(received.slice(from))})`)
+        await realWait(5)
+      }
+    }
+    return {
+      socket,
+      participantId,
+      received,
+      until,
+      mark: () => received.length,
+      since: (mark: number) => received.slice(mark).map(label),
+      snapshotWith: async (reason: string, from = 0) => await until(message => message.type === 'room_snapshot' && message.reason === reason, `room snapshot ${reason}`, from) as Snapshot,
+      lastSnapshot: (): Snapshot => {
+        const found = received.filter((message): message is Snapshot => message.type === 'room_snapshot').at(-1)
+        if (!found)
+          throw new Error('No room snapshot received yet.')
+        return found
+      },
+      /** The newest room state this socket has been told, whatever message carried it. */
+      latest: () => {
+        const found = received.filter((message): message is Snapshot | Extract<ServerMessage, { type: 'room_joined' }> => message.type === 'room_snapshot' || message.type === 'room_joined').at(-1)
+        if (!found)
+          throw new Error('No room state received yet.')
+        return found.snapshot
+      },
+    }
+  }
+  type Watched = Awaited<ReturnType<typeof watch>>
+  interface Room { url: string, code: string, negotiated: boolean, host: Watched }
+  let actionCount = 0
+
+  // With manual ticks the service's cleanup timer is captured instead of started, so a test decides
+  // exactly when a timer turn happens and can tell one turn from the next.
+  const MANUAL_TICK_INTERVAL_MS = 3_600_000
+  let runCleanupTurn: (() => void) | null = null
+
+  async function openRoom(options: { negotiated: boolean, manualTicks?: boolean }): Promise<Room> {
+    clockMs = startMs
+    runCleanupTurn = null
+    const startInterval = globalThis.setInterval
+    const spy = options.manualTicks
+      ? vi.spyOn(globalThis, 'setInterval').mockImplementation(((handler: () => void, delay?: number, ...args: unknown[]) => {
+        if (delay !== MANUAL_TICK_INTERVAL_MS)
+          return startInterval(handler, delay, ...args)
+        runCleanupTurn = handler
+        return startInterval(() => {}, MANUAL_TICK_INTERVAL_MS)
+      }) as unknown as typeof setInterval)
+      : null
+    try {
+      service = await createRoomService({ port: 0, now: () => clockMs, cleanupIntervalMs: options.manualTicks ? MANUAL_TICK_INTERVAL_MS : 10 })
+    }
+    finally {
+      spy?.mockRestore()
+    }
+    const host = await watch(service.url, 'participant_host')
+    host.socket.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'LOCAL000', media,
+      ...(options.negotiated ? { capabilities: CURRENT_CLIENT_CAPABILITIES } : {}),
+    }))
+    const created = await host.until(message => message.type === 'room_joined', 'room_joined')
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    // The service issues its own room code; the one sent here is ignored.
+    return { url: service.url, code: created.snapshot.code, negotiated: options.negotiated, host }
+  }
+
+  /** Approves a new member through the host, as a real join does, and returns its socket and session token. */
+  async function admit(room: Room, participantId: string, name: string) {
+    const guest = await watch(room.url, participantId)
+    guest.socket.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId, name, code: room.code, media,
+      ...(room.negotiated ? { capabilities: CURRENT_CLIENT_CAPABILITIES } : {}),
+    }))
+    const joined = await guest.until(message => message.type === 'room_joined', 'room_joined')
+    if (joined.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    room.host.socket.send(JSON.stringify({
+      type: 'respond_to_join', participantId, approve: true, actionId: `action_approve_${participantId}`, basedOnRevision: 0, leaseEpoch: 1,
+    }))
+    await guest.snapshotWith('join_approved')
+    return { guest, sessionToken: joined.sessionToken }
+  }
+
+  async function makeReady(...players: Watched[]) {
+    for (const player of players) {
+      const from = player.mark()
+      player.socket.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+      await player.snapshotWith('participant_ready', from)
+    }
+  }
+
+  /** Waits until no player has received anything new for a moment, so the next press is made on the room's current state. */
+  async function quiet(...players: Watched[]) {
+    const total = () => players.reduce((sum, player) => sum + player.received.length, 0)
+    for (let count = -1; count !== total();) {
+      count = total()
+      await realWait(60)
+    }
+  }
+
+  /** A host and, optionally, an approved friend, all ready and with the room quiet. */
+  async function readyRoom(options: { negotiated: boolean, friend: boolean, manualTicks?: boolean }) {
+    const room = await openRoom(options)
+    await makeReady(room.host)
+    if (!options.friend) {
+      await quiet(room.host)
+      return { room, friend: null, friendToken: '' }
+    }
+    const { guest, sessionToken } = await admit(room, 'participant_friend', 'Rana')
+    await makeReady(guest)
+    await quiet(room.host, guest)
+    return { room, friend: guest, friendToken: sessionToken }
+  }
+
+  /** The controller presses Play or a seek on the state it has, and the snapshot announcing it is returned. */
+  async function press(room: Room, kind: 'play' | 'seek', positionSeconds: number): Promise<Snapshot> {
+    const reason = kind === 'seek' ? 'control_seek_pending' : room.negotiated ? 'control_play_pending' : 'control_play'
+    const from = room.host.mark()
+    actionCount += 1
+    room.host.socket.send(JSON.stringify({
+      type: 'control', actionId: `action_${kind}_${actionCount}`, basedOnRevision: room.host.latest().revision, leaseEpoch: 1, kind, positionSeconds,
+    }))
+    return await room.host.snapshotWith(reason, from)
+  }
+
+  const acknowledge = (player: Watched, operation: Operation, phase: 'prepared' | 'started', sampleSequence: number) => player.socket.send(JSON.stringify({
+    type: 'operation_ack',
+    acknowledgement: {
+      mediaEpoch: operation.mediaEpoch, operationId: operation.operationId, phase, participantId: player.participantId,
+      bindingId: `binding_${player.participantId}`, sourceGeneration: 1, sampleSequence, observedPositionSeconds: 20, observedAtLocalMs: clockMs,
+    },
+  }))
+
+  /** Plays from 20 s in a negotiated room: every player prepares, the Play commits, and every player acknowledges the start. */
+  async function playNegotiated(room: Room, players: Watched[]) {
+    const operation = (await press(room, 'play', 20)).snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    const from = room.host.mark()
+    for (const player of players)
+      acknowledge(player, operation, 'prepared', 1)
+    const committed = await room.host.snapshotWith('operation_committed', from)
+    clockMs = committed.snapshot.contract?.operation?.effectiveAtServerMs ?? clockMs
+    for (const player of players)
+      acknowledge(player, operation, 'started', 2)
+    return await room.host.snapshotWith('operation_started', from)
+  }
+
+  const report = (player: Watched, overrides: Record<string, unknown> = {}) => player.socket.send(JSON.stringify({
+    type: 'player_status',
+    basedOnRevision: player.latest().revision,
+    sample: { positionSeconds: 20, durationSeconds: media.durationSeconds, paused: false, buffering: false, progressed: true, playbackStarted: true, sampledAtLocalMs: clockMs, ...overrides },
+  }))
+
+  /** Moves the clock to `untilMs` in one-second steps, each with a healthy report from every player in `players`. */
+  async function reportHealthyUntil(players: Watched[], untilMs: number) {
+    while (clockMs < untilMs) {
+      clockMs = Math.min(clockMs + 1_000, untilMs)
+      for (const player of players)
+        report(player)
+      await realWait(30)
+    }
+  }
+
+  /** Runs exactly one cleanup turn of a manual-ticks room, then gives its broadcast time to arrive. */
+  async function cleanupTurn() {
+    if (!runCleanupTurn)
+      throw new Error('This room was not opened with manual ticks.')
+    runCleanupTurn()
+    await realWait(60)
+  }
+
+  /** Moves the clock to `ms`, waits for the transition `reason`, then gives the timer more ticks to send anything else. */
+  async function crossDeadline(player: Watched, ms: number, reason: string, mark: number) {
+    clockMs = ms
+    await player.snapshotWith(reason, mark)
+    await ticks()
+  }
+
+  /** Long steps of the clock after a transition: the timer has nothing left to say about it. */
+  async function letTheClockRun() {
+    clockMs += 1_000
+    await ticks()
+    clockMs += 20_000
+    await ticks()
+  }
+
+  /** Messages on one socket are handled in order, so once the pong is back everything the room sent before it has arrived. */
+  async function settle(player: Watched) {
+    const mark = player.mark()
+    const id = `settle_${mark}`
+    player.socket.send(JSON.stringify({ type: 'ping', id, sentAtLocalMs: clockMs }))
+    await player.until(message => message.type === 'pong' && message.id === id, `pong ${id}`, mark)
+  }
+
+  /** What a socket was told since `mark`, without the pongs of `settle` and the status changes that player reports cause. */
+  const transitions = (player: Watched, mark: number) => player.since(mark).filter(reason => reason !== 'pong' && reason !== 'participant_status_changed')
+
+  /** The friend's connection drops without a goodbye while the room plays; returns the snapshot that tells the host so. */
+  async function dropFriend(room: Room, friend: Watched): Promise<Snapshot> {
+    const from = room.host.mark()
+    friend.socket.terminate()
+    return await room.host.snapshotWith('participant_disconnected', from)
+  }
+
+  it('pauses once, from the cleanup timer, when no player confirms a seek before the barrier closes', async () => {
+    const { room } = await readyRoom({ negotiated: false, friend: false })
+    const issuedAt = clockMs
+    const pending = await press(room, 'seek', 90)
+    expect(pending.snapshot.seek).not.toBeNull()
+    const mark = room.host.mark()
+
+    clockMs = issuedAt + SEEK_BARRIER_MAX_WAIT_MS - 1
+    await ticks()
+    expect(room.host.since(mark)).toEqual([])
+
+    await crossDeadline(room.host, issuedAt + SEEK_BARRIER_MAX_WAIT_MS, 'seek_timeout_paused', mark)
+    expect(room.host.since(mark)).toEqual(['seek_timeout_paused'])
+    const timedOut = room.host.lastSnapshot()
+    expect(timedOut.snapshot.playback).toMatchObject({ status: 'paused', positionSeconds: 90 })
+    expect(timedOut.snapshot.revision).toBe(pending.snapshot.revision + 1)
+    expect(timedOut.snapshot.seek).toBeNull()
+    expect(timedOut.snapshot.participants).toEqual([expect.objectContaining({ id: 'participant_host', playbackStatus: 'recovery-required' })])
+
+    await letTheClockRun()
+    expect(room.host.since(mark)).toEqual(['seek_timeout_paused'])
+  })
+
+  it('does not time out a seek that every player confirmed in time', async () => {
+    const { room } = await readyRoom({ negotiated: false, friend: false })
+    const issuedAt = clockMs
+    const pending = await press(room, 'seek', 90)
+    const mark = room.host.mark()
+
+    clockMs = issuedAt + 500
+    room.host.socket.send(JSON.stringify({ type: 'seek_applied', revision: pending.snapshot.revision, positionSeconds: 90 }))
+    await room.host.snapshotWith('seek_aligned_paused', mark)
+
+    clockMs = issuedAt + SEEK_BARRIER_MAX_WAIT_MS
+    await ticks()
+    await letTheClockRun()
+    expect(room.host.since(mark)).toEqual(['seek_aligned_paused'])
+    expect(room.host.lastSnapshot().snapshot.revision).toBe(pending.snapshot.revision + 1)
+  })
+
+  it('pauses once, from the cleanup timer, when the prepare acknowledgement of a negotiated Play never comes', async () => {
+    const { room } = await readyRoom({ negotiated: true, friend: false })
+    const issuedAt = clockMs
+    const pending = await press(room, 'play', 20)
+    const operation = pending.snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    expect(operation.phase).toBe('preparing')
+    const mark = room.host.mark()
+
+    clockMs = issuedAt + SEEK_BARRIER_MAX_WAIT_MS - 1
+    await ticks()
+    expect(room.host.since(mark)).toEqual([])
+
+    await crossDeadline(room.host, issuedAt + SEEK_BARRIER_MAX_WAIT_MS, 'operation_timeout_paused', mark)
+    expect(room.host.since(mark)).toEqual(['operation_timeout_paused'])
+    const timedOut = room.host.lastSnapshot()
+    expect(timedOut.snapshot.playback).toMatchObject({ status: 'paused', positionSeconds: 20 })
+    expect(timedOut.snapshot.revision).toBe(pending.snapshot.revision + 1)
+    expect(timedOut.snapshot.contract?.operation).toMatchObject({ operationId: operation.operationId, phase: 'failed', reason: 'deadline-expired' })
+
+    // A late acknowledgement for the failed operation does not revive it.
+    acknowledge(room.host, operation, 'prepared', 1)
+    await ticks()
+    await letTheClockRun()
+    expect(room.host.since(mark)).toEqual(['operation_timeout_paused'])
+  })
+
+  it('answers a prepare acknowledgement that arrives after the deadline with the timeout, before the timer has looked', async () => {
+    const { room } = await readyRoom({ negotiated: true, friend: false, manualTicks: true })
+    const pending = await press(room, 'play', 20)
+    const operation = pending.snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    const mark = room.host.mark()
+
+    // No cleanup turn has run, so only the acknowledgement can tell the room that the window is over.
+    clockMs = operation.deadlineAtServerMs
+    acknowledge(room.host, operation, 'prepared', 1)
+    await room.host.snapshotWith('operation_timeout_paused', mark)
+    await settle(room.host)
+    expect(transitions(room.host, mark)).toEqual(['operation_timeout_paused'])
+    const timedOut = room.host.lastSnapshot()
+    expect(timedOut.snapshot.playback).toMatchObject({ status: 'paused', positionSeconds: 20 })
+    expect(timedOut.snapshot.revision).toBe(pending.snapshot.revision + 1)
+    expect(timedOut.snapshot.contract?.operation).toMatchObject({ operationId: operation.operationId, phase: 'failed', reason: 'deadline-expired' })
+
+    // The timer finds nothing left to release, and a second late acknowledgement changes nothing.
+    await cleanupTurn()
+    acknowledge(room.host, operation, 'prepared', 2)
+    await settle(room.host)
+    await cleanupTurn()
+    expect(transitions(room.host, mark)).toEqual(['operation_timeout_paused'])
+    expect(room.host.lastSnapshot().snapshot.revision).toBe(timedOut.snapshot.revision)
+  })
+
+  it('ignores a repeated prepare acknowledgement for an operation the controller has already paused', async () => {
+    const { room } = await readyRoom({ negotiated: true, friend: true })
+    const operation = (await press(room, 'play', 20)).snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    const from = room.host.mark()
+    acknowledge(room.host, operation, 'prepared', 1)
+    await room.host.snapshotWith('operation_participant_prepared', from)
+    room.host.socket.send(JSON.stringify({
+      type: 'control', actionId: 'action_pause_prepared', basedOnRevision: room.host.latest().revision, leaseEpoch: 1, kind: 'pause', positionSeconds: 20,
+    }))
+    const paused = await room.host.snapshotWith('control_pause', from)
+    expect(paused.snapshot.contract?.operation).toMatchObject({ operationId: operation.operationId, phase: 'cancelled', reason: 'controller-request' })
+    const mark = room.host.mark()
+
+    // The window is still open and the host had prepared, which is what a repeat of its acknowledgement would be answered with.
+    acknowledge(room.host, operation, 'prepared', 1)
+    await settle(room.host)
+    expect(transitions(room.host, mark)).toEqual([])
+    expect(room.host.lastSnapshot().snapshot.revision).toBe(paused.snapshot.revision)
+    expect(room.host.lastSnapshot().snapshot.contract?.operation).toMatchObject({ phase: 'cancelled' })
+  })
+
+  it('pauses once, from the cleanup timer, when a negotiated Play was prepared but the start is never acknowledged', async () => {
+    const { room } = await readyRoom({ negotiated: true, friend: false })
+    const operation = (await press(room, 'play', 20)).snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    const from = room.host.mark()
+    acknowledge(room.host, operation, 'prepared', 1)
+    const committed = await room.host.snapshotWith('operation_committed', from)
+    const committedOperation = committed.snapshot.contract?.operation
+    if (!committedOperation || committedOperation.effectiveAtServerMs === null)
+      throw new Error('Expected a committed operation with a start time.')
+    const deadlineMs = committedOperation.deadlineAtServerMs
+    expect(deadlineMs).toBe(committedOperation.effectiveAtServerMs + PLAYBACK_STARTUP_GRACE_MS + PLAYBACK_PROGRESS_TIMEOUT_MS)
+    const mark = room.host.mark()
+
+    clockMs = deadlineMs - 1
+    await ticks()
+    expect(room.host.since(mark)).toEqual([])
+
+    await crossDeadline(room.host, deadlineMs, 'operation_timeout_paused', mark)
+    expect(room.host.since(mark)).toEqual(['operation_timeout_paused'])
+    const timedOut = room.host.lastSnapshot()
+    // The start never happened, so the room stays at the target rather than skipping video nobody watched.
+    expect(timedOut.snapshot.playback).toMatchObject({ status: 'paused', positionSeconds: 20 })
+    expect(timedOut.snapshot.revision).toBe(committed.snapshot.revision + 1)
+    expect(timedOut.snapshot.contract?.operation).toMatchObject({ operationId: operation.operationId, phase: 'failed', reason: 'start-timeout' })
+
+    await letTheClockRun()
+    expect(room.host.since(mark)).toEqual(['operation_timeout_paused'])
+  })
+
+  it('announces only the operation timeout when the silence window has also run out by the time the timer looks', async () => {
+    const { room } = await readyRoom({ negotiated: true, friend: false })
+    const operation = (await press(room, 'play', 20)).snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    const from = room.host.mark()
+    acknowledge(room.host, operation, 'prepared', 1)
+    const committed = await room.host.snapshotWith('operation_committed', from)
+    const committedOperation = committed.snapshot.contract?.operation
+    if (!committedOperation || committedOperation.effectiveAtServerMs === null)
+      throw new Error('Expected a committed operation with a start time.')
+    const mark = room.host.mark()
+
+    // One step of the clock past both the start window and the silence window of a player that never reported.
+    // The timer reports one transition per room per tick, and the operation is the first deadline in its order.
+    expect(committedOperation.deadlineAtServerMs).toBeLessThan(committedOperation.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS)
+    await crossDeadline(room.host, committedOperation.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS + 1_000, 'operation_timeout_paused', mark)
+    expect(room.host.since(mark)).toEqual(['operation_timeout_paused'])
+    expect(room.host.lastSnapshot().snapshot.revision).toBe(committed.snapshot.revision + 1)
+    expect(room.host.lastSnapshot().snapshot.contract?.operation).toMatchObject({ phase: 'failed', reason: 'start-timeout' })
+
+    await letTheClockRun()
+    expect(room.host.since(mark)).toEqual(['operation_timeout_paused'])
+  })
+
+  it('tells the room about one transition per timer turn, and the one that follows from it in the next turn', async () => {
+    const { room } = await readyRoom({ negotiated: true, friend: false, manualTicks: true })
+    const started = await playNegotiated(room, [room.host])
+
+    // One report of progress, then the player stops moving: the timer pauses the room as stalled.
+    clockMs = started.snapshot.playback.effectiveAtServerMs + 500
+    report(room.host)
+    await realWait(40)
+    const reportedAtMs = clockMs
+    clockMs = reportedAtMs + PLAYBACK_PROGRESS_TIMEOUT_MS
+    const stalledFrom = room.host.mark()
+    await cleanupTurn()
+    expect(room.host.since(stalledFrom)).toEqual(['participant_playback_stalled'])
+    const stalled = room.host.lastSnapshot()
+    expect(stalled.snapshot.playback.status).toBe('paused')
+
+    // The player can play again, and the room starts a Play by itself once that has held for the stability window.
+    const resumeFrom = room.host.mark()
+    for (let step = 0; step < 6 && !room.host.since(resumeFrom).includes('auto_resume_play_pending'); step += 1) {
+      report(room.host, { paused: true, progressed: false, canPlay: true })
+      await realWait(40)
+      await cleanupTurn()
+      clockMs += 1_000
+    }
+    const pending = await room.host.snapshotWith('auto_resume_play_pending', resumeFrom)
+    const operation = pending.snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected the automatic Play to be a transactional operation.')
+    expect(operation.phase).toBe('preparing')
+    await cleanupTurn()
+
+    // Nobody prepares the Play. The turn in which its window closes carries the timeout and nothing else,
+    // even though the automatic resume that started it has also reached its end.
+    const mark = room.host.mark()
+    clockMs = operation.deadlineAtServerMs
+    await cleanupTurn()
+    expect(room.host.since(mark)).toEqual(['operation_timeout_paused'])
+    const timedOut = room.host.lastSnapshot()
+    expect(timedOut.snapshot.revision).toBe(pending.snapshot.revision + 1)
+    expect(timedOut.snapshot.contract?.operation).toMatchObject({ operationId: operation.operationId, phase: 'failed', reason: 'deadline-expired' })
+
+    // The next turn gives that up, and says so once. It changes no state, so the revision stays.
+    await cleanupTurn()
+    expect(room.host.since(mark)).toEqual(['operation_timeout_paused', 'auto_resume_abandoned'])
+    expect(room.host.lastSnapshot().snapshot.revision).toBe(timedOut.snapshot.revision)
+    expect(room.host.lastSnapshot().snapshot.playback.status).toBe('paused')
+
+    await cleanupTurn()
+    clockMs += 20_000
+    await cleanupTurn()
+    expect(room.host.since(mark)).toEqual(['operation_timeout_paused', 'auto_resume_abandoned'])
+  })
+
+  it('pauses once, from the cleanup timer, for a player that said it had not started playing', async () => {
+    const { room } = await readyRoom({ negotiated: false, friend: false })
+    const play = await press(room, 'play', 20)
+    const deadlineMs = play.snapshot.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+    report(room.host, { progressed: false, playbackStarted: false })
+    await ticks()
+    const mark = room.host.mark()
+
+    // Reports stop here. Only the timer can act on the missing start.
+    clockMs = deadlineMs - 1
+    await ticks()
+    expect(room.host.since(mark)).toEqual([])
+
+    await crossDeadline(room.host, deadlineMs, 'participant_playback_startup_timeout', mark)
+    expect(room.host.since(mark)).toEqual(['participant_playback_startup_timeout'])
+    const paused = room.host.lastSnapshot()
+    expect(paused.snapshot.playback.status).toBe('paused')
+    expect(paused.snapshot.revision).toBe(play.snapshot.revision + 1)
+    expect(paused.snapshot.participants).toEqual([expect.objectContaining({ id: 'participant_host', playbackStatus: 'recovery-required' })])
+
+    await letTheClockRun()
+    expect(room.host.since(mark)).toEqual(['participant_playback_startup_timeout'])
+  })
+
+  it.each([
+    ['paused', { paused: true, progressed: false }],
+    ['buffering', { buffering: true, progressed: false }],
+  ])('calls a player that last reported %s and then went quiet silent, not stalled', async (_state, sample) => {
+    const { room } = await readyRoom({ negotiated: false, friend: false })
+    const play = await press(room, 'play', 20)
+    clockMs = play.snapshot.playback.effectiveAtServerMs + 500
+    report(room.host, sample)
+    await ticks()
+    const reportedAtMs = clockMs
+    const mark = room.host.mark()
+
+    clockMs = reportedAtMs + PLAYBACK_REPORT_SILENCE_TIMEOUT_MS - 1
+    await ticks()
+    expect(room.host.since(mark)).toEqual([])
+
+    await crossDeadline(room.host, reportedAtMs + PLAYBACK_REPORT_SILENCE_TIMEOUT_MS, 'participant_playback_silent', mark)
+    expect(room.host.since(mark)).toEqual(['participant_playback_silent'])
+    const paused = room.host.lastSnapshot()
+    expect(paused.snapshot.playback.status).toBe('paused')
+    expect(paused.snapshot.revision).toBe(play.snapshot.revision + 1)
+    expect(paused.snapshot.participants).toEqual([expect.objectContaining({ id: 'participant_host', playbackStatus: 'silent' })])
+
+    await letTheClockRun()
+    expect(room.host.since(mark)).toEqual(['participant_playback_silent'])
+  })
+
+  it('pauses once for a negotiated player that acknowledged the start and then never reported', async () => {
+    const { room } = await readyRoom({ negotiated: true, friend: false })
+    const started = await playNegotiated(room, [room.host])
+    const mark = room.host.mark()
+    const deadlineMs = started.snapshot.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+
+    clockMs = deadlineMs - 1
+    await ticks()
+    expect(room.host.since(mark)).toEqual([])
+
+    await crossDeadline(room.host, deadlineMs, 'participant_playback_silent', mark)
+    expect(room.host.since(mark)).toEqual(['participant_playback_silent'])
+    const paused = room.host.lastSnapshot()
+    expect(paused.snapshot.playback.status).toBe('paused')
+    expect(paused.snapshot.revision).toBe(started.snapshot.revision + 1)
+    expect(paused.snapshot.contract?.operation).toMatchObject({ phase: 'cancelled', reason: 'manual-recovery' })
+    expect(paused.snapshot.participants).toEqual([expect.objectContaining({ id: 'participant_host', playbackStatus: 'silent' })])
+
+    await letTheClockRun()
+    expect(room.host.since(mark)).toEqual(['participant_playback_silent'])
+  })
+
+  it.each([
+    ['legacy', false],
+    ['negotiated', true],
+  ])('names the silent player when the other player in a %s room keeps reporting', async (_mode, negotiated) => {
+    const { room, friend } = await readyRoom({ negotiated, friend: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    // The friend never sends a player report, which is all it takes to be silent.
+    const playing = negotiated
+      ? await playNegotiated(room, [room.host, friend])
+      : await press(room, 'play', 20)
+    const deadlineMs = playing.snapshot.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+
+    await reportHealthyUntil([room.host], deadlineMs - 1)
+    const trigger = room.host.latest()
+    const mark = room.host.mark()
+    expect(trigger.playback.status).toBe('playing')
+
+    await crossDeadline(room.host, deadlineMs, 'participant_playback_silent', mark)
+    expect(room.host.since(mark)).toEqual(['participant_playback_silent'])
+    const paused = room.host.lastSnapshot()
+    expect(paused.snapshot.playback.status).toBe('paused')
+    expect(paused.snapshot.revision).toBe(trigger.revision + 1)
+    const statuses = Object.fromEntries(paused.snapshot.participants.map(participant => [participant.id, participant.playbackStatus]))
+    expect(statuses.participant_friend).toBe('silent')
+    expect(statuses.participant_host).not.toBe('silent')
+    if (negotiated)
+      expect(paused.snapshot.contract?.operation).toMatchObject({ phase: 'cancelled', reason: 'manual-recovery' })
+    // Both sockets were told, and only once.
+    expect(friend.since(0).filter(reason => reason === 'participant_playback_silent')).toEqual(['participant_playback_silent'])
+
+    await letTheClockRun()
+    expect(room.host.since(mark)).toEqual(['participant_playback_silent'])
+  })
+
+  it('does not count WebSocket pings as player reports, and answers each one', async () => {
+    const { room } = await readyRoom({ negotiated: false, friend: false })
+    const play = await press(room, 'play', 20)
+    clockMs = play.snapshot.playback.effectiveAtServerMs + 500
+    report(room.host)
+    await ticks()
+    const mark = room.host.mark()
+    const reportedAtMs = clockMs
+
+    // A ping every 500 ms of room time is faster than the 1.8 s no-progress window. If a ping
+    // counted as evidence of progress, the room would never pause.
+    const pingIds: string[] = []
+    const ping = async () => {
+      const id = `ping_only_${pingIds.length}`
+      pingIds.push(id)
+      room.host.socket.send(JSON.stringify({ type: 'ping', id, sentAtLocalMs: clockMs }))
+      await room.host.until(message => message.type === 'pong' && message.id === id, `pong ${id}`, mark)
+    }
+    while (clockMs < reportedAtMs + PLAYBACK_PROGRESS_TIMEOUT_MS - 1) {
+      clockMs = Math.min(clockMs + 500, reportedAtMs + PLAYBACK_PROGRESS_TIMEOUT_MS - 1)
+      await ping()
+      await ticks()
+    }
+    expect(room.host.since(mark).filter(reason => reason !== 'pong')).toEqual([])
+
+    clockMs = reportedAtMs + PLAYBACK_PROGRESS_TIMEOUT_MS
+    await ping()
+    await room.host.snapshotWith('participant_playback_stalled', mark)
+    await ticks()
+    const stalled = room.host.received.slice(mark).filter(message => message.type === 'room_snapshot')
+    expect(stalled.map(label)).toEqual(['participant_playback_stalled'])
+    expect(room.host.lastSnapshot().snapshot.playback.status).toBe('paused')
+    expect(room.host.lastSnapshot().snapshot.revision).toBe(play.snapshot.revision + 1)
+
+    // Pings after the pause are still answered and change nothing.
+    for (let count = 0; count < 3; count += 1) {
+      clockMs += 500
+      await ping()
+    }
+    await ticks()
+    const pongs = room.host.received.slice(mark).filter(message => message.type === 'pong')
+    expect(pongs.map(pong => pong.id)).toEqual(pingIds)
+    expect(room.host.since(mark).filter(reason => reason !== 'pong')).toEqual(['participant_playback_stalled'])
+  })
+
+  it.each([
+    ['legacy', false],
+    ['negotiated', true],
+  ])('pauses once, from the cleanup timer, when a dropped player is still away after the grace in a %s room', async (_mode, negotiated) => {
+    const { room, friend } = await readyRoom({ negotiated, friend: true, manualTicks: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    if (negotiated)
+      await playNegotiated(room, [room.host, friend])
+    else
+      await press(room, 'play', 20)
+    const dropped = await dropFriend(room, friend)
+    expect(dropped.snapshot.playback.status).toBe('playing')
+    const droppedAtMs = clockMs
+    const mark = room.host.mark()
+
+    // The host keeps reporting progress, so the dropped player is the only reason left for the room to pause.
+    await reportHealthyUntil([room.host], droppedAtMs + DISCONNECT_PAUSE_GRACE_MS - 1)
+    await cleanupTurn()
+    expect(transitions(room.host, mark)).toEqual([])
+
+    clockMs = droppedAtMs + DISCONNECT_PAUSE_GRACE_MS
+    report(room.host)
+    await realWait(40)
+    await cleanupTurn()
+    expect(transitions(room.host, mark)).toEqual(['participant_disconnect_timeout'])
+    const paused = room.host.lastSnapshot()
+    expect(paused.snapshot.playback.status).toBe('paused')
+    expect(paused.snapshot.revision).toBe(dropped.snapshot.revision + 1)
+    expect(paused.snapshot.participants.find(participant => participant.id === 'participant_friend')).toMatchObject({ connected: false })
+
+    await cleanupTurn()
+    clockMs += 20_000
+    await cleanupTurn()
+    expect(transitions(room.host, mark)).toEqual(['participant_disconnect_timeout'])
+  })
+
+  it.each([
+    ['legacy', false],
+    ['negotiated', true],
+  ])('names the silent player, not the dropped one, when both windows have run out by the time the timer looks in a %s room', async (_mode, negotiated) => {
+    const { room, friend } = await readyRoom({ negotiated, friend: true, manualTicks: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    const playing = negotiated
+      ? await playNegotiated(room, [room.host, friend])
+      : await press(room, 'play', 20)
+    const dropped = await dropFriend(room, friend)
+    const droppedAtMs = clockMs
+    // The host never reports, so its silence is due at the startup deadline, which is later than the grace.
+    const silentAtMs = playing.snapshot.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+    expect(silentAtMs).toBeGreaterThan(droppedAtMs + DISCONNECT_PAUSE_GRACE_MS)
+    const mark = room.host.mark()
+
+    // One timer turn can announce one transition, and the health check comes before the grace.
+    clockMs = silentAtMs
+    await cleanupTurn()
+    expect(room.host.since(mark)).toEqual(['participant_playback_silent'])
+    const paused = room.host.lastSnapshot()
+    expect(paused.snapshot.playback.status).toBe('paused')
+    expect(paused.snapshot.revision).toBe(dropped.snapshot.revision + 1)
+    const statuses = Object.fromEntries(paused.snapshot.participants.map(participant => [participant.id, participant.playbackStatus]))
+    expect(statuses.participant_host).toBe('silent')
+    expect(statuses.participant_friend).toBe('unknown')
+
+    await cleanupTurn()
+    clockMs += 20_000
+    await cleanupTurn()
+    expect(room.host.since(mark)).toEqual(['participant_playback_silent'])
+  })
+
+  /** The replacement is the participant's live socket: it stays open and the room still answers it. */
+  async function expectLiveParticipant(replacement: Watched) {
+    expect(replacement.socket.readyState).toBe(WebSocket.OPEN)
+    const mark = replacement.mark()
+    replacement.socket.send(JSON.stringify({ type: 'set_ready', ready: true, media }))
+    const confirmed = await replacement.snapshotWith('readiness_unchanged', mark)
+    expect(confirmed.snapshot.participants).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'participant_friend', connected: true, ready: true })]))
+  }
+
+  it('leaves no seek deadline behind when a participant replaces its live socket', async () => {
+    const { room, friend, friendToken } = await readyRoom({ negotiated: false, friend: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    const issuedAt = clockMs
+    const pending = await press(room, 'seek', 90)
+    await friend.snapshotWith('control_seek_pending')
+    const hostMark = room.host.mark()
+
+    const originalClosed = new Promise<{ code: number, reason: string }>(resolve => friend.socket.once('close', (code: number, reason: Buffer) => resolve({ code, reason: reason.toString() })))
+    const replacement = await watch(room.url, 'participant_friend')
+    replacement.socket.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: room.code, media, sessionToken: friendToken,
+    }))
+    await replacement.until(message => message.type === 'room_joined', 'room_joined')
+    await expect(originalClosed).resolves.toEqual({ code: 1000, reason: 'session_replaced' })
+    await room.host.snapshotWith('participant_reconnected', hostMark)
+    // The replacement pauses the room and ends the seek barrier it interrupted.
+    expect(room.host.lastSnapshot().snapshot).toMatchObject({ seek: null, revision: pending.snapshot.revision + 1, playback: { status: 'paused' } })
+
+    clockMs = issuedAt + SEEK_BARRIER_MAX_WAIT_MS
+    await ticks()
+    await letTheClockRun()
+    expect(room.host.since(hostMark)).toEqual(['participant_reconnected'])
+    expect(replacement.received.map(label)).toEqual(['room_joined'])
+
+    await expectLiveParticipant(replacement)
+  })
+
+  it('leaves no operation deadline behind when a participant replaces its live socket', async () => {
+    const { room, friend, friendToken } = await readyRoom({ negotiated: true, friend: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    const issuedAt = clockMs
+    const pending = await press(room, 'play', 20)
+    await friend.snapshotWith('control_play_pending')
+    const hostMark = room.host.mark()
+
+    const replacement = await watch(room.url, 'participant_friend')
+    replacement.socket.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: room.code, media, sessionToken: friendToken,
+      capabilities: CURRENT_CLIENT_CAPABILITIES,
+    }))
+    await replacement.until(message => message.type === 'room_joined', 'room_joined')
+    await room.host.snapshotWith('participant_reconnected', hostMark)
+    expect(room.host.lastSnapshot().snapshot.revision).toBe(pending.snapshot.revision + 1)
+    expect(room.host.lastSnapshot().snapshot.contract?.operation).toMatchObject({ phase: 'cancelled', reason: 'participant-disconnected' })
+
+    clockMs = issuedAt + SEEK_BARRIER_MAX_WAIT_MS
+    await ticks()
+    await letTheClockRun()
+    expect(room.host.since(hostMark)).toEqual(['participant_reconnected'])
+    expect(replacement.received.map(label)).toEqual(['room_joined'])
+    await expectLiveParticipant(replacement)
+  })
+
+  it('leaves no silence deadline behind when the silent participant replaces its live socket', async () => {
+    const { room, friend, friendToken } = await readyRoom({ negotiated: false, friend: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    const play = await press(room, 'play', 20)
+    const deadlineMs = play.snapshot.playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
+    await reportHealthyUntil([room.host], deadlineMs - 2_000)
+    const hostMark = room.host.mark()
+
+    const replacement = await watch(room.url, 'participant_friend')
+    replacement.socket.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code: room.code, media, sessionToken: friendToken,
+    }))
+    await replacement.until(message => message.type === 'room_joined', 'room_joined')
+    await room.host.snapshotWith('participant_reconnected', hostMark)
+    expect(room.host.lastSnapshot().snapshot.playback.status).toBe('paused')
+
+    clockMs = deadlineMs
+    await ticks()
+    await letTheClockRun()
+    expect(room.host.since(hostMark)).toEqual(['participant_reconnected'])
+    expect(replacement.received.map(label)).toEqual(['room_joined'])
+    await expectLiveParticipant(replacement)
+  })
+
+  it.each([
+    ['legacy', false],
+    ['negotiated', true],
+  ])('keeps a healthy two-player %s room playing after a join request and a denial', async (_mode, negotiated) => {
+    const { room, friend } = await readyRoom({ negotiated, friend: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    const playing = negotiated
+      ? await playNegotiated(room, [room.host, friend])
+      : await press(room, 'play', 20)
+    const players = [room.host, friend]
+    await reportHealthyUntil(players, clockMs + 3_000)
+    const mark = room.host.mark()
+    expect(room.host.latest().playback.status).toBe('playing')
+
+    const visitor = await watch(room.url, 'participant_visitor')
+    visitor.socket.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_visitor', name: 'Sami', code: room.code, media,
+      ...(negotiated ? { capabilities: CURRENT_CLIENT_CAPABILITIES } : {}),
+    }))
+    await room.host.snapshotWith('join_pending', mark)
+    await reportHealthyUntil(players, clockMs + 4_000)
+
+    room.host.socket.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_visitor', approve: false, actionId: 'action_deny_visitor', basedOnRevision: 0, leaseEpoch: 1,
+    }))
+    await room.host.snapshotWith('join_denied', mark)
+    await reportHealthyUntil(players, clockMs + 4_000)
+
+    // Both players kept reporting progress, so no deadline is due: the only snapshots are the two events.
+    expect(room.host.since(mark).filter(reason => reason !== 'participant_status_changed')).toEqual(['join_pending', 'join_denied'])
+    expect(room.host.lastSnapshot().snapshot.playback.status).toBe('playing')
+    expect(room.host.lastSnapshot().snapshot.revision).toBe(playing.snapshot.revision + 2)
+  })
+
+  it.each([
+    ['legacy', false],
+    ['negotiated', true],
+  ])('does not give a player that went quiet more time because somebody asked to join a %s room', async (_mode, negotiated) => {
+    const { room, friend } = await readyRoom({ negotiated, friend: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    const playing = negotiated
+      ? await playNegotiated(room, [room.host, friend])
+      : await press(room, 'play', 20)
+
+    // Both players report progress once; from then on only the host keeps reporting.
+    clockMs = playing.snapshot.playback.effectiveAtServerMs + 500
+    report(room.host)
+    report(friend)
+    await realWait(40)
+    const lastProgressAtMs = clockMs
+    const deadlineMs = lastProgressAtMs + PLAYBACK_PROGRESS_TIMEOUT_MS
+    await reportHealthyUntil([room.host], lastProgressAtMs + 1_000)
+
+    const mark = room.host.mark()
+    const visitor = await watch(room.url, 'participant_visitor')
+    visitor.socket.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_visitor', name: 'Sami', code: room.code, media,
+      ...(negotiated ? { capabilities: CURRENT_CLIENT_CAPABILITIES } : {}),
+    }))
+    const requested = await room.host.snapshotWith('join_pending', mark)
+    await reportHealthyUntil([room.host], deadlineMs - 1)
+    expect(room.host.since(mark).filter(reason => reason !== 'participant_status_changed')).toEqual(['join_pending'])
+
+    // The friend's window ran out on its own schedule: the request did not restart it.
+    await crossDeadline(room.host, deadlineMs, 'participant_playback_stalled', mark)
+    expect(room.host.since(mark).filter(reason => reason !== 'participant_status_changed')).toEqual(['join_pending', 'participant_playback_stalled'])
+    const paused = room.host.lastSnapshot()
+    expect(paused.snapshot.playback.status).toBe('paused')
+    expect(paused.snapshot.revision).toBe(requested.snapshot.revision + 1)
+    const statuses = Object.fromEntries(paused.snapshot.participants.map(participant => [participant.id, participant.playbackStatus]))
+    expect(statuses.participant_friend).toBe('recovery-required')
+    expect(statuses.participant_host).not.toBe('recovery-required')
+  })
+
+  async function healthyPairAfterControlTransfer(negotiated: boolean) {
+    const { room, friend } = await readyRoom({ negotiated, friend: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    const playing = negotiated
+      ? await playNegotiated(room, [room.host, friend])
+      : await press(room, 'play', 20)
+    const players = [room.host, friend]
+    await reportHealthyUntil(players, clockMs + 3_000)
+    const mark = room.host.mark()
+
+    room.host.socket.send(JSON.stringify({ type: 'transfer_control', participantId: 'participant_friend', leaseEpoch: 1 }))
+    await room.host.snapshotWith('control_transferred', mark)
+    await reportHealthyUntil(players, clockMs + 4_000)
+
+    expect(room.host.since(mark).filter(reason => reason !== 'participant_status_changed')).toEqual(['control_transferred'])
+    expect(room.host.lastSnapshot().snapshot.controller.participantId).toBe('participant_friend')
+    expect(room.host.lastSnapshot().snapshot.playback.status).toBe('playing')
+    expect(room.host.lastSnapshot().snapshot.revision).toBe(playing.snapshot.revision + 1)
+  }
+
+  it('keeps a healthy two-player legacy room playing after control passes to the other player', async () => {
+    await healthyPairAfterControlTransfer(false)
   })
 })
 
