@@ -59,6 +59,8 @@ export interface PlayerHealthState {
   lastProgressAtMs: number
   /** What the last periodic sample said about progress, and when it was taken. Media-event reports carry it for a short while. */
   periodicProgressed: boolean
+  /** What that verdict was measured with; a media-event report that carries the verdict carries this too. */
+  periodicEvidence: ProgressEvidenceQuality
   periodicAtMs: number
   /** Any forward progress was seen for this source and command: a frame counter or the media clock. */
   hasRealPlaybackProgress: boolean
@@ -84,6 +86,7 @@ export function createPlayerHealthState(input: PlayerHealthBaselineInput): Playe
     progressEvidence: 'unknown',
     lastProgressAtMs: baseline.nowMs,
     periodicProgressed: false,
+    periodicEvidence: 'unknown',
     periodicAtMs: baseline.nowMs,
     hasRealPlaybackProgress: false,
     hasRenderedFrameProgress: false,
@@ -117,6 +120,7 @@ export function resetPlayerHealthBaseline(
     latestFrames: baseline.frames,
     progressed: false,
     periodicProgressed: false,
+    periodicEvidence: 'unknown',
     periodicAtMs: baseline.nowMs,
     unexpectedPauseSinceMs: 0,
   }
@@ -151,7 +155,7 @@ export function clearPlaybackStartFailed(previous: PlayerHealthState): PlayerHea
 export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHealthObservation): PlayerHealthState {
   const next = observeAgainstCursor(previous, input)
   if (input.periodic !== false)
-    return { ...next, periodicProgressed: next.progressed, periodicAtMs: next.observedAtMs }
+    return { ...next, periodicProgressed: next.progressed, periodicEvidence: next.progressEvidence, periodicAtMs: next.observedAtMs }
   // A media-event observation sees the progress accumulated since the last periodic
   // sample. It keeps that sample's cursor, so the next periodic check still sees
   // the progress, and it carries a fresh periodic verdict when it falls between two
@@ -166,12 +170,16 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
     && previous.periodicProgressed
     && next.observedAtMs - previous.periodicAtMs < PERIODIC_VERDICT_FRESH_MS
     && !next.buffering
-    && (next.progressEvidence === 'frames' || next.progressEvidence === 'clock')
+    && next.progressEvidence !== 'unknown'
+    && (previous.periodicEvidence === 'frames' || previous.periodicEvidence === 'clock')
   return {
     ...next,
     observedPositionSeconds: previous.observedPositionSeconds,
     observedFrames: previous.observedFrames,
     progressed: next.progressed || carriesPeriodicVerdict,
+    // A carried verdict keeps the quality it was made with: a report that merely sees a counter
+    // value again must not promote clock-only progress to frame evidence.
+    progressEvidence: carriesPeriodicVerdict ? previous.periodicEvidence : next.progressEvidence,
   }
 }
 
@@ -208,6 +216,7 @@ function observeAgainstCursor(previous: PlayerHealthState, input: PlayerHealthOb
   const latest = compareProgress(previous, observation, 'latest')
   next.progressEvidence = evidence.quality
   if (latest.counterReset) {
+    next.progressEvidence = 'unknown'
     next.buffering = observation.explicitlyBuffering || previous.buffering
     return next
   }
