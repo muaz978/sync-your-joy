@@ -1,6 +1,9 @@
 import type { FullConfig, FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { relative, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { assertSafeE2EOutputDirectory } from '../../scripts/output-directory-guard.mjs'
+import { type FailureClass, classifyFailure, countFailureClasses } from './artifact-classify.ts'
 import { sanitizeDiagnosticText } from './artifact-utils.ts'
 
 interface E2ETestArtifact {
@@ -9,10 +12,12 @@ interface E2ETestArtifact {
   file: string
   status: TestResult['status']
   durationMs: number
-  failureClass?: 'browser-launch/setup' | 'product-assertion'
+  failureClass?: FailureClass
   errors: Array<{ message: string, stack?: string }>
   attachments: Array<{ name: string, path?: string, contentType?: string }>
 }
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 export default class ArtifactReporter implements Reporter {
   private outputDirectory = ''
@@ -22,26 +27,24 @@ export default class ArtifactReporter implements Reporter {
 
   async onBegin(config: FullConfig): Promise<void> {
     this.rootDirectory = config.rootDir
+    const override = process.env.SYNCYOURJOY_E2E_OUTPUT_DIR
     this.outputDirectory = config.projects[0]?.outputDir
-      ?? process.env.SYNCYOURJOY_E2E_OUTPUT_DIR
+      ?? (override === undefined ? undefined : assertSafeE2EOutputDirectory(override, { repoRoot }))
       ?? resolve(config.rootDir, 'test-results')
     this.startedAt = new Date().toISOString()
     await mkdir(this.outputDirectory, { recursive: true })
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
+    // config.rootDir is tests/e2e (testDir is '.'), not the repository, so the
+    // repository root is found from this file and masked by the sanitizer.
     const sanitizeErrorText = (value: string): string => sanitizeDiagnosticText(value)
-      .replaceAll(this.rootDirectory, '<repo>')
     const errors = result.errors.map(error => ({
       message: sanitizeErrorText(error.message ?? 'Unknown test error.'),
       ...(error.stack ? { stack: sanitizeErrorText(error.stack) } : {}),
     }))
     const failureText = errors.map(error => `${error.message}\n${error.stack ?? ''}`).join('\n')
-    const failureClass = result.status === 'failed'
-      ? /\[browser-launch\]|browser launch|service worker startup/i.test(failureText)
-        ? 'browser-launch/setup' as const
-        : 'product-assertion' as const
-      : undefined
+    const failureClass = classifyFailure(result.status, failureText)
 
     this.tests.push({
       id: test.id,
@@ -66,10 +69,7 @@ export default class ArtifactReporter implements Reporter {
       endedAt: new Date().toISOString(),
       outcome: result.status,
       tests: this.tests,
-      failureClasses: {
-        browserLaunchOrSetup: this.tests.filter(test => test.failureClass === 'browser-launch/setup').length,
-        productAssertions: this.tests.filter(test => test.failureClass === 'product-assertion').length,
-      },
+      failureClasses: countFailureClasses(this.tests),
     }, null, 2)}\n`)
   }
 }

@@ -17,6 +17,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRoomService, type RoomService } from '../../apps/room-service/src/server.ts'
+import { resolveE2EOutputDirectory } from '../../scripts/output-directory-guard.mjs'
 import { sanitizeError } from './artifact-utils.ts'
 import { buildExtensionAndRecordProvenance } from './provenance.ts'
 
@@ -26,8 +27,14 @@ const repoRoot = resolve(here, '..', '..')
 let service: RoomService | null = null
 
 export default async function globalSetup(config: FullConfig): Promise<() => Promise<void>> {
-  const artifactDirectory = process.env.SYNCYOURJOY_E2E_OUTPUT_DIR
-    ?? resolve(repoRoot, 'test-results', `e2e-fallback-${Date.now()}`)
+  // playwright.config.ts has already validated and exported the directory; it
+  // is checked again here so a run started another way cannot build into the
+  // release output or delete a directory outside test output.
+  const { directory: artifactDirectory } = resolveE2EOutputDirectory({
+    env: process.env,
+    repoRoot,
+    fallbackDirectory: resolve(repoRoot, 'test-results', `e2e-fallback-${Date.now()}`),
+  })
   const extensionDistDir = resolve(artifactDirectory, 'extension')
   await mkdir(artifactDirectory, { recursive: true })
   await mkdir(extensionDistDir, { recursive: true })
@@ -69,7 +76,7 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
       schemaVersion: 1,
       failureClass: 'browser-launch/setup',
       at: new Date().toISOString(),
-      error: sanitizeError(error),
+      error: sanitizeError(error, { repositoryRoot: repoRoot }),
     })
     await service?.close()
     service = null
