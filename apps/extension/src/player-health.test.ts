@@ -505,3 +505,30 @@ describe('the evidence quality of a carried verdict', () => {
     expect(state.progressed).toBe(false)
   })
 })
+
+describe('clearing a waiting latch with and without a frame counter', () => {
+  it('is not done by the media clock while a frame counter is available and shows no new frame', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 24 })
+    state = markPlayerHealthBuffering(state)
+    state = playing(state, { nowMs: 2_000, positionSeconds: 1.5, frames: 24 })
+
+    expect(state.buffering).toBe(true)
+    expect(state.progressed).toBe(false)
+  })
+
+  it('is done by the media clock only when there is no frame counter at all, which is then the only evidence', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: null })
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: null })
+    state = markPlayerHealthBuffering(state)
+    // A stalled element's clock does not move.
+    state = playing(state, { nowMs: 2_000, positionSeconds: 1, frames: null })
+    expect(state.buffering).toBe(true)
+
+    state = playing(state, { nowMs: 3_000, positionSeconds: 1.12, frames: null })
+    expect(state.buffering).toBe(false)
+    expect(state.progressEvidence).toBe('clock')
+    // Cleared by the clock, so it is still not rendered-frame evidence.
+    expect(state.hasRenderedFrameProgress).toBe(false)
+  })
+})
