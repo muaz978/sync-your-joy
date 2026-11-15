@@ -67,7 +67,7 @@ A later change ([Crunchyroll prepare stall analysis](CRUNCHYROLL_PREPARE_STALL_A
 
 ## Update: the `reason` field, and reading a downloaded report
 
-Every result in this update was run against commit `HEADSHA` (the last code commit of its pull request): `npm run typecheck` clean and `npm test` TESTCOUNT. This document lands in a following docs-only commit, which a file cannot name itself.
+Every result in this update was run against commit `b04e55fb39ead33eac7dbc96fde0550a4be32288` (the last code commit of its pull request): `npm run typecheck` clean and `npm test` 51 files, 1150 tests passed (main already merged in). This document lands in a following docs-only commit, which a file cannot name itself.
 
 Evidence class for everything in this update: unit and worker tests against a mocked `chrome` API with fake sockets, and protocol validation of the reports they build. No browser, provider, two-profile, deployment or acceptance evidence is claimed; those gates are carried by #30, #33, #34, #35 and #69, not by this card.
 
