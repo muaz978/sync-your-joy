@@ -310,6 +310,25 @@ describe('RoomDurableObject: a due alarm is saved before it is announced', () =>
       expect(room.friend.reasons()).not.toContain(reason)
     })
 
+    it(`makes one saved and announced ${family} transition when the first alarm is delivered well after its deadline`, async () => {
+      const room = await build()
+      // The platform ran nothing at the deadline: the first delivery is 30 s
+      // late (and the clock has passed the deadline by a lot, not by an exact
+      // match).
+      tick(30_000)
+      const heard = [room.host, room.friend].map(socket => socket.sent.length)
+      const writes = room.storage.puts.count
+
+      await room.room.alarm()
+
+      for (const socket of [room.host, room.friend])
+        expect(socket.reasons().filter(item => item === reason)).toHaveLength(1)
+      expect([room.host, room.friend].map(socket => socket.sent.length)).toEqual(heard.map(count => count + 1))
+      expect(room.storage.puts.count).toBe(writes + 1)
+      expect(durable(room.stored())).toBe(true)
+      expect(room.stored().coordinator.revision).toBe(room.revision())
+    })
+
     it(`makes one ${family} transition when the same alarm is delivered again, and when it is delivered late`, async () => {
       const room = await build()
 

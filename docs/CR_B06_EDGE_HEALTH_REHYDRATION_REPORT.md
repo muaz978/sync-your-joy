@@ -93,13 +93,13 @@ The last two tests exercise the real `RoomCoordinator` export and `RoomCoordinat
 
 ## 4A. Durable Object tests added on 2026-11-15
 
-`apps/edge-service/src/worker.alarm.test.ts` (new, 19 tests) drives the real `RoomDurableObject` class over a hand-written storage harness. Its `put` can be held or made to fail, it counts `put` and `setAlarm` calls, and a "restart" is a second object built over the same store with the sockets that are still attached. It is a different file from `worker.test.ts` only so that the three open test branches for #57, #58, #60 and #61 do not edit the same file; the helpers are repeated in each.
+`apps/edge-service/src/worker.alarm.test.ts` (new, 22 tests) drives the real `RoomDurableObject` class over a hand-written storage harness. Its `put` can be held or made to fail, it counts `put` and `setAlarm` calls, and a "restart" is a second object built over the same store with the sockets that are still attached. It is a different file from `worker.test.ts` only so that the three open test branches for #57, #58, #60 and #61 do not edit the same file; the helpers are repeated in each.
 
 | Behaviour | Test (describe: it) |
 | --- | --- |
 | A due seek, operation and health alarm are written before any member hears them (the write is held; the store is read at the moment each member hears it) | `a due alarm is saved before it is announced`, three tests, one per family |
 | A failed write announces nothing for each family | same describe, three tests |
-| The same alarm delivered again, and an hour late, makes one transition: nothing more is announced, the revision and the stored room do not change | same describe, three tests |
+| The first alarm delivered 30 s after its deadline makes one saved and announced transition per family (an exact-deadline-only release fails it). The same alarm delivered again, and an hour late, makes one transition: nothing more is announced, the revision and the stored room do not change | same describe, three tests |
 | A cancelled operation is cancelled after a restart, no alarm is asked for its old deadline, and the alarm at that deadline releases nothing | `a cancelled operation across a restart` |
 | A restart after samples that were never written restores the evidence that was written, not the time of the restore or the later samples | `a restart after a sample that was not saved`, first test |
 | Stored evidence older than 1.8 s: the first alarm after the restore pauses a healthy room as `participant_playback_stalled`, although the last real sample was 100 ms earlier. No grace exists (pinned, see section 6) | same describe, second test |
@@ -129,6 +129,7 @@ Mutation checks, each a one-line scratch edit of a production file followed by `
 | `alarm()`: announce when the alarm found nothing to release | 5 |
 | `client_metrics` handler: no write | 1 |
 | `ping` handler: write | 1 |
+| seek, operation and stall released only when the clock equals the deadline (three edits) | 1, 1 and 2 (the late-first-alarm tests) |
 
 ## 5. Verification commands and evidence
 
@@ -173,16 +174,16 @@ Verification of the 2026-11-15 additions (section 4A), on `main` at `257afb6` pl
 
 ```text
 npx vitest run apps/edge-service        (three consecutive runs)
-3 test files passed, 124 tests passed each time (105 before: 124 - 19 new)
+3 test files passed, 127 tests passed each time (105 before: 127 - 22 new)
 
 npm run typecheck
 TypeScript passed, including apps/edge-service/tsconfig.json
 
 npm test
-51 test files passed, 1056 tests passed (1037 before this change)
+52 test files passed, 1101 tests passed (after merging main at 8d8bf2a)
 ```
 
-The 14 mutation checks of section 4A were run against `worker.alarm.test.ts` alone; none of them was left in the tree. No Wrangler dry run, deployment or smoke run was made for this change: it adds tests and a document, no product code.
+The 17 mutation checks of section 4A were run against `worker.alarm.test.ts` alone; none of them was left in the tree. No Wrangler dry run, deployment or smoke run was made for this change: it adds tests and a document, no product code.
 
 The Wrangler dry run confirms that the edge Worker bundles with the Durable Object binding. It does not prove a remote staging deployment or live Cloudflare alarm execution.
 
