@@ -10,8 +10,8 @@ Per the owner decision of 2026-10-31 on #53, the provider, two-account, two-devi
 | --- | --- |
 | Issue | #53, CR-A06: Make health evidence stable and consistent |
 | PR | The pull request that adds this file |
-| Commit under test | Base `257afb6` (main, extension 0.2.12) plus that pull request. A file cannot name the commit that contains it; the head SHA of the pull request is the candidate. |
-| Candidate package SHA-256 | No package was built or loaded. For the bundle only: `npm run build` at the code commit gives `apps/extension/dist/content-script.js` SHA-256 `f1b5d200c66fdc0848eb66c646467253bf2efa3bf43c3fee3bbf23972f4ce5a8` (the documentation commit does not change it). This is the hash of one built file, not a release archive. |
+| Commit under test | Base `8d8bf2a` (main, extension 0.2.12) plus that pull request. A file cannot name the commit that contains it; the head SHA of the pull request is the candidate. |
+| Candidate package SHA-256 | No package was built or loaded. For the bundle only: `npm run build` at the code commit gives `apps/extension/dist/content-script.js` SHA-256 `4b735402b33168abae3138935d4c94f13740d78ecd19eb7a7d00e65020867ec8` (the documentation commit does not change it). This is the hash of one built file, not a release archive. |
 | Repository version | 0.2.12 |
 | Test date and timezone | 2026-11-15, UTC+03:00 |
 | Tester or verification owner | Implementation agent for the owner, muaz978 |
@@ -33,7 +33,7 @@ No credential, cookie, storage state, signed URL or media byte appears in this r
 | Content-script integration tests | Pass, fake element | `apps/extension/src/content-script.test.ts`, the block "player health evidence in the content script (CR-A06, #53)". |
 | Service-worker diagnostics tests | Pass | `apps/extension/src/service-worker.test.ts` runs in `npm test`. |
 | Typecheck | Pass | `npm run typecheck`, clean. |
-| Full test and build | Pass | `npm test`: 51 files, 1,143 tests at the head of this branch (the stacked CR-B03 tests are not in this count). `npm run build`: built. |
+| Full test and build | Pass | `npm test`: 51 files, 1,147 tests at the head of this branch (the stacked CR-B03 tests are not in this count). `npm run build`: built. |
 | Controlled browser observation | Not run | |
 | Live Crunchyroll/provider acceptance | Not run | |
 | Two-profile or two-account acceptance | Not run | |
@@ -47,7 +47,7 @@ No credential, cookie, storage state, signed URL or media byte appears in this r
 | --- | --- | --- |
 | 1. Clock evidence when counters are absent or throw | Pass | `player-health.test.ts` "uses explicit clock evidence..."; content script: "when it throws, ..." and "when it is missing, ..." and "reports a count that is not a number" |
 | 2. Zero is a valid baseline | Pass | `player-health.test.ts` "accepts zero as a real frame counter baseline..." |
-| 3. A decreasing counter is `unknown`, whichever cursor sees it | Pass | "does not treat a reset frame counter as progress", "a counter reset seen by either comparison" (3 named sequences), and the seeded random test's reset rule |
+| 3. A decreasing counter is `unknown`, whichever cursor sees it | Pass | "does not treat a reset frame counter as progress", "a counter reset seen by either comparison" (named sequences), and the seeded random test's reset rule |
 | 4. Seeks give no progress evidence | Pass | "excludes native and local seeks from progress evidence" |
 | 5. Stalls and startup grace | Pass | "reports a stalled playing state after the bounded no-progress interval"; "reports a freeze when the callbacks stop but the media clock keeps running" |
 | 6. Hidden then visible | Pass, with a defect fixed | "falls back to the media clock while the page is hidden ..." and "counts frames again, from a rebased baseline, once the page is visible". See below. |
@@ -69,7 +69,8 @@ No credential, cookie, storage state, signed URL or media byte appears in this r
 2. A report that fell between two frames said "no progress". `progressed` was judged against the previous report of any kind, so an event report (play, canplay, seeked...) straight after the periodic sample read `false`, and a periodic sample after an event that had seen progress read `false` as well. Event reports now measure from the last periodic sample, leave its cursor alone and carry a fresh periodic verdict (at most 1.5 s old). `lastProgressPositionSeconds` and `lastProgressFrames` were written and never read; they are removed.
 3. A stall after progress that an event report had already seen lost its waiting latch. With the periodic cursor left in place by event reports, a delayed buffering report (and the next periodic sample) compared the same frames with the old cursor, read them as new progress and cleared `buffering`, so the coordinator's 1.8 s no-progress watchdog could pause the room instead of honouring the buffering grace. Only new progress compared with the latest observation of any kind now clears the latch (a new frame while a counter is available; the media clock only when there is no counter at all, and then it is not rendered-frame evidence); progress since the last periodic sample is still reported, unless the player has stalled. Found in review; reproduced first by a failing test (24 → 26 → stall → buffering report must not clear), at unit level only.
 4. Clock progress could be labelled `frames`. A counter that went missing between two reports and came back (periodic frames 10, event with no counter, event frames 10) reported clock progress with the `frames` label, so the pill showed "Playing, confirmed" with no frame advance. The observation core is now one model: a fresh comparison (against the latest observation) and an accumulated one (against the last periodic sample), each with its own evidence quality, and a verdict takes the quality of the comparison that made it. Found in review and reproduced first by the named sequence; a seeded random sequence test (3,000 sequences) finds the same bug on the old code and passes on the new.
-5. Clock-only progress showed "Playing, confirmed" and passed the started-acknowledgement gate. Per the owner decision of 2026-10-31 it no longer does.
+5. A counter reset seen by only one of the two comparisons read as progress. A counter that went missing in one report and came back below the last periodic sample read as clock progress, because only the latest comparison was checked for a reset; and event reports that climbed again after a reset read as frame progress against the latest report. A reset seen by either comparison now gives `unknown` and no progress.
+6. Clock-only progress showed "Playing, confirmed" and passed the started-acknowledgement gate. Per the owner decision of 2026-10-31 it no longer does.
 
 ## Not covered, and what the content script does not own
 
