@@ -1,5 +1,5 @@
 import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
-import type { MediaFingerprint } from '@syncyourjoy/protocol'
+import type { MediaFingerprint, RoomOperation } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, RuntimeEvent, RuntimeRequest } from './internal.ts'
 import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -94,6 +94,25 @@ class FakeVideo extends FakeElement {
   getRootNode() { return document }
   getBoundingClientRect() { return { left: 0, top: 0, right: 960, bottom: 540, width: 960, height: 540 } }
   getVideoPlaybackQuality() { return { totalVideoFrames: this.totalFrames, droppedVideoFrames: this.droppedFrames } }
+  // The frame-callback API. Nothing is presented unless a test calls presentFrames(), so a test that
+  // never does behaves as it did before the element had this API.
+  private frameCallbacks = new Map<number, () => void>()
+  private nextFrameCallbackId = 1
+  requestVideoFrameCallback = vi.fn((callback: () => void) => {
+    const id = this.nextFrameCallbackId++
+    this.frameCallbacks.set(id, callback)
+    return id
+  })
+  cancelVideoFrameCallback = vi.fn((id: number) => { this.frameCallbacks.delete(id) })
+  /** Presents `count` frames: every pending callback runs once per frame and the content script asks for the next. */
+  presentFrames(count = 1) {
+    for (let frame = 0; frame < count; frame += 1) {
+      const pending = [...this.frameCallbacks.values()]
+      this.frameCallbacks.clear()
+      for (const callback of pending)
+        callback()
+    }
+  }
 }
 
 let video: FakeVideo
@@ -1528,25 +1547,6 @@ describe('adaptive player lifecycle', () => {
     })
   })
 
-  it('switches evidence quality after hidden playback returns to visible rendering', async () => {
-    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
-    apply('playing')
-    state.snapshot!.playback.effectiveAtServerMs = Date.now() - 3_000
-    for (let i = 1; i <= 2; i++) {
-      video.position = i
-      await vi.advanceTimersByTimeAsync(1_000)
-    }
-    expect(statuses().some(message => message.sample.progressEvidence === 'clock')).toBe(true)
-
-    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
-    document.dispatchEvent(new Event('visibilitychange'))
-    let context: unknown
-    listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, response => { context = response })
-    expect(context).toMatchObject({
-      diagnostics: { health: { progressEvidence: 'clock' } },
-    })
-  })
-
   it('starts playback after a slow correction before trying another hard seek', async () => {
     apply('playing', 120)
     await vi.advanceTimersByTimeAsync(1200)
@@ -1975,6 +1975,365 @@ describe('autoplay permission rejection (#68)', () => {
   })
 })
 
+describe('a transactional play through the extension (CR-B03, #57)', () => {
+  const NotAllowed = () => new DOMException('User activation required', 'NotAllowedError')
+  let accept = true
+
+  const acknowledgements = (phase?: 'prepared' | 'started') => messages.filter(message =>
+    message.type === 'OPERATION_ACK' && (phase === undefined || message.acknowledgement.phase === phase))
+
+  async function settle(): Promise<void> {
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  /** The worker has issued this page a binding and answers acknowledgements as `accept` says. */
+  async function bindPlayer(): Promise<void> {
+    accept = true
+    const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+    sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+      messages.push(request)
+      if (request.type === 'MEDIA_DETECTED')
+        return { ok: true, state, playerBindingId: 'binding_b03' }
+      if (request.type === 'OPERATION_ACK' && !accept)
+        return { ok: false, state, error: 'The acknowledgement was not accepted.' }
+      return { ok: true, state }
+    })
+    messages.length = 0
+    listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+    await settle()
+  }
+
+  function operationSnapshot(operationId: string, changes: Partial<RoomOperation>, playbackStatus: 'playing' | 'paused' = 'playing'): void {
+    state = structuredClone(state)
+    state.snapshot!.revision++
+    const operation: RoomOperation = {
+      mediaEpoch: 0,
+      operationId,
+      kind: 'play',
+      phase: 'committed',
+      requiredParticipantIds: ['guest'],
+      preparedParticipantIds: ['guest'],
+      startedParticipantIds: [],
+      targetPositionSeconds: 0,
+      resumeWhenReady: true,
+      effectiveAtServerMs: Date.now() - 100,
+      deadlineAtServerMs: Date.now() + 60_000,
+      ...changes,
+    }
+    state.snapshot!.contract = { mode: 'transactional', mediaEpoch: 0, sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities], operation }
+    state.snapshot!.playback = {
+      status: playbackStatus,
+      positionSeconds: operation.targetPositionSeconds ?? 0,
+      effectiveAtServerMs: operation.effectiveAtServerMs ?? Date.now(),
+      playbackRate: 1,
+    }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+  }
+
+  async function secondOfPlayback(counters: { callbacks?: number } = {}): Promise<void> {
+    video.position += 1
+    if (counters.callbacks)
+      video.presentFrames(counters.callbacks)
+    await vi.advanceTimersByTimeAsync(1_000)
+  }
+
+  describe('preparation', () => {
+    it('sends no prepared acknowledgement while the local media is not the room\'s, and sends it once the page matches', async () => {
+      await bindPlayer()
+      vi.stubGlobal('location', new URL('https://www.crunchyroll.com/watch/GEOTHER000000/another-episode'))
+      operationSnapshot('operation_play_prep', { phase: 'preparing', preparedParticipantIds: [], effectiveAtServerMs: null })
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      expect(acknowledgements()).toEqual([])
+      expect(video.writes).toEqual([])
+
+      vi.stubGlobal('location', new URL('https://www.crunchyroll.com/watch/GE00365016JAJP/episode'))
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(acknowledgements('prepared')).toHaveLength(1)
+      expect(acknowledgements('prepared')[0]).toMatchObject({ acknowledgement: { operationId: 'operation_play_prep', bindingId: 'binding_b03', phase: 'prepared' } })
+    })
+
+    it('sends no prepared acknowledgement before the page has a binding from the worker', async () => {
+      operationSnapshot('operation_play_prep', { phase: 'preparing', preparedParticipantIds: [], effectiveAtServerMs: null })
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      expect(acknowledgements()).toEqual([])
+    })
+
+    it('asks again on the next evaluation when the worker did not accept the acknowledgement, and stops once it has', async () => {
+      await bindPlayer()
+      accept = false
+      operationSnapshot('operation_play_prep', { phase: 'preparing', preparedParticipantIds: [], effectiveAtServerMs: null })
+      await vi.advanceTimersByTimeAsync(3_100)
+      const refused = acknowledgements('prepared').length
+      expect(refused).toBeGreaterThanOrEqual(3)
+
+      accept = true
+      await vi.advanceTimersByTimeAsync(1_100)
+      const afterAcceptance = acknowledgements('prepared').length
+      expect(afterAcceptance).toBeGreaterThan(refused)
+
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(acknowledgements('prepared')).toHaveLength(afterAcceptance)
+    })
+  })
+
+  describe('a committed operation after the browser refused the play request', () => {
+    it('sends started once, only after real progress, when the person then starts the player themselves', async () => {
+      await bindPlayer()
+      video.play.mockRejectedValueOnce(NotAllowed())
+      operationSnapshot('operation_play_gesture', {})
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+      expect(video.paused).toBe(true)
+      expect(acknowledgements('started')).toEqual([])
+
+      // The person clicks the video: a native play event that nothing in the extension asked for.
+      video.paused = false
+      video.dispatchEvent(new Event('play'))
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+      expect(acknowledgements('started')).toEqual([])
+
+      // The player is unpaused, but no frame has been presented and the clock does not move.
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(acknowledgements('started')).toEqual([])
+
+      for (let second = 0; second < 3; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+      expect(acknowledgements('started')).toHaveLength(1)
+      expect(acknowledgements('started')[0]).toMatchObject({ acknowledgement: { operationId: 'operation_play_gesture', bindingId: 'binding_b03', phase: 'started' } })
+
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(acknowledgements('started')).toHaveLength(1)
+    })
+
+    it('asks the browser again at most once a second while the operation stays committed, and stops when the room ends it', async () => {
+      // Measured, not designed: a refused attempt clears the operation's attempt marker, so every
+      // evaluation (once a second) makes a new request until the coordinator ends the operation.
+      await bindPlayer()
+      video.play.mockRejectedValue(NotAllowed())
+      operationSnapshot('operation_play_gesture', {})
+      await settle()
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(video.play.mock.calls.length).toBeGreaterThanOrEqual(3)
+      expect(video.play.mock.calls.length).toBeLessThanOrEqual(6)
+      expect(acknowledgements('started')).toEqual([])
+
+      operationSnapshot('operation_play_gesture', { phase: 'failed', reason: 'start-rejected' }, 'paused')
+      await settle()
+      const calls = video.play.mock.calls.length
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      expect(video.play.mock.calls.length).toBe(calls)
+    })
+  })
+
+  describe('a play() that never settles', () => {
+    function neverSettle(): void {
+      video.play.mockImplementation(() => {
+        video.paused = false
+        video.dispatchEvent(new Event('play'))
+        return new Promise<void>(() => {})
+      })
+    }
+
+    it('sends no started acknowledgement, even while frames are presented', async () => {
+      await bindPlayer()
+      neverSettle()
+      operationSnapshot('operation_play_hang', {})
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+
+      for (let second = 0; second < 8; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toEqual([])
+    })
+
+    it('sends none after the ten-second deadline pauses the player, and a late settlement of the old promise does not change that', async () => {
+      await bindPlayer()
+      let settleOld!: () => void
+      video.play.mockImplementation(() => {
+        video.paused = false
+        video.dispatchEvent(new Event('play'))
+        return new Promise<void>((resolve) => { settleOld = resolve })
+      })
+      operationSnapshot('operation_play_hang', {})
+      await settle()
+
+      for (let second = 0; second < 11; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+      expect(video.paused).toBe(true)
+
+      settleOld()
+      await settle()
+      for (let second = 0; second < 3; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toEqual([])
+    })
+  })
+
+  describe('a scheduled start that the room cancels before its time', () => {
+    const startsAt = () => Date.now() + 800
+
+    it('does not start at the old time after the room paused', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_future', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(300)
+      expect(video.play).not.toHaveBeenCalled()
+
+      operationSnapshot('operation_play_future', { phase: 'cancelled', reason: 'controller-request' }, 'paused')
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(video.play).not.toHaveBeenCalled()
+      expect(video.paused).toBe(true)
+      expect(acknowledgements('started')).toEqual([])
+    })
+
+    it('does not start at the old time when a newer operation replaced it, and starts at the newer time', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_old', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(300)
+
+      operationSnapshot('operation_play_new', { effectiveAtServerMs: Date.now() + 5_000 })
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(video.play).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(3_100)
+      expect(video.play).toHaveBeenCalledOnce()
+    })
+
+    it('does not start at the old time on a source that has no data yet', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_future', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(300)
+
+      video.currentSrc = 'blob:replacement'
+      video.readyState = FakeVideo.HAVE_NOTHING
+      video.dispatchEvent(new Event('emptied'))
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(video.play).not.toHaveBeenCalled()
+      expect(acknowledgements('started')).toEqual([])
+    })
+
+    it('does not start at the old time once the room has been left', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_future', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(300)
+
+      state = structuredClone(state)
+      state.snapshot = null
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(video.play).not.toHaveBeenCalled()
+      expect(acknowledgements()).toEqual([])
+    })
+
+    it('starts once at the effective time when nothing cancels it', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_future', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(700)
+      expect(video.play).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(400)
+      expect(video.play).toHaveBeenCalledOnce()
+    })
+  })
+
+  describe('the result of a play() that an operation no longer owns', () => {
+    it('is ignored when a newer operation replaced the one it was made for', async () => {
+      await bindPlayer()
+      let settleOld!: () => void
+      video.play.mockImplementationOnce(() => new Promise<void>((resolve) => { settleOld = resolve }))
+      operationSnapshot('operation_play_old', {})
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+
+      operationSnapshot('operation_play_new', { effectiveAtServerMs: Date.now() + 60_000 })
+      video.paused = false
+      settleOld()
+      await settle()
+      for (let second = 0; second < 4; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toEqual([])
+      expect(video.play).toHaveBeenCalledOnce()
+    })
+
+    it('is ignored when the room paused', async () => {
+      await bindPlayer()
+      let settleOld!: () => void
+      video.play.mockImplementationOnce(() => new Promise<void>((resolve) => { settleOld = resolve }))
+      operationSnapshot('operation_play_old', {})
+      await settle()
+
+      operationSnapshot('operation_play_old', { phase: 'cancelled' }, 'paused')
+      settleOld()
+      await settle()
+      for (let second = 0; second < 4; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toEqual([])
+    })
+
+    it('is ignored after the room was left', async () => {
+      await bindPlayer()
+      let settleOld!: () => void
+      video.play.mockImplementationOnce(() => new Promise<void>((resolve) => { settleOld = resolve }))
+      operationSnapshot('operation_play_old', {})
+      await settle()
+
+      state = structuredClone(state)
+      state.snapshot = null
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      settleOld()
+      await settle()
+      await vi.advanceTimersByTimeAsync(4_000)
+
+      expect(acknowledgements()).toEqual([])
+    })
+  })
+
+  describe('what the started acknowledgement may rest on', () => {
+    it('counts frames presented during the startup grace window', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_grace', {})
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+
+      // The first seconds after the effective time are still inside the startup grace.
+      for (let second = 0; second < 2; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toHaveLength(1)
+    })
+
+    it('waits for the page to become visible when the tab was hidden, then follows the frames', async () => {
+      await bindPlayer()
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      operationSnapshot('operation_play_hidden', {})
+      await settle()
+      for (let second = 0; second < 4; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+      expect(acknowledgements('started')).toEqual([])
+
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      for (let second = 0; second < 3; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toHaveLength(1)
+    })
+  })
+})
+
 describe('an unapproved join request', () => {
   const localEpisode: MediaFingerprint = {
     service: 'crunchyroll', canonicalId: 'crunchyroll:GE00365016JAJP', title: 'Episode', durationSeconds: 1420,
@@ -2102,6 +2461,430 @@ describe('an unapproved join request', () => {
       expect(pill('#syj-meta').textContent).toMatch(/Controller, 2 connected\.$/)
       expect(pill('#syj-playback').hidden).toBe(false)
       expect(pill('#syj-playback').textContent).toBe('Play')
+    })
+  })
+})
+
+describe('player health evidence in the content script (CR-A06, #53)', () => {
+  const lastSample = () => statuses().at(-1)!.sample
+  const hidePage = () => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+  const showPage = () => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  function contextNow(): { sample: Record<string, unknown>; diagnostics: { health: Record<string, unknown> } } {
+    let context: unknown
+    listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, (response) => { context = response })
+    return context as { sample: Record<string, unknown>; diagnostics: { health: Record<string, unknown> } }
+  }
+
+  /** A room that has played for three seconds, so the player is judged on its progress and not on startup grace. */
+  function startPlaying(): void {
+    video.paused = false
+    video.position = 3
+    state = structuredClone(state)
+    state.snapshot!.revision++
+    state.snapshot!.playback = { status: 'playing', positionSeconds: 0, effectiveAtServerMs: Date.now() - 3_000, playbackRate: 1 }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+    // The element reports that it is playing, as a started player does.
+    video.dispatchEvent(new Event('playing'))
+  }
+
+  /** One second of healthy playback: the clock moves and the given counters move with it. */
+  async function playOneSecond(counters: { callbacks?: number; quality?: number } = {}): Promise<void> {
+    video.position += 1
+    if (counters.callbacks)
+      video.presentFrames(counters.callbacks)
+    if (counters.quality)
+      video.totalFrames += counters.quality
+    await vi.advanceTimersByTimeAsync(1_000)
+  }
+
+  describe('the frame-callback counter', () => {
+    it('is used when the browser has it, and reports frames evidence from it alone', async () => {
+      startPlaying()
+      for (let second = 0; second < 3; second += 1)
+        await playOneSecond({ callbacks: 24 })
+
+      // The playback-quality counter never moved, so only the callbacks can have said so.
+      expect(video.totalFrames).toBe(10)
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames', buffering: false })
+    })
+
+    it('reports a freeze when the callbacks stop but the media clock keeps running', async () => {
+      startPlaying()
+      for (let second = 0; second < 2; second += 1)
+        await playOneSecond({ callbacks: 24 })
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames', buffering: false })
+
+      for (let second = 0; second < 4; second += 1)
+        await playOneSecond()
+
+      expect(lastSample()).toMatchObject({ progressed: false, progressEvidence: 'frames', buffering: true })
+    })
+
+    it('falls back to the media clock while the page is hidden, however the counter was fed before, and does not call the tab frozen', async () => {
+      startPlaying()
+      for (let second = 0; second < 2; second += 1)
+        await playOneSecond({ callbacks: 24 })
+      expect(lastSample().progressEvidence).toBe('frames')
+
+      // A hidden tab presents no frames; the media clock runs on.
+      hidePage()
+      for (let second = 0; second < 5; second += 1)
+        await playOneSecond()
+
+      expect(statuses().filter(message => message.sample.buffering)).toEqual([])
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'clock', buffering: false })
+    })
+
+    it('counts frames again, from a rebased baseline, once the page is visible', async () => {
+      startPlaying()
+      await playOneSecond({ callbacks: 24 })
+      hidePage()
+      await playOneSecond()
+      await playOneSecond()
+      expect(lastSample().progressEvidence).toBe('clock')
+
+      showPage()
+      // Returning to the page rebases the counters. The rebase is not progress, and it does not
+      // clear what was already known.
+      expect(contextNow().sample).toMatchObject({ progressed: false, buffering: false })
+      await playOneSecond({ callbacks: 24 })
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames', buffering: false })
+    })
+
+    it('uses the playback-quality counter when the browser has no frame-callback API', async () => {
+      const withoutCallbacks = new FakeVideo()
+      Object.assign(withoutCallbacks, { requestVideoFrameCallback: undefined, cancelVideoFrameCallback: undefined })
+      video = withoutCallbacks
+      // The page scan finds the new element and binds it.
+      await vi.advanceTimersByTimeAsync(2_100)
+      startPlaying()
+      for (let second = 0; second < 3; second += 1)
+        await playOneSecond({ quality: 24 })
+
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames', buffering: false })
+    })
+
+    it('starts counting again, and stops asking the old element for frames, when the element is replaced', async () => {
+      const first = video
+      startPlaying()
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
+
+      // The room pauses, and the provider swaps in a new element.
+      apply('paused', 0)
+      first.paused = true
+      const replacement = new FakeVideo()
+      video = replacement
+      await vi.advanceTimersByTimeAsync(2_100)
+      expect(first.cancelVideoFrameCallback).toHaveBeenCalled()
+      expect(replacement.requestVideoFrameCallback).toHaveBeenCalled()
+
+      startPlaying()
+      for (let second = 0; second < 3; second += 1)
+        await playOneSecond({ callbacks: 24 })
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames', buffering: false })
+    })
+
+    it('moves the baseline when the counter changes from the playback-quality count to the first callbacks, so the switch is neither a reset nor a freeze', async () => {
+      // The element has a large quality count before the first callback has run; the callback count
+      // then starts again from one, which is a smaller number but not a counter reset.
+      video.totalFrames = 500
+      startPlaying()
+      await playOneSecond({ quality: 30 })
+      await playOneSecond({ quality: 30 })
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames' })
+
+      const before = statuses().length
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
+
+      const samples = statuses().slice(before).map(message => message.sample)
+      expect(samples.length).toBeGreaterThanOrEqual(3)
+      expect(samples.map(sample => sample.progressEvidence)).not.toContain('unknown')
+      expect(samples.some(sample => sample.buffering)).toBe(false)
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames', buffering: false })
+    })
+  })
+
+  describe('the playback-quality counter', () => {
+    const unusable: Array<[string, () => void]> = [
+      ['throws', () => { Object.assign(video, { getVideoPlaybackQuality: () => { throw new Error('quality counters are unavailable') } }) }],
+      ['is missing', () => { Object.assign(video, { getVideoPlaybackQuality: undefined }) }],
+      ['reports a count that is not a number', () => { Object.assign(video, { getVideoPlaybackQuality: () => ({ totalVideoFrames: Number.NaN, droppedVideoFrames: 0 }) }) }],
+    ]
+
+    it.each(unusable)('when it %s, progress is reported from the media clock without an exception', async (_name, breakCounter) => {
+      breakCounter()
+      startPlaying()
+      for (let second = 0; second < 4; second += 1)
+        await playOneSecond()
+
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'clock', buffering: false })
+      expect(contextNow().diagnostics.health).toMatchObject({ progressEvidence: 'clock', hasRealPlaybackProgress: true })
+    })
+
+    it.each(unusable)('when it %s and then recovers, frames evidence starts from the second observation', async (_name, breakCounter) => {
+      breakCounter()
+      startPlaying()
+      await playOneSecond()
+      await playOneSecond()
+      expect(lastSample().progressEvidence).toBe('clock')
+
+      Object.assign(video, { getVideoPlaybackQuality: () => ({ totalVideoFrames: video.totalFrames, droppedVideoFrames: 0 }) })
+      // The first observation after the recovery has no counter to compare with.
+      await playOneSecond({ quality: 24 })
+      expect(lastSample().progressEvidence).toBe('clock')
+      await playOneSecond({ quality: 24 })
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames' })
+    })
+  })
+
+  describe('evidence quality across visibility', () => {
+    it('rebases onto the frame counter after a hidden period and then reports frames again', async () => {
+      hidePage()
+      startPlaying()
+      for (let second = 0; second < 2; second += 1)
+        await playOneSecond({ quality: 24 })
+      expect(lastSample().progressEvidence).toBe('clock')
+
+      showPage()
+      // The rebase is not progress; frames evidence appears only from a later counter observation.
+      expect(contextNow().sample).toMatchObject({ progressed: false, buffering: false })
+      await playOneSecond({ quality: 24 })
+      await playOneSecond({ quality: 24 })
+
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames' })
+      expect(contextNow().diagnostics.health).toMatchObject({ progressEvidence: 'frames', hasRealPlaybackProgress: true })
+    })
+  })
+
+  describe('a replaced source', () => {
+    it('does not inherit the old source\'s progress, evidence or buffering', async () => {
+      startPlaying()
+      for (let second = 0; second < 3; second += 1)
+        await playOneSecond({ quality: 24 })
+      video.dispatchEvent(new Event('waiting'))
+      expect(contextNow()).toMatchObject({
+        sample: { buffering: true, progressEvidence: 'frames' },
+        diagnostics: { health: { buffering: true, progressEvidence: 'frames', hasRealPlaybackProgress: true } },
+      })
+
+      video.currentSrc = 'blob:replacement'
+      video.dispatchEvent(new Event('emptied'))
+
+      expect(contextNow()).toMatchObject({
+        sample: { buffering: false, progressed: false, progressEvidence: 'unknown' },
+        diagnostics: { health: { buffering: false, progressEvidence: 'unknown', hasRealPlaybackProgress: false } },
+      })
+    })
+  })
+
+  describe('reports that fall between two periodic samples', () => {
+    it('do not report a healthy player as not progressing', async () => {
+      startPlaying()
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
+      const before = statuses().length
+
+      for (let second = 0; second < 5; second += 1) {
+        await playOneSecond({ callbacks: 24 })
+        // An event report straight after the sample, before another frame has been presented.
+        video.dispatchEvent(new Event('canplay'))
+        video.dispatchEvent(new Event('canplay'))
+      }
+
+      const samples = statuses().slice(before).map(message => message.sample)
+      expect(samples.length).toBeGreaterThanOrEqual(15)
+      expect(samples.filter(sample => !sample.progressed)).toEqual([])
+    })
+
+    it('leave the progress they saw for the next periodic sample', async () => {
+      startPlaying()
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
+
+      // Frames are presented, an event report sees them, and no more arrive before the sample.
+      video.position += 1
+      await vi.advanceTimersByTimeAsync(500)
+      video.presentFrames(24)
+      video.dispatchEvent(new Event('canplay'))
+      expect(lastSample().progressed).toBe(true)
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'frames' })
+    })
+
+    it('still report a freeze: an event report does not hide a player that stopped presenting frames', async () => {
+      startPlaying()
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
+
+      for (let second = 0; second < 4; second += 1) {
+        await playOneSecond()
+        video.dispatchEvent(new Event('canplay'))
+      }
+
+      expect(lastSample()).toMatchObject({ progressed: false, buffering: true })
+    })
+  })
+
+  describe('a stall after progress that an event report already saw', () => {
+    it('keeps reporting buffering when the delayed buffering report and the next samples see the same frames', async () => {
+      startPlaying()
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
+
+      // A playing event sees two more frames, and then the player stalls.
+      video.presentFrames(2)
+      video.dispatchEvent(new Event('playing'))
+      expect(lastSample().progressed).toBe(true)
+      video.dispatchEvent(new Event('waiting'))
+      await vi.advanceTimersByTimeAsync(900)
+      expect(lastSample()).toMatchObject({ buffering: true, progressed: false })
+
+      for (let second = 0; second < 3; second += 1) {
+        video.position += 1
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(lastSample()).toMatchObject({ buffering: true, progressed: false })
+      }
+    })
+  })
+
+  describe('what confirms that a player is playing', () => {
+    const statusText = () => pill('#syj-status').textContent
+
+    it('shows "Playing, confirmed" for a player whose frame counter advances', async () => {
+      startPlaying()
+      for (let second = 0; second < 3; second += 1)
+        await playOneSecond({ callbacks: 24 })
+
+      expect(statusText()).toBe('Playing, confirmed')
+    })
+
+    it.each([
+      ['has no frame counter', () => { Object.assign(video, { getVideoPlaybackQuality: undefined }) }],
+      ['is in a hidden tab', () => { hidePage() }],
+    ])('shows a distinct label, not "Playing, confirmed", for a player that %s but whose clock advances', async (_name, limit) => {
+      limit()
+      startPlaying()
+      for (let second = 0; second < 3; second += 1)
+        await playOneSecond()
+
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'clock' })
+      expect(statusText()).toBe('Playing, not frame-confirmed')
+      expect(statusText()).not.toBe('Playing, confirmed')
+      expect(pill('#syj-meta').textContent).toMatch(/media clock/)
+    })
+
+    it('returns to "Playing, confirmed" when a frame counter starts to advance', async () => {
+      Object.assign(video, { getVideoPlaybackQuality: undefined })
+      startPlaying()
+      for (let second = 0; second < 3; second += 1)
+        await playOneSecond()
+      expect(statusText()).toBe('Playing, not frame-confirmed')
+
+      video.presentFrames(24)
+      await playOneSecond({ callbacks: 24 })
+      await playOneSecond({ callbacks: 24 })
+
+      expect(statusText()).toBe('Playing, confirmed')
+    })
+  })
+
+  describe('the started acknowledgement of a transactional play', () => {
+    const startedAcknowledgements = () => messages.filter(message => message.type === 'OPERATION_ACK' && message.acknowledgement.phase === 'started')
+
+    async function commitPlay(): Promise<void> {
+      const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+      sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+        messages.push(request)
+        return request.type === 'MEDIA_DETECTED'
+          ? { ok: true, state, playerBindingId: 'binding_started' }
+          : { ok: true, state }
+      })
+      messages.length = 0
+      listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+      await Promise.resolve()
+      await Promise.resolve()
+
+      state = structuredClone(state)
+      state.snapshot!.revision++
+      state.snapshot!.contract = {
+        mode: 'transactional',
+        mediaEpoch: 0,
+        sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+        operation: {
+          mediaEpoch: 0,
+          operationId: 'operation_play_frames',
+          kind: 'play',
+          phase: 'committed',
+          requiredParticipantIds: ['guest'],
+          preparedParticipantIds: ['guest'],
+          startedParticipantIds: [],
+          targetPositionSeconds: 0,
+          resumeWhenReady: true,
+          effectiveAtServerMs: Date.now() - 100,
+          deadlineAtServerMs: Date.now() + 60_000,
+        },
+      }
+      state.snapshot!.playback = { status: 'playing', positionSeconds: 0, effectiveAtServerMs: Date.now() - 100, playbackRate: 1 }
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(video.play).toHaveBeenCalledOnce()
+    }
+
+    it('is not sent for progress that only the media clock shows, however long it runs', async () => {
+      Object.assign(video, { getVideoPlaybackQuality: undefined })
+      await commitPlay()
+
+      for (let second = 0; second < 12; second += 1)
+        await playOneSecond()
+
+      expect(lastSample()).toMatchObject({ progressed: true, progressEvidence: 'clock' })
+      expect(startedAcknowledgements()).toEqual([])
+    })
+
+    it('is not sent from a hidden tab, where only the clock runs', async () => {
+      hidePage()
+      await commitPlay()
+
+      for (let second = 0; second < 6; second += 1)
+        await playOneSecond({ quality: 24 })
+
+      expect(startedAcknowledgements()).toEqual([])
+    })
+
+    it('is sent once when frames advance, even after a stretch of clock-only progress', async () => {
+      Object.assign(video, { getVideoPlaybackQuality: undefined })
+      await commitPlay()
+      for (let second = 0; second < 4; second += 1)
+        await playOneSecond()
+      expect(startedAcknowledgements()).toEqual([])
+
+      // The frame-callback API starts to deliver frames.
+      for (let second = 0; second < 3; second += 1)
+        await playOneSecond({ callbacks: 24 })
+
+      expect(startedAcknowledgements()).toHaveLength(1)
+      expect(startedAcknowledgements()[0]).toMatchObject({ acknowledgement: { operationId: 'operation_play_frames', bindingId: 'binding_started' } })
+    })
+
+    it('is sent from the frame-callback counter alone', async () => {
+      await commitPlay()
+      for (let second = 0; second < 3; second += 1)
+        await playOneSecond({ callbacks: 24 })
+
+      expect(video.totalFrames).toBe(10)
+      expect(startedAcknowledgements()).toHaveLength(1)
     })
   })
 })

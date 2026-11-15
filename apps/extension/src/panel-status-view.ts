@@ -1,6 +1,6 @@
 import type { ConnectionStatus, ParticipantPlaybackStatus, ParticipantState, PlayerSample } from '@syncyourjoy/protocol'
 import type { PlayerHealthDiagnostics } from './internal.ts'
-import { localPlaybackStatus, playbackStatusCopy } from './playback-status.ts'
+import { classifyLocalPlayback, playbackStatusCopy } from './playback-status.ts'
 
 /**
  * What the side panel's status card, repair buttons and people list say,
@@ -181,7 +181,15 @@ export function panelStatusKey(input: PanelStatusInput): PanelStatusKey {
   if (input.connection !== 'connected')
     return 'unknown'
   const { sample, health, me } = input
-  const status = me?.playbackStatus ?? localPlaybackStatus({
+  const evidence = sample?.progressEvidence ?? health?.progressEvidence ?? 'unknown'
+  const roomStatus = me?.playbackStatus
+  if (roomStatus !== undefined) {
+    // The room's own status for this participant: "playing" is only kept when the evidence for it is rendered frames.
+    if (roomStatus !== 'playing' || evidence === 'frames')
+      return roomStatus
+    return evidence === 'clock' ? 'clock-only' : 'frames-unconfirmed'
+  }
+  const local = classifyLocalPlayback({
     connected: true,
     hasVideo: input.hasVideo,
     mediaMatches: me?.mediaMatches ?? false,
@@ -194,16 +202,14 @@ export function panelStatusKey(input: PanelStatusInput): PanelStatusKey {
     playbackStartFailed: sample?.playbackStartFailed ?? health?.playbackStartFailed ?? false,
     playbackStarted: sample?.playbackStarted ?? null,
     progressed: sample?.progressed ?? health?.hasRealPlaybackProgress ?? false,
+    progressEvidence: evidence,
     progressAgeMs: sample && !sample.progressed ? statusAgeMs(sample, input.nowMs) : 0,
     statusAgeMs: sample ? statusAgeMs(sample, input.nowMs) : null,
     nowMs: input.nowMs,
   })
-  if (status !== 'playing')
-    return status
-  const evidence = sample?.progressEvidence ?? health?.progressEvidence ?? 'unknown'
-  if (evidence === 'frames')
-    return 'playing'
-  return evidence === 'clock' ? 'clock-only' : 'frames-unconfirmed'
+  if (local.clockOnly)
+    return 'clock-only'
+  return local.framesUnconfirmed ? 'frames-unconfirmed' : local.status
 }
 
 function statusAgeMs(sample: PlayerSample, nowMs: number): number {
