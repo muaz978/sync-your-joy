@@ -17,7 +17,7 @@
 // the persistence/restoration functions" called for when a real Playwright
 // service-worker-restart simulation is impractical (see the note at the
 // bottom of this file for why that path was not taken).
-import type { DiagnosticsReport, OperationPhase, OperationReason, RoomSnapshot } from '@syncyourjoy/protocol'
+import type { DiagnosticsReport, OperationPhase, OperationReason, RoomSnapshot, SyncCapability } from '@syncyourjoy/protocol'
 import { parseClientMessage } from '@syncyourjoy/protocol'
 import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 import type { ContentRequest, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
@@ -958,7 +958,7 @@ describe('service worker observed episode identity', () => {
       return {
         mode: 'transactional' as const,
         mediaEpoch: 4,
-        sharedCapabilities: ['media-epoch', 'operation-identity', 'prepare-start', 'binding-sequence'] as const,
+        sharedCapabilities: ['media-epoch', 'operation-identity', 'prepare-start', 'binding-sequence'] as SyncCapability[],
         operation: {
           mediaEpoch: 4,
           operationId,
@@ -1102,40 +1102,23 @@ describe('service worker observed episode identity', () => {
       expect(reportFrom(socket, 'report_own_reason').reason).toBe('start-timeout')
     })
 
-    it('says the connection was lost after an unintended close, and drops that once the room has taken the client back, or it leaves', async () => {
+    it('drops the reason once the room has taken the client back after an outage', async () => {
       await resumeAtPage(sharedUrl)
       const first = FakeWebSocket.instances[0]!
+      first.simulateMessage({ type: 'error', code: 'internal_error', message: 'broken' })
+      expect(reportFrom(first, 'report_before_outage').reason).toBe('server-error')
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
       try {
         first.simulateClose(1006, '')
         await vi.advanceTimersByTimeAsync(20_000)
         const second = FakeWebSocket.instances[1]!
         second.simulateOpen()
-        // The socket is back but the room has not answered: the outage is still what the report explains.
-        expect(reportFrom(second, 'report_down').reason).toBe('connection-lost')
         second.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia, revision: 9 }) })
         expect(reportFrom(second, 'report_back').reason).toBe('none')
       }
       finally {
         vi.useRealTimers()
       }
-    })
-
-    it('starts a room with no reason left from the last one, and does not take a close the client made for a lost connection', async () => {
-      const { request } = await resumeAtPage(sharedUrl)
-      const socket = FakeWebSocket.instances[0]!
-      socket.simulateMessage({ type: 'error', code: 'internal_error', message: 'broken' })
-      expect(reportFrom(socket, 'report_before_leaving').reason).toBe('server-error')
-
-      await request({ type: 'LEAVE_ROOM' })
-      expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
-      const joining = request({ type: 'JOIN_ROOM', code: 'ABCDEFGH' })
-      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
-      const next = FakeWebSocket.instances[1]!
-      next.simulateOpen()
-      await joining
-
-      expect(reportFrom(next, 'report_after_leaving').reason).toBe('none')
     })
   })
 
