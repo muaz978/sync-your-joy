@@ -682,20 +682,34 @@ describe('service worker observed episode identity', () => {
       { type: 'PLAYER_INTENT', kind: 'pause', positionSeconds: 99, bindingId },
       { type: 'MEDIA_LOST', bindingId },
     ]
+    async function withClockAt(nowMs: number, body: () => Promise<void>): Promise<void> {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(nowMs)
+      try {
+        await body()
+      }
+      finally {
+        now.mockRestore()
+      }
+    }
     const sentTypes = (socket: FakeWebSocket, from: number) => socket.sentMessages.slice(from).map(message => (message as { type: string }).type)
 
     it('ignores status, seek, acknowledgement, intent and loss messages that carry a forged token', async () => {
       const { request } = await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!
       const sentBefore = socket.sentMessages.length
+      const seenBefore = (await request({ type: 'GET_STATE' }, {})).state.playerLastSeenAtMs
 
-      for (const message of playerMessages('binding_forged'))
-        await request(message, senderFor(0))
+      // A message that was accepted would stamp the player as seen now, so time is moved well past it.
+      await withClockAt(seenBefore + 60_000, async () => {
+        for (const message of playerMessages('binding_forged'))
+          await request(message, senderFor(0))
+      })
 
       expect(socket.sentMessages).toHaveLength(sentBefore)
       const afterForged = await request({ type: 'GET_STATE' }, {})
       expect(afterForged.state.lastPlayerSample).toBeNull()
       expect(afterForged.state.currentMedia).toMatchObject(oldMedia)
+      expect(afterForged.state.playerLastSeenAtMs).toBe(seenBefore)
 
       // The token the worker did issue is accepted for every one of them.
       for (const message of playerMessages('binding_resumed'))
@@ -712,16 +726,54 @@ describe('service worker observed episode identity', () => {
       expect(replacement.playerBindingId).not.toBe(first.playerBindingId)
       const socket = FakeWebSocket.instances[0]!
       const sentBefore = socket.sentMessages.length
+      const seenBefore = (await request({ type: 'GET_STATE' }, {})).state.playerLastSeenAtMs
 
-      for (const message of playerMessages(first.playerBindingId!))
-        await request(message, senderFor(0))
+      await withClockAt(seenBefore + 60_000, async () => {
+        for (const message of playerMessages(first.playerBindingId!))
+          await request(message, senderFor(0))
+      })
 
       expect(socket.sentMessages).toHaveLength(sentBefore)
       const afterStale = await request({ type: 'GET_STATE' }, {})
       expect(afterStale.state.lastPlayerSample).toBeNull()
       expect(afterStale.state.currentMedia).toMatchObject(oldMedia)
+      expect(afterStale.state.playerLastSeenAtMs).toBe(seenBefore)
       await request(playerMessages(replacement.playerBindingId!)[0]!, senderFor(0))
       expect((await request({ type: 'GET_STATE' }, {})).state.lastPlayerSample).toMatchObject(sample)
+    })
+
+    // The other tests here resume a worker that already holds a binding. These start with none.
+    describe('from a worker that holds no binding yet', () => {
+      async function freshWorker() {
+        const fake = buildFakeChrome({ sessionState: undefined })
+        // The page answers what the worker sends it, as a live content script does.
+        ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+        vi.stubGlobal('chrome', fake.chrome)
+        vi.stubGlobal('WebSocket', FakeWebSocket)
+        await import('./service-worker.ts')
+        const ask = (message: RuntimeRequest, sender: chrome.runtime.MessageSender) => new Promise<RuntimeResponse>((resolve) => {
+          fake.messageListener(message, sender, response => resolve(response as RuntimeResponse))
+        })
+        return ask
+      }
+
+      it.each([
+        ['without a document ID', undefined],
+        ['with a document ID', 'document-first'],
+      ])('issues a token to the first report of a page %s, keeps it for that page\'s heartbeats, and refuses a forged one', async (_label, documentId) => {
+        const ask = await freshWorker()
+        const sender = { tab: { id: 42, active: true, url: sharedUrl }, frameId: 0, url: sharedUrl, ...(documentId ? { documentId } : {}) } as chrome.runtime.MessageSender
+
+        const first = await ask({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: undefined }, sender)
+        expect(first.playerBindingId).toEqual(expect.any(String))
+        expect(first.state.playerFrameId).toBe(0)
+
+        const heartbeat = await ask({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: first.playerBindingId }, sender)
+        expect(heartbeat.playerBindingId).toBe(first.playerBindingId)
+
+        const forged = await ask({ type: 'MEDIA_DETECTED', media: oldMedia, areaPixels: 500_000, bindingId: 'binding_forged' }, sender)
+        expect(forged.playerBindingId).toBeUndefined()
+      })
     })
 
     it('gives a second frame no binding while the bound frame holds one, with no token or a forged one', async () => {

@@ -168,6 +168,8 @@ let lastControllerNavigationKey: string | null = null
 // A main-frame reload reuses frameId 0. Track the accepted context itself so
 // a delayed delivery failure from the previous document cannot retire it.
 let playerContextGeneration = 0
+// The newest accepted MEDIA_DETECTED report; an older one that finishes later writes nothing.
+let mediaReportClaim = 0
 
 const initialized = initialize()
 
@@ -314,10 +316,13 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
       // can bind in the meantime, so what this report owns is what its own call bound, not whatever is
       // bound by the time the call returns: a report that lost the binding writes nothing and is given
       // no binding ID, and the page it came from learns that from its next report.
+      // Two reports from one document share a binding, so the binding cannot say which is newer: each
+      // accepted report takes a claim, and only the newest one writes.
+      const reportClaim = ++mediaReportClaim
       let ownedBinding: PlayerBinding | null = null
       if (sender.tab?.id !== undefined && sender.frameId !== undefined) {
         ownedBinding = await bindPlayerContext(sender.tab.id, sender.frameId, request.areaPixels, sender.documentId ?? null, request.bindingId)
-        if (playerBinding?.id !== ownedBinding.id)
+        if (reportClaim !== mediaReportClaim || playerBinding?.id !== ownedBinding.id)
           return success()
       }
       state.playerLastSeenAtMs = Date.now()
