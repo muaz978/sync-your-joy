@@ -4199,6 +4199,24 @@ describe('CR-B01 operation contract on a live room', () => {
       expect(room.snapshot()).toEqual(before)
     })
 
+    it('does not restore an active epoch-0 operation under an invalid stored epoch, and ignores its late acknowledgements', () => {
+      const nowMs = { value: 10_000 }
+      const base = createTransactionalRoom(() => nowMs.value)
+      controlTransactional(base, 'play', 40)
+      const lateAck = operationAcknowledgement(base, 'participant_host', 'prepared', 40, 1)
+      expect(lateAck.mediaEpoch).toBe(0)
+      for (const invalidEpoch of [2 ** 53, 1e300, -1, '3']) {
+        const state = base.exportState()
+        state.contract = { ...state.contract!, mediaEpoch: invalidEpoch as unknown as number }
+        const restored = RoomCoordinator.fromState(state, () => nowMs.value)
+        expect(restored.snapshot().contract, String(invalidEpoch)).toMatchObject({ mediaEpoch: 0, operation: null })
+        expect(restored.snapshot().playback.status, String(invalidEpoch)).toBe('paused')
+        const settled = restored.snapshot()
+        expect(restored.acknowledgeOperation('participant_host', lateAck), String(invalidEpoch)).toBeNull()
+        expect(restored.snapshot(), String(invalidEpoch)).toEqual(settled)
+      }
+    })
+
     it('restores a stored epoch beyond the safe range to epoch zero, paused, and lets the room advance again', () => {
       const nowMs = { value: 10_000 }
       const base = createTransactionalRoom(() => nowMs.value)

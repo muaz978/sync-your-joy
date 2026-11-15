@@ -1,6 +1,6 @@
 import type { MediaFingerprint } from './index.ts'
 import { describe, expect, it } from 'vitest'
-import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomContractSnapshot, isRoomOperation, mediaMatches, mediaMatchesPageUrl, negotiateRoomMode, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
+import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomContractSnapshot, isRoomOperation, mediaMatches, mediaMatchesPageUrl, negotiateRoomMode, normalizeCanonicalId, normalizeClientCapabilities, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
 
 describe('media identity matching', () => {
   it('does not treat two missing players as a video match', () => {
@@ -625,6 +625,44 @@ describe('media epoch bound and operation identity parsing', () => {
       expect(normalizeRoomContractSnapshot(stored(mediaEpoch)).mediaEpoch, String(mediaEpoch)).toBe(0)
       expect(isRoomContractSnapshot(stored(mediaEpoch)), String(mediaEpoch)).toBe(false)
     }
+  })
+
+  it('keeps the capabilities every peer shares in a legacy room, and normalizes advertisements as documented', () => {
+    const [mediaEpochCapability, operationIdentity, prepareStart] = CURRENT_CLIENT_CAPABILITIES.capabilities
+    const older = negotiateRoomMode([
+      { participantId: 'participant_host', capabilities: CURRENT_CLIENT_CAPABILITIES },
+      { participantId: 'participant_old', capabilities: { contractVersion: 1, capabilities: [mediaEpochCapability!, operationIdentity!, prepareStart!] } },
+    ])
+    expect(older).toMatchObject({ mode: 'legacy', incompatibleParticipantIds: ['participant_old'], sharedCapabilities: [mediaEpochCapability, operationIdentity, prepareStart] })
+    expect(negotiateRoomMode([
+      { participantId: 'participant_host', capabilities: CURRENT_CLIENT_CAPABILITIES },
+      { participantId: 'participant_none', capabilities: { contractVersion: 0, capabilities: [] } },
+    ]).sharedCapabilities).toEqual([])
+    // A current-version advertisement with an unknown capability keeps version 1 and an empty list; negotiation rejects it.
+    expect(normalizeClientCapabilities({ contractVersion: 1, capabilities: ['media-epoch', 'unknown-capability'] })).toEqual({ contractVersion: 1, capabilities: [] })
+    expect(normalizeClientCapabilities({ contractVersion: 2, capabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities] })).toEqual({ contractVersion: 0, capabilities: [] })
+    expect(normalizeClientCapabilities('nonsense')).toEqual({ contractVersion: 0, capabilities: [] })
+    expect(negotiateRoomMode([{ participantId: 'participant_odd', capabilities: { contractVersion: 1, capabilities: ['unknown-capability'] as never } }]))
+      .toMatchObject({ mode: 'legacy', incompatibleParticipantIds: ['participant_odd'] })
+  })
+
+  it('drops an active epoch-0 operation when the stored room epoch is invalid, instead of matching it to the defaulted epoch', () => {
+    for (const invalidEpoch of [1e300, 2 ** 53, -1, 1.5, '3', null, Number.NaN]) {
+      const restored = normalizeRoomContractSnapshot({
+        mode: 'transactional',
+        mediaEpoch: invalidEpoch,
+        sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+        operation: { ...operation, mediaEpoch: 0 },
+      })
+      expect(restored, String(invalidEpoch)).toMatchObject({ mediaEpoch: 0, operation: null })
+    }
+    // A valid stored epoch of 0 still keeps the matching operation.
+    expect(normalizeRoomContractSnapshot({
+      mode: 'transactional',
+      mediaEpoch: 0,
+      sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+      operation: { ...operation, mediaEpoch: 0 },
+    }).operation).not.toBeNull()
   })
 
   it('drops a stored operation whose epoch is beyond the safe range even when the room epoch is equally unsafe', () => {

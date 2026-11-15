@@ -757,12 +757,17 @@ export function normalizeRoomContractSnapshot(value: unknown): RoomContractSnaps
     return cloneLegacyRoomContractDefaults()
 
   const sharedCapabilities = normalizeCapabilities(value.sharedCapabilities)
-  const mediaEpoch = isMediaEpoch(value.mediaEpoch) ? value.mediaEpoch : 0
+  const storedEpoch: number | null = isMediaEpoch(value.mediaEpoch) ? value.mediaEpoch : null
+  const storedEpochIsValid = storedEpoch !== null
+  const mediaEpoch = storedEpoch ?? 0
   const mode = value.mode === 'transactional'
     && supportsTransactionalOperations(sharedCapabilities)
     ? 'transactional'
     : 'legacy'
+  // The defaulted epoch is not evidence: an operation is kept only against a
+  // stored epoch that was itself valid, never against the 0 an invalid one became.
   const operation = mode === 'transactional'
+    && storedEpochIsValid
     && isRoomOperation(value.operation)
     && value.operation.mediaEpoch === mediaEpoch
     ? value.operation
