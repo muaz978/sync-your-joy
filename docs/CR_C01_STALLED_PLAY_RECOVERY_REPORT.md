@@ -67,9 +67,42 @@ The extension lifecycle test now proves that:
 
 Existing tests continue to cover stale play rejection after a newer pause, source replacement, genuine `NotAllowedError`, `AbortError`, missing progress, player health refresh and replaced or invalidated player operations.
 
+## Transactional path and further coverage (2026-11-15)
+
+The original change bounded a never-settling `play()` for the room's ordinary play command. A transactional play (a committed operation) reached the same deadline, but the heartbeat then started a new `play()` of its own, because the operation's attempt marker is cleared on failure and the transactional path did not look at the recovery barrier. Within 15 seconds the extension made two `play()` calls, with no Sync and no coordinator reply. `applyTransactionalOperation()` and `requestTransactionalPlay()` now honour the barrier: after the deadline the heartbeat asks again only when the barrier has been lifted. It is lifted by an explicit Sync, by a newer room command, and by a new player: a source change (`loadstart`, `emptied`), a media `error` event, an element replacement or a page-identity change reset the player's operations and the barrier with them, because a new player decides for itself whether the browser still refuses playback. That reset allows one new attempt per new player, not a retry on every heartbeat.
+
+Unit tests (`content-script.test.ts`, "a play() that never settles (CR-C01, #62)", with a fake element that reports itself unpaused while the promise is pending and rejects the pending promise with an `AbortError` when paused):
+
+| Behaviour | Test |
+| --- | --- |
+| A committed operation whose `play()` never settles: one call, the notice at 10 s, still one call after 30 s without a coordinator reply | "is asked for once, then left alone for 30 seconds without a coordinator reply" |
+| An explicit Sync starts one fresh `play()` and no more | "starts one fresh play() on an explicit Sync, and only one" |
+| A newer operation starts again without a Sync | "lets a newer operation start again without a Sync" |
+| The deadline pauses the unpaused element once, the interruption it causes is the old attempt's and is ignored, buffering is reported and the failure is not a permission failure | "pauses the unpaused element once at the deadline, ignores the interruption it causes and reports buffering" |
+| A replaced element: the old attempt's late rejection does not touch it and its deadline goes away. The old promise is left pending through `pause()`, so the rejection can only arrive after the replacement (with a fixture whose `pause()` settles the promise, the late result would be a no-op whether or not the guard exists) | "does not let the old element's late rejection touch a replacement element, though its promise stayed pending through pause()" |
+| Other native rejections give an actionable notice and no permission claim | "reports a NotSupportedError ..." and "... a TypeError ..." |
+| A player that is reloaded after a deadline gets one new attempt, and none more on the heartbeat in between | "is asked for once more per reloaded player, and not on the heartbeat in between" |
+| A rejected `play()` (`NotAllowedError`, `NotSupportedError`, `TypeError`), room play command and committed operation: asked for once, and still once after 30 seconds of heartbeats | "a play() the browser rejects", "is not asked for again by the heartbeat ..." (two per rejection) |
+| Lifted once by an explicit Sync, by a newer operation, by an unattributed native play event, and by `loadstart`, `emptied` or `error`; and then bound again | "is tried once more on an explicit Sync, and only once", "... for a newer operation ...", "... after an unattributed native play event ...", "allows one new attempt after a loadstart event ..." |
+| An `AbortError` is an interruption and is not counted as a rejection | "does not count an AbortError as a rejection: the interrupted play() is asked for again" |
+| Sync with no player says the shared player is still loading | "says that the shared player is still loading" |
+
+Mutation checks (a production line edited in place, the file run, the file restored): 21 mutations, 16 killed on a single edit. Of the first 10: removing both barrier guards fails three tests; each guard alone survives because the other still stops the request (defence in depth); the old attempt's timer left in place on replacement survives, because the timer's own `isCurrent()` check already makes it a no-op. Of the 11 for the rejection bound: killed are removing the stale-result guard from the rejection handler (4 tests, including the replacement test above), no latch on a rejection, an `AbortError` that latches, the ordinary path ignoring the latch, the transactional path ignoring it in both places, Sync / a newer command / a new player not lifting it, an unattributed native play not lifting it, and a latch set only for `NotAllowedError`. Survived: the stale-result guard without its `video === target` condition (the operations' own source and command generations already make a replaced element's result stale), and either one of the two transactional checks alone (each is redundant with the other).
+
+### A rejected play() is not retried by the heartbeat
+
+Before this change a `play()` that was rejected with `NotSupportedError`, `AbortError` or `NotAllowedError` was asked for again on every heartbeat while the room kept playing: 31 calls in 30 seconds. In a connected room the coordinator ends the start (on `NotAllowedError` at once, otherwise through the buffering grace), but the content script had no bound of its own. A rejection other than an `AbortError` (an interruption by our own `pause()`, a reload or a replacement, which is expected and is not counted) now sets a latch (`playRequestRejected` in `content-script.ts`). While it is set neither the ordinary path (`playVideo()`) nor the transactional path starts a `play()`. It is lifted by: an explicit Sync; a newer room command; a native play event that the extension did not itself request (unattributed: `handlePlay()` checks only that the play was not the extension's own request, so a person's click and a page script's own `play()` are not told apart, and no user-activation check is made); and a new player (a source change, a media `error` event, an element replacement). So there is no automatic retry after a rejection: the person acts, or the room moves on. The notice already tells the person to press Sync. A reload or an `error` event can lift the latch once per event, so the bound is per player instance and per command, never per heartbeat. By the media element specification a rejected `play()` does not itself fire `loadstart`, `emptied` or `error`, so the loop is not reachable through those events (this was not observed in a browser here).
+
+### Not done
+
+- Sync pressed inside the ten-second window returns silently (the pending play is neither retired nor reported). The owner has not decided whether it should retire the play and show a notice or whether the criterion should say "after the deadline".
+- A native media error resets the player's operations but has no notice or participant status of its own (the same open decision).
+- The "Hang next play" control in `apps/room-service/static/test-player.html` and a scenario in `tests/e2e/three-profile-browser-matrix.spec.ts`: outside this change, and Chromium could not be run.
+- Mapping an expired deadline to "Needs recovery" in the participant status (overlaps #64).
+
 ## Verification
 
-Focused local verification completed:
+Focused local verification completed when the change was written (historical, version 0.2.4):
 
 - `npm exec vitest run apps/extension/src/content-script.test.ts apps/extension/src/player-operations.test.ts --pool=forks --poolOptions.forks.singleFork=true`: 2 files, 64 tests passed.
 - `git diff --check`: passed.
@@ -95,4 +128,4 @@ This report does not establish:
 - remote staging or production deployment;
 - final user acceptance or release qualification.
 
-Issue #62 must remain open until its applicable source, browser, live-provider, device, deployment and user-acceptance gates are recorded. The package version remains `0.2.4`. Release `1.0.0` remains reserved for complete milestone acceptance.
+Issue #62 must remain open until its applicable source, browser, live-provider, device, deployment and user-acceptance gates are recorded. The extension is at 0.2.12 at the refresh of 2026-11-15; no #62 evidence is recorded against v0.2.7 to v0.2.12, and no release or deployment is authorized by this report. Release `1.0.0` remains reserved for complete milestone acceptance.

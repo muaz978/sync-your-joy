@@ -83,6 +83,10 @@ let seekRecoveryUntil = 0
 let hardCorrectionAttempted = false
 let correctionCount = 0
 let playbackRecoveryRequested = false
+// The browser or player rejected the last extension play() (not an interruption by our own pause or a replacement).
+// The heartbeat does not ask again: a rejection repeats until the person acts, so the next attempt waits for an
+// explicit Sync, a newer room command, a player that is new (source change or element replacement) or a native play (#62).
+let playRequestRejected = false
 let softCorrectionAttempted = false
 let softCorrectionActive = false
 let softCorrectionStartedAt = 0
@@ -774,6 +778,7 @@ function resetCorrectionBudget(): void {
   hardCorrectionAttempted = false
   correctionCount = 0
   playbackRecoveryRequested = false
+  playRequestRejected = false
   softCorrectionAttempted = false
   softCorrectionActive = false
   softCorrectionStartedAt = 0
@@ -800,6 +805,10 @@ function handlePlay(): void {
   playbackStarted = false
   playerHealth = clearPlaybackStartFailed(playerHealth)
   const expected = consumeExpectedPlay()
+  // A play event the extension did not itself request is taken as what a rejected play() was waiting for. It is not
+  // attributed to a person (a page script's own play() looks the same), and no user activation is checked.
+  if (!expected)
+    playRequestRejected = false
   const transactionalOperation = currentTransactionalOperation()
   if (!expected && transactionalOperation?.phase === 'committed' && transactionalOperation.resumeWhenReady !== false) {
     // A direct player gesture can recover an autoplay rejection without a
@@ -1315,7 +1324,7 @@ function clearScheduledPlay(): void {
 }
 
 function playVideo(): void {
-  if (!video || video.readyState === HTMLMediaElement.HAVE_NOTHING || video.seeking || pendingSeek !== null)
+  if (!video || video.readyState === HTMLMediaElement.HAVE_NOTHING || video.seeking || pendingSeek !== null || playRequestRejected)
     return
   requestVideoPlay(() => {
     renderPill()
@@ -1388,6 +1397,7 @@ function requestVideoPlay(onStarted: () => void, blockedNotice: string, onFailed
       return
     }
     onFailed?.()
+    playRequestRejected = true
     playerHealth = name === 'NotAllowedError'
       ? markPlaybackStartFailed(playerHealth)
       : clearPlaybackStartFailed(playerHealth)
@@ -1566,7 +1576,10 @@ function applyTransactionalOperation(operation: RoomOperation): boolean {
   }
 
   if (video.paused) {
-    requestTransactionalPlay(key)
+    // A play() that never answered has set the recovery barrier. Only an explicit Sync or a
+    // newer room command lifts it; the heartbeat must not ask the provider again (#62).
+    if (!playbackRecoveryRequested && !playRequestRejected)
+      requestTransactionalPlay(key)
     return true
   }
 
@@ -1581,7 +1594,7 @@ function applyTransactionalOperation(operation: RoomOperation): boolean {
 }
 
 function requestTransactionalPlay(key: string): void {
-  if (transactionalPlayAttemptKey === key)
+  if (transactionalPlayAttemptKey === key || playbackRecoveryRequested || playRequestRejected)
     return
   const operation = currentTransactionalOperation()
   if (!operation || transactionalOperationKey(operation) !== key)
