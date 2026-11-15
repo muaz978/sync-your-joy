@@ -1,4 +1,4 @@
-import type { ParticipantPlaybackStatus } from '@syncyourjoy/protocol'
+import type { ParticipantPlaybackStatus, ProgressEvidenceQuality } from '@syncyourjoy/protocol'
 
 export interface LocalPlaybackStatusInput {
   connected: boolean
@@ -13,6 +13,12 @@ export interface LocalPlaybackStatusInput {
   playbackStartFailed: boolean
   playbackStarted: boolean | null
   progressed: boolean
+  /**
+   * What the progress was measured with. Only `frames` confirms playback; the
+   * media clock alone does not, and neither does unknown evidence (owner
+   * decision on #53). Required, so no caller can leave the question out.
+   */
+  progressEvidence: ProgressEvidenceQuality
   drifted?: boolean
   progressAgeMs: number | null
   statusAgeMs: number | null
@@ -25,6 +31,25 @@ export interface PlaybackStatusCopy {
   action: string
 }
 
+export interface LocalPlaybackClassification {
+  status: ParticipantPlaybackStatus
+  /**
+   * The player is playing and its media clock advances, but no frame counter
+   * confirms rendered video. The status is then `preparing`, never `playing`,
+   * and the person should be told why with `CLOCK_ONLY_PLAYBACK_COPY`.
+   */
+  clockOnly: boolean
+  /** Progress was reported, but of unknown quality (for example after a counter reset): not confirmed, and not the clock either. */
+  framesUnconfirmed: boolean
+}
+
+/** Shown instead of "Playing, confirmed" for a player whose progress is measured by the media clock alone. */
+export const CLOCK_ONLY_PLAYBACK_COPY: PlaybackStatusCopy = {
+  label: 'Playing, not frame-confirmed',
+  detail: 'No rendered-frame counter is available, so only the media clock shows progress.',
+  action: 'Check that the video is moving',
+}
+
 const SILENCE_TIMEOUT_MS = 5_000
 const PROGRESS_TIMEOUT_MS = 1_800
 
@@ -33,6 +58,16 @@ const PROGRESS_TIMEOUT_MS = 1_800
  * reads provider internals, media bytes or credentials.
  */
 export function localPlaybackStatus(input: LocalPlaybackStatusInput): ParticipantPlaybackStatus {
+  return classifyLocalPlayback(input).status
+}
+
+export function classifyLocalPlayback(input: LocalPlaybackStatusInput): LocalPlaybackClassification {
+  const unavailable = classifyUnlessRoomPlaying(input)
+  return unavailable !== null ? { status: unavailable, clockOnly: false, framesUnconfirmed: false } : classifyWhileRoomPlays(input)
+}
+
+/** The status that does not depend on playback progress, or null when the room plays and the player is usable. */
+function classifyUnlessRoomPlaying(input: LocalPlaybackStatusInput): ParticipantPlaybackStatus | null {
   if (!input.connected)
     return 'unknown'
   if (!input.hasVideo)
@@ -48,21 +83,37 @@ export function localPlaybackStatus(input: LocalPlaybackStatusInput): Participan
       return 'preparing'
     return input.buffering ? 'buffering' : 'ready'
   }
+  return null
+}
+
+function classifyWhileRoomPlays(input: LocalPlaybackStatusInput): LocalPlaybackClassification {
+  const plain = (status: ParticipantPlaybackStatus): LocalPlaybackClassification => ({ status, clockOnly: false, framesUnconfirmed: false })
   if (input.statusAgeMs !== null && input.statusAgeMs >= SILENCE_TIMEOUT_MS)
-    return 'silent'
+    return plain('silent')
   if (input.buffering)
-    return 'buffering'
-  if (input.paused === true)
-    return 'recovery-required'
-  if (input.drifted)
-    return 'recovery-required'
+    return plain('buffering')
+  if (input.paused === true || input.drifted)
+    return plain('recovery-required')
   if (input.playbackStarted === false)
-    return 'preparing'
+    return plain('preparing')
   if (input.progressAgeMs !== null && input.progressAgeMs >= PROGRESS_TIMEOUT_MS)
-    return 'recovery-required'
-  if (input.progressed)
-    return 'playing'
-  return 'preparing'
+    return plain('recovery-required')
+  if (!input.progressed)
+    return plain('preparing')
+  if (input.progressEvidence === 'frames')
+    return plain('playing')
+  return { status: 'preparing', clockOnly: input.progressEvidence === 'clock', framesUnconfirmed: input.progressEvidence !== 'clock' }
+}
+
+/**
+ * Replaces the generic "Preparing" text of a pill with `CLOCK_ONLY_PLAYBACK_COPY`. Any other
+ * text (reconnecting, a seek count) is left as it is.
+ */
+export function withClockOnlyPillText(pill: { status: string; meta: string }, controller: boolean): { status: string; meta: string } {
+  const preparing = playbackStatusCopy('preparing', controller)
+  if (pill.status !== preparing.label)
+    return pill
+  return { status: CLOCK_ONLY_PLAYBACK_COPY.label, meta: pill.meta.replace(preparing.detail, CLOCK_ONLY_PLAYBACK_COPY.detail) }
 }
 
 export function playbackStatusCopy(status: ParticipantPlaybackStatus, controller: boolean): PlaybackStatusCopy {
