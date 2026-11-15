@@ -148,14 +148,24 @@ const DIAGNOSTIC_RUN_BOUNDARIES = new Set(['media_lost', 'player_unreachable', '
 // whole report over the validator's limit.
 const MAX_REPORTED_DIAGNOSTIC_COUNT = 100_000
 const lastCoalescibleDiagnostics = new Map<string, { event: DiagnosticEvent; signature: string }>()
-// Why the room or this player last stopped, for the report's `reason`. It is
-// kept with the operation that was current and with where it came from, so
-// that it is dropped by what ends it instead of outliving it: another
-// operation, the room taking this client back (a rejoin or a new room, the
-// only time a report can be asked for again after an outage), a player that
-// reports healthy playback again (its own reasons) or a room that plays again.
+// Why the room or this player last stopped, for the report's `reason`. Each
+// cause has a slot of its own, so that one ending does not take another's
+// explanation with it: the local player (its own stall or refused play), the
+// room (the coordinator's snapshot reasons) and a refused command or server
+// error (`event`). The report shows the newest slot that still holds.
+//
+// A slot holds only for the operation period it was recorded in. A period is
+// counted, not named: "no operation" before an operation and after it are two
+// periods, so a reason from before cannot come back when the operation is over.
+// Slots end otherwise by what ends them: the room taking this client back, a
+// player that reports healthy playback again (its own slot) and a room that
+// plays again (the room's slot).
 type DiagnosticReasonSource = 'player' | 'room' | 'event'
-let lastDiagnosticReason: { reason: DiagnosticReason; operationId: string | null; source: DiagnosticReasonSource } | null = null
+interface RememberedReason { reason: DiagnosticReason; operationPeriod: number; order: number }
+const rememberedReasons = new Map<DiagnosticReasonSource, RememberedReason>()
+let reasonOrder = 0
+let operationPeriod = 0
+let lastOperationIdentity: string | null = null
 let diagnosticCollection: DiagnosticCollection | null = null
 // This identity is deliberately persisted separately from ExtensionState so
 // it is not sent to extension views or copied into room-state events. Content
@@ -426,8 +436,8 @@ async function handleRuntimeRequest(request: RuntimeRequest, sender: chrome.runt
         canPlay: typeof request.sample.canPlay === 'boolean' ? request.sample.canPlay : null,
       }, statusReason ? { reason: statusReason, reasonSource: 'player' } : {})
       // A player that reports healthy playback again has no reason of its own left.
-      if (!statusReason && lastDiagnosticReason?.source === 'player')
-        lastDiagnosticReason = null
+      if (!statusReason)
+        forgetDiagnosticReasons('player')
       sendToServer({ type: 'player_status', basedOnRevision: request.basedOnRevision, sample: request.sample })
       // Fire-and-forget, matching the 'pong' handler below: this fires on a
       // ~1s timer while media plays, so awaiting the storage write here
@@ -956,9 +966,12 @@ function handleServerMessage(raw: string, fromCurrentSocket = true): void {
     // connection was down shows up here, not in a snapshot.
     const previousPlayback = state.snapshot?.playback ?? null
     state.snapshot = message.snapshot
+    noteOperationIdentity()
     state.lastError = null
-    // The room has taken this client back, so the outage or the old room's trouble is over.
-    lastDiagnosticReason = null
+    // The room has taken this client back, so the outage or the old room's trouble is over. Only the
+    // current socket says so: a join answered late on a replaced socket is not this room's news.
+    if (fromCurrentSocket)
+      forgetDiagnosticReasons('player', 'room', 'event')
     recordDiagnostic('room', 'room_joined', { revision: message.snapshot.revision })
     recordRoomPositionJump(previousPlayback, message.snapshot, 'room_joined')
     recordRoomStatusChange(previousPlayback, message.snapshot, 'room_joined')
@@ -971,8 +984,10 @@ function handleServerMessage(raw: string, fromCurrentSocket = true): void {
   if (message.type === 'room_snapshot') {
     const previousPlayback = state.snapshot?.playback ?? null
     const snapshotApplied = !state.snapshot || message.snapshot.revision >= state.snapshot.revision
-    if (snapshotApplied)
+    if (snapshotApplied) {
       state.snapshot = message.snapshot
+      noteOperationIdentity()
+    }
     state.connection = 'connected'
     state.lastError = null
     // The coordinator's reasons are underscore strings; the report has the protocol's own codes.
@@ -986,7 +1001,7 @@ function handleServerMessage(raw: string, fromCurrentSocket = true): void {
     }, snapshotApplied && snapshotReason ? { reason: snapshotReason, reasonSource: 'room' } : {})
     // The room plays again and nothing new stopped it: what it was waiting on is over.
     if (snapshotApplied && !snapshotReason && message.snapshot.playback.status === 'playing')
-      lastDiagnosticReason = null
+      forgetDiagnosticReasons('room')
     if (snapshotApplied)
       recordRoomPositionJump(previousPlayback, message.snapshot, message.reason)
     if (snapshotApplied)
@@ -1014,6 +1029,7 @@ function handleServerMessage(raw: string, fromCurrentSocket = true): void {
     if (message.snapshot) {
       const previousPlayback = state.snapshot?.playback ?? null
       state.snapshot = message.snapshot
+      noteOperationIdentity()
       recordRoomStatusChange(previousPlayback, message.snapshot, message.code)
     }
     recordDiagnostic('error', 'command_rejected', {
@@ -1737,12 +1753,32 @@ function recordRoomPositionJump(previousPlayback: PlaybackState | null, snapshot
 }
 
 function rememberDiagnosticReason(reason: DiagnosticReason, source: DiagnosticReasonSource): void {
-  lastDiagnosticReason = { reason, operationId: state.snapshot?.contract?.operation?.operationId ?? null, source }
+  reasonOrder += 1
+  rememberedReasons.set(source, { reason, operationPeriod, order: reasonOrder })
 }
 
-/** The reason that still holds: the one given for the operation that is current now, if any. */
-function currentDiagnosticReason(operationId: string | null): DiagnosticReason {
-  return lastDiagnosticReason && lastDiagnosticReason.operationId === operationId ? lastDiagnosticReason.reason : 'none'
+function forgetDiagnosticReasons(...sources: DiagnosticReasonSource[]): void {
+  for (const source of sources)
+    rememberedReasons.delete(source)
+}
+
+/** Called whenever the room snapshot is replaced, before anything is recorded about it. */
+function noteOperationIdentity(): void {
+  const identity = state.snapshot?.contract?.operation?.operationId ?? null
+  if (identity === lastOperationIdentity)
+    return
+  lastOperationIdentity = identity
+  operationPeriod += 1
+}
+
+/** The newest reason that was recorded in the operation period that is current now. */
+function currentDiagnosticReason(): DiagnosticReason {
+  let newest: RememberedReason | null = null
+  for (const entry of rememberedReasons.values()) {
+    if (entry.operationPeriod === operationPeriod && (newest === null || entry.order > newest.order))
+      newest = entry
+  }
+  return newest?.reason ?? 'none'
 }
 
 function recordDiagnostic(category: string, message: string, details: Record<string, DiagnosticValue> = {}, options: { critical?: boolean; reason?: DiagnosticReason; reasonSource?: DiagnosticReasonSource } = {}): void {
@@ -1893,7 +1929,7 @@ function buildDiagnosticsReport(): DiagnosticsReport {
     progressConfidence: sample?.progressEvidence ?? null,
     observationAgeMs: sample ? Math.max(0, nowMs - sample.sampledAtLocalMs) : state.playerLastSeenAtMs > 0 ? Math.max(0, nowMs - state.playerLastSeenAtMs) : null,
     correctionCount: sample?.correctionCount ?? state.playerDiagnostics?.health?.correctionCount ?? 0,
-    reason: operation?.reason ?? currentDiagnosticReason(operation?.operationId ?? null),
+    reason: operation?.reason ?? currentDiagnosticReason(),
     eventsDropped: Math.min(diagnosticEventsDropped, MAX_REPORTED_DIAGNOSTIC_COUNT),
     eventsCoalesced: Math.min(diagnosticEventsCoalesced, MAX_REPORTED_DIAGNOSTIC_COUNT),
     payloadTruncated: false,
