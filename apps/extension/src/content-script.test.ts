@@ -1738,22 +1738,22 @@ describe('adaptive player lifecycle', () => {
     // converge, and each ends in the explicit local recovery state: paused, one recovery entry, bounded writes. (The
     // 30-second runs of CR-A05 used a player that did not advance, so they could only show the paused end.)
     it.each([
-      ['accept', 800, undefined],
-      ['accept', 1_200, undefined],
-      ['accept', 2_000, undefined],
-      ['ignore', 800, undefined],
-      ['ignore', 1_200, undefined],
-      ['ignore', 2_000, undefined],
-      ['reset', 800, undefined],
-      ['reset', 1_200, undefined],
-      ['reset', 2_000, undefined],
-      ['accept', 800, 500],
-      ['accept', 1_200, 500],
-      ['accept', 2_000, 500],
-      ['throw', 800, undefined],
-      ['throw', 1_200, undefined],
-      ['throw', 2_000, undefined],
-    ] as const)('a player that %ss the rate, with a %sms seek delay and a reset after %s ms, ends paused with one recovery entry and bounded writes', async (rateMode, seekDelayMs, resetRateAfterMs) => {
+      ['accept', 800, undefined, 27.5],
+      ['accept', 1_200, undefined, 27.5],
+      ['accept', 2_000, undefined, 27.01],
+      ['ignore', 800, undefined, 30],
+      ['ignore', 1_200, undefined, 30],
+      ['ignore', 2_000, undefined, 30],
+      ['reset', 800, undefined, 30],
+      ['reset', 1_200, undefined, 30],
+      ['reset', 2_000, undefined, 30],
+      ['accept', 800, 500, 29],
+      ['accept', 1_200, 500, 29],
+      ['accept', 2_000, 500, 28.01],
+      ['throw', 800, undefined, 30],
+      ['throw', 1_200, undefined, 30],
+      ['throw', 2_000, undefined, 30],
+    ] as const)('a player that %ss the rate, with a %sms seek delay and a reset after %s ms, ends paused with one recovery entry and bounded writes, %s s behind the room', async (rateMode, seekDelayMs, resetRateAfterMs, finalDriftSeconds) => {
       const notices = recordNotices()
       establishSoftCorrection(rateMode, 0.3)
 
@@ -1764,6 +1764,9 @@ describe('adaptive player lifecycle', () => {
       const recovered = video.paused && recoveryEntries(notices) === 1
       expect(converged || recovered).toBe(true)
       expect(recovered).toBe(true)
+      // Recovery is not convergence: the paused player is left behind a room that kept playing, by what it missed.
+      expect(Math.abs(driftNow())).toBeGreaterThanOrEqual(0.12)
+      expect(driftNow()).toBeCloseTo(finalDriftSeconds, 1)
       expect(recoveryEntries(notices)).toBe(1)
       expect(video.writes).toHaveLength(1)
       // One soft attempt only, whatever the player did with it: a player that kept the rate gets it put back, and one that

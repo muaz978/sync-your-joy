@@ -14,6 +14,8 @@ Per the owner decision of 2026-10-31 on #52, the provider, two-account, two-devi
 | Candidate package SHA-256 | No package was built or loaded, and production code is unchanged. |
 | Repository version | 0.2.12 |
 | Test date and timezone | 2026-11-15, UTC+03:00 |
+| Tester or verification owner | Implementation agent for the owner, muaz978 |
+| Operating system | macOS 27.2.1 (build 26B131), arm64 (Darwin 27.2.0) |
 | Browser and version | None. Vitest 5.1.0 on Node. |
 | Provider, account, device, deployment | None. |
 
@@ -45,15 +47,28 @@ The 30-second runs of CR-A05 used a player whose position and frames did not mov
 | 2. A rate is accepted only if the observed value stays within tolerance | Pass (unchanged) | `clock.test.ts`; and "ignore", "reset" and "throw" rows below. |
 | 3. No soft rate before real rendered progress | Pass | "does not start a soft correction for a player that shows no recent rendered progress, and corrects it hard once" against "does start a soft correction for the same drift once the player has shown recent rendered progress" (the same 0.3 s drift; one with no progress, one with). This replaces the earlier test of that name, which only compared 1 with 1.02 and never had a case without progress. |
 | 4. Rate restored on buffering, native seek, pause and source change | Pass (unchanged) | The four existing "stops a soft rate correction ..." tests. |
-| 5. Ignored, reset or throwing setter: at most one hard correction, then explicit recovery | Pass | The matrix: "a player that %ss the rate, with a %sms seek delay and a reset after %s ms, ends paused with one recovery entry and bounded writes". For each of accept, ignore, reset, accept-then-reset-after-500-ms and throw, at 800, 1,200 and 2,000 ms: paused, exactly one recovery notice, exactly one hard write, one soft attempt (the rate written `[1.02, 1]` for a player that kept it, `[1.02]` otherwise), and no further attempt over 30 s, not even inside the grace after the hard seek. |
+| 5. Ignored, reset or throwing setter: at most one hard correction, then explicit recovery | Pass | The matrix: "a player that %ss the rate, with a %sms seek delay and a reset after %s ms, ends paused with one recovery entry and bounded writes". For each of accept, ignore, reset, accept-then-reset-after-500-ms and throw, at 800, 1,200 and 2,000 ms: paused, exactly one recovery notice, exactly one hard write, one soft attempt (the rate written `[1.02, 1]` for a player that kept it, `[1.02]` otherwise), and no further attempt over 30 s, not even inside the grace after the hard seek. | Final drift is asserted per row (see the table below).
 | 6. 30-second runs at 800, 1,200 and 2,000 ms | Pass | The same matrix. No combination converges, because one soft rate of about 2 % for at most 2.5 s closes about 0.05 s and the hard seek lands a whole seek delay behind a room that did not wait (this confirms the source trace on #52). |
+| Final drift per recovery row | Pass | Asserted in each matrix row (rounded to 0.1 s) and not left transient. A recovery row is, by design, not converged: the player is paused and the room kept playing. See "Final drift of the 15 matrix rows". |
 | 7. A newer room command retires the older correction | Pass (unchanged) | "lets a newer room command retire the previous soft correction". |
 | Reset after acceptance (not only a rejection at assignment) | Pass | "notices an accepted rate that the player then resets and corrects hard within two seconds, not at the expiry". |
 | The 2.5 second expiry | Pass | "puts the rate back when the 2.5 second expiry fires, and does not apply another soft rate" (rate still 1.02 at 2.49 s, back to 1 at 2.52 s, no second soft write in 20 s). |
 | A drift the soft rate can close does converge | Pass | "converges without a hard seek or a recovery entry when the player accepts the rate and is only 0.15 s behind, whatever the %sms seek delay": drift under 0.12 s, playing, no write, rate restored, no recovery entry. |
 | Recovery entries counted | Pass | Every matrix row counts the notice "Playback could not converge" and expects exactly one. |
-| What the room engine does with the player's reports | Pass | "is read by the room engine: a player that %ss the rate and is %s s behind leaves the room %s": the real `RoomCoordinator` receives the real `PLAYER_STATUS` messages. A player that ignores the rate at 0.3 s behind pauses the room; one that accepts it at 0.15 s behind leaves the room playing. |
-| What the recovery reports to the room, and when | Pass (measured) | "reports the recovery state to the room as buffering once the startup grace has passed, at most once per second". |
+| What the room engine does with the player's reports | Pass (one end state only) | "is read by the room engine: a player that %ss the rate and is %s s behind leaves the room %s": the real `RoomCoordinator` receives the real `PLAYER_STATUS` messages. A player that ignores the rate at 0.3 s behind pauses the room; one that accepts it at 0.15 s behind leaves the room playing. |
+| What the recovery reports to the room, and when | Pass (outgoing-message evidence) | "reports the recovery state to the room as buffering once the startup grace has passed, at most once per second". | This observes the status messages the content script sends (recorded from its mocked `sendMessage`), not what the room does with them. The real `RoomCoordinator` is fed those messages only in the two tests of the row above, which assert the end state (room paused or still playing), not when the room paused.
+
+## Final drift of the 15 matrix rows
+
+The room keeps playing for the whole 30 simulated seconds, so a player that ends paused is behind by what it missed. Asserted per row with `toBeCloseTo(..., 1)`; none is under 0.12 s, which is what separates the recovery end from the converged end.
+
+| Rate behavior | Seek delay 800 ms | 1,200 ms | 2,000 ms |
+| --- | --- | --- | --- |
+| accepted (soft rate kept 2.5 s, then put back) | 27.50 s | 27.50 s | 27.01 s |
+| accepted, then reset by the player after 500 ms | 29.00 s | 29.00 s | 28.01 s |
+| ignored | 30.00 s | 30.00 s | 30.00 s |
+| reset at assignment | 30.00 s | 30.00 s | 30.00 s |
+| throws | 30.00 s | 30.00 s | 30.00 s |
 
 ## Mutation checks
 
