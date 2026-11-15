@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import type { ConnectionStatus, ParticipantPlaybackStatus, ParticipantState, PlayerSample, ProgressEvidenceQuality } from '@syncyourjoy/protocol'
 import { describe, expect, it } from 'vitest'
 import { playbackStatusCopy } from './playback-status.ts'
@@ -448,6 +450,16 @@ describe('participantRowHtml: the people list', () => {
   it('says who the controller is without repeating the status', () => {
     expect(row(participant(), { isController: true })).toContain('Controller')
     expect(row(participant({ connected: false }))).toContain('Not in the room right now')
+  })
+})
+
+describe('the panel\'s styles', () => {
+  it('are generated from this module: the build scans it for class names', () => {
+    // UnoCSS only reads the source files the build lists. The row and card
+    // classes live in this module, so without it in that list they are never
+    // written to styles.css and the markup renders unstyled.
+    const build = readFileSync(fileURLToPath(new URL('../../../scripts/build-extension.mjs', import.meta.url)), 'utf8')
+    expect(build).toMatch(/markupModules\s*=\s*\[[^\]]*panel-status-view\.ts/)
   })
 })
 
