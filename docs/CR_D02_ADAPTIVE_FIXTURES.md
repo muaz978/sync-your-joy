@@ -87,7 +87,7 @@ The page stores a bounded, test-readable snapshot at `window.__SYNCYOURJOY_ADAPT
 - `disjoint-offset-applied` (at segment 5 by default, `disjointAt` overrides it: see the keyframe note above);
 - `hold-start` and `hold-released` (with the reason: `button`, `api`, `source-replaced` or `timeout`; a held loader always releases itself after 30 seconds);
 - `playback-rate-changed` and `playback-rate-reset`;
-- `player-mounted`, `node-replaced`, `source-replaced` and `load-superseded` (an older loader found that a newer load had started and stopped appending; `at` says where, `manifest`, `sourceopen` or a segment);
+- `player-mounted`, `node-replaced`, `source-replaced` and `load-superseded` (an older loader found that a newer load had started and stopped, doing nothing further to the element or the page's record; `at` names the stage it stopped at: `manifest`, `sourceopen`, `initialization-response`, `initialization-append`, `segment-<n>` (before that segment's request), `segment-<n>-response`, `segment-<n>-body`, `segment-<n>-append`, `segment-<n>-rate-reset` (after the rate-reset wait), `segment-<n>-hold` (after a hold), `end-of-stream`, or `error` (a call on the detached SourceBuffer threw after the replacement; a thrown error in a load that is still current is a `fixture-error` instead));
 - native media events, each recorded as `native-<type>` with the element's `readyState`, `paused`, `currentTime` and `playbackRate`: `loadstart`, `emptied`, `loadedmetadata`, `durationchange`, `canplay`, `playing`, `pause`, `waiting`, `stalled`, `seeking`, `seeked`, `ended`, `error` and `ratechange`;
 - `load-complete` or `fixture-error`.
 
@@ -182,7 +182,7 @@ Local Chromium, headless, macOS arm64, Playwright 1.65.0 (Chromium 158), on a ch
 
 | Check | Result |
 | --- | --- |
-| `adaptive-fixture.spec.ts` and `adaptive-fixture-extension.spec.ts`, 10 consecutive runs | 10 of 10 runs passed, 15 of 15 tests each (150 of 150), 28 to 33 seconds per run |
+| `adaptive-fixture.spec.ts` and `adaptive-fixture-extension.spec.ts`, 10 consecutive runs | 10 of 10 runs passed, 15 of 15 tests each (150 of 150), 29 to 34 seconds per run (run again after the stale-hold test was made independent of runner speed) |
 | Non-matrix, non-provider E2E suite (25 tests: the two adaptive specs, `extension-profile-storage-state`, `pending-approval`, `rejoin-after-leaving`, `room-ended-notice`, `two-profile-sync`), 1 run | 25 passed, 0 failed, 1.2 minutes. The opt-in authenticated provider spec was not run |
 | `npm run typecheck`, `npm test` | clean; 51 files, 1085 tests passed (8 in `tests/adaptive-fixture-server.test.ts`) |
 

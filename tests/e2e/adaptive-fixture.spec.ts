@@ -374,20 +374,43 @@ test.describe('owned adaptive loading and lifecycle fixture', () => {
 
   test('a hold that was released does not let its own timeout release the next hold', async ({ browser }, testInfo) => {
     await withFixturePage(browser, testInfo, 'stale-hold-timeout', async (page) => {
-      // The first hold lasts 1.2 s at most; the second one keeps the full limit.
-      await page.goto(`${fixture.origin}/adaptive-player.html?autostart=1&holdAfter=2&holdLimitMs=1200`)
-      await waitForFixtureEvent(page, 'hold-start', { timeout: 20_000 })
-      // The source is replaced while the first hold is on, which releases it. The
-      // replacement load runs into a hold of its own.
-      await page.locator('#replace-source').click()
+      // The first hold would time out after 3 s; the second one keeps the full
+      // 30 s limit.
+      await page.goto(`${fixture.origin}/adaptive-player.html?autostart=1&holdAfter=2&holdLimitMs=3000`)
+      // The source is replaced from inside the page, within a few milliseconds of
+      // the first hold starting, so the first hold is always still on when it is
+      // replaced (3 s of margin) whatever the runner is doing. The replacement
+      // releases it; the replacement load runs into a hold of its own.
+      const firstHold = await page.evaluate(() => new Promise<{ elapsedMs: number, limitMs: number, heldWhenReplaced: boolean }>((resolve, reject) => {
+        const fixtureApi = window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__!
+        const deadline = performance.now() + 20_000
+        const check = () => {
+          const snapshot = fixtureApi.snapshot()
+          const start = snapshot.events.find(event => event.type === 'hold-start')
+          if (start) {
+            const heldWhenReplaced = snapshot.holding
+            void fixtureApi.replaceSource('stale-hold-test')
+            resolve({ elapsedMs: start.elapsedMs, limitMs: start.limitMs as number, heldWhenReplaced })
+          }
+          else if (performance.now() > deadline) {
+            reject(new Error('The first hold never started.'))
+          }
+          else {
+            setTimeout(check, 2)
+          }
+        }
+        check()
+      }))
+      expect(firstHold.heldWhenReplaced).toBe(true)
+      expect(firstHold.limitMs).toBe(3_000)
       await page.waitForFunction(
         () => (window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__?.snapshot().events ?? []).filter(event => event.type === 'hold-start').length >= 2,
         undefined,
         { timeout: 30_000 },
       )
-      // Wait past the first hold's own 1.2 s limit. Its timer must have died
-      // with its release; the second hold is still holding.
-      await page.waitForTimeout(1_800)
+      // Wait, on the page's own clock, until the first hold's own deadline has
+      // passed by a clear margin. Its timer must have died with its release.
+      await page.waitForFunction(({ elapsedMs, limitMs }) => performance.now() > elapsedMs + limitMs + 500, firstHold, { timeout: 15_000 })
       const snapshot = await readFixtureSnapshot(page)
       expect(snapshot.holding).toBe(true)
       expect(eventsOfType(snapshot, 'hold-released')).toHaveLength(1)
