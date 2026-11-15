@@ -2105,9 +2105,20 @@ describe('a play() that never settles (CR-C01, #62)', () => {
       expect(video.pause).toHaveBeenCalledOnce()
     })
 
-    it('does not let the old element\'s late result touch a replacement element', async () => {
+    it('does not let the old element\'s late rejection touch a replacement element, though its promise stayed pending through pause()', async () => {
       const first = video
-      hangingPlayOn(first)
+      // Unlike hangingPlayOn(), pause() here leaves the promise pending: the rejection can only arrive after the replacement.
+      first.play.mockImplementation(() => {
+        first.paused = false
+        first.dispatchEvent(new Event('play'))
+        return new Promise<void>((_, reject) => { rejectPending = reject })
+      })
+      first.pause.mockImplementation(() => {
+        if (first.paused)
+          return
+        first.paused = true
+        first.dispatchEvent(new Event('pause'))
+      })
       apply('playing')
       expect(first.play).toHaveBeenCalledOnce()
       await vi.advanceTimersByTimeAsync(3_000)
@@ -2116,14 +2127,17 @@ describe('a play() that never settles (CR-C01, #62)', () => {
       const replacement = new FakeVideo()
       video = replacement
       await vi.advanceTimersByTimeAsync(2_100)
-      expect(first.pause).toHaveBeenCalledOnce()
+      expect(first.pause).toHaveBeenCalled()
+      expect(rejectPending).not.toBeNull()
+      messages.length = 0
 
       rejectPending?.(new DOMException('User activation required', 'NotAllowedError'))
       await settle()
       await vi.advanceTimersByTimeAsync(12_000)
 
+      // Nothing the old attempt reports reaches the new player: no permission failure, no notice, no deadline.
       expect(statuses().every(message => message.sample.playbackStartFailed === false)).toBe(true)
-      // The old attempt's deadline went away with it.
+      expect(notice()).not.toMatch(/blocked|could not start|Click the video player/)
       expect(notice()).not.toMatch(DID_NOT_RESPOND)
       expect(replacement.pause).not.toHaveBeenCalled()
     })
@@ -2137,6 +2151,142 @@ describe('a play() that never settles (CR-C01, #62)', () => {
 
       expect(notice()).toBe('The video could not start. Check the player, then press Sync to retry.')
       expect(statuses().at(-1)?.sample.playbackStartFailed).toBe(false)
+    })
+  })
+
+  describe('a play() the browser rejects', () => {
+    const rejection = (name: string) => new DOMException('The play() request was rejected.', name)
+    const REJECTIONS = ['NotAllowedError', 'NotSupportedError', 'TypeError']
+
+    /** Runs the heartbeat for `ms`, keeping the paused element on the room's clock, as a player that follows it does. */
+    async function runFor(ms: number): Promise<void> {
+      for (let elapsed = 0; elapsed < ms; elapsed += 1_000) {
+        video.position += 1
+        await vi.advanceTimersByTimeAsync(1_000)
+      }
+    }
+
+    function rejectEveryPlay(name: string): void {
+      video.play.mockImplementation(() => Promise.reject(rejection(name)))
+    }
+
+    describe.each(REJECTIONS)('with a %s', (name) => {
+      it('is not asked for again by the heartbeat while the room keeps playing (a room play command)', async () => {
+        rejectEveryPlay(name)
+        apply('playing')
+        await settle()
+        expect(video.play).toHaveBeenCalledOnce()
+
+        await runFor(30_000)
+        expect(video.play).toHaveBeenCalledOnce()
+      })
+
+      it('is not asked for again by the heartbeat during a committed transactional play', async () => {
+        rejectEveryPlay(name)
+        committedPlay()
+        await settle()
+        expect(video.play).toHaveBeenCalledOnce()
+
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(video.play).toHaveBeenCalledOnce()
+      })
+
+      it('is tried once more on an explicit Sync, and only once', async () => {
+        rejectEveryPlay(name)
+        apply('playing')
+        await settle()
+        await runFor(5_000)
+        expect(video.play).toHaveBeenCalledOnce()
+
+        listener({ type: 'FORCE_SYNC' })
+        await settle()
+        expect(video.play).toHaveBeenCalledTimes(2)
+
+        await runFor(30_000)
+        expect(video.play).toHaveBeenCalledTimes(2)
+      })
+
+      it('is tried once more for a newer operation, and only once', async () => {
+        rejectEveryPlay(name)
+        committedPlay('operation_play_first')
+        await settle()
+        await vi.advanceTimersByTimeAsync(5_000)
+        expect(video.play).toHaveBeenCalledOnce()
+
+        committedPlay('operation_play_second')
+        await settle()
+        expect(video.play).toHaveBeenCalledTimes(2)
+
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(video.play).toHaveBeenCalledTimes(2)
+      })
+    })
+
+    it('is tried once more after a native play from the person (a gesture), and only once', async () => {
+      rejectEveryPlay('NotAllowedError')
+      apply('playing')
+      await settle()
+      await runFor(5_000)
+      expect(video.play).toHaveBeenCalledOnce()
+
+      // The person clicks the player: a native play event the extension did not ask for. The browser then pauses it again.
+      video.paused = false
+      video.dispatchEvent(new Event('play'))
+      video.paused = true
+      await runFor(2_000)
+      expect(video.play).toHaveBeenCalledTimes(2)
+
+      await runFor(30_000)
+      expect(video.play).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not count an AbortError as a rejection: the interrupted play() is asked for again', async () => {
+      video.play
+        .mockImplementationOnce(() => Promise.reject(rejection('AbortError')))
+        .mockImplementation(() => {
+          video.paused = false
+          video.dispatchEvent(new Event('play'))
+          return Promise.resolve()
+        })
+      apply('playing')
+      await settle()
+      await runFor(2_000)
+
+      expect(video.play.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+
+    describe('and the player is replaced or reloaded (a new source is a new player)', () => {
+      it.each(['loadstart', 'emptied', 'error'])('allows one new attempt after a %s event, and none more until the next one', async (eventName) => {
+        rejectEveryPlay('NotAllowedError')
+        apply('playing')
+        await settle()
+        await runFor(5_000)
+        expect(video.play).toHaveBeenCalledOnce()
+
+        video.dispatchEvent(new Event(eventName))
+        await runFor(2_000)
+        expect(video.play).toHaveBeenCalledTimes(2)
+
+        await runFor(30_000)
+        expect(video.play).toHaveBeenCalledTimes(2)
+      })
+    })
+  })
+
+  describe('a play() that never settles, on a player that is then reloaded', () => {
+    it('is asked for once more per reloaded player, and not on the heartbeat in between', async () => {
+      hangingPlayOn(video)
+      committedPlay()
+      await settle()
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(video.play).toHaveBeenCalledOnce()
+
+      video.dispatchEvent(new Event('loadstart'))
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(video.play).toHaveBeenCalledTimes(2)
+
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(video.play).toHaveBeenCalledTimes(2)
     })
   })
 
