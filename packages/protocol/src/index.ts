@@ -832,17 +832,8 @@ export function mediaMatchesPageUrl(expected: MediaFingerprint | null, pageUrl: 
   const normalizedUrl = normalizeMediaPageUrl(pageUrl)
   if (!normalizedUrl)
     return false
-  if (expected.service === 'crunchyroll') {
-    try {
-      const url = new URL(normalizedUrl)
-      if (!(url.hostname === 'crunchyroll.com' || url.hostname.endsWith('.crunchyroll.com'))
-        || !/\/watch\/[A-Z0-9]+(?:\/|$)/i.test(url.pathname))
-        return false
-    }
-    catch {
-      return false
-    }
-  }
+  if (expected.service === 'crunchyroll' && crunchyrollWatchId(normalizedUrl) === null)
+    return false
   const candidate: MediaFingerprint = {
     service: expected.service,
     canonicalId: normalizeCanonicalId(expected.service, normalizedUrl),
@@ -851,6 +842,44 @@ export function mediaMatchesPageUrl(expected: MediaFingerprint | null, pageUrl: 
     pageUrl: normalizedUrl,
   }
   return mediaMatches(expected, candidate)
+}
+
+function isCrunchyrollHost(hostname: string): boolean {
+  return hostname === 'crunchyroll.com' || hostname.endsWith('.crunchyroll.com')
+}
+
+/** True for an address on crunchyroll.com or one of its subdomains. A lookalike host, such as crunchyroll.com.evil.example, is not. */
+export function isCrunchyrollUrl(pageUrl: string): boolean {
+  const normalized = normalizePageUrl(pageUrl)
+  if (!normalized)
+    return false
+  try {
+    return isCrunchyrollHost(new URL(normalized).hostname)
+  }
+  catch {
+    return false
+  }
+}
+
+/**
+ * The watch ID of a real Crunchyroll episode page, in upper case, on any locale
+ * (`/watch/<ID>` or `/de/watch/<ID>/title`), or null for every other address:
+ * the login page, a series or home page, an unavailable page, a path without an
+ * ID, another host. This is the only kind of page a Crunchyroll room can share.
+ */
+export function crunchyrollWatchId(pageUrl: string): string | null {
+  const normalized = normalizePageUrl(pageUrl)
+  if (!normalized)
+    return null
+  try {
+    const url = new URL(normalized)
+    if (!isCrunchyrollHost(url.hostname))
+      return null
+    return url.pathname.match(/\/watch\/([A-Z0-9]+)(?:\/|$)/i)?.[1]?.toUpperCase() ?? null
+  }
+  catch {
+    return null
+  }
 }
 
 export function normalizePageUrl(value: string): string | null {
