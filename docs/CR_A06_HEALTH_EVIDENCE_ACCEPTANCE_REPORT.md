@@ -47,7 +47,7 @@ No credential, cookie, storage state, signed URL or media byte appears in this r
 | --- | --- | --- |
 | 1. Clock evidence when counters are absent or throw | Pass | `player-health.test.ts` "uses explicit clock evidence..."; content script: "when it throws, ..." and "when it is missing, ..." and "reports a count that is not a number" |
 | 2. Zero is a valid baseline | Pass | `player-health.test.ts` "accepts zero as a real frame counter baseline..." |
-| 3. A decreasing counter is `unknown` | Pass | "does not treat a reset frame counter as progress" |
+| 3. A decreasing counter is `unknown`, whichever cursor sees it | Pass | "does not treat a reset frame counter as progress", "a counter reset seen by either comparison" (3 named sequences), and the seeded random test's reset rule |
 | 4. Seeks give no progress evidence | Pass | "excludes native and local seeks from progress evidence" |
 | 5. Stalls and startup grace | Pass | "reports a stalled playing state after the bounded no-progress interval"; "reports a freeze when the callbacks stop but the media clock keeps running" |
 | 6. Hidden then visible | Pass, with a defect fixed | "falls back to the media clock while the page is hidden ..." and "counts frames again, from a rebased baseline, once the page is visible". See below. |
@@ -61,7 +61,7 @@ No credential, cookie, storage state, signed URL or media byte appears in this r
 | 14. Frames required for "Playing, confirmed" and the started acknowledgement | Pass | "what confirms that a player is playing" and "the started acknowledgement of a transactional play" |
 | 15. Event reports between periodic samples | Pass | "reports that fall between two periodic samples" |
 | 16. Waiting latch cleared only by new progress | Pass | "a stall after progress that an event report already saw" (pure and content script), "clearing a waiting latch with and without a frame counter" |
-| 17. A verdict takes the evidence of the comparison that made it | Pass | "the evidence quality of a carried verdict", "the evidence a verdict claims comes from the comparison that made it" (named sequences and the seeded random sequence test), "progress that only the periodic cursor can see" |
+| 17. A verdict takes the evidence of the comparison that made it | Pass | "the evidence quality of a carried verdict", "the evidence a verdict claims comes from the comparison that made it" (named sequences, and a seeded random sequence test, seeds 1 to 3000, whose oracle reads the counter against the relevant readable cursor, latest or periodic, with gaps and resets), "progress that only the periodic cursor can see" |
 
 ## Defects found at unit level
 
