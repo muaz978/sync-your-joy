@@ -648,3 +648,15 @@ describe('the evidence a verdict claims comes from the comparison that made it',
     expect(claims).toBeGreaterThan(1_000)
   })
 })
+
+describe('progress that only the periodic cursor can see', () => {
+  it('counts a frame counter that advanced across a report that could not read it, as frames', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: 10 })
+    state = playing(state, { periodic: false, nowMs: 100, positionSeconds: 0, frames: null })
+    state = playing(state, { periodic: false, nowMs: 200, positionSeconds: 0.05, frames: 40 })
+
+    expect(state.progressed).toBe(true)
+    expect(state.progressEvidence).toBe('frames')
+    expect(state.hasRenderedFrameProgress).toBe(true)
+  })
+})
