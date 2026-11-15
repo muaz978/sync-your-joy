@@ -383,3 +383,352 @@ describe('adaptive streaming coordination regressions', () => {
     expect(room.snapshot()).toEqual(seekingState)
   })
 })
+
+describe('player reports: a replayed report, a client clock step and the order of reports (CR-B04, Option A)', () => {
+  /** A Play to 20 s that both players have started and are reporting progress for, one report a second. */
+  function playingWithProgress(): { room: RoomCoordinator, clock: { value: number }, revision: number, startedAtMs: number } {
+    const clock = { value: 10_000 }
+    const room = readyRoom(() => clock.value)
+    control(room, 'play', 20)
+    const state = room.snapshot()
+    const startedAtMs = state.playback.effectiveAtServerMs
+    clock.value = startedAtMs + 500
+    for (const id of ['host', 'guest'])
+      room.updatePlayerStatus(id, state.revision, sample(clock.value, 20.5, { progressed: true, playbackStarted: true }))
+    return { room, clock, revision: state.revision, startedAtMs }
+  }
+
+  const evidenceOf = (room: RoomCoordinator, id: string) => {
+    const participant = room.exportState().participants.find(item => item.id === id)
+    return { receivedAtMs: participant?.lastSampleReceivedAtMs, progressAtMs: participant?.lastProgressAtServerMs, sampledAtLocalMs: participant?.lastSample?.sampledAtLocalMs }
+  }
+
+  describe('a report delivered again', () => {
+    it('does not refresh when the coordinator last heard from the player, or when it last saw progress', () => {
+      const { room, clock, revision } = playingWithProgress()
+      const accepted = sample(clock.value, 20.5, { progressed: true, playbackStarted: true })
+      const before = evidenceOf(room, 'guest')
+      const deadlineBefore = room.nextHealthDeadlineMs()
+
+      clock.value += 700
+      expect(room.updatePlayerStatus('guest', revision, accepted)).toBeNull()
+
+      expect(evidenceOf(room, 'guest')).toEqual(before)
+      expect(room.nextHealthDeadlineMs()).toBe(deadlineBefore)
+    })
+
+    it('cannot keep a stopped player alive: repeating its last progress report does not postpone the stall pause', () => {
+      const { room, clock, revision } = playingWithProgress()
+      const lastProgressAtMs = clock.value
+      const lastReport = sample(clock.value, 20.5, { progressed: true, playbackStarted: true })
+
+      // The guest's player has frozen; something keeps delivering its last good report every 400 ms.
+      while (clock.value < lastProgressAtMs + 1_800 - 400) {
+        clock.value += 400
+        room.updatePlayerStatus('guest', revision, lastReport)
+        room.updatePlayerStatus('host', revision, sample(clock.value, 20.5 + (clock.value - lastProgressAtMs) / 1_000, { progressed: true, playbackStarted: true }))
+        expect(room.evaluateHealth()).toBeNull()
+      }
+      clock.value = lastProgressAtMs + 1_800
+      room.updatePlayerStatus('host', revision, sample(clock.value, 22.3, { progressed: true, playbackStarted: true }))
+      room.updatePlayerStatus('guest', revision, lastReport)
+
+      expect(room.evaluateHealth()).toMatchObject({
+        reason: 'participant_playback_stalled',
+        snapshot: { playback: { status: 'paused' }, participants: expect.arrayContaining([expect.objectContaining({ id: 'guest', playbackStatus: 'recovery-required' })]) },
+      })
+    })
+
+    it('cannot keep a silent, buffering player alive: repeating its last report does not postpone the silence pause', () => {
+      const { room, clock, startedAtMs } = playingWithProgress()
+      const revision = room.snapshot().revision
+      const bufferingReport = sample(startedAtMs + 600, 20.6, { buffering: true, progressed: false, playbackStarted: true })
+      clock.value = startedAtMs + 600
+      room.updatePlayerStatus('guest', revision, bufferingReport)
+      const silenceDeadlineMs = clock.value + PLAYBACK_REPORT_SILENCE_TIMEOUT_MS
+
+      // Keep the host genuinely healthy so only the guest's silence can pause the room.
+      const keepHostAlive = () => room.updatePlayerStatus('host', revision, sample(clock.value, 20 + (clock.value - startedAtMs) / 1_000, { progressed: true, playbackStarted: true }))
+      while (clock.value < silenceDeadlineMs - 500) {
+        clock.value += 500
+        keepHostAlive()
+        room.updatePlayerStatus('guest', revision, bufferingReport)
+        expect(room.evaluateHealth(), `at ${clock.value - startedAtMs} ms`).toBeNull()
+      }
+      clock.value = silenceDeadlineMs
+      keepHostAlive()
+      room.updatePlayerStatus('guest', revision, bufferingReport)
+
+      expect(room.evaluateHealth()).toMatchObject({ reason: 'participant_playback_silent', snapshot: { playback: { status: 'paused' } } })
+    })
+
+    it('rejects only a whole-report duplicate: two different reports can share a millisecond', () => {
+      const { room, clock, revision } = playingWithProgress()
+      const sharedMs = clock.value + 1_000
+      clock.value = sharedMs
+      room.updatePlayerStatus('guest', revision, sample(sharedMs, 21.5, { progressed: true, playbackStarted: true }))
+      clock.value += 50
+      room.updatePlayerStatus('guest', revision, sample(sharedMs, 21.6, { progressed: true, playbackStarted: true, correctionCount: 1 }))
+
+      const stored = room.exportState().participants.find(item => item.id === 'guest')
+      expect(stored?.lastSample).toMatchObject({ positionSeconds: 21.6, correctionCount: 1 })
+      expect(stored?.lastSampleReceivedAtMs).toBe(clock.value)
+    })
+  })
+
+  describe('a client clock that steps back', () => {
+    it('does not pause healthy players: reports whose timestamps are 5 s older than before are still taken as progress', () => {
+      const { room, clock, revision, startedAtMs } = playingWithProgress()
+      let hostClockOffsetMs = 0
+      let reported = 0
+      // Eight seconds of healthy reports, one a second from each player. The host's clock steps back 5 s after the third.
+      for (let second = 1; second <= 8; second++) {
+        clock.value = startedAtMs + 500 + second * 1_000
+        if (second === 4)
+          hostClockOffsetMs = -5_000
+        const positionSeconds = 20.5 + second
+        room.updatePlayerStatus('host', revision, sample(clock.value + hostClockOffsetMs, positionSeconds, { progressed: true, playbackStarted: true }))
+        room.updatePlayerStatus('guest', revision, sample(clock.value, positionSeconds, { progressed: true, playbackStarted: true }))
+        expect(room.evaluateHealth(), `after report ${second}`).toBeNull()
+        expect(room.snapshot().playback.status, `after report ${second}`).toBe('playing')
+        reported += 1
+      }
+
+      expect(reported).toBe(8)
+      expect(evidenceOf(room, 'host').receivedAtMs).toBe(clock.value)
+      expect(evidenceOf(room, 'host').progressAtMs).toBe(clock.value)
+      // The host's recorded report is the stepped-back one, so its next report (a second later on that clock) is newer.
+      expect(evidenceOf(room, 'host').sampledAtLocalMs).toBe(clock.value - 5_000)
+    })
+
+    it('also copes with a step back that is shorter than a report interval and with one far longer than the silence timeout', () => {
+      for (const stepMs of [400, 1_500, 60_000]) {
+        const { room, clock, revision, startedAtMs } = playingWithProgress()
+        for (let second = 1; second <= 6; second++) {
+          clock.value = startedAtMs + 500 + second * 1_000
+          const offsetMs = second >= 3 ? -stepMs : 0
+          room.updatePlayerStatus('host', revision, sample(clock.value + offsetMs, 20.5 + second, { progressed: true, playbackStarted: true }))
+          room.updatePlayerStatus('guest', revision, sample(clock.value, 20.5 + second, { progressed: true, playbackStarted: true }))
+          expect(room.evaluateHealth(), `step ${stepMs} ms, report ${second}`).toBeNull()
+        }
+        expect(room.snapshot().playback.status, `step ${stepMs} ms`).toBe('playing')
+      }
+    })
+
+    it('still pauses a player that has stopped, however its clock moved', () => {
+      const { room, clock, revision, startedAtMs } = playingWithProgress()
+      const stoppedAtMs = clock.value
+      // The host's clock steps back and its player stops: the position stays put and nothing progresses.
+      for (let second = 1; second <= 3; second++) {
+        clock.value = stoppedAtMs + second * 600
+        room.updatePlayerStatus('host', revision, sample(startedAtMs - 4_000 + second * 600, 20.5, { progressed: false, playbackStarted: true }))
+        room.updatePlayerStatus('guest', revision, sample(clock.value, 20.5 + second * 0.6, { progressed: true, playbackStarted: true }))
+      }
+      clock.value = stoppedAtMs + 1_800
+      room.updatePlayerStatus('guest', revision, sample(clock.value, 22.3, { progressed: true, playbackStarted: true }))
+
+      expect(room.evaluateHealth()).toMatchObject({
+        reason: 'participant_playback_stalled',
+        snapshot: { playback: { status: 'paused' }, participants: expect.arrayContaining([expect.objectContaining({ id: 'host', playbackStatus: 'recovery-required' })]) },
+      })
+    })
+  })
+
+  describe('a report that arrives late', () => {
+    it('is still rejected when it is older and not further along than the report already recorded', () => {
+      const { room, clock, revision, startedAtMs } = playingWithProgress()
+      clock.value = startedAtMs + 1_500
+      room.updatePlayerStatus('guest', revision, sample(clock.value, 21.5, { progressed: true, playbackStarted: true }))
+      const before = evidenceOf(room, 'guest')
+
+      clock.value += 300
+      expect(room.updatePlayerStatus('guest', revision, sample(startedAtMs + 700, 20.7, { progressed: true, playbackStarted: true }))).toBeNull()
+      // Barely ahead is not enough either: only a position clearly further along than the recorded one shows a clock change.
+      expect(room.updatePlayerStatus('guest', revision, sample(startedAtMs + 1_400, 21.55, { progressed: true, playbackStarted: true }))).toBeNull()
+
+      expect(evidenceOf(room, 'guest')).toEqual(before)
+    })
+  })
+})
+
+describe('a report in flight across a revision that is not a new command (CR-B04)', () => {
+  interface Scene {
+    room: RoomCoordinator
+    clock: { value: number }
+    playRevision: number
+    startedAtMs: number
+  }
+
+  /** A room of host, guest and a third member, playing, with host and guest reporting progress at the Play's revision. */
+  function playingRoom(): Scene {
+    const clock = { value: 10_000 }
+    const room = readyRoom(() => clock.value)
+    room.join({ id: 'third', name: 'Third', media })
+    room.respondToJoin('host', room.snapshot().controller.leaseEpoch, 'third', true)
+    room.setReady('host', true, media)
+    room.setReady('guest', true, media)
+    room.setReady('third', true, media)
+    control(room, 'play', 20)
+    const playRevision = room.snapshot().revision
+    const startedAtMs = room.snapshot().playback.effectiveAtServerMs
+    clock.value = startedAtMs + 500
+    for (const id of ['host', 'guest', 'third'])
+      room.updatePlayerStatus(id, playRevision, sample(clock.value, 20.5, { progressed: true, playbackStarted: true }))
+    return { room, clock, playRevision, startedAtMs }
+  }
+
+  const progressAtMs = (room: RoomCoordinator, id: string) => room.exportState().participants.find(item => item.id === id)?.lastProgressAtServerMs
+  const recordedSample = (room: RoomCoordinator, id: string) => room.exportState().participants.find(item => item.id === id)?.lastSample
+
+  /** The guest's next report, built on the revision it last saw, reaches the coordinator after the event. */
+  function reportInFlight(scene: Scene, overrides: Partial<PlayerSample> = {}) {
+    scene.clock.value = scene.startedAtMs + 1_300
+    return scene.room.updatePlayerStatus('guest', scene.playRevision, sample(scene.clock.value, 21.3, { progressed: true, playbackStarted: true, ...overrides }))
+  }
+
+  const events: Array<[string, (room: RoomCoordinator) => void]> = [
+    ['a join request', (room) => { room.join({ id: 'newcomer', name: 'Newcomer', media }) }],
+    ['a join request that the controller denies', (room) => {
+      room.join({ id: 'newcomer', name: 'Newcomer', media })
+      room.respondToJoin('host', room.snapshot().controller.leaseEpoch, 'newcomer', false)
+    }],
+    ['a join request that is withdrawn', (room) => {
+      room.join({ id: 'newcomer', name: 'Newcomer', media })
+      room.cancelPendingJoin('newcomer')
+    }],
+    ['a change of controller that does not pause the room', (room) => {
+      room.transferControl('host', 'guest', room.snapshot().controller.leaseEpoch)
+    }],
+    ['a member whose connection drops and who is waited for', (room) => { room.disconnect('third') }],
+    ['a member who drops and returns inside the wait', (room) => {
+      room.disconnect('third')
+      room.join({ id: 'third', name: 'Third', media })
+    }],
+  ]
+
+  for (const [name, event] of events) {
+    it(`counts a report in flight across ${name} as progress`, () => {
+      const scene = playingRoom()
+      event(scene.room)
+      expect(scene.room.snapshot().playback.status).toBe('playing')
+      expect(scene.room.snapshot().revision).toBeGreaterThan(scene.playRevision)
+
+      reportInFlight(scene)
+
+      expect(progressAtMs(scene.room, 'guest')).toBe(scene.clock.value)
+      expect(recordedSample(scene.room, 'guest')).toMatchObject({ positionSeconds: 21.3 })
+      expect(scene.room.evaluateHealth()).toBeNull()
+      expect(scene.room.snapshot().playback.status).toBe('playing')
+    })
+  }
+
+  it('counts a report in flight across a member becoming ready as progress', () => {
+    const scene = playingRoom()
+    // A member that is connected but not ready while the room plays can only be restored, never reached by a live command.
+    const stored = scene.room.exportState()
+    const third = stored.participants.find(participant => participant.id === 'third')!
+    third.ready = false
+    const room = RoomCoordinator.fromState(stored, () => scene.clock.value)
+    // A restore starts with no tolerance, so take the Play's revision from the restored room.
+    const playRevision = room.snapshot().revision
+    expect(room.setReady('third', true, media)).toMatchObject({ ok: true, reason: 'participant_ready' })
+    expect(room.snapshot().playback.status).toBe('playing')
+
+    scene.clock.value = scene.startedAtMs + 1_300
+    room.updatePlayerStatus('guest', playRevision, sample(scene.clock.value, 21.3, { progressed: true, playbackStarted: true }))
+
+    expect(progressAtMs(room, 'guest')).toBe(scene.clock.value)
+  })
+
+  it('keeps failure classification exact: a failed start reported in flight does not pause the room or block the player', () => {
+    const scene = playingRoom()
+    scene.room.join({ id: 'newcomer', name: 'Newcomer', media })
+
+    const revisionBefore = scene.room.snapshot().revision
+    const result = reportInFlight(scene, { paused: true, playbackStartFailed: true, progressed: false })
+
+    expect(result).not.toMatchObject({ reason: 'participant_playback_blocked' })
+    expect(scene.room.snapshot()).toMatchObject({ revision: revisionBefore, playback: { status: 'playing' } })
+    expect(scene.room.exportState().participants.find(participant => participant.id === 'guest')?.playbackBlocked).toBe(false)
+    // The same report at the current revision is a failure and does pause the room.
+    expect(scene.room.updatePlayerStatus('guest', scene.room.snapshot().revision, sample(scene.clock.value + 100, 21.3, { paused: true, playbackStartFailed: true, progressed: false })))
+      .toMatchObject({ ok: true, reason: 'participant_playback_blocked', snapshot: { playback: { status: 'paused' } } })
+  })
+
+  it('keeps failure classification exact: a stalled report in flight does not pause the room', () => {
+    const scene = playingRoom()
+    scene.room.join({ id: 'newcomer', name: 'Newcomer', media })
+    // The guest made no progress for longer than the timeout, but this report only counts as evidence that it is alive.
+    scene.clock.value = scene.startedAtMs + 500 + 2_500
+    scene.room.updatePlayerStatus('host', scene.room.snapshot().revision, sample(scene.clock.value, 23, { progressed: true, playbackStarted: true }))
+    scene.room.updatePlayerStatus('third', scene.room.snapshot().revision, sample(scene.clock.value, 23, { progressed: true, playbackStarted: true }))
+
+    const revisionBefore = scene.room.snapshot().revision
+    const result = scene.room.updatePlayerStatus('guest', scene.playRevision, sample(scene.clock.value, 20.5, { progressed: false, playbackStarted: true }))
+
+    expect(result).not.toMatchObject({ reason: 'participant_playback_stalled' })
+    expect(scene.room.snapshot()).toMatchObject({ revision: revisionBefore, playback: { status: 'playing' } })
+    // The stored evidence is not refreshed by a report that shows no progress, so the timer still finds the stall.
+    expect(scene.room.evaluateHealth()).toMatchObject({ reason: 'participant_playback_stalled' })
+  })
+
+  it('still rejects a report from before a new Play, after an unrelated revision', () => {
+    const scene = playingRoom()
+    scene.room.join({ id: 'newcomer', name: 'Newcomer', media })
+    scene.clock.value = scene.startedAtMs + 1_000
+    control(scene.room, 'play', 40)
+    const beforeLate = recordedSample(scene.room, 'guest')
+
+    const result = reportInFlight(scene)
+
+    expect(result).toBeNull()
+    expect(recordedSample(scene.room, 'guest')).toEqual(beforeLate)
+    expect(recordedSample(scene.room, 'guest')).toBeNull()
+  })
+
+  it('still rejects a report from before a resuming seek, after an unrelated revision', () => {
+    const scene = playingRoom()
+    scene.room.join({ id: 'newcomer', name: 'Newcomer', media })
+    scene.clock.value = scene.startedAtMs + 1_000
+    control(scene.room, 'seek', 300)
+    const beforeLate = recordedSample(scene.room, 'guest')
+
+    expect(reportInFlight(scene)).toBeNull()
+    expect(recordedSample(scene.room, 'guest')).toEqual(beforeLate)
+  })
+
+  it('still rejects a report stamped before the Play and one stamped ahead of the room', () => {
+    const scene = playingRoom()
+    scene.room.join({ id: 'newcomer', name: 'Newcomer', media })
+    scene.clock.value = scene.startedAtMs + 1_300
+    const beforeLate = recordedSample(scene.room, 'guest')
+
+    expect(scene.room.updatePlayerStatus('guest', scene.playRevision - 1, sample(scene.clock.value, 21.3, { progressed: true, playbackStarted: true }))).toBeNull()
+    expect(scene.room.updatePlayerStatus('guest', scene.room.snapshot().revision + 1, sample(scene.clock.value, 21.3, { progressed: true, playbackStarted: true }))).toBeNull()
+    expect(recordedSample(scene.room, 'guest')).toEqual(beforeLate)
+  })
+
+  it('does not carry the tolerance across a command in between: a report from before an intervening pause and Play is rejected', () => {
+    const scene = playingRoom()
+    scene.room.join({ id: 'newcomer', name: 'Newcomer', media })
+    scene.clock.value = scene.startedAtMs + 900
+    const afterJoin = scene.room.snapshot()
+    scene.room.control('host', { actionId: 'pause-between', basedOnRevision: afterJoin.revision, leaseEpoch: afterJoin.controller.leaseEpoch, kind: 'pause', positionSeconds: 21 })
+    scene.room.join({ id: 'second', name: 'Second', media })
+
+    expect(reportInFlight(scene)).toBeNull()
+  })
+
+  it('does not keep the tolerance across a restore: a restored room starts with none', () => {
+    const scene = playingRoom()
+    scene.room.join({ id: 'newcomer', name: 'Newcomer', media })
+    scene.clock.value = scene.startedAtMs + 1_300
+    const restored = RoomCoordinator.fromState(scene.room.exportState(), () => scene.clock.value)
+
+    const progressBefore = progressAtMs(restored, 'guest')
+    restored.updatePlayerStatus('guest', scene.playRevision, sample(scene.clock.value, 21.3, { progressed: true, playbackStarted: true }))
+    expect(progressAtMs(restored, 'guest')).toBe(progressBefore)
+    restored.updatePlayerStatus('guest', restored.snapshot().revision, sample(scene.clock.value, 21.3, { progressed: true, playbackStarted: true }))
+    expect(progressAtMs(restored, 'guest')).toBe(scene.clock.value)
+  })
+})

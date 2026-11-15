@@ -28,7 +28,7 @@ import {
   supportsTransactionalOperations,
 } from '@syncyourjoy/protocol'
 import { expectedPosition } from './clock.ts'
-import { DISCONNECT_PAUSE_GRACE_MS, AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_MAX_OFFSET_SECONDS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isPlaybackPastStartupGrace, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
+import { DISCONNECT_PAUSE_GRACE_MS, AUTO_RESUME_ARM_LIMIT, AUTO_RESUME_BACKOFF_MS, AUTO_RESUME_MAX_ATTEMPTS, AUTO_RESUME_MAX_OFFSET_SECONDS, AUTO_RESUME_POLL_MS, AUTO_RESUME_SAMPLE_FRESH_MS, AUTO_RESUME_STABLE_MS, AUTO_RESUME_WINDOW_MS, PLAYBACK_BUFFERING_GRACE_MS, PLAYBACK_BUFFERING_REPORT_GAP_MS, hasPlaybackProgressStalled, hasPlaybackStartupTimedOut, isDuplicateSample, isPlaybackPastStartupGrace, isStaleSample, PLAYBACK_POSITION_ADVANCE_SECONDS, playbackProgressDeadlineMs, playbackReportSilenceDeadlineMs, playbackStartupDeadlineMs, PLAYBACK_PROGRESS_TIMEOUT_MS, PLAYBACK_STARTUP_GRACE_MS, PLAYBACK_STARTUP_TIMEOUT_MS } from './playback-health.ts'
 import { isSettledPausedSeek } from './operation-state.ts'
 import { ROOM_TIMELINE_LIMIT, TIMELINE_PARTICIPANT_LIMIT, timelineStateKey } from './room-timeline.ts'
 import { participantPlaybackStatus } from './participant-status.ts'
@@ -145,10 +145,18 @@ export class RoomCoordinator {
   private readonly actionIds = new Set<string>()
   private navigation: SharedNavigation | null = null
   private controlRevisionFloor = 0
-  // Start acknowledgements advance the revision without changing the play
-  // command. This records the latest unbroken run of such revisions so a
-  // heartbeat stamped just before one of them still proves progress.
-  private startAcknowledgementRun: { fromRevision: number, toRevision: number } | null = null
+  // Some events advance the revision without changing what the players are
+  // playing against: a start acknowledgement, a join request that is answered
+  // or withdrawn, a change of controller that does not pause the room, a
+  // member whose dropped connection is waited for or who returns inside the
+  // wait, a member becoming ready. This records the latest unbroken run of
+  // such revisions, starting at the revision of the command that preceded it,
+  // so a report stamped with any revision of the run still proves the player is
+  // alive and progressing. It is kept in memory only: a restored room starts
+  // with none, and any other revision (a new command, a pause, a seek, a
+  // membership change that pauses) ends the run because the run only holds
+  // while it ends at the current revision.
+  private tolerableRevisionRun: { fromRevision: number, toRevision: number } | null = null
   private pendingSeek: SharedSeek | null = null
   private contract: RoomContractSnapshot
 
@@ -314,7 +322,9 @@ export class RoomCoordinator {
       this.disconnectGrace.delete(participant.id)
       // A return after the grace has run out is a timeout whether or not its sweep has run yet.
       const inTime = waited !== undefined && this.now() - waited.sinceMs < DISCONNECT_PAUSE_GRACE_MS
+      let ridesOut = false
       if (inTime && existing.ready && this.canRideOutDisconnect()) {
+        ridesOut = true
         // Away for seconds, so its last report is old: it gets a fresh window to report, not a stall.
         existing.lastSampleReceivedAtMs = this.now()
         existing.lastProgressAtServerMs = this.now()
@@ -322,8 +332,14 @@ export class RoomCoordinator {
       else {
         this.pauseForMembershipChange()
       }
+      const revisionBeforeNegotiation = this.revision
       this.refreshNegotiation()
-      this.revision += 1
+      // Riding out the drop leaves the Play as it was, unless the return took the
+      // room off the transactional path and so cancelled the operation.
+      if (ridesOut && this.revision === revisionBeforeNegotiation)
+        this.bumpRevisionKeepingPlayerEvidence()
+      else
+        this.revision += 1
       this.markStateBarrier()
       return this.success('participant_reconnected')
     }
@@ -345,7 +361,7 @@ export class RoomCoordinator {
       alreadyPending.media = participant.media
       alreadyPending.capabilities = capabilities
       if (changed) {
-        this.revision += 1
+        this.bumpRevisionKeepingPlayerEvidence()
         this.markStateBarrier()
       }
       return this.success('join_pending')
@@ -371,7 +387,7 @@ export class RoomCoordinator {
       capabilities,
       requestedAtMs: this.now(),
     })
-    this.revision += 1
+    this.bumpRevisionKeepingPlayerEvidence()
     this.markStateBarrier()
     return this.success('join_pending')
   }
@@ -402,7 +418,7 @@ export class RoomCoordinator {
     this.pendingJoinRequests.delete(participantId)
 
     if (!approve) {
-      this.revision += 1
+      this.bumpRevisionKeepingPlayerEvidence()
       this.markStateBarrier()
       return this.success('join_denied')
     }
@@ -464,7 +480,7 @@ export class RoomCoordinator {
   private cancelPendingJoinCore(participantId: string): RoomResult | null {
     if (!this.pendingJoinRequests.delete(participantId))
       return null
-    this.revision += 1
+    this.bumpRevisionKeepingPlayerEvidence()
     this.markStateBarrier()
     return this.success('join_cancelled')
   }
@@ -536,9 +552,13 @@ export class RoomCoordinator {
           : 'preparing'
     if (participant.ready === previousReady && participant.mediaMatches === previousMediaMatches)
       return this.success('readiness_unchanged')
-    if (!participant.ready)
+    if (!participant.ready) {
       this.pauseForMembershipChange('participant-not-ready')
-    this.revision += 1
+      this.revision += 1
+    }
+    else {
+      this.bumpRevisionKeepingPlayerEvidence()
+    }
     this.markStateBarrier()
     return this.success(participant.ready ? 'participant_ready' : 'participant_not_ready')
   }
@@ -749,12 +769,7 @@ export class RoomCoordinator {
     participant.lastProgressAtServerMs = nowMs
     if (operation.startedParticipantIds.length === operation.requiredParticipantIds.length)
       operation.phase = 'started'
-    const run = this.startAcknowledgementRun
-    this.startAcknowledgementRun = {
-      fromRevision: run?.toRevision === this.revision ? run.fromRevision : this.revision,
-      toRevision: this.revision + 1,
-    }
-    this.revision += 1
+    this.bumpRevisionKeepingPlayerEvidence()
     return this.success(operation.phase === 'started' ? 'operation_started' : 'operation_participant_started')
   }
 
@@ -975,15 +990,16 @@ export class RoomCoordinator {
   /**
    * Decide whether a player report stamped with `basedOnRevision` still
    * describes the current play command. Reports from before any new command,
-   * seek, readiness or media change must stay rejected; reports that only
-   * missed start acknowledgements (`startAcknowledgementRun`) are still valid
-   * progress evidence. Failure classification separately keeps requiring an
-   * exact revision match in `updatePlayerStatus`.
+   * seek or media change, or from before a membership change that pauses the
+   * room, must stay rejected; reports that only missed events that change
+   * nothing the players are playing against (`tolerableRevisionRun`) are still
+   * valid progress evidence. Failure classification separately keeps requiring
+   * an exact revision match in `updatePlayerStatus`.
    */
   private isSampleRevisionCurrent(basedOnRevision: number): boolean {
     if (basedOnRevision === this.revision)
       return true
-    const run = this.startAcknowledgementRun
+    const run = this.tolerableRevisionRun
     return run !== null
       && run.toRevision === this.revision
       && basedOnRevision >= run.fromRevision
@@ -1014,7 +1030,8 @@ export class RoomCoordinator {
     // created a pending seek. Cancel that barrier before changing the lease,
     // otherwise its old revision could still collect acknowledgements and
     // resume playback after control has moved to another participant.
-    if (this.pendingSeek || this.hasActiveOperation())
+    const paused = this.pendingSeek !== null || this.hasActiveOperation()
+    if (paused)
       this.pauseForMembershipChange('superseded')
 
     const current = this.participants.get(this.controllerId)
@@ -1024,7 +1041,10 @@ export class RoomCoordinator {
     this.controllerId = nextController.id
     nextController.role = 'controller'
     this.leaseEpoch += 1
-    this.revision += 1
+    if (paused)
+      this.revision += 1
+    else
+      this.bumpRevisionKeepingPlayerEvidence()
     this.markStateBarrier()
     return this.success('control_transferred')
   }
@@ -1109,8 +1129,15 @@ export class RoomCoordinator {
     if (!participant || !this.isSampleRevisionCurrent(basedOnRevision))
       return null
 
+    // The coordinator orders reports; it does not judge which media element or
+    // binding one came from (the extension checks that before it sends one). A
+    // report it already holds, delivered again, changes nothing: it must not
+    // refresh when the player was last heard from or last seen to progress. A
+    // report stamped earlier than the recorded one is a late delivery only
+    // while its position is not further along; one that is clearly further along
+    // came from a client clock that stepped back, and is the newer report.
     const priorSample = participant.lastSample
-    if (priorSample !== null && sample.sampledAtLocalMs < priorSample.sampledAtLocalMs)
+    if (priorSample !== null && (isDuplicateSample(priorSample, sample) || isStaleSample(priorSample, sample)))
       return null
 
     const nowMs = this.now()
@@ -1128,7 +1155,7 @@ export class RoomCoordinator {
     // due to correction seeks even when an adaptive player decodes no frames.
     // Keep the positional fallback only for clients that omit this field.
     const progressed = sample.progressed ?? (priorSample !== null
-      && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= 0.12)
+      && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= PLAYBACK_POSITION_ADVANCE_SECONDS)
     participant.lastSample = sample
     participant.lastSampleReceivedAtMs = nowMs
     // A report that says the player cannot play ends the stability window an
@@ -1484,12 +1511,14 @@ export class RoomCoordinator {
     participant.connected = false
     participant.playbackStatus = 'unknown'
 
-    if (!intentional && this.canRideOutDisconnect())
+    if (!intentional && this.canRideOutDisconnect()) {
       this.disconnectGrace.set(participantId, { id: participantId, sinceMs: this.now(), playbackAtMs: this.playback.effectiveAtServerMs })
-    else
+      this.bumpRevisionKeepingPlayerEvidence()
+    }
+    else {
       this.pauseForMembershipChange('participant-disconnected')
-
-    this.revision += 1
+      this.revision += 1
+    }
     this.markStateBarrier()
     return this.success('participant_disconnected')
   }
@@ -1549,14 +1578,18 @@ export class RoomCoordinator {
     if (!next)
       return null
 
-    if (this.hasActiveOperation())
+    const paused = this.hasActiveOperation()
+    if (paused)
       this.pauseForMembershipChange('participant-disconnected')
     if (current)
       current.role = 'member'
     next.role = 'controller'
     this.controllerId = next.id
     this.leaseEpoch += 1
-    this.revision += 1
+    if (paused)
+      this.revision += 1
+    else
+      this.bumpRevisionKeepingPlayerEvidence()
     this.markStateBarrier()
     return this.success('controller_recovered')
   }
@@ -1859,6 +1892,24 @@ export class RoomCoordinator {
   private clampToMediaDuration(positionSeconds: number): number {
     const durationSeconds = this.media?.durationSeconds
     return typeof durationSeconds === 'number' ? Math.min(positionSeconds, durationSeconds) : positionSeconds
+  }
+
+  /**
+   * Advances the revision for an event that changes nothing the players are
+   * playing against, and records it in `tolerableRevisionRun` so a report
+   * stamped with an earlier revision of the run is still accepted as evidence
+   * that the player is alive and progressing. The run starts at the revision
+   * the room was at before the first such event, which is the revision of
+   * the command that preceded it, so a report from before that command stays
+   * rejected.
+   */
+  private bumpRevisionKeepingPlayerEvidence(): void {
+    const run = this.tolerableRevisionRun
+    this.tolerableRevisionRun = {
+      fromRevision: run?.toRevision === this.revision ? run.fromRevision : this.revision,
+      toRevision: this.revision + 1,
+    }
+    this.revision += 1
   }
 
   private markStateBarrier(): void {

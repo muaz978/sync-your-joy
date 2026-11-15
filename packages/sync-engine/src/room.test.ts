@@ -2608,6 +2608,77 @@ describe('RoomCoordinator', () => {
       expect(room.snapshot().revision).toBe(chainedRevision)
     })
 
+    describe('player reports during a started transactional Play (CR-B04)', () => {
+      function startedPlay(): { room: RoomCoordinator, clock: { value: number }, startedRevision: number } {
+        const clock = { value: 10_000 }
+        const room = createTransactionalRoom(() => clock.value)
+        controlTransactional(room, 'play', 40)
+        room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+        const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+        if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+          throw new Error('Expected a committed transactional operation.')
+        clock.value = committed.snapshot.contract.operation.effectiveAtServerMs
+        room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40, 2))
+        room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'started', 40, 2))
+        return { room, clock, startedRevision: room.snapshot().revision }
+      }
+
+      const report = (nowMs: number, positionSeconds: number): PlayerSample => ({
+        positionSeconds,
+        durationSeconds: 600,
+        paused: false,
+        buffering: false,
+        sampledAtLocalMs: nowMs,
+        progressed: true,
+        playbackStarted: true,
+      })
+      const progressOf = (room: RoomCoordinator, id: string) => room.exportState().participants.find(participant => participant.id === id)?.lastProgressAtServerMs
+
+      it('counts a report in flight across a join request as progress, and keeps the operation started', () => {
+        const { room, clock, startedRevision } = startedPlay()
+        clock.value += 500
+        room.updatePlayerStatus('participant_host', startedRevision, report(clock.value, 40.5))
+        clock.value += 400
+        const requested = room.join({ id: 'participant_new', name: 'Sam', media, capabilities: CURRENT_CLIENT_CAPABILITIES })
+        expect(requested).toMatchObject({ ok: true, reason: 'join_pending' })
+        expect(room.snapshot().revision).toBeGreaterThan(startedRevision)
+
+        clock.value += 400
+        room.updatePlayerStatus('participant_host', startedRevision, report(clock.value, 41.3))
+
+        expect(progressOf(room, 'participant_host')).toBe(clock.value)
+        expect(room.evaluateHealth()).toBeNull()
+        expect(room.snapshot()).toMatchObject({ playback: { status: 'playing' }, contract: { operation: { phase: 'started' } } })
+      })
+
+      it('does not count a report in flight across a change of controller, because the change pauses a transactional Play', () => {
+        const { room, clock, startedRevision } = startedPlay()
+        clock.value += 500
+        const transferred = room.transferControl('participant_host', 'participant_friend', room.snapshot().controller.leaseEpoch)
+        expect(transferred).toMatchObject({ ok: true, snapshot: { playback: { status: 'paused' }, contract: { operation: { phase: 'cancelled', reason: 'superseded' } } } })
+        const before = room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastSample
+
+        clock.value += 200
+        expect(room.updatePlayerStatus('participant_host', startedRevision, report(clock.value, 40.7))).toBeNull()
+        expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastSample).toEqual(before)
+      })
+
+      it('takes a participant\'s report without consulting the binding of its operation acknowledgements: the extension checks the binding', () => {
+        const { room, clock, startedRevision } = startedPlay()
+        const observation = room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastOperationObservation
+        expect(observation).toMatchObject({ bindingId: 'binding_participant_host', sourceGeneration: 1 })
+
+        // A PlayerSample carries no media epoch, binding or sequence, so there is nothing for the coordinator to check
+        // (CR-B04, Option A): the extension drops a report that does not come from the accepted binding.
+        clock.value += 500
+        room.updatePlayerStatus('participant_host', startedRevision, report(clock.value, 40.5))
+
+        const stored = room.exportState().participants.find(participant => participant.id === 'participant_host')
+        expect(stored?.lastSample).toMatchObject({ positionSeconds: 40.5 })
+        expect(stored?.lastOperationObservation).toEqual(observation)
+      })
+    })
+
     it('does not expire an operation after every participant has confirmed start', () => {
       let nowMs = 10_000
       const room = createTransactionalRoom(() => nowMs)
