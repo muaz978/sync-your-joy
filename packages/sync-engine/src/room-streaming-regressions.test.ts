@@ -851,6 +851,35 @@ describe('a report that is only evidence the player is alive (CR-B04, review fin
       expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 23, sampledAtLocalMs: startedAtMs - 2_000 })
     })
 
+    it('does not confirm a step from a second report that is not further along than the first', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 2_000
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 2_000, 91, { progressed: true, playbackStarted: true }))
+      clock.value += 100
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 1_000, 100, { progressed: true, playbackStarted: true }))
+      clock.value += 100
+      // Newer than the first late report and further along than the recorded one, but not further along than the first.
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 1_500, 100.05, { progressed: true, playbackStarted: true }))
+
+      expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 91 })
+    })
+
+    it('forgets a possible step when a new Play starts, so an old late report cannot confirm a new one', () => {
+      const { room, clock, revision, startedAtMs } = playing()
+      clock.value = startedAtMs + 2_000
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 2_000, 91, { progressed: true, playbackStarted: true }))
+      room.updatePlayerStatus('guest', revision, sample(startedAtMs + 1_000, 100, { progressed: true, playbackStarted: true }))
+
+      control(room, 'play', 20)
+      const next = room.snapshot()
+      clock.value = next.playback.effectiveAtServerMs + 3_000
+      room.updatePlayerStatus('guest', next.revision, sample(clock.value, 25, { progressed: true, playbackStarted: true }))
+      // Older than the new recorded report and further along; the old candidate (timestamp 1000 s earlier, position 100) must not be a first half.
+      room.updatePlayerStatus('guest', next.revision, sample(startedAtMs + 1_500, 120, { progressed: true, playbackStarted: true }))
+
+      expect(stored(room, 'guest')?.lastSample).toMatchObject({ positionSeconds: 25 })
+    })
+
     it('does not confirm a step from a second late report that is older than the first, or not further along', () => {
       const { room, clock, revision, startedAtMs } = playing()
       clock.value = startedAtMs + 2_000
