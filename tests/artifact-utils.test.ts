@@ -116,7 +116,7 @@ describe('E2E artifact sanitization', () => {
         'https://[::1]/a/b',
         'ws://[::1]/rooms/a',
         'chrome-extension://[::1]/a/b/c.html',
-        'http://[::1]:8787/rooms/a',
+        'http://[::1]:8787/rooms/a', // DevSkim: ignore DS137138
         'https://[::1]:8443/a/b/c',
         'ws://[::1]:8787/rooms/a',
         'chrome-extension://[::1]:1234/a/b',
@@ -136,7 +136,7 @@ describe('E2E artifact sanitization', () => {
     it('leaves every URL form unchanged now that a colon does not protect a path', () => {
       for (const url of [
         'https://h/a/b',
-        'http://h:8787/a/b',
+        'http://h:8787/a/b', // DevSkim: ignore DS137138
         'chrome-extension://id/page.html',
         'ws://h:8787/a/b/c',
         'wss://h/rooms/a/b',
