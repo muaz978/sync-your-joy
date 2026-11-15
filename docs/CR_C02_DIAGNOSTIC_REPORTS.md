@@ -67,7 +67,7 @@ A later change ([Crunchyroll prepare stall analysis](CRUNCHYROLL_PREPARE_STALL_A
 
 ## Update: the `reason` field, and reading a downloaded report
 
-Every result in this update was run against commit `40d1386613f71689c83869f78348b0bb13b84ac4` (the last code commit of its pull request): `npm run typecheck` clean and `npm test` 51 files, 1142 tests passed. This document lands in a following docs-only commit, which a file cannot name itself.
+Every result in this update was run against commit `HEADSHA` (the last code commit of its pull request): `npm run typecheck` clean and `npm test` TESTCOUNT. This document lands in a following docs-only commit, which a file cannot name itself.
 
 Evidence class for everything in this update: unit and worker tests against a mocked `chrome` API with fake sockets, and protocol validation of the reports they build. No browser, provider, two-profile, deployment or acceptance evidence is claimed; those gates are carried by #30, #33, #34, #35 and #69, not by this card.
 
@@ -78,7 +78,7 @@ Evidence class for everything in this update: unit and worker tests against a mo
 Where it comes from, in order:
 
 1. The coordinator's own operation reason (`contract.operation.reason`, for example `start-timeout` or `deadline-expired`), when the current operation has one.
-2. Otherwise the last reason the worker recorded for the operation that is current now, or for no operation if none is current. A reason recorded for another operation is not shown.
+2. Otherwise the newest of the reasons the worker holds, kept in three independent slots: this player's own (a stall, a refused `play()`), the room's (a coordinator snapshot reason) and a refused command or server error. A slot holds only for the operation period it was recorded in (see below).
 3. Otherwise `none`.
 
 What the worker records, and the code it gives:
@@ -101,7 +101,14 @@ What the worker records, and the code it gives:
 
 Any other snapshot reason (`participant_ready`, `operation_started`, `control_play`, the auto-resume reasons, a reason added later) gives no code. The codes `interrupted`, `provider-error`, `player-missing` and `connection-lost` stay valid but nothing produces them: a report can only be requested while the room connection is up, and a rejoin clears the reason, so a lost connection never reaches a report as a reason. The outage itself is in the `socket_closed`, `reconnect_scheduled` and `socket_opened` events.
 
-When a reason ends: when the operation it was recorded for is no longer the current one; when the room has taken this client back (a rejoin, or a new room); when this player reports healthy playback again (only the reasons the player itself gave); and when a room snapshot that gives no new reason shows the room playing. A snapshot older than the room state the worker holds gives no reason.
+When a reason ends:
+
+- When the operation period changes. Periods are counted, not named: the room's operation going from none to an operation, from one operation to another, or from an operation back to none each start a new period, so "no operation" before an operation and "no operation" after it are different periods. A reason recorded in an earlier period is never shown again, whatever caused it (a snapshot reason, a refused command or a server error). A snapshot carried by a refused command counts too.
+- When the room has taken this client back: a `room_joined` answered on the current socket (a rejoin, or a new room) clears all three slots. One answered late on a socket that was already replaced does not.
+- When this player reports healthy playback again: that clears the player's slot only. The room's and a refused command's reasons stay, so a room still waiting for someone else keeps saying so after the local player recovers.
+- When a room snapshot that gives no new reason shows the room playing: that clears the room's slot only.
+
+A snapshot older than the room state the worker holds gives no reason and does not start a period.
 
 ### The downloaded file
 
@@ -122,7 +129,7 @@ A participant's events live in the service worker's memory. When Chrome restarts
 
 Read `reason` first, then the last events before the stall. A worked example of a stalled player, from the fields:
 
-1. `playbackStatus` is `paused` and `reason` is `stalled`: the room is paused and the last explanation is that a player reported no progress.
+1. `playbackStatus` is `paused` and `reason` is `stalled`: the room is paused and the newest explanation is that a player reported no progress. If this participant's own player has since recovered but the room is still waiting for someone else, `reason` is the room's own explanation instead (for example `startup-timeout`), because the player's slot ended and the room's did not. A `reason` of `none` with a paused room means no explanation holds in the current operation period, not that nothing happened: read the events.
 2. In `events`, find `room_status_changed` with `reason` `participant_playback_stalled`, and the `player_status` events just before it (merged ones carry `repeatCount` and `firstAtLocalMs`). `progressed: false` with `buffering: true` is the player that stopped.
 3. `operationId`, `operationKind` and `operationPhase` say which operation was current, `targetPositionSeconds` against `observedPositionSeconds` how far the player was from it, `progressConfidence` how that was known (`frames`, `clock` or `unknown`), and `observationAgeMs` how old the sample was when the report was built (the sample's age, or the player's last sighting when there is no sample, or `null`).
 4. `playerReadyState`, `playerNetworkState`, `playerErrorCode`, `playerBufferedAheadSeconds` and `playerHasMediaKeys` separate a player that never fetched data from one that was refused it.
@@ -130,4 +137,4 @@ Read `reason` first, then the last events before the stall. A worked example of 
 
 ### Tests added with this update
 
-`apps/extension/src/diagnostics-budget.test.ts` (`diagnosticReasonForRoomReason`: every mapping, that every code passes protocol validation, unmapped reasons, status reading and its precedence), and in `apps/extension/src/service-worker.test.ts` the blocks `the reason a report gives` and `what a report strips and what it counts` (reasons from snapshots and from the player, the coordinator and the server; the reason ending; the query and fragment removed from the page address and from a page-based canonical ID; an address that cannot be read; `observationAgeMs` from a sample, from a sighting, and absent; a long run of distinct critical events keeping the newest and the restart marker).
+`apps/extension/src/diagnostics-budget.test.ts` (`diagnosticReasonForRoomReason`: every mapping, that every code passes protocol validation, unmapped reasons, status reading and its precedence), and in `apps/extension/src/service-worker.test.ts` the blocks `the reason a report gives` and `what a report strips and what it counts` (reasons from snapshots and from the player, the coordinator and the server; the reason ending; the room's reason surviving the local player's recovery; a reason from before an operation not coming back after it, for each cause; a late `room_joined` from a replaced socket; the query and fragment removed from the page address and from a page-based canonical ID; an address that cannot be read; `observationAgeMs` from a sample, from a sighting, and absent; a long run of distinct critical events keeping the newest and the restart marker).
