@@ -19,7 +19,7 @@ Not decided, and therefore not changed or pinned by a test: whether a current bi
 
 | Field | Value |
 | --- | --- |
-| Source | `main` at `257afb6` (extension 0.2.12) plus the pull request that adds this report; record its merge commit when it lands |
+| Source | Every `PASS` below was run against commit `14d8855b814044c5a8921a87d30807a71263e3c7` (this branch's last code commit, which contains `main` as merged at that time). This report lands in a following docs-only commit, which a file cannot name itself; the merge commit is recorded on the pull request when it lands |
 | Extension package SHA-256 | `NOT RECORDED`: no package was built for this report |
 | Coordinator deployment identity | `NOT APPLICABLE`: no coordinator was involved |
 | Browser and version | `NOT APPLICABLE`: mocked `chrome` API |
@@ -32,7 +32,9 @@ Not decided, and therefore not changed or pinned by a test: whether a current bi
 
 `bindPlayerContext` now returns the binding its own call established. `MEDIA_DETECTED` checks that it is still the bound one after the detach (and returns without writing anything if not) and again after publishing (and answers without a binding ID if not).
 
-Four tests fail against `main` without the fix: `lets the report that bound last keep the binding, the media and the diagnostics when the earlier one was in another frame`, the same title ending `in the same frame after the page was replaced`, `writes nothing for a report whose page started loading again while the previous player was being detached` and `does not hand its token to a page whose report was superseded while the new state was being stored`.
+A binding ID alone does not say which of two reports from the same document is newer, because they share the binding. Review of the first version of this fix found that a report waiting on its detach could overwrite a later report from the same document that finished first, and a test showed it (`lets a later report from the same document keep what it wrote when the earlier one finishes detaching afterwards`, red before the second fix). Each accepted report now takes a claim before it binds (`mediaReportClaim`) and writes only if it still holds the newest.
+
+Four tests fail against `main` without the first fix: `lets the report that bound last keep the binding, the media and the diagnostics when the earlier one was in another frame`, the same title ending `in the same frame after the page was replaced`, `writes nothing for a report whose page started loading again while the previous player was being detached` and `does not hand its token to a page whose report was superseded while the new state was being stored`.
 
 ## Deterministic lifecycle matrix
 
@@ -40,15 +42,15 @@ Test titles are in `apps/extension/src/service-worker.test.ts`. "Overlap" is the
 
 | Transition | Result | Evidence |
 | --- | --- | --- |
-| First media report from a document with no binding token | `PASS` | `rejects stale same-frame status, loss, seek acknowledgement and intent messages after document replacement` (binding ID returned); No document ID: `gives a second frame no binding while the bound frame holds one, with no token or a forged one` for the refused case |
+| First media report from a document with no binding token | `PASS` | "Fresh" is the describe block `from a worker that holds no binding yet` (a worker with no stored binding): `issues a token to the first report of a page without a document ID, keeps it for that page's heartbeats, and refuses a forged one` and the same title `... with a document ID ...`. `gives a second frame no binding while the bound frame holds one, with no token or a forged one` covers the refused case |
 | Routine media heartbeat from the same document with the current token | `PASS` | Overlap: `keeps the replacement binding through routine heartbeats, and does not give it back to the page it replaced` (document ID path, with and without the token); `keeps a fallback binding stable for heartbeats and rotates it after loading without documentId` (token path) |
 | Same tab/frame with a new Chromium document ID | `PASS` | `rejects stale same-frame status, loss, seek acknowledgement and intent messages after document replacement`; Detached: `does not release a page that another document replaced`; Overlap: `... in the same frame after the page was replaced` |
-| Old document status after replacement | `PASS` | `rejects stale same-frame status, loss, seek acknowledgement and intent messages after document replacement` asserts the sample and media stay as they were; the last-seen timestamp is not asserted by any test |
+| Old document status after replacement | `PASS` | `rejects stale same-frame status, loss, seek acknowledgement and intent messages after document replacement` asserts the sample and media stay as they were. The last-seen timestamp (with the clock moved past it) is asserted for a forged token and for a rotated token in No document ID: `ignores status, seek, acknowledgement, intent and loss messages that carry a forged token` and `ignores the messages of a page whose token was rotated, whichever message it sends`; it is not asserted for a replaced Chromium document |
 | Old document media-loss after replacement | `PASS` | same test |
 | Old document seek acknowledgement after replacement | `PASS` | same test (`SEEK_APPLIED` and `OPERATION_ACK`); nothing reaches the socket |
 | Old document player intent after replacement | `PASS` | same test; nothing reaches the socket |
 | Outbound command after Chromium document binding | `PASS` | same test ends with `LOCK_PLAYER` delivered with `{ documentId: 'document-new' }` |
-| Browser without `sender.documentId`, first report | `PASS` | `keeps a fallback binding stable for heartbeats and rotates it after loading without documentId` |
+| Browser without `sender.documentId`, first report | `PASS` | `issues a token to the first report of a page without a document ID, keeps it for that page's heartbeats, and refuses a forged one` (a worker with no binding); `keeps a fallback binding stable for heartbeats and rotates it after loading without documentId` |
 | Browser without `sender.documentId`, same-document heartbeat | `PASS` | same test; No document ID: `gives a second frame no binding while the bound frame holds one, with no token or a forged one` (the bound frame's heartbeat keeps its token) |
 | Browser without `sender.documentId`, tab loading | `PASS` | `keeps a fallback binding stable for heartbeats and rotates it after loading without documentId` (frame cleared) |
 | Browser without `sender.documentId`, stale old token after loading | `PASS` | same test for status; No document ID: `ignores the messages of a page whose token was rotated, whichever message it sends` for status, seek, acknowledgement, intent and loss |
@@ -62,6 +64,7 @@ Rows added by this change:
 | Transition | Result | Evidence |
 | --- | --- | --- |
 | Two reports overlap while the first detaches the previous page: the later one keeps the binding, media and diagnostics, the earlier one is answered without a binding ID | `PASS`, red before the fix | Overlap: both `lets the report that bound last keep ...` titles |
+| Two reports from the same document overlap: the earlier one does not overwrite the later | `PASS`, red before the fix | Overlap: `lets a later report from the same document keep what it wrote when the earlier one finishes detaching afterwards` |
 | A page starts loading while its report waits to detach: the report writes nothing | `PASS`, red before the fix | Overlap: `writes nothing for a report whose page started loading again while the previous player was being detached` |
 | A report is superseded while its state is being stored: it is not handed the newer binding ID | `PASS`, red before the fix | Overlap: `does not hand its token to a page whose report was superseded while the new state was being stored` |
 | A replacement binds while the previous page is still being released | `PASS` (also passes against `main`) | Overlap: `keeps a replacement that binds while the previous player is still being released` |
@@ -80,6 +83,10 @@ Each production line below was changed in place, the worker tests were run, and 
 | No ownership check after the detach | 3 (both `lets the report that bound last keep ...` titles and `writes nothing for a report whose page started loading ...`) |
 | The answer carries whatever binding is current after publishing | 1 (`does not hand its token to a page whose report was superseded ...`) |
 | The ownership check compares the tab only | 3 (the same three) |
+| No newest-report claim (binding ID check only) | 1 (`lets a later report from the same document ...`) |
+| Claim kept, binding ID check dropped | 1 (`writes nothing for a report whose page started loading again ...`) |
+| The first report is given no token | 12 (every test that needs a token, including both fresh-worker tests) |
+| A refused status message refreshes the last-seen time | 2 (forged token, rotated token) |
 | `isBoundPlayerSender` accepts any token from the bound frame | 3 (`rejects stale same-frame ...`, both new token tests) |
 | A forged token is not refused when a frame reports media | 1 (`gives a second frame no binding ...`) |
 | A token-less second frame is accepted while a binding exists | 1 (same) |
