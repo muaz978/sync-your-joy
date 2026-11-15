@@ -2659,6 +2659,37 @@ describe('RoomCoordinator', () => {
         expect(room.snapshot()).toMatchObject({ playback: { status: 'playing' }, contract: { operation: { phase: 'started' } } })
       })
 
+      it('does not pause a guest as startup-timed-out when it reported not started and its later progressing reports only missed a start acknowledgement', () => {
+        const { room, clock } = (() => {
+          const clock = { value: 10_000 }
+          const room = createTransactionalRoom(() => clock.value)
+          controlTransactional(room, 'play', 40)
+          room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1))
+          const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 40, 1))
+          if (!committed?.ok || !committed.snapshot.contract?.operation?.effectiveAtServerMs)
+            throw new Error('Expected a committed transactional operation.')
+          clock.value = committed.snapshot.contract.operation.effectiveAtServerMs
+          return { room, clock }
+        })()
+        const startAtMs = clock.value
+        const playRevision = room.snapshot().revision
+        // The guest reports that its player has not started yet.
+        clock.value = startAtMs + 300
+        room.updatePlayerStatus('participant_friend', playRevision, { ...report(clock.value, 40), paused: true, progressed: false, playbackStarted: false })
+        room.updatePlayerStatus('participant_host', playRevision, report(clock.value, 40.3))
+        room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'started', 40.3, 2))
+        // The guest then plays, but each of its reports misses a start acknowledgement, so each is alive-only.
+        let position = 40.3
+        for (let step = 1; clock.value < startAtMs + 12_000; step++) {
+          clock.value = startAtMs + 300 + step * 1_000
+          position += 1
+          room.updatePlayerStatus('participant_friend', playRevision, report(clock.value, position))
+          room.updatePlayerStatus('participant_host', room.snapshot().revision, report(clock.value, position))
+          expect(room.evaluateHealth(), `at ${clock.value - startAtMs} ms`).toBeNull()
+        }
+        expect(room.snapshot().playback.status).toBe('playing')
+      })
+
       it('does not count a report in flight across a change of controller, because the change pauses a transactional Play', () => {
         const { room, clock, startedRevision } = startedPlay()
         clock.value += 500

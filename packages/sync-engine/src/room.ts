@@ -74,10 +74,12 @@ interface ReportOrder {
   latest: PlayerSample
   stepCandidate: { sampledAtLocalMs: number, positionSeconds: number } | null
   progressedSinceReset: boolean
+  /** An alive-only report showed progress after the stored report: a stored "not started" report is out of date. */
+  aliveProgressSinceStored: boolean
   seen: string[]
 }
 
-/** Reports remembered per participant for duplicate detection: well over a minute of reports at the usual one a second. */
+/** Reports remembered per participant for duplicate detection (accepted or dropped as old), oldest forgotten first: about a minute of reports at the usual one a second. */
 const SEEN_REPORTS_LIMIT = 64
 
 /** Stands in for a participant's report when only alive-only reports exist: it says playing and carries no failure field. */
@@ -971,15 +973,21 @@ export class RoomCoordinator {
   }
 
   /**
-   * The report the timer judges a participant by: its stored report, or, when it
-   * has none because every report it sent was only evidence that it is alive and
-   * at least one of them showed progress, a report that says it is playing and
-   * nothing else. Failure fields are never read from an alive-only report.
+   * The report the timer judges a participant by: its stored report, or a report
+   * that says it is playing and nothing else when
+   *   - it has no stored report because every report it sent was only evidence
+   *     that it is alive, and at least one of them showed progress; or
+   *   - its stored report says the player had not started, and an alive-only report
+   *     has shown progress since: startup completed, whatever the stored report says.
+   * Failure fields are never read from an alive-only report.
    */
   private healthSample(participant: InternalParticipant): PlayerSample | null {
-    if (participant.lastSample !== null)
-      return participant.lastSample
-    return this.reportOrders.get(participant.id)?.progressedSinceReset === true ? ALIVE_PLAYING_SAMPLE : null
+    const order = this.reportOrders.get(participant.id)
+    if (participant.lastSample === null)
+      return order?.progressedSinceReset === true ? ALIVE_PLAYING_SAMPLE : null
+    if (participant.lastSample.playbackStarted === false && order?.aliveProgressSinceStored === true)
+      return ALIVE_PLAYING_SAMPLE
+    return participant.lastSample
   }
 
   private participantHealthDeadlineMs(participant: InternalParticipant): number | null {
@@ -1190,10 +1198,16 @@ export class RoomCoordinator {
     const reportKey = sampleKey(sample)
     if (order?.seen.includes(reportKey))
       return null
-    if (priorSample !== null && (isDuplicateSample(priorSample, sample) || isStaleSample(priorSample, sample)))
+    // A dropped report is remembered too: it was old when it arrived, and it stays old
+    // after the client's clock steps, which could make a replay of it look newer.
+    if (priorSample !== null && (isDuplicateSample(priorSample, sample) || isStaleSample(priorSample, sample))) {
+      this.rememberSeenReport(participantId, priorSample, reportKey)
       return null
-    if (latest !== null && latest !== priorSample && (isDuplicateSample(latest, sample) || isStaleSample(latest, sample)))
+    }
+    if (latest !== null && latest !== priorSample && (isDuplicateSample(latest, sample) || isStaleSample(latest, sample))) {
+      this.rememberSeenReport(participantId, latest, reportKey)
       return null
+    }
     let aliveOnly = basedOnRevision !== this.revision
     let stepCandidate: { sampledAtLocalMs: number, positionSeconds: number } | null = null
     if (priorSample !== null && sample.sampledAtLocalMs < priorSample.sampledAtLocalMs) {
@@ -1201,8 +1215,10 @@ export class RoomCoordinator {
       // back, or a report from before a correction the player made on its own. One
       // report cannot tell which, so it only shows the player is alive; the next
       // report that follows it on the same clock confirms the step.
-      if ((sample.correctionCount ?? 0) < (priorSample.correctionCount ?? 0))
+      if ((sample.correctionCount ?? 0) < (priorSample.correctionCount ?? 0)) {
+        this.rememberSeenReport(participantId, latest ?? priorSample, reportKey)
         return null
+      }
       const candidate = order?.stepCandidate ?? null
       if (candidate === null
         || sample.sampledAtLocalMs <= candidate.sampledAtLocalMs
@@ -1223,13 +1239,13 @@ export class RoomCoordinator {
       participant.lastSampleReceivedAtMs = nowMs
       if (progressed)
         participant.lastProgressAtServerMs = nowMs
-      this.recordReportOrder(participantId, sample, reportKey, stepCandidate, progressed)
+      this.recordReportOrder(participantId, sample, reportKey, stepCandidate, progressed, true)
       // A report that says the player recovered still ends a buffering run (ending it twice is harmless).
       if (sample.buffering !== true)
         this.bufferingRuns.delete(participantId)
       return null
     }
-    this.recordReportOrder(participantId, sample, reportKey, null, progressed)
+    this.recordReportOrder(participantId, sample, reportKey, null, progressed, false)
     const previousStatus = participant.playbackStatus ?? this.participantPlaybackStatus(participant, nowMs)
     const activeTransactionalOperation = this.contract.mode === 'transactional'
       && this.contract.operation
@@ -1371,17 +1387,28 @@ export class RoomCoordinator {
    */
   private readonly reportOrders = new Map<string, ReportOrder>()
 
+  /** Adds a dropped report's content to the replay memory; `latest` seeds the record when the participant has none. */
+  private rememberSeenReport(participantId: string, latest: PlayerSample, reportKey: string): void {
+    const order = this.reportOrders.get(participantId) ?? { latest, stepCandidate: null, progressedSinceReset: false, aliveProgressSinceStored: false, seen: [] }
+    order.seen.push(reportKey)
+    if (order.seen.length > SEEN_REPORTS_LIMIT)
+      order.seen.shift()
+    this.reportOrders.set(participantId, order)
+  }
+
   private recordReportOrder(
     participantId: string,
     sample: PlayerSample,
     reportKey: string,
     stepCandidate: ReportOrder['stepCandidate'],
     progressed: boolean,
+    aliveOnly: boolean,
   ): void {
-    const order = this.reportOrders.get(participantId) ?? { latest: sample, stepCandidate: null, progressedSinceReset: false, seen: [] }
+    const order = this.reportOrders.get(participantId) ?? { latest: sample, stepCandidate: null, progressedSinceReset: false, aliveProgressSinceStored: false, seen: [] }
     order.latest = sample
     order.stepCandidate = stepCandidate
     order.progressedSinceReset = order.progressedSinceReset || progressed
+    order.aliveProgressSinceStored = aliveOnly ? order.aliveProgressSinceStored || progressed : false
     order.seen.push(reportKey)
     if (order.seen.length > SEEN_REPORTS_LIMIT)
       order.seen.shift()
