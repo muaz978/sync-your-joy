@@ -60,8 +60,10 @@ class FakeVideo extends FakeElement {
   paused = true
   ended = false
   seeking = false
-  rateMode: 'accept' | 'ignore' | 'reset' = 'accept'
+  rateMode: 'accept' | 'ignore' | 'reset' | 'throw' = 'accept'
   private appliedPlaybackRate = 1
+  /** Every value the extension assigned to playbackRate, whether or not the player kept it. */
+  rateWrites: number[] = []
   position = 0
   writes: number[] = []
   seekable = { length: 1, start: () => 0, end: () => 1420 }
@@ -77,9 +79,14 @@ class FakeVideo extends FakeElement {
     this.paused = true
     this.dispatchEvent(new Event('pause'))
   })
+  /** The player puts its own rate back, as a provider that owns the rate can, after having accepted ours. */
+  resetRate() { this.appliedPlaybackRate = 1 }
   get currentTime() { return this.position }
   get playbackRate() { return this.appliedPlaybackRate }
   set playbackRate(value: number) {
+    this.rateWrites.push(value)
+    if (this.rateMode === 'throw')
+      throw new Error('The provider does not allow a playback rate change.')
     if (this.rateMode === 'ignore')
       return
     this.appliedPlaybackRate = this.rateMode === 'reset' ? 1 : value
@@ -112,7 +119,7 @@ function statuses() {
   return messages.filter((message): message is Extract<RuntimeRequest, { type: 'PLAYER_STATUS' }> => message.type === 'PLAYER_STATUS')
 }
 
-function establishSoftCorrection(rateMode: FakeVideo['rateMode'] = 'accept'): void {
+function establishSoftCorrection(rateMode: FakeVideo['rateMode'] = 'accept', behindSeconds = 0.2): void {
   video.position = 10
   video.paused = false
   apply('playing', 10)
@@ -120,7 +127,7 @@ function establishSoftCorrection(rateMode: FakeVideo['rateMode'] = 'accept'): vo
   video.position = 13.2
   video.totalFrames += 12
   listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
-  video.position = 10.2
+  video.position = Number((10.4 - behindSeconds).toFixed(3))
   video.rateMode = rateMode
   state.snapshot!.playback.effectiveAtServerMs = Date.now() - 400
   listener({ type: 'APPLY_ROOM_STATE', state })
@@ -1564,17 +1571,6 @@ describe('adaptive player lifecycle', () => {
     })
   })
 
-  it('requires recent rendered progress before applying an accepted soft rate', () => {
-    video.position = 10
-    video.paused = false
-    apply('playing', 10)
-    expect(video.playbackRate).toBe(1)
-
-    establishSoftCorrection()
-
-    expect(video.playbackRate).toBe(1.02)
-  })
-
   it('stops a soft rate correction immediately when buffering starts', () => {
     establishSoftCorrection()
     expect(video.playbackRate).toBe(1.02)
@@ -1662,6 +1658,291 @@ describe('adaptive player lifecycle', () => {
 
     expect(video.writes.length).toBeLessThanOrEqual(2)
     expect(statuses().some(message => message.sample.buffering)).toBe(true)
+  })
+
+  describe('convergence of a player that keeps playing (CR-A05, #52)', () => {
+    const RECOVERY_NOTICE = 'Playback could not converge. Press Sync to retry without refreshing.'
+    // The player moves after the timers of each step, so it trails the room by up to one step: keep the step small.
+    const SIMULATION_STEP_MS = 10
+
+    /** Every non-empty notice, in the order the pill showed them. */
+    function recordNotices(): string[] {
+      const shown: string[] = []
+      let current = ''
+      Object.defineProperty(pill('#syj-notice'), 'textContent', {
+        configurable: true,
+        get: () => current,
+        set: (value: string) => {
+          current = value
+          if (value)
+            shown.push(value)
+        },
+      })
+      return shown
+    }
+
+    /**
+     * Runs a player that advances with the clock: at its playback rate while it plays, with frames, and that takes
+     * `seekDelayMs` to finish a seek the extension asked for. A player that "resets" keeps the rate it was given for
+     * `resetRateAfterMs` and then puts its own rate back.
+     */
+    async function runPlayer(options: { seconds: number, seekDelayMs: number, resetRateAfterMs?: number | undefined, onStep?: (elapsedMs: number) => boolean }): Promise<void> {
+      // Whatever the extension did before the simulation started is already under way.
+      let seenWrites = video.writes.length
+      let seenRateWrites = video.rateWrites.length
+      let seekDoneAt = video.seeking ? Date.now() + options.seekDelayMs : Number.POSITIVE_INFINITY
+      let resetRateAt = options.resetRateAfterMs !== undefined && video.playbackRate !== 1
+        ? Date.now() + options.resetRateAfterMs
+        : Number.POSITIVE_INFINITY
+      let frameCarry = 0
+      for (let elapsed = 0; elapsed < options.seconds * 1_000; elapsed += SIMULATION_STEP_MS) {
+        await vi.advanceTimersByTimeAsync(SIMULATION_STEP_MS)
+        if (video.writes.length > seenWrites) {
+          seenWrites = video.writes.length
+          seekDoneAt = Date.now() + options.seekDelayMs
+        }
+        if (video.rateWrites.length > seenRateWrites) {
+          seenRateWrites = video.rateWrites.length
+          if (options.resetRateAfterMs !== undefined && video.playbackRate !== 1)
+            resetRateAt = Date.now() + options.resetRateAfterMs
+        }
+        if (Date.now() >= resetRateAt) {
+          resetRateAt = Number.POSITIVE_INFINITY
+          video.resetRate()
+        }
+        if (video.seeking && Date.now() >= seekDoneAt) {
+          seekDoneAt = Number.POSITIVE_INFINITY
+          video.seeking = false
+          video.dispatchEvent(new Event('seeked'))
+        }
+        else if (!video.paused && !video.seeking) {
+          const advance = SIMULATION_STEP_MS / 1_000 * video.playbackRate
+          video.position += advance
+          frameCarry += advance * 24
+          video.totalFrames += Math.floor(frameCarry)
+          frameCarry -= Math.floor(frameCarry)
+        }
+        if (options.onStep?.(elapsed + SIMULATION_STEP_MS))
+          return
+      }
+    }
+
+    const roomPosition = () => state.snapshot!.playback.positionSeconds
+      + (Date.now() - state.snapshot!.playback.effectiveAtServerMs) / 1_000
+
+    const driftNow = () => roomPosition() - video.position
+    const recoveryEntries = (notices: string[]) => notices.filter(notice => notice === RECOVERY_NOTICE).length
+
+    // The player starts 0.3 s behind a room that keeps playing. One soft rate of about 2 % for at most 2.5 s closes about
+    // 0.05 s of that, and one hard seek lands a whole seek delay behind a room that did not wait for it. So none of these
+    // converge, and each ends in the explicit local recovery state: paused, one recovery entry, bounded writes. (The
+    // 30-second runs of CR-A05 used a player that did not advance, so they could only show the paused end.)
+    it.each([
+      ['accept', 800, undefined, 27.5],
+      ['accept', 1_200, undefined, 27.5],
+      ['accept', 2_000, undefined, 27.01],
+      ['ignore', 800, undefined, 30],
+      ['ignore', 1_200, undefined, 30],
+      ['ignore', 2_000, undefined, 30],
+      ['reset', 800, undefined, 30],
+      ['reset', 1_200, undefined, 30],
+      ['reset', 2_000, undefined, 30],
+      ['accept', 800, 500, 29],
+      ['accept', 1_200, 500, 29],
+      ['accept', 2_000, 500, 28.01],
+      ['throw', 800, undefined, 30],
+      ['throw', 1_200, undefined, 30],
+      ['throw', 2_000, undefined, 30],
+    ] as const)('a player that %ss the rate, with a %sms seek delay and a reset after %s ms, ends paused with one recovery entry and bounded writes, %s s behind the room', async (rateMode, seekDelayMs, resetRateAfterMs, finalDriftSeconds) => {
+      const notices = recordNotices()
+      establishSoftCorrection(rateMode, 0.3)
+
+      await runPlayer({ seconds: 30, seekDelayMs, resetRateAfterMs })
+
+      // Either converged, or in the recovery state with exactly one entry: never a third thing.
+      const converged = Math.abs(driftNow()) < 0.12 && !video.paused
+      const recovered = video.paused && recoveryEntries(notices) === 1
+      expect(converged || recovered).toBe(true)
+      expect(recovered).toBe(true)
+      // Recovery is not convergence: the paused player is left behind a room that kept playing, by what it missed.
+      expect(Math.abs(driftNow())).toBeGreaterThanOrEqual(0.12)
+      expect(driftNow()).toBeCloseTo(finalDriftSeconds, 1)
+      expect(recoveryEntries(notices)).toBe(1)
+      expect(video.writes).toHaveLength(1)
+      // One soft attempt only, whatever the player did with it: a player that kept the rate gets it put back, and one that
+      // refused, threw or took it back itself is not asked again, not even inside the grace after the hard seek.
+      expect(video.rateWrites).toEqual(rateMode === 'accept' && resetRateAfterMs === undefined ? [1.02, 1] : [1.02])
+      expect(video.playbackRate).toBe(1)
+    })
+
+    it.each([800, 1_200, 2_000])('converges without a hard seek or a recovery entry when the player accepts the rate and is only 0.15 s behind, whatever the %sms seek delay', async (seekDelayMs) => {
+      const notices = recordNotices()
+      establishSoftCorrection('accept', 0.15)
+      expect(video.playbackRate).toBe(1.02)
+
+      await runPlayer({ seconds: 30, seekDelayMs })
+
+      expect(Math.abs(driftNow())).toBeLessThan(0.12)
+      expect(video.paused).toBe(false)
+      expect(video.writes).toEqual([])
+      expect(video.rateWrites).toEqual([1.02, 1])
+      expect(video.playbackRate).toBe(1)
+      expect(recoveryEntries(notices)).toBe(0)
+    })
+
+    it('puts the rate back when the 2.5 second expiry fires, and does not apply another soft rate', async () => {
+      establishSoftCorrection('accept', 0.3)
+      expect(video.playbackRate).toBe(1.02)
+
+      await runPlayer({ seconds: 2.49, seekDelayMs: 800 })
+      expect(video.playbackRate).toBe(1.02)
+      expect(video.rateWrites).toEqual([1.02])
+
+      // Put back by the expiry timer itself, not by whichever heartbeat comes next.
+      await runPlayer({ seconds: 0.03, seekDelayMs: 800 })
+      expect(video.playbackRate).toBe(1)
+      expect(video.rateWrites).toEqual([1.02, 1])
+
+      await runPlayer({ seconds: 20, seekDelayMs: 800 })
+      expect(video.rateWrites.filter(rate => rate !== 1)).toEqual([1.02])
+    })
+
+    it('notices an accepted rate that the player then resets and corrects hard within two seconds, not at the expiry', async () => {
+      const notices = recordNotices()
+      establishSoftCorrection('accept', 0.3)
+      expect(video.playbackRate).toBe(1.02)
+
+      let writeAtMs: number | null = null
+      await runPlayer({
+        seconds: 5,
+        seekDelayMs: 800,
+        resetRateAfterMs: 500,
+        onStep: (elapsedMs) => {
+          if (writeAtMs === null && video.writes.length > 0)
+            writeAtMs = elapsedMs
+          return writeAtMs !== null
+        },
+      })
+
+      expect(writeAtMs).not.toBeNull()
+      expect(writeAtMs!).toBeLessThan(2_000)
+      expect(video.rateWrites).toEqual([1.02])
+      expect(recoveryEntries(notices)).toBe(0)
+    })
+
+    it('reports the recovery state to the room as buffering once the startup grace has passed, at most once per second', async () => {
+      const notices = recordNotices()
+      establishSoftCorrection('ignore', 0.3)
+
+      const reports: Array<{ atMs: number, buffering: boolean }> = []
+      let seen = 0
+      await runPlayer({
+        seconds: 10,
+        seekDelayMs: 800,
+        onStep: (elapsedMs) => {
+          const all = statuses()
+          for (; seen < all.length; seen += 1)
+            reports.push({ atMs: elapsedMs, buffering: all[seen]!.sample.buffering })
+          return false
+        },
+      })
+
+      expect(recoveryEntries(notices)).toBe(1)
+      // Measured: the recovery entry, 0.8 s in, asks for a buffering report, but the room's play command is still inside
+      // its startup grace, where the player-health model keeps the latch it had, so that report says "not buffering".
+      // The room hears "buffering" from the next heartbeat after the grace (5 s here), once per second, and no sooner.
+      expect(reports.filter(report => report.atMs < 4_000).every(report => !report.buffering)).toBe(true)
+      const buffering = reports.filter(report => report.buffering)
+      expect(buffering.length).toBeGreaterThan(0)
+      expect(buffering[0]?.atMs).toBeLessThanOrEqual(6_000)
+      const gaps = buffering.slice(1).map((report, index) => report.atMs - buffering[index]!.atMs)
+      expect(gaps.every(gap => gap >= 1_000)).toBe(true)
+    })
+
+    it.each([
+      ['ignore', 0.3, 'paused'],
+      ['accept', 0.15, 'playing'],
+    ] as const)('is read by the room engine: a player that %ss the rate and is %s s behind leaves the room %s', async (rateMode, behindSeconds, roomStatus) => {
+      const media: MediaFingerprint = { service: 'crunchyroll', canonicalId: 'crunchyroll:GE00365016JAJP', title: 'Episode', durationSeconds: 1420 }
+      const room = new RoomCoordinator({ roomId: 'room_123456', code: 'ABCDEFGH' }, { id: 'host', name: 'Host', media }, () => Date.now())
+      room.join({ id: 'guest', name: 'Guest', media, sessionToken: 'guest-session-token-000000' })
+      room.respondToJoin('host', room.snapshot().controller.leaseEpoch, 'guest', true)
+      room.setReady('host', true, media)
+      room.setReady('guest', true, media)
+      room.control('host', {
+        actionId: 'action_play_recovery',
+        basedOnRevision: room.snapshot().revision,
+        leaseEpoch: room.snapshot().controller.leaseEpoch,
+        kind: 'play',
+        positionSeconds: 10,
+      })
+      // The real extension's own status messages go to the real room engine, as the worker would send them.
+      ;(chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (request: RuntimeRequest) => {
+        messages.push(request)
+        if (request.type === 'PLAYER_STATUS')
+          room.updatePlayerStatus('guest', request.basedOnRevision, request.sample)
+        return { ok: true, state }
+      })
+      state = { ...structuredClone(state), snapshot: room.snapshot() }
+      video.position = 10
+      video.paused = false
+      video.totalFrames += 12
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await vi.advanceTimersByTimeAsync(400)
+      // Put the player behind the room, with recent progress, and let the room tell it again.
+      video.position = Number((roomPosition() - behindSeconds).toFixed(3))
+      video.rateMode = rateMode
+      video.totalFrames += 12
+      listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      expect(room.snapshot().playback.status).toBe('playing')
+
+      await runPlayer({ seconds: 20, seekDelayMs: 800 })
+
+      expect(video.paused).toBe(roomStatus === 'paused')
+      expect(room.snapshot().playback.status).toBe(roomStatus)
+    })
+
+    // Found by the advancing player; not a policy decided on #52 but a measured consequence of two tolerances.
+    // chooseDriftCorrection() treats 0.12 s as drift, but trySetProgrammaticPosition() treats a player within 0.2 s of
+    // its target as already aligned and writes nothing. For a drift of 0.12 to 0.2 s that the soft rate did not close, the
+    // one hard correction is therefore spent on no write, and the next heartbeat enters the recovery state with the
+    // player never having been moved. Pinned here so that a change to either tolerance shows up.
+    it('spends the one hard correction on no write when the drift is between 0.12 and 0.2 s, and then enters recovery (measured)', async () => {
+      const notices = recordNotices()
+      establishSoftCorrection('ignore', 0.17)
+      expect(video.writes).toEqual([])
+      expect(video.rateWrites).toEqual([1.02])
+
+      await runPlayer({ seconds: 5, seekDelayMs: 800 })
+
+      expect(video.writes).toEqual([])
+      expect(recoveryEntries(notices)).toBe(1)
+      expect(video.paused).toBe(true)
+    })
+
+    it('does not start a soft correction for a player that shows no recent rendered progress, and corrects it hard once', () => {
+      // The same 0.3 s drift as the cases above, but this player's frames and position have not advanced.
+      video.position = 10
+      video.paused = false
+      apply('playing', 10)
+      state.snapshot!.playback.effectiveAtServerMs = Date.now() - 400
+      video.position = 10.1
+
+      listener({ type: 'APPLY_ROOM_STATE', state })
+
+      expect(video.playbackRate).toBe(1)
+      expect(video.rateWrites).toEqual([])
+      expect(video.writes).toHaveLength(1)
+    })
+
+    it('does start a soft correction for the same drift once the player has shown recent rendered progress', () => {
+      establishSoftCorrection('accept', 0.3)
+
+      expect(video.playbackRate).toBe(1.02)
+      expect(video.rateWrites).toEqual([1.02])
+      expect(video.writes).toEqual([])
+    })
   })
 
   it('retains a timed-out native seek instead of restarting it on each paused heartbeat', async () => {
