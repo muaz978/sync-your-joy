@@ -1566,7 +1566,10 @@ function applyTransactionalOperation(operation: RoomOperation): boolean {
   }
 
   if (video.paused) {
-    requestTransactionalPlay(key)
+    // A play() that never answered has set the recovery barrier. Only an explicit Sync or a
+    // newer room command lifts it; the heartbeat must not ask the provider again (#62).
+    if (!playbackRecoveryRequested)
+      requestTransactionalPlay(key)
     return true
   }
 
@@ -1581,7 +1584,7 @@ function applyTransactionalOperation(operation: RoomOperation): boolean {
 }
 
 function requestTransactionalPlay(key: string): void {
-  if (transactionalPlayAttemptKey === key)
+  if (transactionalPlayAttemptKey === key || playbackRecoveryRequested)
     return
   const operation = currentTransactionalOperation()
   if (!operation || transactionalOperationKey(operation) !== key)

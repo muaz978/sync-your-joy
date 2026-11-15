@@ -1975,6 +1975,183 @@ describe('autoplay permission rejection (#68)', () => {
   })
 })
 
+describe('a play() that never settles (CR-C01, #62)', () => {
+  let rejectPending: ((error: Error) => void) | null = null
+  const DID_NOT_RESPOND = /did not respond/
+  const notice = () => pill('#syj-notice').textContent
+
+  async function settle(): Promise<void> {
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  /**
+   * The element reports itself unpaused as soon as play() is called, as a real one does, and the promise settles only
+   * when the page pauses it: pause() rejects the pending promise with the interruption a browser raises.
+   */
+  function hangingPlayOn(target: FakeVideo): void {
+    target.play.mockImplementation(() => {
+      target.paused = false
+      target.dispatchEvent(new Event('play'))
+      return new Promise<void>((_, reject) => { rejectPending = reject })
+    })
+    target.pause.mockImplementation(() => {
+      if (target.paused)
+        return
+      target.paused = true
+      target.dispatchEvent(new Event('pause'))
+      rejectPending?.(new DOMException('The play() request was interrupted by a call to pause().', 'AbortError'))
+    })
+  }
+
+  function committedPlay(operationId = 'operation_play_hang'): void {
+    state = structuredClone(state)
+    state.snapshot!.revision++
+    state.snapshot!.contract = {
+      mode: 'transactional',
+      mediaEpoch: 0,
+      sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+      operation: {
+        mediaEpoch: 0,
+        operationId,
+        kind: 'play',
+        phase: 'committed',
+        requiredParticipantIds: ['guest'],
+        preparedParticipantIds: ['guest'],
+        startedParticipantIds: [],
+        targetPositionSeconds: 0,
+        resumeWhenReady: true,
+        effectiveAtServerMs: Date.now() - 100,
+        deadlineAtServerMs: Date.now() + 120_000,
+      },
+    }
+    state.snapshot!.playback = { status: 'playing', positionSeconds: 0, effectiveAtServerMs: Date.now() - 100, playbackRate: 1 }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+  }
+
+  describe('during a committed transactional play', () => {
+    it('is asked for once, then left alone for 30 seconds without a coordinator reply', async () => {
+      hangingPlayOn(video)
+      committedPlay()
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+
+      await vi.advanceTimersByTimeAsync(10_100)
+      expect(notice()).toMatch(DID_NOT_RESPOND)
+      await vi.advanceTimersByTimeAsync(4_900)
+      expect(video.play).toHaveBeenCalledOnce()
+
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(video.play).toHaveBeenCalledOnce()
+      expect(video.paused).toBe(true)
+    })
+
+    it('starts one fresh play() on an explicit Sync, and only one', async () => {
+      hangingPlayOn(video)
+      committedPlay()
+      await settle()
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(video.play).toHaveBeenCalledOnce()
+
+      // Sync aligns the player to the room first; the room position is back at the start.
+      state.snapshot!.playback.effectiveAtServerMs = Date.now()
+      listener({ type: 'FORCE_SYNC' })
+      expect(video.play).toHaveBeenCalledTimes(2)
+
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(video.play).toHaveBeenCalledTimes(2)
+    })
+
+    it('lets a newer operation start again without a Sync', async () => {
+      hangingPlayOn(video)
+      committedPlay('operation_play_first')
+      await settle()
+      await vi.advanceTimersByTimeAsync(12_000)
+      expect(video.play).toHaveBeenCalledOnce()
+
+      video.play.mockImplementation(() => {
+        video.paused = false
+        video.dispatchEvent(new Event('play'))
+        return Promise.resolve()
+      })
+      committedPlay('operation_play_second')
+      await settle()
+
+      expect(video.play).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('during a play the room asked for without an operation', () => {
+    it('pauses the unpaused element once at the deadline, ignores the interruption it causes and reports buffering', async () => {
+      hangingPlayOn(video)
+      apply('playing')
+      expect(video.play).toHaveBeenCalledOnce()
+      expect(video.paused).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(video.pause).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1)
+      await settle()
+      expect(video.pause).toHaveBeenCalledOnce()
+      expect(video.paused).toBe(true)
+      expect(notice()).toMatch(DID_NOT_RESPOND)
+      expect(statuses().some(message => message.sample.buffering && message.sample.playbackStartFailed === false)).toBe(true)
+      // The AbortError from that pause is the old attempt's, and is not a permission failure.
+      expect(statuses().every(message => message.sample.playbackStartFailed === false)).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(video.play).toHaveBeenCalledOnce()
+      expect(video.pause).toHaveBeenCalledOnce()
+    })
+
+    it('does not let the old element\'s late result touch a replacement element', async () => {
+      const first = video
+      hangingPlayOn(first)
+      apply('playing')
+      expect(first.play).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      // The provider swaps in a new element while the old promise is still pending.
+      const replacement = new FakeVideo()
+      video = replacement
+      await vi.advanceTimersByTimeAsync(2_100)
+      expect(first.pause).toHaveBeenCalledOnce()
+
+      rejectPending?.(new DOMException('User activation required', 'NotAllowedError'))
+      await settle()
+      await vi.advanceTimersByTimeAsync(12_000)
+
+      expect(statuses().every(message => message.sample.playbackStartFailed === false)).toBe(true)
+      // The old attempt's deadline went away with it.
+      expect(notice()).not.toMatch(DID_NOT_RESPOND)
+      expect(replacement.pause).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('a play() that fails for another reason', () => {
+    it.each(['NotSupportedError', 'TypeError'])('reports a %s as an actionable notice, not as a permission failure', async (name) => {
+      video.play.mockRejectedValue(new DOMException('The media could not be played.', name))
+      apply('playing')
+      await settle()
+
+      expect(notice()).toBe('The video could not start. Check the player, then press Sync to retry.')
+      expect(statuses().at(-1)?.sample.playbackStartFailed).toBe(false)
+    })
+  })
+
+  describe('Sync with no player to sync', () => {
+    it('says that the shared player is still loading', async () => {
+      ;(document as unknown as { querySelectorAll: () => unknown[] }).querySelectorAll = () => []
+      await vi.advanceTimersByTimeAsync(20_000)
+
+      listener({ type: 'FORCE_SYNC' })
+
+      expect(notice()).toBe('The shared player is still loading.')
+    })
+  })
+})
+
 describe('an unapproved join request', () => {
   const localEpisode: MediaFingerprint = {
     service: 'crunchyroll', canonicalId: 'crunchyroll:GE00365016JAJP', title: 'Episode', durationSeconds: 1420,
