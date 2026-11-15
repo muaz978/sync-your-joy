@@ -4335,6 +4335,16 @@ describe('CR-B01 operation contract on a live room', () => {
       })
     })
 
+    it('treats a lower source generation as a changed binding too, not as a stale sample', () => {
+      const nowMs = { value: 10_000 }
+      const room = createTransactionalRoom(() => nowMs.value)
+      controlTransactional(room, 'play', 40)
+      room.acknowledgeOperation('participant_host', { ...operationAcknowledgement(room, 'participant_host', 'prepared', 40, 1), sourceGeneration: 3 })
+
+      expect(room.acknowledgeOperation('participant_host', { ...operationAcknowledgement(room, 'participant_host', 'prepared', 40, 2), sourceGeneration: 2 }))
+        .toMatchObject({ ok: true, reason: 'operation_binding_changed', snapshot: { contract: { operation: { phase: 'cancelled', reason: 'binding-changed' } } } })
+    })
+
     it('ignores an acknowledgement with a lower sample sequence than the one already accepted, and keeps the newer evidence', () => {
       const nowMs = { value: 10_000 }
       const room = playWithHostPrepared(nowMs, 5)
