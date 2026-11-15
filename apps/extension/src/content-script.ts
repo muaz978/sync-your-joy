@@ -1,4 +1,4 @@
-import type { MediaFingerprint, OperationAcknowledgement, ParticipantPlaybackStatus, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
+import type { MediaFingerprint, OperationAcknowledgement, PlaybackState, PlayerSample, RoomOperation } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, PlayerContext, PlayerDiagnostics, PlayerOrigin, RuntimeEvent, RuntimeRequest, RuntimeResponse } from './internal.ts'
 import { canApplySoftDriftCorrection, canConfirmSeek, chooseDriftCorrection, expectedPosition, isDuplicateSeekIntent, isPlaybackPastStartupGrace, isPlaybackRateAccepted, isSeekAligned, isSettledPausedSeek, LOCAL_SEEK_MAX_WAIT_MS, PLAYBACK_STARTUP_TIMEOUT_MS, SEEK_ACK_RETRY_MS, SEEK_COMPLETION_PROBE_MS, SEEK_INTENT_DEBOUNCE_MS, SEEK_RETRY_INTERVAL_MS } from '@syncyourjoy/sync-engine'
 import { canonicalMediaId, cleanMediaTitle, normalizePageUrl, serviceName } from './media-fingerprint.ts'
@@ -10,7 +10,7 @@ import { PlayerOperations, type OperationToken } from './player-operations.ts'
 import { clearPlaybackStartFailed, createPlayerHealthState, markPlaybackStartFailed, markPlayerHealthBuffering, observePlayerHealth, resetPlayerHealthBaseline, type PlayerHealthState } from './player-health.ts'
 import { decidePlayerIdentity } from './player-identity.ts'
 import { hasUsableVideoSource, shouldBootstrapClickToLoadPlayer } from './site-adapter.ts'
-import { localPlaybackStatus } from './playback-status.ts'
+import { classifyLocalPlayback, withClockOnlyPillText } from './playback-status.ts'
 import { pillView, roomlessNoticeView } from './pill-view.ts'
 import { miniControllerView } from './mini-controller-state.ts'
 import { mediaLossGraceMs } from './readiness-state.ts'
@@ -461,7 +461,7 @@ const sampleIntervalId = setInterval(() => {
   if (!video)
     return
   observePageIdentity()
-  void reportPlayerStatus(false)
+  void reportPlayerStatus(false, true)
   applyAuthoritativeState()
 }, SAMPLE_INTERVAL_MS)
 
@@ -998,13 +998,19 @@ function handleMediaLifecycle(): void {
     reportMediaIfChanged(video)
 }
 
-async function reportPlayerStatus(buffering: boolean): Promise<void> {
+/**
+ * `periodic` is true only for the once-a-second sample. Every media event also
+ * reports, and those reports must not move the cursor the periodic check
+ * measures progress from (see player-health.ts).
+ */
+async function reportPlayerStatus(buffering: boolean, periodic = false): Promise<void> {
   const snapshot = activeState?.snapshot
   if (!video || !snapshot || !currentEpisodeMatchesRoom())
     return
   const seekPendingTooLong = pendingSeek !== null && performance.now() - pendingSeek.since >= 1_500
   const previousBuffering = playerHealth.buffering
   playerHealth = observePlayerHealth(playerHealth, {
+    periodic,
     nowMs: performance.now(),
     positionSeconds: finiteOrZero(video.currentTime),
     frames: presentedFrameCount(video),
@@ -1573,7 +1579,9 @@ function applyTransactionalOperation(operation: RoomOperation): boolean {
   if (transactionalPlayResolvedKey === key
     && !video.seeking
     && pendingSeek === null
-    && playerHealth.hasRealPlaybackProgress
+    // Only a frame counter that advanced is rendered-frame evidence. Clock-only progress,
+    // for a player with no frame counter or a hidden tab, does not start the room (#53).
+    && playerHealth.hasRenderedFrameProgress
     && transactionalStartedKey !== key) {
     sendTransactionalAcknowledgement(operation, 'started')
   }
@@ -1752,15 +1760,20 @@ function renderPill(): void {
   if (!snapshot || !activeState)
     return
 
+  const local = currentLocalPlaybackStatus(snapshot, activeState)
   const pill = pillView({
     state: { connection: activeState.connection, participantId: activeState.participantId, lastError: activeState.lastError, snapshot },
     hasVideo: video !== null,
-    localStatus: currentLocalPlaybackStatus(snapshot, activeState),
+    localStatus: local.status,
   })
+  // A player that only its media clock shows to be moving is not "Playing, confirmed".
+  const text = local.clockOnly
+    ? withClockOnlyPillText(pill, snapshot.controller.participantId === activeState.participantId)
+    : pill
   if (statusElement)
-    statusElement.textContent = pill.status
+    statusElement.textContent = text.status
   if (metaElement)
-    metaElement.textContent = pill.meta
+    metaElement.textContent = text.meta
   if (playbackButton) {
     playbackButton.hidden = pill.playbackHidden
     playbackButton.disabled = pill.playbackDisabled
@@ -1772,12 +1785,12 @@ function renderPill(): void {
     noticeElement.textContent = pill.notice
 }
 
-function currentLocalPlaybackStatus(snapshot: NonNullable<ExtensionState['snapshot']>, current: ExtensionState): ParticipantPlaybackStatus {
+function currentLocalPlaybackStatus(snapshot: NonNullable<ExtensionState['snapshot']>, current: ExtensionState): ReturnType<typeof classifyLocalPlayback> {
   const participant = snapshot.participants.find(item => item.id === current.participantId)
   const estimatedServerNowMs = Date.now() + current.serverOffsetMs
   const catchingUp = snapshot.playback.status === 'playing' && video !== null
     && Math.abs(video.currentTime - expectedPosition(snapshot.playback, estimatedServerNowMs)) > 0.6
-  return localPlaybackStatus({
+  return classifyLocalPlayback({
     connected: current.connection === 'connected',
     hasVideo: video !== null,
     mediaMatches: participant?.mediaMatches ?? false,
@@ -1790,6 +1803,7 @@ function currentLocalPlaybackStatus(snapshot: NonNullable<ExtensionState['snapsh
     playbackStartFailed: playerHealth.playbackStartFailed,
     playbackStarted: video ? playbackStarted : null,
     progressed: playerHealth.progressed,
+    progressEvidence: playerHealth.progressEvidence,
     drifted: catchingUp,
     progressAgeMs: video ? Math.max(0, performance.now() - playerHealth.lastProgressAtMs) : null,
     statusAgeMs: video ? Math.max(0, performance.now() - playerHealth.observedAtMs) : null,
@@ -1841,12 +1855,16 @@ function resetPlaybackHealthBaseline(preserveCurrentSignal = false): void {
 }
 
 function presentedFrameCount(target: HTMLVideoElement): number | null {
+  // Browsers may suspend video rendering in background tabs while the
+  // audio/media clock continues, and then no frame callback fires at all.
+  // Use clock evidence there to avoid a false freeze report, whichever counter
+  // was in use before the tab was hidden.
+  if (document.visibilityState !== 'visible')
+    return null
   if (target === frameObserverVideo && observedPresentedFrameCount > 0)
     return observedPresentedFrameCount
-  // Browsers may suspend video rendering in background tabs while the
-  // audio/media clock continues. Use clock evidence there to avoid a false
-  // freeze report, and also on browsers without frame-quality counters.
-  if (document.visibilityState !== 'visible' || typeof target.getVideoPlaybackQuality !== 'function')
+  // Also on browsers without frame-quality counters.
+  if (typeof target.getVideoPlaybackQuality !== 'function')
     return null
   try {
     const quality = target.getVideoPlaybackQuality()

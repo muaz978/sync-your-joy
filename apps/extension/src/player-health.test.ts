@@ -227,3 +227,137 @@ describe('player health evidence', () => {
     expect(state.buffering).toBe(true)
   })
 })
+
+describe('rendered-frame evidence', () => {
+  it('is set only by a frame counter that advanced, not by the media clock', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: null })
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: null })
+    expect(state.hasRealPlaybackProgress).toBe(true)
+    expect(state.hasRenderedFrameProgress).toBe(false)
+
+    state = resetPlayerHealthBaseline(state, { nowMs: 1_500, positionSeconds: 1, frames: 5 }, true)
+    state = playing(state, { nowMs: 2_000, positionSeconds: 2, frames: 5 })
+    expect(state.progressEvidence).toBe('frames')
+    expect(state.hasRenderedFrameProgress).toBe(false)
+
+    state = playing(state, { nowMs: 3_000, positionSeconds: 3, frames: 29 })
+    expect(state.hasRenderedFrameProgress).toBe(true)
+  })
+
+  it('is set by frames that advanced during the startup grace window', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 0.5, frames: 12, playShouldHaveStarted: false })
+
+    expect(state.hasRenderedFrameProgress).toBe(true)
+  })
+
+  it('is kept through a visibility rebase and cleared by a command or source reset', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    expect(state.hasRenderedFrameProgress).toBe(true)
+
+    state = resetPlayerHealthBaseline(state, { nowMs: 2_000, positionSeconds: 1, frames: 10 }, true)
+    expect(state.hasRenderedFrameProgress).toBe(true)
+
+    state = resetPlayerHealthBaseline(state, { nowMs: 3_000, positionSeconds: 0, frames: 0 })
+    expect(state.hasRenderedFrameProgress).toBe(false)
+    expect(state.hasRealPlaybackProgress).toBe(false)
+  })
+
+  it('is not set by a counter that was reset', () => {
+    let state = createPlayerHealthState({ ...baseline, frames: 30 })
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 20 })
+
+    expect(state.hasRenderedFrameProgress).toBe(false)
+  })
+})
+
+describe('progress that media events report between periodic samples', () => {
+  const event = (previous: ReturnType<typeof createPlayerHealthState>, overrides: Partial<Parameters<typeof observePlayerHealth>[1]> = {}) =>
+    playing(previous, { periodic: false, ...overrides })
+
+  it('is not reported as no progress when the report falls between two frames', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    expect(state.progressed).toBe(true)
+
+    state = event(state, { nowMs: 1_020, positionSeconds: 1.02, frames: 10 })
+    expect(state.progressed).toBe(true)
+    expect(state.progressEvidence).toBe('frames')
+    state = event(state, { nowMs: 1_400, positionSeconds: 1.4, frames: 10 })
+    expect(state.progressed).toBe(true)
+  })
+
+  it('does not carry a verdict that is older than the periodic interval, so a freeze is still reported', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+
+    state = event(state, { nowMs: 2_499, positionSeconds: 2.5, frames: 10 })
+    expect(state.progressed).toBe(true)
+    state = event(state, { nowMs: 2_500, positionSeconds: 2.5, frames: 10 })
+    expect(state.progressed).toBe(false)
+  })
+
+  it('does not carry the verdict of a periodic sample that saw no progress', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 0 })
+    expect(state.progressed).toBe(false)
+
+    state = event(state, { nowMs: 1_020, positionSeconds: 1.02, frames: 0 })
+    expect(state.progressed).toBe(false)
+  })
+
+  it('leaves the cursor of the periodic sample alone, so the next sample still sees what the event saw', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+
+    state = event(state, { nowMs: 1_600, positionSeconds: 1.6, frames: 20 })
+    expect(state.progressed).toBe(true)
+    expect(state.observedFrames).toBe(10)
+    expect(state.observedAtMs).toBe(1_600)
+
+    state = playing(state, { nowMs: 2_000, positionSeconds: 2, frames: 20 })
+    expect(state.progressed).toBe(true)
+
+    // Nothing new since that sample: now it is a real absence of progress.
+    state = playing(state, { nowMs: 3_000, positionSeconds: 3, frames: 20 })
+    expect(state.progressed).toBe(false)
+  })
+
+  it('records the time of progress an event saw', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = event(state, { nowMs: 1_600, positionSeconds: 1.6, frames: 20 })
+
+    expect(state.lastProgressAtMs).toBe(1_600)
+  })
+
+  it('never carries progress into a pause, a seek, a counter reset or a known stall', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+
+    expect(event(state, { nowMs: 1_100, paused: true }).progressed).toBe(false)
+    expect(event(state, { nowMs: 1_100, seeking: true }).progressed).toBe(false)
+    expect(event(state, { nowMs: 1_100, localSeeking: true }).progressed).toBe(false)
+    expect(event(state, { nowMs: 1_100, frames: 3 }).progressed).toBe(false)
+    expect(event(markPlayerHealthBuffering(state), { nowMs: 1_100, frames: 10 }).progressed).toBe(false)
+    expect(event(state, { nowMs: 1_100, explicitlyBuffering: true, frames: 10 }).progressed).toBe(false)
+  })
+
+  it('does not carry a verdict across a reset', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = resetPlayerHealthBaseline(state, { nowMs: 1_100, positionSeconds: 1, frames: 10 }, true)
+
+    expect(event(state, { nowMs: 1_200, positionSeconds: 1.2, frames: 10 }).progressed).toBe(false)
+  })
+
+  it('treats an observation without the flag as a periodic one', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 10 })
+    state = playing(state, { nowMs: 1_020, positionSeconds: 1.02, frames: 10 })
+
+    expect(state.progressed).toBe(false)
+    expect(state.observedAtMs).toBe(1_020)
+  })
+})

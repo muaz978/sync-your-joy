@@ -29,11 +29,15 @@ The health snapshot reports one explicit `progressEvidence` value:
 
 | Value | Meaning | What it does not prove |
 | --- | --- | --- |
-| `frames` | A valid, non-decreasing presented-frame counter was available and advanced for the observation. | It does not prove that the final display was free of black pixels, stale composition or provider-specific visual failure. |
+| `frames` | A valid, non-decreasing presented-frame counter was available and advanced for the observation. The counter is the `requestVideoFrameCallback` count where the browser has the API and a callback has run (PR #96), and otherwise the playback-quality count (`totalVideoFrames - droppedVideoFrames`), read only while the document is visible. | It does not prove that the final display was free of black pixels, stale composition or provider-specific visual failure. |
 | `clock` | Frame counters were absent, unavailable, hidden, throwing or otherwise unusable, so a bounded media-clock observation was used. | It does not prove that the browser rendered a new visible frame. |
 | `unknown` | The observation was paused, seeking, locally seeking, before startup grace, or affected by a counter reset. | It is not a health pass and must not be upgraded by inference. |
 
-The snapshot also retains buffering and playback-start failure signals, plus whether any real progress has ever been observed for the current source and command. Context refresh must reuse these values. A source change or new playback command resets the source-specific baseline. Visibility restoration only rebases observation cursors and must not erase a known failure before a fresh observation replaces it.
+The snapshot also retains buffering and playback-start failure signals, plus whether any real progress has ever been observed for the current source and command, and separately whether a frame counter has advanced (`hasRenderedFrameProgress`). Context refresh must reuse these values. A source change or new playback command resets the source-specific baseline, with one exception: a playback-start failure (a `NotAllowedError` from the browser) is not reset by a command change (PR #106). Visibility restoration only rebases observation cursors and must not erase a known failure before a fresh observation replaces it.
+
+Owner decision of 2026-10-31 on #53 (the same answer applies to #57, #58 and #64): progress measured by the media clock alone does not show "Playing, confirmed" and does not send the transactional started acknowledgement. Rendered-frame evidence (`frames`) is required for both. A player with no usable frame counter shows its own label, "Playing, not frame-confirmed", in the in-page pill. The coordinator and the side panel derive their own participant status from the reported `progressed` flag and are outside the content script; see the pull request for what they still do.
+
+A media-event report (play, pause, seeked, canplay and so on) and the once-a-second periodic sample both read the same health state. A media-event report measures progress from the last periodic sample, never moves that sample's cursor, and carries a fresh periodic verdict (up to 1.5 s old) instead of reporting "no progress" for a healthy player between two frames. Only the periodic sample moves the cursor.
 
 ## Acceptance gates
 
@@ -78,11 +82,15 @@ The CR-A06-specific evidence must cover all of the following:
 4. Native seeks, local seeks and pending seeks do not produce progress evidence or clear a known failure by themselves.
 5. A stalled playing player becomes buffering after the bounded no-progress interval, while a player still inside startup grace is not falsely marked stalled.
 6. A temporary hidden or background rendering state uses clock evidence when appropriate. Returning to visible rendering rebases the counter baseline, then accepts frame evidence only from a subsequent counter observation.
-7. A hidden iframe and a Picture-in-Picture player remain state-only observations. Their evidence quality is recorded, but neither context proves visible final output.
+7. A hidden iframe and a Picture-in-Picture player are not handled by any code or test at the time of this refresh (a CSS-hidden iframe can still report a visible document), and nothing in this report may claim them. A headed observation is needed to decide what they report.
 8. A context refresh returns the shared buffering, progress-evidence and playback-start-failure state instead of reconstructing `buffering: false` and `progressed: false` from the native element alone.
-9. A source replacement or new room playback command clears source-specific health state and counters. The new source cannot inherit a previous player’s progress or failure claim.
+9. A source replacement (`loadstart`, `emptied`, `error`, player unbinding or a page-identity change) clears source-specific progress, buffering and evidence, and the playback-start failure. A new room playback command clears progress, buffering and evidence but keeps a playback-start failure (PR #106), which only a native `play` event, an accepted synchronized `play()`, a source reset or leaving the room clears. The new source cannot inherit a previous player’s progress or failure claim.
 10. Diagnostics and the side panel expose the same evidence quality and health signal that status reporting uses.
 11. The protocol accepts only `frames`, `clock` or `unknown` for progress evidence and rejects malformed values.
+12. The frame-callback counter is used when present and is read only while the document is visible; a hidden document falls back to the media clock whichever counter was in use, so a tab that presents no frames is not reported as frozen. Switching from the playback-quality count to the first callbacks can read as a counter reset (`unknown`) for one sample, when the quality count is the larger of the two.
+13. A throwing, missing or non-numeric `getVideoPlaybackQuality` gives `clock` evidence without an exception, and `frames` evidence returns from the second observation after the counter recovers.
+14. Rendered-frame evidence is required to show "Playing, confirmed" in the pill and to send the started acknowledgement; clock-only progress shows "Playing, not frame-confirmed" and sends no started acknowledgement.
+15. Media-event reports between two periodic samples do not report a healthy player as not progressing, do not erase progress the next periodic sample needs, and still report a freeze.
 
 The deterministic suite proves source behavior and synthetic timing only. It does not prove accepted Crunchyroll playback, final visible output, cross-profile synchronization, device behavior, deployment behavior or user acceptance.
 
@@ -99,7 +107,7 @@ For each observation:
 5. Hide or background the page, then return it to the foreground. Confirm that the extension does not call the hidden period visible-frame proof, that the baseline is rebased on restoration, and that a later frame-counter advance is reported separately.
 6. Exercise a nested player or hidden iframe and, if the browser supports it, Picture-in-Picture. Record the actual document visibility and evidence quality. Do not mark visible-output acceptance from counters alone.
 7. Trigger waiting or stalled playback and then request a context refresh or diagnostics report before recovery. Confirm that the known buffering state remains present in both the context and the report.
-8. Trigger a browser-rejected synchronized play request, then request context and diagnostics without starting a new source. Confirm that the permission failure remains explicit until a successful start, command reset or source change clears it.
+8. Trigger a browser-rejected synchronized play request, then request context and diagnostics without starting a new source. Confirm that the permission failure remains explicit after the room's own pause (a command change does not clear it) until the browser accepts a play (a native `play` event or an accepted synchronized `play()`), the source is replaced, or the room is left.
 9. Replace the media source or navigate to a new episode. Confirm that prior progress, buffering and permission-failure state does not leak into the new source.
 10. Repeat enough times to cover cold and warm player state, a provider lifecycle event, a hidden period, a seek and a source transition. Record failures exactly, including whether they were provider, browser, network, device or extension behavior.
 

@@ -1,5 +1,11 @@
 import type { ProgressEvidenceQuality } from '@syncyourjoy/protocol'
 
+/**
+ * How long the verdict of a periodic sample is carried by the media-event
+ * reports that follow it. The sample is taken once a second.
+ */
+const PERIODIC_VERDICT_FRESH_MS = 1_500
+
 export interface PlayerHealthBaselineInput {
   nowMs: number
   positionSeconds: number
@@ -7,6 +13,14 @@ export interface PlayerHealthBaselineInput {
 }
 
 export interface PlayerHealthObservation extends PlayerHealthBaselineInput {
+  /**
+   * False for an observation triggered by a media event rather than by the
+   * periodic sample. Such an observation reads the progress accumulated since
+   * the last periodic sample and never moves that sample's cursor, so it can
+   * neither erase the evidence the next periodic check needs nor report
+   * "no progress" merely because it fell between two frames. Defaults to true.
+   */
+  periodic?: boolean
   paused: boolean
   seeking: boolean
   localSeeking: boolean
@@ -23,16 +37,29 @@ export interface PlayerHealthObservation extends PlayerHealthBaselineInput {
  * quality, never media bytes, credentials or provider-specific data.
  */
 export interface PlayerHealthState {
+  /** When the last observation of any kind was made. */
   observedAtMs: number
+  /**
+   * The cursor that progress is measured from: where the last periodic sample
+   * (or a reset) left the position and frame counter. Media-event observations
+   * leave it alone.
+   */
   observedPositionSeconds: number
   observedFrames: number | null
   buffering: boolean
   progressed: boolean
   progressEvidence: ProgressEvidenceQuality
   lastProgressAtMs: number
-  lastProgressPositionSeconds: number
-  lastProgressFrames: number | null
+  /** What the last periodic sample said about progress, and when it was taken. Media-event reports carry it for a short while. */
+  periodicProgressed: boolean
+  periodicAtMs: number
+  /** Any forward progress was seen for this source and command: a frame counter or the media clock. */
   hasRealPlaybackProgress: boolean
+  /**
+   * A frame counter advanced for this source and command. Only this is rendered-frame
+   * evidence; the media clock alone is not (owner decision on #53).
+   */
+  hasRenderedFrameProgress: boolean
   unexpectedPauseSinceMs: number
   playbackStartFailed: boolean
 }
@@ -47,9 +74,10 @@ export function createPlayerHealthState(input: PlayerHealthBaselineInput): Playe
     progressed: false,
     progressEvidence: 'unknown',
     lastProgressAtMs: baseline.nowMs,
-    lastProgressPositionSeconds: baseline.positionSeconds,
-    lastProgressFrames: baseline.frames,
+    periodicProgressed: false,
+    periodicAtMs: baseline.nowMs,
     hasRealPlaybackProgress: false,
+    hasRenderedFrameProgress: false,
     unexpectedPauseSinceMs: 0,
     playbackStartFailed: false,
   }
@@ -77,6 +105,8 @@ export function resetPlayerHealthBaseline(
     observedPositionSeconds: baseline.positionSeconds,
     observedFrames: baseline.frames,
     progressed: false,
+    periodicProgressed: false,
+    periodicAtMs: baseline.nowMs,
     unexpectedPauseSinceMs: 0,
   }
   if (preserveCurrentSignal)
@@ -86,9 +116,8 @@ export function resetPlayerHealthBaseline(
     buffering: false,
     progressEvidence: 'unknown',
     lastProgressAtMs: baseline.nowMs,
-    lastProgressPositionSeconds: baseline.positionSeconds,
-    lastProgressFrames: baseline.frames,
     hasRealPlaybackProgress: false,
+    hasRenderedFrameProgress: false,
   }
 }
 
@@ -109,6 +138,33 @@ export function clearPlaybackStartFailed(previous: PlayerHealthState): PlayerHea
 }
 
 export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHealthObservation): PlayerHealthState {
+  const next = observeAgainstCursor(previous, input)
+  if (input.periodic !== false)
+    return { ...next, periodicProgressed: next.progressed, periodicAtMs: next.observedAtMs }
+  // A media-event observation sees the progress accumulated since the last periodic
+  // sample. It keeps that sample's cursor, so the next periodic check still sees
+  // the progress, and it carries a fresh periodic verdict when it falls between two
+  // frames instead of reporting "no progress" for a healthy player. A stale verdict
+  // is not carried, so a freeze is still reported by the events that follow it.
+  const carriesPeriodicVerdict = !next.progressed
+    && input.roomPlaying
+    && !input.paused
+    && !input.seeking
+    && !input.localSeeking
+    && !input.lacksPlayableData
+    && previous.periodicProgressed
+    && next.observedAtMs - previous.periodicAtMs < PERIODIC_VERDICT_FRESH_MS
+    && !next.buffering
+    && (next.progressEvidence === 'frames' || next.progressEvidence === 'clock')
+  return {
+    ...next,
+    observedPositionSeconds: previous.observedPositionSeconds,
+    observedFrames: previous.observedFrames,
+    progressed: next.progressed || carriesPeriodicVerdict,
+  }
+}
+
+function observeAgainstCursor(previous: PlayerHealthState, input: PlayerHealthObservation): PlayerHealthState {
   const observation = normalizedObservation(input)
   const next: PlayerHealthState = {
     ...previous,
@@ -135,15 +191,12 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
         next.progressed = true
         next.buffering = false
         next.lastProgressAtMs = observation.nowMs
-        next.lastProgressPositionSeconds = observation.positionSeconds
-        next.lastProgressFrames = observation.frames
         next.hasRealPlaybackProgress = true
+        next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || evidence.quality === 'frames'
         return next
       }
     }
     next.lastProgressAtMs = observation.nowMs
-    next.lastProgressPositionSeconds = observation.positionSeconds
-    next.lastProgressFrames = observation.frames
     return next
   }
 
@@ -164,8 +217,6 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
     next.progressed = false
     next.progressEvidence = 'unknown'
     next.lastProgressAtMs = observation.nowMs
-    next.lastProgressPositionSeconds = observation.positionSeconds
-    next.lastProgressFrames = observation.frames
     return next
   }
 
@@ -180,9 +231,8 @@ export function observePlayerHealth(previous: PlayerHealthState, input: PlayerHe
     next.progressed = true
     next.buffering = false
     next.lastProgressAtMs = observation.nowMs
-    next.lastProgressPositionSeconds = observation.positionSeconds
-    next.lastProgressFrames = observation.frames
     next.hasRealPlaybackProgress = true
+    next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || evidence.quality === 'frames'
   }
   else {
     // Once the element has said it is waiting, keep saying so until frames
