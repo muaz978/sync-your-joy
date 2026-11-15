@@ -38,6 +38,9 @@ import {
 } from './three-profile-room.ts'
 
 test.describe('three-profile fault matrix', () => {
+  // One room and about 45 s of scenarios, with room to spare on a busy machine.
+  test.describe.configure({ timeout: 420_000 })
+
   let profiles: [ExtensionProfile, ExtensionProfile, ExtensionProfile]
 
   test.beforeAll(async () => {
@@ -49,7 +52,6 @@ test.describe('three-profile fault matrix', () => {
   })
 
   test('quorum, late and missing acknowledgements, pending pause, silent players and a second controller', async () => {
-    test.setTimeout(420_000)
     const [profileA, profileB, profileC] = profiles
     const room: Room = await createRoomWithPlayers(profiles)
     const { pages, roomCode } = room
