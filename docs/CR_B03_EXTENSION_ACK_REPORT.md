@@ -141,9 +141,9 @@ After the effective time:
 - the play attempt belongs to that operation;
 - the video is not paused or seeking;
 - no local seek operation is pending;
-- `playerHealth.hasRealPlaybackProgress` is true.
+- `playerHealth.hasRenderedFrameProgress` is true: a frame counter (the `requestVideoFrameCallback` count where the browser has it, otherwise the playback-quality count while the page is visible) advanced for this source and command.
 
-The existing player-health observer requires actual clock or rendered-frame progress after the playback startup grace. This prevents a pending promise, a provider's optimistic play event, a stuck frame, or `paused=false` without movement from becoming a false started acknowledgement.
+Update 2026-11-15: this gate originally read `hasRealPlaybackProgress`, which is also true for progress that only the media clock shows. By the owner decision of 2026-10-31 on #53 (the same answer applies to #57), clock-only progress does not send `started`; rendered-frame evidence is required. A player with no frame counter, or in a hidden tab, therefore does not send `started`, and the coordinator ends that start at its deadline. Frames presented during the startup grace still count. This prevents a pending promise, a provider's optimistic play event, a stuck frame, `paused=false` without movement, or a running media clock alone from becoming a false started acknowledgement.
 
 ### Direct gesture recovery
 
@@ -172,91 +172,41 @@ The backend never authorizes an acknowledgement from the payload's participant I
 - Legacy peers cannot acknowledge a transactional operation because capability negotiation remains fail-closed.
 - The code does not infer Crunchyroll account state. A signed-in account can be used for the separate headed provider gate, but source and local fixture tests do not claim that gate passed.
 
-## 7. Verification performed so far
+## 7. Verification
 
-### Type and focused deterministic checks
+Section 7 was written before the merge of PR #85 and described a package at 0.2.4. It is replaced by the record below, which was taken at base `257afb6` (extension 0.2.12) plus the pull request that adds this revision. The historical pre-merge record is kept at the end of this section in one paragraph.
 
-```text
-npm run typecheck
-PASS
-```
+### Current deterministic evidence (unit level, a fake video element)
 
-```text
-npm test -- --run apps/extension/src/content-script.test.ts
-PASS, 1 file, 58 tests
-```
+All of it is `apps/extension/src/content-script.test.ts` with Vitest fake timers; none of it ran in a browser. The block "a transactional play through the extension (CR-B03, #57)" covers:
 
-The new content-script scenario verifies:
+| Contract | Test |
+| --- | --- |
+| No `prepared` while the local media is not the room's; sent once it matches | "sends no prepared acknowledgement while the local media is not the room's, and sends it once the page matches" |
+| No acknowledgement without a worker binding | "sends no prepared acknowledgement before the page has a binding from the worker" |
+| A refused acknowledgement is asked again on the next evaluation (about once a second, until the deadline), and not once accepted | "asks again on the next evaluation when the worker did not accept the acknowledgement, and stops once it has" |
+| A refused `play()` then a native `play` event: no `started` until real progress, then exactly one | "sends started once, only after real progress, when the person then starts the player themselves" |
+| While the browser keeps refusing, the extension asks again at most once a second and stops when the room ends the operation | "asks the browser again at most once a second while the operation stays committed, and stops when the room ends it" |
+| A `play()` that never settles never produces `started`, including after the ten-second deadline and a late settlement | "a play() that never settles" (two tests) |
+| A future `effectiveAtServerMs` is not started early, and is not started at the old time after a pause, a newer operation, a source change to a source with no data, or leaving the room | "a scheduled start that the room cancels before its time" (five tests) |
+| The late result of an old `play()` sends nothing after a newer operation, a pause or leaving the room | "the result of a play() that an operation no longer owns" (three tests) |
+| `started` rests on frames: frames during the startup grace count; a hidden tab waits until the page is visible and frames advance | "what the started acknowledgement may rest on" (two tests) |
 
-- current binding acquisition;
-- `prepared` emission for the current operation;
-- no `started` acknowledgement immediately after the play promise resolves;
-- no `started` acknowledgement while the operation has only `paused=false` and no real progress;
-- `started` emission only after post-startup frame progress;
-- operation and binding identity on the emitted acknowledgement.
+From the pull request for #53, which this change builds on: clock-only progress sends no `started` (owner decision of 2026-10-31); frame-callback progress alone does send it once; a hidden tab sends none. Those tests are in the block "player health evidence in the content script (CR-A06, #53)".
 
-```text
-npm test -- --run apps/extension/src/service-worker.test.ts packages/protocol/src/index.test.ts
-PASS, 2 files, 39 tests
-```
+Mutation checks (a production line edited in place, the file run, the file restored): 12 mutations, 9 killed. Killed: acknowledgement without a binding, a page that does not match the room, a refused acknowledgement recorded as accepted, a native play event not taken as the current attempt, `started` without an accepted attempt, the effective time ignored, the play deadline not enforced, frames in the startup grace not kept, and a refused attempt never cleared (after a lower bound was added to its test; with only an upper bound it survived). Survived: a new operation keeping the old keys and a play result attributed to whichever operation is current (every comparison is by key equality, so these sequences cannot tell them apart), and a room exit not retiring the pending play (no acknowledgement is possible without a snapshot, so nothing observable differs).
 
-These tests cover strict parser validation, capability compatibility, stale document rejection, current binding forwarding and capability-bearing reconnect messages.
+### Not covered by this revision
 
-```text
-npm test -- --run apps/room-service/src/server.test.ts
-PASS, 1 file, 13 tests
-```
+- `service-worker.test.ts`: the capabilities on `create_room`, `join_room` and the reconnect `join_room`; and `worker.test.ts`: a wrong-participant or rejected `operation_ack` producing no broadcast. Both files are outside this change.
+- `tests/e2e/two-profile-sync.spec.ts` asserting that a Play reaches phase `started`: needs a working browser.
+- Real default autoplay in fresh Chrome and Edge profiles, live Crunchyroll, nested frames, two-account, two-device and deployment runs: carried by #30, #33, #34, #35 and #69 (owner decision of 2026-10-31).
+- A rejected acknowledgement at the coordinator: it gets no reply; the content script asks again on its next evaluation, which the coordinator accepts or ignores. A reply or retry protocol is a protocol change and has no owner decision.
+- A partly started committed operation restored on the edge service takes the pause fallback (owner decision of 2026-10-31, tracked on #60). That is a coordinator behaviour and is not tested here.
 
-The new WebSocket test covers two capability-bearing clients, pending join approval, readiness, transactional play creation, both prepared acknowledgements, coordinator commit, both started acknowledgements and the final `started` operation snapshot.
+### Historical record before the merge of PR #85
 
-### Intermediate failure found and corrected during host-level verification
-
-The first host-level two-profile run exposed this real failure:
-
-```text
-Playback did not advance media time and presented frames:
-{"currentTime":11.012,"paused":true,"seeking":false,"readyState":4}
-```
-
-The failure was not caused by a missing Crunchyroll account. The clean runtime-state capture showed a transactional seek with `phase: failed`, `reason: start-timeout`, `startedParticipantIds: []`, and both participants prepared. The investigation found three related timing/state bugs:
-
-1. The operation reused the 1.8-second preparation deadline after commit, before the extension's startup grace and real-progress observation could complete.
-2. The coordinator's normal 1.8-second progress-stall watchdog ran during transactional startup, before the extension was allowed to report real progress.
-3. A superseding seek calculated `resumeWhenReady` after `cancelOperation()` had already paused the previous operation, recording `false` even when the room had been playing.
-
-The fixes are now covered by `room.test.ts` and the clean browser smoke. The exact temporary service-worker state getter and E2E debug wrappers used for diagnosis were removed before final verification.
-
-### Final verification completed on the branch
-
-The final verification was rerun after all three coordinator corrections, with temporary debugging removed:
-
-```text
-npm run check
-PASS
-typecheck: PASS
-Vitest: 30 files, 274 tests passed
-room-service bundle: PASS
-extension build: PASS
-```
-
-```text
-npm run verify:browser-packages
-PASS with approved host filesystem access
-Chrome: manifest 0.2.4, serviceWorker service-worker.js
-Firefox: manifest 0.2.4, sidebar sidepanel.html
-Safari: macOS package smoke PASS
-```
-
-The restricted attempt of the browser-package command still fails at the macOS Safari converter because the converter cannot access its temporary staging directory. The approved host rerun passed all three package checks. This is an environment permission limitation, not a package-content failure.
-
-```text
-npm run test:e2e -- --grep "profile A creates a room"
-PASS, 1 test, 16.7 seconds total, 8.7 seconds test execution
-```
-
-The clean local two-profile E2E now passes the transactional play and superseding-seek path. It remains local fixture evidence, not authenticated Crunchyroll provider evidence.
-
-No authenticated Crunchyroll live-provider playback result is claimed for CR-B03. No Edge controlled-browser candidate reload, nested-frame provider matrix, deployment, or user-acceptance result is claimed here. No release claim is made. The package version remains `0.2.4`; `1.0.0` remains reserved for the end-of-milestone release gate.
+At the pre-merge checkpoint the branch passed `npm run check` with 30 test files and 274 tests, `npm run verify:browser-packages` (Chrome, Firefox and Safari package smoke, version 0.2.4) and one local two-profile test (`profile A creates a room`), on a synthetic fixture. A first host-level two-profile run exposed three coordinator timing defects (a shared 1.8 s deadline after commit, the stall watchdog running during startup, and a superseding seek losing its resume intent), which were corrected in `packages/sync-engine/src/room.ts` and covered in `room.test.ts`. No live-provider, deployment or user-acceptance result was claimed then, and none is claimed now.
 
 ## 8. Review and closure boundary
 
