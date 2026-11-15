@@ -481,6 +481,31 @@ describe('operation identity and compatibility contract', () => {
     })).toBeNull()
   })
 
+  it('keeps the committed phase strict: a committed operation is valid only before anyone has started, and a started one only when everyone has', () => {
+    const base = {
+      ...operation,
+      kind: 'play',
+      requiredParticipantIds: ['participant_host', 'participant_guest'],
+      preparedParticipantIds: ['participant_host', 'participant_guest'],
+      targetPositionSeconds: 40,
+      deadlineAtServerMs: 20_000,
+    }
+    const committed = { ...base, phase: 'committed', startedParticipantIds: [], effectiveAtServerMs: 11_000 }
+    expect(isRoomOperation(committed)).toBe(true)
+    // A partly started committed operation is what a coordinator holds between the first and the last start
+    // acknowledgement. The validator does not accept it, so a stored one is not restored as an operation: the
+    // room restores paused instead (the owner's decision of 2026-10-31, tracked on #60).
+    expect(isRoomOperation({ ...committed, startedParticipantIds: ['participant_host'] })).toBe(false)
+    expect(isRoomOperation({ ...committed, phase: 'started', startedParticipantIds: ['participant_host'] })).toBe(false)
+    expect(isRoomOperation({ ...committed, phase: 'started', startedParticipantIds: ['participant_host', 'participant_guest'] })).toBe(true)
+    expect(isRoomContractSnapshot({
+      mode: 'transactional',
+      mediaEpoch: 3,
+      sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+      operation: { ...committed, startedParticipantIds: ['participant_host'] },
+    })).toBe(false)
+  })
+
   it('fails closed when every peer does not advertise the transaction contract', () => {
     const transactional = negotiateRoomMode([
       { participantId: 'participant_host', capabilities: CURRENT_CLIENT_CAPABILITIES },
