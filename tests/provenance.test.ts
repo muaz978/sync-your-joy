@@ -12,6 +12,7 @@ import {
   hashFiles,
   isCheckoutExtensionBuild,
   readSourceIdentity,
+  readWorkingTreeState,
   resolveExtensionSourceRoot,
 } from './e2e/provenance.ts'
 
@@ -291,7 +292,7 @@ describe('E2E provenance', () => {
       const record = await collect(checkout)
       const identity = await readSourceIdentity(checkout)
 
-      expect(Object.keys(record)).toEqual(['schemaVersion', 'runId', 'createdAt', 'source', 'lock', 'config', 'e2e', 'extensionSource'])
+      expect(Object.keys(record)).toEqual(['schemaVersion', 'runId', 'createdAt', 'source', 'lock', 'config', 'e2e', 'extensionSource', 'workingTree'])
       expect(record.schemaVersion).toBe(1)
       expect(record.runId).toBe('e2e-run')
       expect(record.source).toEqual({
@@ -317,6 +318,7 @@ describe('E2E provenance', () => {
         trackedSourceSha256: identity.trackedSourceSha256,
         packageLockSha256: identity.packageLockSha256,
         config: identity.config,
+        workingTree: identity.workingTree,
         workspacePackages: {
           '@syncyourjoy/protocol': join('packages', 'protocol'),
           '@syncyourjoy/sync-engine': join('packages', 'sync-engine'),
@@ -485,6 +487,225 @@ describe('E2E provenance', () => {
     it('is still another tree when it is another tree', async () => {
       const record = await collect(release)
       expect(record.extensionSource.sameAsCheckout).toBe(false)
+    })
+  })
+
+  describe('working tree state', () => {
+    let trees: string
+    let counter = 0
+
+    beforeAll(() => {
+      trees = mkdtempSync(join(tmpdir(), 'syj-worktree-state-'))
+    })
+
+    afterAll(() => {
+      rmSync(trees, { recursive: true, force: true })
+    })
+
+    const freshRepo = (files: Record<string, string> = {}): string => {
+      counter += 1
+      const root = join(trees, `repo-${counter}`)
+      createRepo(root, {
+        '.gitignore': 'ignored/\n',
+        'apps/extension/static/manifest.json': '{"version":"0.2.7"}\n',
+        'scripts/build-extension.mjs': buildScript('fresh'),
+        'package.json': '{}\n',
+        'package-lock.json': '{}\n',
+        ...files,
+      })
+      return root
+    }
+
+    it('is clean for a tree that matches its commit', async () => {
+      expect(await readWorkingTreeState(freshRepo())).toEqual({
+        dirty: false,
+        modifiedTrackedCount: 0,
+        untrackedCount: 0,
+        untrackedHash: null,
+      })
+    })
+
+    it('counts a modified tracked file and leaves the untracked fields empty', async () => {
+      const root = freshRepo()
+      writeFileSync(join(root, 'package.json'), '{"edited":true}\n')
+      expect(await readWorkingTreeState(root)).toEqual({
+        dirty: true,
+        modifiedTrackedCount: 1,
+        untrackedCount: 0,
+        untrackedHash: null,
+      })
+    })
+
+    it('counts staged, modified and deleted tracked files once each', async () => {
+      const root = freshRepo()
+      writeFileSync(join(root, 'package.json'), '{"edited":true}\n')
+      rmSync(join(root, 'package-lock.json'))
+      writeFileSync(join(root, 'staged.ts'), 'export {}\n')
+      git(root, 'add', 'staged.ts')
+      const state = await readWorkingTreeState(root)
+      expect(state.modifiedTrackedCount).toBe(3)
+      expect(state.untrackedCount).toBe(0)
+      expect(state.dirty).toBe(true)
+    })
+
+    it('records a file git does not track yet, which no tracked-source hash sees', async () => {
+      const root = freshRepo()
+      const before = await readSourceIdentity(root)
+      writeFileSync(join(root, 'apps/new-module.ts'), 'export const added = true\n')
+      const after = await readSourceIdentity(root)
+
+      expect(after.trackedSourceSha256).toBe(before.trackedSourceSha256)
+      expect(before.workingTree.dirty).toBe(false)
+      expect(after.workingTree.dirty).toBe(true)
+      expect(after.workingTree.untrackedCount).toBe(1)
+      expect(after.workingTree.modifiedTrackedCount).toBe(0)
+      expect(after.workingTree.untrackedHash).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    it('changes the untracked hash with the names and the contents, and not otherwise', async () => {
+      const root = freshRepo()
+      writeFileSync(join(root, 'a.ts'), 'one\n')
+      const first = (await readWorkingTreeState(root)).untrackedHash
+      expect((await readWorkingTreeState(root)).untrackedHash).toBe(first)
+
+      writeFileSync(join(root, 'a.ts'), 'two\n')
+      const edited = (await readWorkingTreeState(root)).untrackedHash
+      expect(edited).not.toBe(first)
+
+      writeFileSync(join(root, 'b.ts'), 'two\n')
+      const second = await readWorkingTreeState(root)
+      expect(second.untrackedCount).toBe(2)
+      expect(second.untrackedHash).not.toBe(edited)
+
+      // The same content under another name is another tree.
+      const renamed = freshRepo()
+      writeFileSync(join(renamed, 'c.ts'), 'one\n')
+      expect((await readWorkingTreeState(renamed)).untrackedHash).not.toBe(first)
+    })
+
+    it('does not count what .gitignore hides, such as a run\'s own output', async () => {
+      const root = freshRepo()
+      mkdirSync(join(root, 'ignored/run'), { recursive: true })
+      writeFileSync(join(root, 'ignored/run/provenance.json'), '{}\n')
+      expect(await readWorkingTreeState(root)).toMatchObject({ dirty: false, untrackedCount: 0, untrackedHash: null })
+    })
+
+    it('keeps no file name and no file content in what it returns', async () => {
+      const root = freshRepo()
+      writeFileSync(join(root, 'private-notes-name.txt'), 'private-notes-content\n')
+      writeFileSync(join(root, 'package.json'), '{"private-edit":true}\n')
+      const serialized = JSON.stringify(await readWorkingTreeState(root))
+      expect(serialized).not.toContain('private-notes')
+      expect(serialized).not.toContain('private-edit')
+      expect(serialized).not.toContain('package.json')
+      expect(Object.keys(JSON.parse(serialized))).toEqual(['dirty', 'modifiedTrackedCount', 'untrackedCount', 'untrackedHash'])
+    })
+
+    it('fingerprints an untracked link by its target and survives one that points nowhere', async () => {
+      const root = freshRepo()
+      symlinkSync('does-not-exist', join(root, 'dangling'))
+      const state = await readWorkingTreeState(root)
+      expect(state.untrackedCount).toBe(1)
+      expect(state.untrackedHash).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    it('tells links with different targets apart, and a link from a regular file of the same name', async () => {
+      const hashWith = async (create: (root: string) => void): Promise<string | null> => {
+        const root = freshRepo()
+        create(root)
+        return (await readWorkingTreeState(root)).untrackedHash
+      }
+      const toA = await hashWith(root => symlinkSync('a', join(root, 'link')))
+      const toB = await hashWith(root => symlinkSync('b', join(root, 'link')))
+      expect(toA).toMatch(/^[0-9a-f]{64}$/)
+      expect(toB).not.toBe(toA)
+
+      // A link that points at a file that exists is told apart the same way.
+      const toExistingA = await hashWith((root) => {
+        writeFileSync(join(root, 'a'), 'same\n')
+        writeFileSync(join(root, 'b'), 'same\n')
+        symlinkSync('a', join(root, 'link'))
+      })
+      const toExistingB = await hashWith((root) => {
+        writeFileSync(join(root, 'a'), 'same\n')
+        writeFileSync(join(root, 'b'), 'same\n')
+        symlinkSync('b', join(root, 'link'))
+      })
+      expect(toExistingB).not.toBe(toExistingA)
+
+      const regular = await hashWith(root => writeFileSync(join(root, 'link'), 'a'))
+      expect(regular).not.toBe(toA)
+    })
+
+    it('does not let the end of a name run into the start of the content', async () => {
+      const hashWith = async (name: string, content: string): Promise<string | null> => {
+        const root = freshRepo()
+        writeFileSync(join(root, name), content)
+        return (await readWorkingTreeState(root)).untrackedHash
+      }
+      expect(await hashWith('ab', 'c')).not.toBe(await hashWith('a', 'bc'))
+    })
+
+    it('does not let the end of one file run into the name of the next', async () => {
+      const hashWith = async (files: Record<string, string>): Promise<string | null> => {
+        const root = freshRepo()
+        for (const [name, content] of Object.entries(files))
+          writeFileSync(join(root, name), content)
+        return (await readWorkingTreeState(root)).untrackedHash
+      }
+      // Without separators both read "a" "x" "b" "y".
+      expect(await hashWith({ a: 'x', b: 'y' })).not.toBe(await hashWith({ a: 'xb', y: '' }))
+    })
+
+    it('lets the source identity be read when a tracked source file was deleted, instead of failing on it', async () => {
+      const root = freshRepo({ 'tests/e2e/gone.spec.ts': 'to be deleted\n' })
+      const before = await readSourceIdentity(root)
+      rmSync(join(root, 'tests/e2e/gone.spec.ts'))
+      const after = await readSourceIdentity(root)
+      expect(after.workingTree).toMatchObject({ dirty: true, modifiedTrackedCount: 1 })
+      expect(after.trackedSourceSha256).not.toBe(before.trackedSourceSha256)
+    })
+
+    it('is in the provenance record for the checkout and, separately, for the tree the extension came from', async () => {
+      const dirtyCheckout = freshRepo()
+      installWorkspaceLinks(dirtyCheckout)
+      const cleanRelease = freshRepo()
+      installOwnWorkspacePackages(cleanRelease)
+      git(cleanRelease, 'add', '-f', 'node_modules')
+      git(cleanRelease, 'commit', '-q', '-m', 'dependencies')
+      writeFileSync(join(dirtyCheckout, 'package.json'), '{"edited":true}\n')
+      mkdirSync(join(dirtyCheckout, 'ignored/run/extension'), { recursive: true })
+      writeFileSync(join(dirtyCheckout, 'ignored/run/extension/manifest.json'), '{}\n')
+
+      const record = await collectProvenance({
+        runId: 'run',
+        createdAt: '2026-10-15T00:00:00.000Z',
+        checkoutRoot: dirtyCheckout,
+        extensionSourceRoot: cleanRelease,
+        extensionDistDir: join(dirtyCheckout, 'ignored/run/extension'),
+        roomServerUrl,
+      })
+
+      expect(record.workingTree.dirty).toBe(true)
+      expect(record.workingTree.modifiedTrackedCount).toBe(1)
+      expect(record.extensionSource.sameAsCheckout).toBe(false)
+      expect(record.extensionSource.workingTree).toEqual({ dirty: false, modifiedTrackedCount: 0, untrackedCount: 0, untrackedHash: null })
+    })
+
+    it('says the same about the checkout and the extension source when they are one tree', async () => {
+      const root = freshRepo()
+      installWorkspaceLinks(root)
+      mkdirSync(join(root, 'ignored/run/extension'), { recursive: true })
+      writeFileSync(join(root, 'ignored/run/extension/manifest.json'), '{}\n')
+      const record = await collectProvenance({
+        runId: 'run',
+        createdAt: '2026-10-15T00:00:00.000Z',
+        checkoutRoot: root,
+        extensionSourceRoot: root,
+        extensionDistDir: join(root, 'ignored/run/extension'),
+        roomServerUrl,
+      })
+      expect(record.extensionSource.workingTree).toEqual(record.workingTree)
     })
   })
 
