@@ -896,7 +896,8 @@ function handleSeeked(): void {
   const completedNativePosition = shouldSend && video ? finiteOrZero(video.currentTime) : null
   localSeeking = false
   if (completedPending) {
-    completePendingSeek(completedPending)
+    // The element's own seeked event is the one being handled, so nothing is left to attribute.
+    completePendingSeek(completedPending, false)
   }
   if (completedNativePosition !== null) {
     holdLocalControllerIntent()
@@ -1947,7 +1948,7 @@ function trySetProgrammaticPosition(positionSeconds: number, roomRevision: numbe
     ? currentPending
     : null
   if (aligned && matchingPending) {
-    completePendingSeek(matchingPending)
+    completePendingSeek(matchingPending, true)
     return true
   }
   if (aligned && !currentPending)
@@ -2058,9 +2059,14 @@ function maybeAcknowledgeRoomSeek(): void {
   })
 }
 
-function completePendingSeek(completed: NonNullable<typeof pendingSeek>): void {
+/**
+ * `nativeSeekedStillDue` is true when the page itself saw the seek finish (a
+ * readiness event, the completion probe or a heartbeat) and the element's own
+ * `seeked` may still follow; that event must not become a controller scrub.
+ */
+function completePendingSeek(completed: NonNullable<typeof pendingSeek>, nativeSeekedStillDue: boolean): void {
   clearStuckSeek()
-  playerOperations.completeSeek(completed.token)
+  playerOperations.completeSeek(completed.token, nativeSeekedStillDue ? performance.now() : undefined)
   if (completed.roomRevision !== null)
     completedRoomSeekRevision = completed.roomRevision
   else if (activeState?.snapshot?.playback.status === 'playing')
@@ -2076,7 +2082,7 @@ function maybeCompletePendingSeek(): boolean {
     return false
   if (!canConfirmSeek({ currentSeconds: video.currentTime, targetSeconds: pending.positionSeconds, seeking: video.seeking }))
     return false
-  completePendingSeek(pending)
+  completePendingSeek(pending, true)
   maybeAcknowledgeRoomSeek()
   applyAuthoritativeState()
   return true
