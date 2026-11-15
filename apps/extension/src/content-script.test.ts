@@ -1,5 +1,5 @@
 import { CURRENT_CLIENT_CAPABILITIES } from '@syncyourjoy/protocol'
-import type { MediaFingerprint } from '@syncyourjoy/protocol'
+import type { MediaFingerprint, RoomOperation } from '@syncyourjoy/protocol'
 import type { ContentRequest, ExtensionState, RuntimeEvent, RuntimeRequest } from './internal.ts'
 import { RoomCoordinator } from '@syncyourjoy/sync-engine'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1972,6 +1972,364 @@ describe('autoplay permission rejection (#68)', () => {
     let context: unknown
     listener({ type: 'GET_PLAYER_CONTEXT' }, undefined, response => { context = response })
     expect(context).toMatchObject({ sample: { playbackStartFailed: false } })
+  })
+})
+
+describe('a transactional play through the extension (CR-B03, #57)', () => {
+  const NotAllowed = () => new DOMException('User activation required', 'NotAllowedError')
+  let accept = true
+
+  const acknowledgements = (phase?: 'prepared' | 'started') => messages.filter(message =>
+    message.type === 'OPERATION_ACK' && (phase === undefined || message.acknowledgement.phase === phase))
+
+  async function settle(): Promise<void> {
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  /** The worker has issued this page a binding and answers acknowledgements as `accept` says. */
+  async function bindPlayer(): Promise<void> {
+    accept = true
+    const sendMessage = (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>)
+    sendMessage.mockImplementation(async (request: RuntimeRequest) => {
+      messages.push(request)
+      if (request.type === 'MEDIA_DETECTED')
+        return { ok: true, state, playerBindingId: 'binding_b03' }
+      if (request.type === 'OPERATION_ACK' && !accept)
+        return { ok: false, state, error: 'The acknowledgement was not accepted.' }
+      return { ok: true, state }
+    })
+    messages.length = 0
+    listener({ type: 'REPORT_PLAYER_CONTEXT' }, undefined, () => {})
+    await settle()
+  }
+
+  function operationSnapshot(operationId: string, changes: Partial<RoomOperation>, playbackStatus: 'playing' | 'paused' = 'playing'): void {
+    state = structuredClone(state)
+    state.snapshot!.revision++
+    const operation: RoomOperation = {
+      mediaEpoch: 0,
+      operationId,
+      kind: 'play',
+      phase: 'committed',
+      requiredParticipantIds: ['guest'],
+      preparedParticipantIds: ['guest'],
+      startedParticipantIds: [],
+      targetPositionSeconds: 0,
+      resumeWhenReady: true,
+      effectiveAtServerMs: Date.now() - 100,
+      deadlineAtServerMs: Date.now() + 60_000,
+      ...changes,
+    }
+    state.snapshot!.contract = { mode: 'transactional', mediaEpoch: 0, sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities], operation }
+    state.snapshot!.playback = {
+      status: playbackStatus,
+      positionSeconds: operation.targetPositionSeconds ?? 0,
+      effectiveAtServerMs: operation.effectiveAtServerMs ?? Date.now(),
+      playbackRate: 1,
+    }
+    listener({ type: 'APPLY_ROOM_STATE', state })
+  }
+
+  async function secondOfPlayback(counters: { callbacks?: number } = {}): Promise<void> {
+    video.position += 1
+    if (counters.callbacks)
+      video.presentFrames(counters.callbacks)
+    await vi.advanceTimersByTimeAsync(1_000)
+  }
+
+  describe('preparation', () => {
+    it('sends no prepared acknowledgement while the local media is not the room\'s, and sends it once the page matches', async () => {
+      await bindPlayer()
+      vi.stubGlobal('location', new URL('https://www.crunchyroll.com/watch/GEOTHER000000/another-episode'))
+      operationSnapshot('operation_play_prep', { phase: 'preparing', preparedParticipantIds: [], effectiveAtServerMs: null })
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      expect(acknowledgements()).toEqual([])
+      expect(video.writes).toEqual([])
+
+      vi.stubGlobal('location', new URL('https://www.crunchyroll.com/watch/GE00365016JAJP/episode'))
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(acknowledgements('prepared')).toHaveLength(1)
+      expect(acknowledgements('prepared')[0]).toMatchObject({ acknowledgement: { operationId: 'operation_play_prep', bindingId: 'binding_b03', phase: 'prepared' } })
+    })
+
+    it('sends no prepared acknowledgement before the page has a binding from the worker', async () => {
+      operationSnapshot('operation_play_prep', { phase: 'preparing', preparedParticipantIds: [], effectiveAtServerMs: null })
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      expect(acknowledgements()).toEqual([])
+    })
+
+    it('asks again on the next evaluation when the worker did not accept the acknowledgement, and stops once it has', async () => {
+      await bindPlayer()
+      accept = false
+      operationSnapshot('operation_play_prep', { phase: 'preparing', preparedParticipantIds: [], effectiveAtServerMs: null })
+      await vi.advanceTimersByTimeAsync(3_100)
+      const refused = acknowledgements('prepared').length
+      expect(refused).toBeGreaterThanOrEqual(3)
+
+      accept = true
+      await vi.advanceTimersByTimeAsync(1_100)
+      const afterAcceptance = acknowledgements('prepared').length
+      expect(afterAcceptance).toBeGreaterThan(refused)
+
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(acknowledgements('prepared')).toHaveLength(afterAcceptance)
+    })
+  })
+
+  describe('a committed operation after the browser refused the play request', () => {
+    it('sends started once, only after real progress, when the person then starts the player themselves', async () => {
+      await bindPlayer()
+      video.play.mockRejectedValueOnce(NotAllowed())
+      operationSnapshot('operation_play_gesture', {})
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+      expect(video.paused).toBe(true)
+      expect(acknowledgements('started')).toEqual([])
+
+      // The person clicks the video: a native play event that nothing in the extension asked for.
+      video.paused = false
+      video.dispatchEvent(new Event('play'))
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+      expect(acknowledgements('started')).toEqual([])
+
+      // The player is unpaused, but no frame has been presented and the clock does not move.
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(acknowledgements('started')).toEqual([])
+
+      for (let second = 0; second < 3; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+      expect(acknowledgements('started')).toHaveLength(1)
+      expect(acknowledgements('started')[0]).toMatchObject({ acknowledgement: { operationId: 'operation_play_gesture', bindingId: 'binding_b03', phase: 'started' } })
+
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(acknowledgements('started')).toHaveLength(1)
+    })
+
+    it('asks the browser again at most once a second while the operation stays committed, and stops when the room ends it', async () => {
+      // Measured, not designed: a refused attempt clears the operation's attempt marker, so every
+      // evaluation (once a second) makes a new request until the coordinator ends the operation.
+      await bindPlayer()
+      video.play.mockRejectedValue(NotAllowed())
+      operationSnapshot('operation_play_gesture', {})
+      await settle()
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(video.play.mock.calls.length).toBeLessThanOrEqual(6)
+      expect(acknowledgements('started')).toEqual([])
+
+      operationSnapshot('operation_play_gesture', { phase: 'failed', reason: 'start-rejected' }, 'paused')
+      await settle()
+      const calls = video.play.mock.calls.length
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      expect(video.play.mock.calls.length).toBe(calls)
+    })
+  })
+
+  describe('a play() that never settles', () => {
+    function neverSettle(): void {
+      video.play.mockImplementation(() => {
+        video.paused = false
+        video.dispatchEvent(new Event('play'))
+        return new Promise<void>(() => {})
+      })
+    }
+
+    it('sends no started acknowledgement, even while frames are presented', async () => {
+      await bindPlayer()
+      neverSettle()
+      operationSnapshot('operation_play_hang', {})
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+
+      for (let second = 0; second < 8; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toEqual([])
+    })
+
+    it('sends none after the ten-second deadline pauses the player, and a late settlement of the old promise does not change that', async () => {
+      await bindPlayer()
+      let settleOld!: () => void
+      video.play.mockImplementation(() => {
+        video.paused = false
+        video.dispatchEvent(new Event('play'))
+        return new Promise<void>((resolve) => { settleOld = resolve })
+      })
+      operationSnapshot('operation_play_hang', {})
+      await settle()
+
+      for (let second = 0; second < 11; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+      expect(video.paused).toBe(true)
+
+      settleOld()
+      await settle()
+      for (let second = 0; second < 3; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toEqual([])
+    })
+  })
+
+  describe('a scheduled start that the room cancels before its time', () => {
+    const startsAt = () => Date.now() + 800
+
+    it('does not start at the old time after the room paused', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_future', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(300)
+      expect(video.play).not.toHaveBeenCalled()
+
+      operationSnapshot('operation_play_future', { phase: 'cancelled', reason: 'controller-request' }, 'paused')
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(video.play).not.toHaveBeenCalled()
+      expect(video.paused).toBe(true)
+      expect(acknowledgements('started')).toEqual([])
+    })
+
+    it('does not start at the old time when a newer operation replaced it, and starts at the newer time', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_old', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(300)
+
+      operationSnapshot('operation_play_new', { effectiveAtServerMs: Date.now() + 5_000 })
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(video.play).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(3_100)
+      expect(video.play).toHaveBeenCalledOnce()
+    })
+
+    it('does not start at the old time on a source that has no data yet', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_future', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(300)
+
+      video.currentSrc = 'blob:replacement'
+      video.readyState = FakeVideo.HAVE_NOTHING
+      video.dispatchEvent(new Event('emptied'))
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(video.play).not.toHaveBeenCalled()
+      expect(acknowledgements('started')).toEqual([])
+    })
+
+    it('does not start at the old time once the room has been left', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_future', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(300)
+
+      state = structuredClone(state)
+      state.snapshot = null
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(video.play).not.toHaveBeenCalled()
+      expect(acknowledgements()).toEqual([])
+    })
+
+    it('starts once at the effective time when nothing cancels it', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_future', { effectiveAtServerMs: startsAt() })
+      await vi.advanceTimersByTimeAsync(700)
+      expect(video.play).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(400)
+      expect(video.play).toHaveBeenCalledOnce()
+    })
+  })
+
+  describe('the result of a play() that an operation no longer owns', () => {
+    it('is ignored when a newer operation replaced the one it was made for', async () => {
+      await bindPlayer()
+      let settleOld!: () => void
+      video.play.mockImplementationOnce(() => new Promise<void>((resolve) => { settleOld = resolve }))
+      operationSnapshot('operation_play_old', {})
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+
+      operationSnapshot('operation_play_new', { effectiveAtServerMs: Date.now() + 60_000 })
+      video.paused = false
+      settleOld()
+      await settle()
+      for (let second = 0; second < 4; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toEqual([])
+      expect(video.play).toHaveBeenCalledOnce()
+    })
+
+    it('is ignored when the room paused', async () => {
+      await bindPlayer()
+      let settleOld!: () => void
+      video.play.mockImplementationOnce(() => new Promise<void>((resolve) => { settleOld = resolve }))
+      operationSnapshot('operation_play_old', {})
+      await settle()
+
+      operationSnapshot('operation_play_old', { phase: 'cancelled' }, 'paused')
+      settleOld()
+      await settle()
+      for (let second = 0; second < 4; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toEqual([])
+    })
+
+    it('is ignored after the room was left', async () => {
+      await bindPlayer()
+      let settleOld!: () => void
+      video.play.mockImplementationOnce(() => new Promise<void>((resolve) => { settleOld = resolve }))
+      operationSnapshot('operation_play_old', {})
+      await settle()
+
+      state = structuredClone(state)
+      state.snapshot = null
+      listener({ type: 'APPLY_ROOM_STATE', state })
+      settleOld()
+      await settle()
+      await vi.advanceTimersByTimeAsync(4_000)
+
+      expect(acknowledgements()).toEqual([])
+    })
+  })
+
+  describe('what the started acknowledgement may rest on', () => {
+    it('counts frames presented during the startup grace window', async () => {
+      await bindPlayer()
+      operationSnapshot('operation_play_grace', {})
+      await settle()
+      expect(video.play).toHaveBeenCalledOnce()
+
+      // The first seconds after the effective time are still inside the startup grace.
+      for (let second = 0; second < 2; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toHaveLength(1)
+    })
+
+    it('waits for the page to become visible when the tab was hidden, then follows the frames', async () => {
+      await bindPlayer()
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      operationSnapshot('operation_play_hidden', {})
+      await settle()
+      for (let second = 0; second < 4; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+      expect(acknowledgements('started')).toEqual([])
+
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      for (let second = 0; second < 3; second += 1)
+        await secondOfPlayback({ callbacks: 24 })
+
+      expect(acknowledgements('started')).toHaveLength(1)
+    })
   })
 })
 
