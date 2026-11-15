@@ -2744,19 +2744,27 @@ describe('RoomCoordinator', () => {
           expect(restored.snapshot().playback.status).toBe('playing')
         })
 
-        it('keeps the fact off the snapshot, off non-progressing reports and off a newer stored report', () => {
-          const { room, clock, startAtMs } = guestBehindForElevenSeconds({ storedStartupReport: true })
-          const friend = (coordinator: RoomCoordinator) => coordinator.exportState().participants.find(participant => participant.id === 'participant_friend')
-          expect(friend(room)?.aliveProgressed).toBe(true)
+        const friendRecord = (coordinator: RoomCoordinator) => coordinator.exportState().participants.find(participant => participant.id === 'participant_friend')
+
+        it('keeps the fact off the snapshot, and ends it when a newer stored report arrives', () => {
+          const { room, clock } = guestBehindForElevenSeconds({ storedStartupReport: true })
+          expect(friendRecord(room)?.aliveProgressed).toBe(true)
           expect(JSON.stringify(room.snapshot())).not.toContain('aliveProgressed')
-          // A stored report at the current revision replaces the stored report and ends the fact.
           clock.value += 200
           room.updatePlayerStatus('participant_friend', room.snapshot().revision, report(clock.value, 60))
-          expect(friend(room)?.aliveProgressed).toBeUndefined()
-          // A new command ends it too.
-          room.control('participant_host', { actionId: 'pause-after', basedOnRevision: room.snapshot().revision, leaseEpoch: room.snapshot().controller.leaseEpoch, kind: 'pause', positionSeconds: 60 })
-          expect(friend(room)?.aliveProgressed).toBeUndefined()
-          expect(clock.value).toBeGreaterThan(startAtMs)
+          expect(friendRecord(room)?.aliveProgressed).toBeUndefined()
+        })
+
+        it('ends the fact when a new command starts a new period', () => {
+          const { room } = guestBehindForElevenSeconds({ storedStartupReport: true })
+          expect(friendRecord(room)?.aliveProgressed).toBe(true)
+          // A new command starts its period when it commits.
+          controlTransactional(room, 'pause', 60)
+          controlTransactional(room, 'play', 60)
+          room.acknowledgeOperation('participant_host', operationAcknowledgement(room, 'participant_host', 'prepared', 60, 3))
+          const committed = room.acknowledgeOperation('participant_friend', operationAcknowledgement(room, 'participant_friend', 'prepared', 60, 3))
+          expect(committed).toMatchObject({ ok: true, snapshot: { contract: { operation: { phase: 'committed' } } } })
+          expect(friendRecord(room)?.aliveProgressed).toBeUndefined()
         })
 
         it('reads state saved before the field existed as before: the stored startup report is judged by the startup deadline', () => {
