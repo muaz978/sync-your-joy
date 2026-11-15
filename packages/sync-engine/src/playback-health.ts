@@ -1,4 +1,4 @@
-import type { PlaybackState } from '@syncyourjoy/protocol'
+import type { PlaybackState, PlayerSample } from '@syncyourjoy/protocol'
 
 export const PLAYBACK_STARTUP_GRACE_MS = 2_500
 export const PLAYBACK_APPLICATION_GRACE_MS = 500
@@ -53,6 +53,44 @@ export const AUTO_RESUME_POLL_MS = 1_000
 export const AUTO_RESUME_SAMPLE_FRESH_MS = 2_500
 /** At most this many automatic resumes are armed inside `AUTO_RESUME_WINDOW_MS`, so a flapping connection cannot pause and resume forever. */
 export const AUTO_RESUME_ARM_LIMIT = 3
+
+/**
+ * The least a position must move for the coordinator to take the player as
+ * having moved on, both for progress (when a report does not say) and to tell
+ * a late delivery from a client clock that stepped back (`isStaleSample`).
+ */
+export const PLAYBACK_POSITION_ADVANCE_SECONDS = 0.12
+
+/**
+ * Whether `next` is the report the coordinator already holds, delivered again:
+ * every field the same. Only a whole-report duplicate counts. Two different
+ * reports can share a millisecond (the same instant sampled twice, or two
+ * events in one tick), so the timestamp alone does not identify a report.
+ */
+export function isDuplicateSample(recorded: PlayerSample, next: PlayerSample): boolean {
+  const keys = new Set([...Object.keys(recorded), ...Object.keys(next)]) as Set<keyof PlayerSample>
+  for (const key of keys) {
+    if (recorded[key] !== next[key])
+      return false
+  }
+  return true
+}
+
+/**
+ * Whether `next` is a late delivery of an older report. Reports carry the
+ * client's own clock, which can step (a clock set from the network, a machine
+ * waking up) and so cannot order reports on its own: after a step back every
+ * report would look old, the coordinator would drop a healthy player's reports
+ * and then pause the room for a stall. A report stamped earlier than the
+ * recorded one is therefore only late when its position is not further along.
+ * A late delivery cannot be ahead of the report it was overtaken by, apart
+ * from a seek backwards, and the revision rule already rejects a report from
+ * before a seek.
+ */
+export function isStaleSample(recorded: PlayerSample, next: PlayerSample): boolean {
+  return next.sampledAtLocalMs < recorded.sampledAtLocalMs
+    && next.positionSeconds - recorded.positionSeconds < PLAYBACK_POSITION_ADVANCE_SECONDS
+}
 
 export function playbackStartupDeadlineMs(playback: PlaybackState): number {
   return playback.effectiveAtServerMs + PLAYBACK_STARTUP_TIMEOUT_MS
