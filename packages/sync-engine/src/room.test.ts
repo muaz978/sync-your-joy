@@ -2488,7 +2488,11 @@ describe('RoomCoordinator', () => {
         contract: { operation: { phase: 'started' } },
       })
       expect(room.snapshot().participants.find(participant => participant.id === 'participant_host')?.playbackStatus).not.toBe('blocked')
-      expect(room.exportState().participants.find(participant => participant.id === 'participant_host')?.lastSample?.playbackStartFailed).not.toBe(true)
+      // It was accepted as evidence the player is alive: the coordinator last heard from the host now, and the
+      // stored report is still empty, so nothing a failure is classified from came from it.
+      const hostAfterStale = room.exportState().participants.find(participant => participant.id === 'participant_host')
+      expect(hostAfterStale?.lastSampleReceivedAtMs).toBe(nowMs)
+      expect(hostAfterStale?.lastSample).toBeNull()
 
       const staleBuffering = room.updatePlayerStatus('participant_friend', hostRevision, {
         positionSeconds: 41.5,

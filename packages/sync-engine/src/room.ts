@@ -69,6 +69,32 @@ export interface InternalParticipant extends ParticipantState {
   lastOperationObservation?: OperationObservationIdentity
 }
 
+/** What the coordinator keeps, per participant, to order and deduplicate reports. Never persisted, never in a snapshot. */
+interface ReportOrder {
+  latest: PlayerSample
+  stepCandidate: { sampledAtLocalMs: number, positionSeconds: number } | null
+  progressedSinceReset: boolean
+  seen: string[]
+}
+
+/** Reports remembered per participant for duplicate detection: well over a minute of reports at the usual one a second. */
+const SEEN_REPORTS_LIMIT = 64
+
+/** Stands in for a participant's report when only alive-only reports exist: it says playing and carries no failure field. */
+const ALIVE_PLAYING_SAMPLE: PlayerSample = Object.freeze({
+  positionSeconds: 0,
+  durationSeconds: null,
+  paused: false,
+  buffering: false,
+  sampledAtLocalMs: 0,
+  progressed: true,
+  playbackStarted: true,
+})
+
+function sampleKey(sample: PlayerSample): string {
+  return JSON.stringify(Object.entries(sample).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
+}
+
 export interface RoomIdentity {
   roomId: string
   code: string
@@ -944,15 +970,28 @@ export class RoomCoordinator {
     return null
   }
 
+  /**
+   * The report the timer judges a participant by: its stored report, or, when it
+   * has none because every report it sent was only evidence that it is alive and
+   * at least one of them showed progress, a report that says it is playing and
+   * nothing else. Failure fields are never read from an alive-only report.
+   */
+  private healthSample(participant: InternalParticipant): PlayerSample | null {
+    if (participant.lastSample !== null)
+      return participant.lastSample
+    return this.reportOrders.get(participant.id)?.progressedSinceReset === true ? ALIVE_PLAYING_SAMPLE : null
+  }
+
   private participantHealthDeadlineMs(participant: InternalParticipant): number | null {
-    if (participant.lastSample === null || participant.lastSample.playbackStarted === false)
+    const sample = this.healthSample(participant)
+    if (sample === null || sample.playbackStarted === false)
       return playbackStartupDeadlineMs(this.playback)
 
     const deadlines = [playbackReportSilenceDeadlineMs(
       this.playback,
       participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs,
     )]
-    if (!participant.lastSample.paused && !participant.lastSample.buffering) {
+    if (!sample.paused && !sample.buffering) {
       const lastProgressAtServerMs = participant.lastProgressAtServerMs ?? this.playback.effectiveAtServerMs
       let progressDeadlineMs = playbackProgressDeadlineMs(this.playback, lastProgressAtServerMs)
       if (this.isAwaitingTransactionalStart(participant.id))
@@ -963,17 +1002,18 @@ export class RoomCoordinator {
   }
 
   private participantHealthFailureReason(participant: InternalParticipant, nowMs: number): string | null {
-    if (participant.lastSample === null)
+    const sample = this.healthSample(participant)
+    if (sample === null)
       return nowMs >= playbackStartupDeadlineMs(this.playback) ? 'participant_playback_silent' : null
-    if (participant.lastSample.playbackStarted === false)
+    if (sample.playbackStarted === false)
       return nowMs >= playbackStartupDeadlineMs(this.playback) ? 'participant_playback_startup_timeout' : null
 
     const lastSampleReceivedAtMs = participant.lastSampleReceivedAtMs ?? this.playback.effectiveAtServerMs
     if (nowMs >= playbackReportSilenceDeadlineMs(this.playback, lastSampleReceivedAtMs)
-      && (participant.lastSample.paused || participant.lastSample.buffering))
+      && (sample.paused || sample.buffering))
       return 'participant_playback_silent'
 
-    if (!participant.lastSample.paused && !participant.lastSample.buffering) {
+    if (!sample.paused && !sample.buffering) {
       const lastProgressAtServerMs = participant.lastProgressAtServerMs ?? this.playback.effectiveAtServerMs
       const progressDeadlineMs = this.isAwaitingTransactionalStart(participant.id)
         ? Math.max(playbackProgressDeadlineMs(this.playback, lastProgressAtServerMs), this.playback.effectiveAtServerMs + PLAYBACK_STARTUP_GRACE_MS)
@@ -1130,58 +1170,66 @@ export class RoomCoordinator {
       return null
 
     // The coordinator orders reports; it does not judge which media element or
-    // binding one came from (the extension checks that before it sends one). A
-    // report it already holds, delivered again, changes nothing: it must not
-    // refresh when the player was last heard from or last seen to progress. A
-    // report stamped earlier than the recorded one is a late delivery while its
-    // position is not further along, or while the player has made fewer
-    // corrections than the recorded report shows (it was sent before a correction
-    // the player made on its own, which moved the position back). Otherwise it
-    // is either a client clock that stepped back or a late report from before such
-    // a correction, and one report cannot tell which: it only shows the player is
-    // alive. The next report that follows it, on the same clock, confirms the
-    // step and is taken as the newest.
-    //
-    // A report that only shows the player is alive, because it was stamped with
-    // an older revision of a run of events that change nothing the players are
-    // playing against, or because it is the first after a possible clock step,
-    // never becomes the report the coordinator classifies a failure from, now
-    // or when its timer next looks (it is not kept as the participant's last
-    // sample and sets no status or block).
+    // binding one came from (the extension checks that before it sends one).
+    // Every report is one of three classes (see docs/CR_B04_HEALTH_DEADLINES_REPORT.md):
+    //   dropped: a report already seen, or an older one that is not further along
+    //     (or from before a correction): it changes nothing;
+    //   alive-only: stamped with an older revision of a run of events that change
+    //     nothing the players are playing against, or the first report after a
+    //     possible client clock step. It sets when the player was last heard from
+    //     and when it last progressed, and nothing else: it is not the stored
+    //     report, sets no status or block, and the timer reads no failure field
+    //     from it;
+    //   stored: any other report.
+    // A separate ordering record per participant (`reportOrders`) holds what was
+    // last accepted of either kind and a bounded set of reports already seen, so
+    // an alive-only report cannot be replayed to keep a frozen player alive.
     const priorSample = participant.lastSample
+    const order = this.reportOrders.get(participantId)
+    const latest = order?.latest ?? priorSample
+    const reportKey = sampleKey(sample)
+    if (order?.seen.includes(reportKey))
+      return null
+    if (priorSample !== null && (isDuplicateSample(priorSample, sample) || isStaleSample(priorSample, sample)))
+      return null
+    if (latest !== null && latest !== priorSample && (isDuplicateSample(latest, sample) || isStaleSample(latest, sample)))
+      return null
     let aliveOnly = basedOnRevision !== this.revision
-    if (priorSample !== null) {
-      if (isDuplicateSample(priorSample, sample) || isStaleSample(priorSample, sample))
+    let stepCandidate: { sampledAtLocalMs: number, positionSeconds: number } | null = null
+    if (priorSample !== null && sample.sampledAtLocalMs < priorSample.sampledAtLocalMs) {
+      // Older than the stored report but further along: a client clock that stepped
+      // back, or a report from before a correction the player made on its own. One
+      // report cannot tell which, so it only shows the player is alive; the next
+      // report that follows it on the same clock confirms the step.
+      if ((sample.correctionCount ?? 0) < (priorSample.correctionCount ?? 0))
         return null
-      if (sample.sampledAtLocalMs < priorSample.sampledAtLocalMs) {
-        if ((sample.correctionCount ?? 0) < (priorSample.correctionCount ?? 0))
-          return null
-        const candidate = this.clockStepCandidates.get(participantId)
-        if (candidate !== undefined
-          && sample.sampledAtLocalMs > candidate.sampledAtLocalMs
-          && sample.positionSeconds - candidate.positionSeconds >= PLAYBACK_POSITION_ADVANCE_SECONDS) {
-          this.clockStepCandidates.delete(participantId)
-        }
-        else {
-          this.clockStepCandidates.set(participantId, { sampledAtLocalMs: sample.sampledAtLocalMs, positionSeconds: sample.positionSeconds })
-          aliveOnly = true
-        }
-      }
-      else if (!aliveOnly) {
-        this.clockStepCandidates.delete(participantId)
+      const candidate = order?.stepCandidate ?? null
+      if (candidate === null
+        || sample.sampledAtLocalMs <= candidate.sampledAtLocalMs
+        || sample.positionSeconds - candidate.positionSeconds < PLAYBACK_POSITION_ADVANCE_SECONDS) {
+        aliveOnly = true
+        stepCandidate = { sampledAtLocalMs: sample.sampledAtLocalMs, positionSeconds: sample.positionSeconds }
       }
     }
 
     const nowMs = this.now()
+    // Explicit progress evidence is authoritative. currentTime can advance
+    // due to correction seeks even when an adaptive player decodes no frames.
+    // Keep the positional fallback only for clients that omit this field, and
+    // apply it to every class of report.
+    const progressed = sample.progressed ?? (latest !== null
+      && Math.abs(sample.positionSeconds - latest.positionSeconds) >= PLAYBACK_POSITION_ADVANCE_SECONDS)
     if (aliveOnly) {
       participant.lastSampleReceivedAtMs = nowMs
-      if (sample.progressed === true)
+      if (progressed)
         participant.lastProgressAtServerMs = nowMs
+      this.recordReportOrder(participantId, sample, reportKey, stepCandidate, progressed)
       // A report that says the player recovered still ends a buffering run (ending it twice is harmless).
       if (sample.buffering !== true)
         this.bufferingRuns.delete(participantId)
       return null
     }
+    this.recordReportOrder(participantId, sample, reportKey, null, progressed)
     const previousStatus = participant.playbackStatus ?? this.participantPlaybackStatus(participant, nowMs)
     const activeTransactionalOperation = this.contract.mode === 'transactional'
       && this.contract.operation
@@ -1192,11 +1240,6 @@ export class RoomCoordinator {
     const waitingForTransactionalStart = activeTransactionalOperation?.phase === 'committed'
       && !isSettledPausedSeek(activeTransactionalOperation)
       && !activeTransactionalOperation.startedParticipantIds.includes(participantId)
-    // Explicit progress evidence is authoritative. currentTime can advance
-    // due to correction seeks even when an adaptive player decodes no frames.
-    // Keep the positional fallback only for clients that omit this field.
-    const progressed = sample.progressed ?? (priorSample !== null
-      && Math.abs(sample.positionSeconds - priorSample.positionSeconds) >= PLAYBACK_POSITION_ADVANCE_SECONDS)
     participant.lastSample = sample
     participant.lastSampleReceivedAtMs = nowMs
     // A report that says the player cannot play ends the stability window an
@@ -1320,11 +1363,30 @@ export class RoomCoordinator {
   private readonly bufferingRuns = new Map<string, { sinceMs: number; lastMs: number }>()
 
   /**
-   * The first report after a possible client clock step (older timestamp, further
-   * along), kept until the next report confirms or replaces it. Coordinator-local
-   * and not saved: a restored room waits for a fresh pair.
+   * Per participant: the last report accepted (stored or alive-only), the first
+   * report after a possible client clock step until the next report confirms or
+   * replaces it, whether any report since the last command showed progress, and a
+   * bounded set of the reports already seen. Coordinator-local and not saved: a
+   * restored room starts with none, and it never reaches a snapshot.
    */
-  private readonly clockStepCandidates = new Map<string, { sampledAtLocalMs: number; positionSeconds: number }>()
+  private readonly reportOrders = new Map<string, ReportOrder>()
+
+  private recordReportOrder(
+    participantId: string,
+    sample: PlayerSample,
+    reportKey: string,
+    stepCandidate: ReportOrder['stepCandidate'],
+    progressed: boolean,
+  ): void {
+    const order = this.reportOrders.get(participantId) ?? { latest: sample, stepCandidate: null, progressedSinceReset: false, seen: [] }
+    order.latest = sample
+    order.stepCandidate = stepCandidate
+    order.progressedSinceReset = order.progressedSinceReset || progressed
+    order.seen.push(reportKey)
+    if (order.seen.length > SEEN_REPORTS_LIMIT)
+      order.seen.shift()
+    this.reportOrders.set(participantId, order)
+  }
 
   /**
    * Record one fresh status report for the buffering grace period: a report
@@ -1698,7 +1760,7 @@ export class RoomCoordinator {
       playback: this.playback,
       operation: this.contract.operation,
       pendingSeek: this.pendingSeek !== null,
-      sample: participant.lastSample,
+      sample: this.healthSample(participant),
       lastSampleReceivedAtMs: participant.lastSampleReceivedAtMs,
       lastProgressAtServerMs: participant.lastProgressAtServerMs,
       nowMs,
@@ -1930,7 +1992,7 @@ export class RoomCoordinator {
     // A new command starts a new period: buffering reported before it must not
     // count towards the grace period of the play that follows.
     this.bufferingRuns.clear()
-    this.clockStepCandidates.clear()
+    this.reportOrders.clear()
     for (const participant of this.participants.values()) {
       participant.lastSample = null
       participant.lastSampleReceivedAtMs = effectiveAtServerMs

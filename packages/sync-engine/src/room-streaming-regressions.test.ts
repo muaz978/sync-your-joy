@@ -907,3 +907,142 @@ describe('a report that is only evidence the player is alive (CR-B04, review fin
     })
   })
 })
+
+describe('alive-only reports are ordered, deduplicated and read by the timer (CR-B04, review round 3)', () => {
+  function playing(): { room: RoomCoordinator, clock: { value: number }, revision: number, startedAtMs: number } {
+    const clock = { value: 10_000 }
+    const room = readyRoom(() => clock.value)
+    control(room, 'play', 20)
+    const state = room.snapshot()
+    return { room, clock, revision: state.revision, startedAtMs: state.playback.effectiveAtServerMs }
+  }
+  const stored = (room: RoomCoordinator, id: string) => room.exportState().participants.find(item => item.id === id)
+
+  it('does not let one in-flight report, replayed every 500 ms, keep a frozen player alive', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    clock.value = startedAtMs + 500
+    for (const id of ['host', 'guest'])
+      room.updatePlayerStatus(id, revision, sample(clock.value, 20.5, { progressed: true, playbackStarted: true }))
+    room.join({ id: 'newcomer', name: 'Newcomer', media })
+    clock.value = startedAtMs + 700
+    const inFlight = sample(clock.value, 21.2, { progressed: true, playbackStarted: true })
+    room.updatePlayerStatus('guest', revision, inFlight)
+
+    // The guest's player froze at 21.2; something keeps delivering that one report. The host plays on.
+    let hostPosition = 21.2
+    while (clock.value < startedAtMs + 700 + 1_800 - 500) {
+      clock.value += 500
+      hostPosition += 0.5
+      room.updatePlayerStatus('host', room.snapshot().revision, sample(clock.value, hostPosition, { progressed: true, playbackStarted: true }))
+      room.updatePlayerStatus('guest', revision, inFlight)
+      expect(room.evaluateHealth()).toBeNull()
+    }
+    clock.value = startedAtMs + 700 + 1_800
+    room.updatePlayerStatus('host', room.snapshot().revision, sample(clock.value, hostPosition + 0.5, { progressed: true, playbackStarted: true }))
+    room.updatePlayerStatus('guest', revision, inFlight)
+
+    expect(room.evaluateHealth()).toMatchObject({ reason: 'participant_playback_stalled', snapshot: { playback: { status: 'paused' } } })
+  })
+
+  it('does not let the first report after a possible clock step, replayed, keep a frozen player alive', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    clock.value = startedAtMs + 2_000
+    for (const id of ['host', 'guest'])
+      room.updatePlayerStatus(id, revision, sample(clock.value, 22, { progressed: true, playbackStarted: true }))
+    clock.value += 100
+    const stepped = sample(startedAtMs - 3_000, 23, { progressed: true, playbackStarted: true })
+    room.updatePlayerStatus('guest', revision, stepped)
+    const lastGoodAtMs = clock.value
+    let hostPosition = 23
+    while (clock.value < lastGoodAtMs + 1_800 - 500) {
+      clock.value += 500
+      hostPosition += 0.5
+      room.updatePlayerStatus('host', revision, sample(clock.value, hostPosition, { progressed: true, playbackStarted: true }))
+      room.updatePlayerStatus('guest', revision, stepped)
+      expect(room.evaluateHealth()).toBeNull()
+    }
+    clock.value = lastGoodAtMs + 1_800
+    room.updatePlayerStatus('host', revision, sample(clock.value, hostPosition + 0.5, { progressed: true, playbackStarted: true }))
+    room.updatePlayerStatus('guest', revision, stepped)
+
+    expect(room.evaluateHealth()).toMatchObject({ reason: 'participant_playback_stalled' })
+  })
+
+  it('counts a report that omits `progressed` as progress by its position, also when it is only evidence the player is alive', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    clock.value = startedAtMs + 500
+    for (const id of ['host', 'guest'])
+      room.updatePlayerStatus(id, revision, sample(clock.value, 20.5, { playbackStarted: true }))
+    room.join({ id: 'newcomer', name: 'Newcomer', media })
+    clock.value = startedAtMs + 1_500
+    room.updatePlayerStatus('host', revision, sample(clock.value, 21.5, { playbackStarted: true }))
+    room.updatePlayerStatus('guest', room.snapshot().revision, sample(clock.value, 21.5, { playbackStarted: true }))
+
+    clock.value = startedAtMs + 2_400
+    room.updatePlayerStatus('guest', room.snapshot().revision, sample(clock.value, 22.4, { playbackStarted: true }))
+    expect(room.evaluateHealth()).toBeNull()
+    expect(stored(room, 'host')?.lastProgressAtServerMs).toBe(startedAtMs + 1_500)
+  })
+
+  it('does not pause a healthy player as silent at ten seconds when every report it sent was only evidence it is alive', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    room.join({ id: 'newcomer', name: 'Newcomer', media })
+    expect(room.snapshot().revision).toBeGreaterThan(revision)
+    let position = 20
+    for (let second = 1; second <= 12; second++) {
+      clock.value = startedAtMs + second * 1_000
+      position += 1
+      for (const id of ['host', 'guest'])
+        room.updatePlayerStatus(id, revision, sample(clock.value, position, { progressed: true, playbackStarted: true }))
+      expect(room.evaluateHealth(), `at ${second} s`).toBeNull()
+    }
+    expect(stored(room, 'guest')?.lastSample).toBeNull()
+    expect(room.snapshot().playback.status).toBe('playing')
+    expect(room.snapshot().participants.find(participant => participant.id === 'guest')?.playbackStatus).not.toBe('silent')
+  })
+
+  it('advances when the player was last heard from, and keeps the stored report empty, for an accepted alive-only report; a replay of it changes nothing', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    room.join({ id: 'newcomer', name: 'Newcomer', media })
+    clock.value = startedAtMs + 700
+    const report = sample(clock.value, 20.7, { progressed: true, playbackStarted: true })
+    const before = stored(room, 'guest')?.lastSampleReceivedAtMs
+
+    room.updatePlayerStatus('guest', revision, report)
+    expect(stored(room, 'guest')?.lastSample).toBeNull()
+    expect(stored(room, 'guest')?.lastSampleReceivedAtMs).toBe(clock.value)
+    expect(stored(room, 'guest')?.lastSampleReceivedAtMs).not.toBe(before)
+    expect(stored(room, 'guest')?.lastProgressAtServerMs).toBe(clock.value)
+
+    clock.value += 400
+    room.updatePlayerStatus('guest', revision, report)
+    expect(stored(room, 'guest')?.lastSampleReceivedAtMs).toBe(startedAtMs + 700)
+    expect(stored(room, 'guest')?.lastProgressAtServerMs).toBe(startedAtMs + 700)
+  })
+
+  it('does not alternate two reports to stay alive: a replay of the stored one and of the late one are both dropped', () => {
+    const { room, clock, revision, startedAtMs } = playing()
+    clock.value = startedAtMs + 2_000
+    const first = sample(startedAtMs + 2_000, 91, { progressed: true, playbackStarted: true })
+    for (const id of ['host', 'guest'])
+      room.updatePlayerStatus(id, revision, first)
+    clock.value += 100
+    const late = sample(startedAtMs + 1_000, 100, { progressed: true, playbackStarted: true })
+    room.updatePlayerStatus('guest', revision, late)
+    const lastGoodAtMs = clock.value
+    let hostPosition = 92
+    while (clock.value < lastGoodAtMs + 1_800 - 500) {
+      clock.value += 400
+      hostPosition += 0.4
+      room.updatePlayerStatus('host', revision, sample(clock.value, hostPosition, { progressed: true, playbackStarted: true }))
+      room.updatePlayerStatus('guest', revision, first)
+      room.updatePlayerStatus('guest', revision, late)
+    }
+    clock.value = lastGoodAtMs + 1_800
+    room.updatePlayerStatus('host', revision, sample(clock.value, hostPosition + 0.4, { progressed: true, playbackStarted: true }))
+    room.updatePlayerStatus('guest', revision, first)
+    room.updatePlayerStatus('guest', revision, late)
+
+    expect(room.evaluateHealth()).toMatchObject({ reason: 'participant_playback_stalled' })
+  })
+})
