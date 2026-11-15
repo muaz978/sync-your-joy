@@ -1,6 +1,7 @@
 # CR-C04 navigation transaction report
 
 Issue: [#65](https://github.com/muaz978/sync-your-joy/issues/65)
+Status: PR #93 is merged (releases 0.2.5 and later). Section "Post-merge update" below (against `main` at `8d8bf2a`, extension 0.2.12) refreshes this report for the coordinator half of the owner's decisions of 2026-10-31 and corrects the statements it supersedes. Evidence is unit and protocol tests only; no browser, Crunchyroll, two-account, two-device, deployment or acceptance run is claimed, and those gates are carried by #30, #33, #34, #35 and #69.
 
 ## Decision summary
 
@@ -12,7 +13,7 @@ The implementation also defines a fail-closed policy for a future optional contr
 
 The room already supported `open_link`, but its semantics treated every accepted URL as a new media selection. That could restart an unchanged Crunchyroll episode when only the localized path or title changed. The protocol had strong media identity matching for readiness, but the coordinator did not reuse that identity decision when deciding whether a navigation transaction was necessary.
 
-The extension also observed SPA and native next-episode changes through `MEDIA_DETECTED`. Those observations update local player binding and readiness evidence, but must not silently become shared room navigation. Without an explicit, validated controller-follow policy, a member, a login page or a weak page signal must never change room content.
+The extension also observed SPA and native next-episode changes through `MEDIA_DETECTED`. Those observations update local player binding and readiness evidence, but must not silently become shared room navigation. Without an explicit, validated controller-follow policy, a member, a login page or a weak page signal must never change room content through the observation path. (The manual shared link is a different path: it was not limited to episode pages until the post-merge update.)
 
 ## Manual shared-link transaction
 
@@ -24,7 +25,7 @@ The coordinator's `openLink` path now follows this order:
 4. For a new media link, cancel pending seek or transactional operation evidence with reason `media-changed`.
 5. Increment `contract.mediaEpoch` and clear the current operation.
 6. Mark connected participants unready and non-matching, reset statuses to `wrong-media`, and leave disconnected participants `unknown`.
-7. Replace room media with the normalized shared page identity, pause at position zero and schedule the shared navigation after the normal command lead time.
+7. Replace room media with the shared page's identity (a real Crunchyroll episode page is keyed to its watch ID; see the post-merge update, which supersedes the earlier "normalized shared page identity" for it), pause at position zero and schedule the shared navigation after the normal command lead time.
 8. Require fresh player detection, media matching and readiness before later shared playback commands can proceed.
 
 The revision and effective navigation checks also make rapid queued transitions fail closed. A navigation side effect is applied only for the current snapshot revision, so an older scheduled target cannot reopen after a newer room transition supersedes it.
@@ -70,4 +71,44 @@ The issue remains open after the source merge until the navigation transaction i
 
 ## Release decision
 
-No version bump is justified for this issue alone. The repository remains at `0.2.4`. A compatible release will be considered only after a coherent verified group, and `1.0.0` remains reserved for complete milestone acceptance.
+No version bump is justified for this issue alone. A compatible release will be considered only after a coherent verified group, and `1.0.0` remains reserved for complete milestone acceptance. (As written for PR #93 the repository was at `0.2.4`; this change was made against 0.2.12 and does not bump it.)
+
+## Post-merge update (against `main` at `8d8bf2a`, extension 0.2.12)
+
+### Owner decisions that bound this change (2026-10-31)
+
+- A controller may share only Crunchyroll `/watch/` pages in a Crunchyroll room, and the coordinator rejects other pages (login, unavailable or non-watch) so they do not advance the room.
+- The 3 second readiness debounce for a member who moves to a different strong episode stays; it is a known limit (a member can be counted as ready for up to that long after moving; no test presses Play in that window).
+- This card may be accepted ahead of its seven open dependencies.
+- The provider, two-account, two-device, deployment and acceptance gates are carried by #30, #33, #34, #35 and #69.
+
+### What the coordinator now does
+
+1. **A shared Crunchyroll episode link is keyed to its watch ID.** After PR #93 a first shared link stored the room's media as `shared-link` / `page:<url>`, a weak identity. A second link to the same episode on another locale was therefore a new media (a second epoch), and a participant reporting `crunchyroll:<ID>` from a localized route stayed `wrong-media`. `openLink` now stores a link that has a Crunchyroll watch ID (`crunchyrollWatchId()` in the protocol package) as `{ service: 'crunchyroll', canonicalId: 'crunchyroll:<ID>', title: <host>, durationSeconds: null, pageUrl }`, the same shape a room created on that episode has. Every other page keeps the `shared-link` identity.
+   - a second link to the same episode on another locale is `navigation_unchanged` (revision, epoch, media, navigation and readiness untouched);
+   - a participant on any localized route of the episode matches and can become ready;
+   - a different watch ID starts a new epoch, including going back to the first episode (A, B, A is three epochs);
+   - a readiness message for the previous episode that arrives after the controller moved on does not count (`wrong-media`).
+2. **A Crunchyroll room refuses non-episode pages.** A room is a Crunchyroll room when its media says `crunchyroll`, or carries only a Crunchyroll page address (a room a shared link opened before this change, restored from stored state). In such a room `openLink` answers `unsupported_page` for the login page, the home page, a series page, an unavailable page, `/watch` with no ID, a lookalike host and any other host, before anything changes: no epoch advance, no readiness reset, no navigation. The action is not remembered, so a repeat is refused the same way. Rooms on other services and rooms that have not chosen a page yet may still share any page.
+
+`unsupported_page` is a plain string code in `command_rejected`; an older extension shows the message and takes no other action.
+
+### Corrections to the statements above
+
+- Section "Manual shared-link transaction", step 7, and the root-cause text were written for the first transition only. After the first shared link the media was weak, so the "same episode on another locale is unchanged" rule held only while the room still had its original media. It now holds after a shared link too, for Crunchyroll episode pages.
+- Section "Controller-follow safety policy" is unchanged: follow is a compile-time switch (`CONTROLLER_FOLLOW_NAVIGATION_ENABLED = false`), accepted as off. The follow policy rejects login and unavailable pages itself; the coordinator now also rejects them for a manual share. Its lease guard in the service worker (`hasCurrentLease`) is true whenever the worker holds a snapshot, so the coordinator's `stale_lease` check is the real lease guard; the enabled branch has no test.
+
+### Tests
+
+`packages/sync-engine/src/room.test.ts`, describe "a shared Crunchyroll episode link (CR-C04, coordinator half)" (9 tests), and `packages/protocol/src/index.test.ts` (`crunchyrollWatchId` and `isCrunchyrollUrl`, and the match between a shared-link fingerprint and a participant on a localized route; 2 tests).
+
+### Not done in this change
+
+- The extension and the service worker: a worker test for a tab redirected to a localized route, the enabled controller-follow branch (it needs a test seam because the switch is a constant), dedup between a manual share and an observed episode, and the audio-edition case by name. These belong to another change.
+- `open_link` round trips in `apps/room-service/src/server.test.ts` and `apps/edge-service/src/worker.test.ts`.
+- The D03 navigation scenario on the owned fixture and `docs/CR_D03_BROWSER_MATRIX.md` lines 24 and 101.
+- Any browser or live-provider run (D04): shared link, audio edition, both controller roles.
+
+### Mixed-version effect
+
+No new field, capability, contract version or enum value. A room a new coordinator opens a link in now carries a `crunchyroll` / `crunchyroll:<ID>` fingerprint, which is the shape every released extension already handles for a room created on an episode; the `navigation` object is unchanged. An older coordinator keeps the `shared-link` keying. An older extension as controller meets `unsupported_page` only for a non-episode page in a Crunchyroll room, shown as the rejection message.
