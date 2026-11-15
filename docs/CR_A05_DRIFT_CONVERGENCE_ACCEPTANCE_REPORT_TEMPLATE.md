@@ -63,7 +63,7 @@ The CR-A05-specific evidence must cover all of the following:
 3. The content script does not apply a soft rate before real rendered-progress evidence exists.
 4. A supported soft rate is restored immediately on buffering, native seeking, pause and media-source lifecycle changes.
 5. An ignored, reset or throwing rate setter falls back to at most one hard correction. A second failed convergence does not restart a moving-target seek loop; it pauses and reports explicit recovery.
-6. The delayed-seek simulations run for 30 seconds at 800 ms, 1,200 ms and 2,000 ms delays. They record native write count, pause/recovery state and buffering evidence.
+6. The delayed-seek simulations run for 30 seconds at 800 ms, 1,200 ms and 2,000 ms delays, with a player that advances with the clock (position and frames) and completes a seek after the delay, under a rate that is kept, ignored, reset at assignment, reset later, or throws. They record the native write count, the rate writes, the number of recovery entries, the pause state and the drift at the end, and they separate a converged end from the explicit recovery end. A drift the soft rate can close (under about 0.17 s) is shown to converge; one it cannot close is shown to end in recovery.
 7. A newer room command retires the older correction budget and its temporary rate, so the newer target wins.
 
 The deterministic suite proves source behavior and synthetic timing only. It does not prove accepted Crunchyroll playback-rate behavior, visible motion, cross-profile synchronization, device behavior, deployment behavior or user acceptance.
