@@ -18,7 +18,7 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { lstat, readFile, readlink } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 
 const SOURCE_FILE_PATTERN = /^(apps|packages|scripts|tests|fixtures)\//
@@ -40,12 +40,29 @@ export interface ConfigIdentity {
   missing?: string[]
 }
 
+/**
+ * Whether the tree differed from its commit when the run was recorded. The
+ * hashes above are of the working-tree files, so a modified tracked file
+ * already changes `trackedSourceSha256`; this says so explicitly, and also
+ * covers a new file that git does not track yet, which no hash above sees.
+ * Only counts and a hash are kept, never a file name or content.
+ */
+export interface WorkingTreeState {
+  /** Any tracked file modified, staged, deleted or added, or any untracked file that is not ignored. */
+  dirty: boolean
+  modifiedTrackedCount: number
+  untrackedCount: number
+  /** SHA-256 over the sorted names and contents of the untracked files; null when there are none. */
+  untrackedHash: string | null
+}
+
 export interface SourceIdentity {
   commit: string
   tree: string
   trackedSourceSha256: string
   packageLockSha256: string
   config: ConfigIdentity
+  workingTree: WorkingTreeState
 }
 
 /**
@@ -64,6 +81,8 @@ export interface ProvenanceRecord {
   config: ConfigIdentity
   e2e: { roomServerOrigin: string, extensionOutput: string, extensionManifestSha256: string }
   extensionSource: {
+    /** The state of the tree the extension was built from, as `workingTree` is of the checkout. */
+    workingTree: WorkingTreeState
     /** Relative to the checkout; `.` when the extension is built from it. */
     root: string
     sameAsCheckout: boolean
@@ -80,6 +99,8 @@ export interface ProvenanceRecord {
      */
     workspacePackages: Record<string, string | null>
   }
+  /** The state of the checkout when the run was recorded. */
+  workingTree: WorkingTreeState
 }
 
 /** The real path of `path`, or its resolved path when it does not exist. */
@@ -186,10 +207,59 @@ export function assertExtensionBuilt(extensionDistDir: string, sourceRoot: strin
   )
 }
 
-export async function readSourceIdentity(root: string): Promise<SourceIdentity> {
-  const trackedFiles = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
+/**
+ * Counts the tracked files that differ from the commit (modified, staged,
+ * deleted, added) and fingerprints the untracked files that .gitignore does
+ * not hide. File names and contents are hashed, never recorded.
+ */
+export async function readWorkingTreeState(root: string): Promise<WorkingTreeState> {
+  const status = execFileSync('git', ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=no'], { cwd: root, encoding: 'utf8' })
     .split('\0')
     .filter(Boolean)
+  const untracked = execFileSync('git', ['--no-optional-locks', 'ls-files', '--others', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8' })
+    .split('\0')
+    .filter(Boolean)
+    .sort()
+
+  let untrackedHash: string | null = null
+  if (untracked.length > 0) {
+    const hash = createHash('sha256')
+    for (const path of untracked) {
+      hash.update(path)
+      hash.update('\0')
+      hash.update(await untrackedContent(resolve(root, path)))
+      hash.update('\0')
+    }
+    untrackedHash = hash.digest('hex')
+  }
+  return {
+    dirty: status.length > 0 || untracked.length > 0,
+    modifiedTrackedCount: status.length,
+    untrackedCount: untracked.length,
+    untrackedHash,
+  }
+}
+
+/** A file's bytes, a link's target, or nothing for a file that vanished or cannot be read. */
+async function untrackedContent(path: string): Promise<Buffer | string> {
+  try {
+    const stats = await lstat(path)
+    if (stats.isSymbolicLink())
+      return `link:${await readlink(path)}`
+    return stats.isFile() ? await readFile(path) : `other:${stats.mode}`
+  }
+  catch {
+    return 'unreadable'
+  }
+}
+
+export async function readSourceIdentity(root: string): Promise<SourceIdentity> {
+  // A tracked file deleted from the working tree is still listed by git. It is
+  // counted in workingTree and left out of the hash, rather than failing the
+  // whole run with ENOENT.
+  const trackedFiles = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
+    .split('\0')
+    .filter(path => path !== '' && existsSync(resolve(root, path)))
   const sourceFiles = trackedFiles.filter(path => SOURCE_FILE_PATTERN.test(path))
   const presentConfigFiles = CONFIG_FILES.filter(path => existsSync(resolve(root, path)))
   const missingConfigFiles = CONFIG_FILES.filter(path => !presentConfigFiles.includes(path))
@@ -204,6 +274,7 @@ export async function readSourceIdentity(root: string): Promise<SourceIdentity> 
       sha256: await hashFiles(root, presentConfigFiles),
       ...(missingConfigFiles.length > 0 ? { missing: [...missingConfigFiles] } : {}),
     },
+    workingTree: await readWorkingTreeState(root),
   }
 }
 
@@ -243,6 +314,7 @@ export async function collectProvenance(input: CollectProvenanceInput): Promise<
       extensionManifestSha256: await hashFiles(input.checkoutRoot, [manifestPath]),
     },
     extensionSource: {
+      workingTree: extension.workingTree,
       root: sameAsCheckout ? '.' : relative(realOrResolved(input.checkoutRoot), realOrResolved(input.extensionSourceRoot)),
       sameAsCheckout,
       commit: extension.commit,
@@ -252,6 +324,7 @@ export async function collectProvenance(input: CollectProvenanceInput): Promise<
       config: extension.config,
       workspacePackages: resolveWorkspacePackages(input.extensionSourceRoot),
     },
+    workingTree: checkout.workingTree,
   }
 }
 
