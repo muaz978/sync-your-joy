@@ -3,7 +3,7 @@
 Issue: [#57](https://github.com/muaz978/sync-your-joy/issues/57)
 Dependencies: [#55 / CR-B01](https://github.com/muaz978/sync-your-joy/issues/55), [#56 / CR-B02](https://github.com/muaz978/sync-your-joy/issues/56)
 Scope: extension capability advertisement, player-side preparation, current-play-attempt tracking, started evidence, operation acknowledgement transport, and backend wire dispatch
-Status when written (historical): implementation and final branch verification complete; PR review, PR metadata, merge and issue-closure gates remain separate. Update 2026-10-16: merged as PR #85 and shipped in v0.2.5, so section 8 is the pre-merge snapshot (historical), including the package still at 0.2.4 and no release claimed. Section 7 was replaced on 2026-11-15 with the verification record at base `257afb6` (extension 0.2.12) and only its last paragraph is historical; #57 stays open for acceptance evidence.
+Status when written (historical): implementation and final branch verification complete; PR review, PR metadata, merge and issue-closure gates remain separate. Update 2026-10-16: merged as PR #85 and shipped in v0.2.5, so section 8 is the pre-merge snapshot (historical), including the package still at 0.2.4 and no release claimed. Section 7 was replaced on 2026-11-15 with the verification record on the one base named in that section (`main` at `8d8bf2a` with the CR-A06 change merged, merge commit `c68e81b`) and only its last paragraph is historical; #57 stays open for acceptance evidence.
 
 ## 1. Problem statement and acceptance interpretation
 
@@ -174,7 +174,7 @@ The backend never authorizes an acknowledgement from the payload's participant I
 
 ## 7. Verification
 
-Section 7 was written before the merge of PR #85 and described a package at 0.2.4. It is replaced by the record below, which was taken at base `257afb6` (extension 0.2.12) plus the pull request that adds this revision. The historical pre-merge record is kept at the end of this section in one paragraph.
+Section 7 was written before the merge of PR #85 and described a package at 0.2.4. It is replaced by the record below, which was taken on one base, `main` at `8d8bf2a` (extension 0.2.12) with the CR-A06 change (head `6950648` of `issue-53-health-evidence`) merged in, the merge commit `c68e81b33cece5a864705f5b02ac0f7695cfcc86`. The final test run executed on exactly that commit; the commit that adds this revision changes documentation only. The historical pre-merge record is kept at the end of this section in one paragraph.
 
 ### Current deterministic evidence (unit level, a fake video element)
 
@@ -198,11 +198,11 @@ Mutation checks (a production line edited in place, the file run, the file resto
 
 ### Commands run, and their results
 
-Run on 2026-11-15 on this branch after merging the CR-A06 change (head `1ff20a9` of `issue-53-health-evidence`) and `main` at `8d8bf2a`; the test file has not changed since commit `b1e0e85`.
+Run on 2026-11-15 on one base, `main` at `8d8bf2a` (extension 0.2.12) with the CR-A06 change (head `6950648` of `issue-53-health-evidence`) merged in, the merge commit `c68e81b33cece5a864705f5b02ac0f7695cfcc86`. The runs below executed on exactly that commit, with a clean working tree; the following commit changes documentation only, and the test file has not changed since commit `b1e0e85`.
 
 ```text
 npm run typecheck                                              clean
-npm test                                                       Test Files 51 passed, Tests 1160 passed
+npm test                                                       Test Files 51 passed, Tests 1164 passed
 npx vitest run apps/extension/src/content-script.test.ts  x3   Tests 182 passed (each run)
 ```
 
