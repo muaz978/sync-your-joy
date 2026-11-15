@@ -2222,14 +2222,14 @@ describe('a play() that never settles (CR-C01, #62)', () => {
       })
     })
 
-    it('is tried once more after a native play from the person (a gesture), and only once', async () => {
+    it('is tried once more after an unattributed native play event, and only once', async () => {
       rejectEveryPlay('NotAllowedError')
       apply('playing')
       await settle()
       await runFor(5_000)
       expect(video.play).toHaveBeenCalledOnce()
 
-      // The person clicks the player: a native play event the extension did not ask for. The browser then pauses it again.
+      // A native play event the extension did not ask for (a click on the player, or a page script's own play()). The browser then pauses it again.
       video.paused = false
       video.dispatchEvent(new Event('play'))
       video.paused = true

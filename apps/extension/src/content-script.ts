@@ -805,7 +805,8 @@ function handlePlay(): void {
   playbackStarted = false
   playerHealth = clearPlaybackStartFailed(playerHealth)
   const expected = consumeExpectedPlay()
-  // A play the extension did not ask for is the person's own gesture, which is what a rejected play() was waiting for.
+  // A play event the extension did not itself request is taken as what a rejected play() was waiting for. It is not
+  // attributed to a person (a page script's own play() looks the same), and no user activation is checked.
   if (!expected)
     playRequestRejected = false
   const transactionalOperation = currentTransactionalOperation()
