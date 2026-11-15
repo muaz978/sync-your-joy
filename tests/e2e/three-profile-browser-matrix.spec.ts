@@ -7,43 +7,30 @@
 // fault controls so failures can be attributed to the synchronization flow.
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { launchExtensionProfile, type ExtensionProfile } from './extension-profile.ts'
+import type { ExtensionProfile } from './extension-profile.ts'
+import {
+  assertConverged,
+  disconnectParticipant,
+  ensureRoomPaused,
+  ensureRoomPlaying,
+  fixtureVideoPath,
+  launchThreeProfiles,
+  readExtensionState,
+  readFixtureState,
+  readFixtureStates,
+  SYNC_TOLERANCE_SECONDS,
+  waitForAllPaused,
+  waitForAllPlaying,
+  type FixtureState,
+} from './three-profile-room.ts'
 
-const here = dirname(fileURLToPath(import.meta.url))
-const extensionDistDir = resolve(here, '..', '..', 'apps/extension/dist')
-// The adaptive fixture is a repository-owned 120-second local asset. Using
-// it here keeps the 30-second sustained window away from the short clip's
-// natural loop boundary, which would otherwise look like a controller seek
-// while the matrix is intentionally measuring steady playback.
-const fixtureVideoPath = resolve(here, '..', '..', 'fixtures/adaptive-test-clip.mp4')
-const SYNC_TOLERANCE_SECONDS = 0.75
+// The adaptive fixture is a repository-owned 120-second local asset (see
+// `fixtureVideoPath`). Using it here keeps the 30-second sustained window away
+// from the short clip's natural loop boundary, which would otherwise look like a
+// controller seek while the matrix is intentionally measuring steady playback.
+// The profile launch, the fixture readers, the room-service test controls and the
+// play and pause helpers are shared with the fault matrix in three-profile-room.ts.
 const SUSTAINED_WINDOW_MS = 30_000
-
-interface FixtureEvent {
-  type: string
-  at: number
-  currentTime: number
-  paused: boolean
-  seeking: boolean
-  sourceGeneration: number
-}
-
-interface FixtureState {
-  currentTime: number
-  duration: number
-  paused: boolean
-  seeking: boolean
-  readyState: number
-  sourceGeneration: number
-  currentTimeWrites: number
-  presentedFrames: number
-  qualityFrames: number | null
-  lastSeekedTime: number | null
-  playRejections: number
-  events: FixtureEvent[]
-}
 
 type FixtureWindow = Window & {
   __syncYourJoyTestPlayer?: {
@@ -57,24 +44,8 @@ test.describe('three-profile local browser matrix', () => {
   let profileC!: ExtensionProfile
 
   test.beforeAll(async () => {
-    const dist = process.env.SYNCYOURJOY_E2E_EXTENSION_DIST ?? extensionDistDir
-    const artifactDirectory = process.env.SYNCYOURJOY_E2E_ARTIFACT_DIR
-    const trace = process.env.SYNCYOURJOY_E2E_TRACE === '1'
-    const options = {
-      ...(artifactDirectory ? { artifactDirectory } : {}),
-      trace,
-    }
-    const results = await Promise.allSettled(['a', 'b', 'c'].map(label => launchExtensionProfile(dist, label, options)))
-    const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
-    if (failure) {
-      await Promise.all(results
-        .filter((result): result is PromiseFulfilledResult<ExtensionProfile> => result.status === 'fulfilled')
-        .map(result => result.value.close()))
-      throw failure.reason
-    }
-    const profiles = results.map(result => (result as PromiseFulfilledResult<ExtensionProfile>).value) as [ExtensionProfile, ExtensionProfile, ExtensionProfile]
-    ;[profileA, profileB, profileC] = profiles
-    await Promise.all(profiles.map(profile => profile.recordState('initial')))
+    ;[profileA, profileB, profileC] = await launchThreeProfiles('')
+    await Promise.all([profileA, profileB, profileC].map(profile => profile.recordState('initial')))
   })
 
   test.afterAll(async () => {
@@ -253,10 +224,10 @@ test.describe('three-profile local browser matrix', () => {
     // only C's real socket, then the browser is restored before the bounded
     // reconnect backoff expires. This route is token-gated and absent from
     // normal/deployed room-service instances.
-    const participantC = await readExtensionParticipantId(profileC)
-    await disconnectLocalTestParticipant(roomCode!, participantC)
+    const participantC = String((await readExtensionState(profileC)).participantId)
+    await disconnectParticipant(roomCode!, participantC)
     await expect(profileC.panel.getByText('Reconnecting', { exact: true })).toBeVisible({ timeout: 10_000 })
-    await expect.poll(async () => readExtensionConnection(profileC), {
+    await expect.poll(async () => (await readExtensionState(profileC)).connection, {
       timeout: 20_000,
       message: 'Profile C should rejoin the room after its real socket is disconnected.',
     }).toBe('connected')
@@ -293,65 +264,6 @@ test.describe('three-profile local browser matrix', () => {
   })
 })
 
-async function readFixtureState(page: Page): Promise<FixtureState> {
-  return await page.evaluate(() => {
-    const state = (window as FixtureWindow).__syncYourJoyTestPlayer
-    if (!state)
-      throw new Error('The deterministic test-player instrumentation is unavailable.')
-    return state.getState()
-  })
-}
-
-async function readFixtureStates(pages: Page[]): Promise<FixtureState[]> {
-  return await Promise.all(pages.map(page => readFixtureState(page)))
-}
-
-async function readExtensionParticipantId(profile: ExtensionProfile): Promise<string> {
-  const state = await readExtensionState(profile)
-  if (!('participantId' in state) || typeof state.participantId !== 'string')
-    throw new Error('The extension state did not include a participant identity for the reconnect test.')
-  return state.participantId
-}
-
-async function readExtensionConnection(profile: ExtensionProfile): Promise<string> {
-  const state = await readExtensionState(profile)
-  if (!('connection' in state) || typeof state.connection !== 'string')
-    throw new Error('The extension state did not include a connection state for the reconnect test.')
-  return state.connection
-}
-
-async function readExtensionState(profile: ExtensionProfile): Promise<Record<string, unknown>> {
-  const worker = profile.context.serviceWorkers()[0]
-    ?? await profile.context.waitForEvent('serviceworker', { timeout: 5_000 })
-  const state = await worker.evaluate(async () => {
-    const stored = await chrome.storage.session.get('syncYourJoySessionState')
-    return stored.syncYourJoySessionState
-  }) as unknown
-  if (!state || typeof state !== 'object')
-    throw new Error('The extension did not persist state for the reconnect test.')
-  return state as Record<string, unknown>
-}
-
-async function disconnectLocalTestParticipant(roomCode: string, participantId: string): Promise<void> {
-  const roomServerUrl = process.env.SYNCYOURJOY_E2E_ROOM_SERVER_URL
-  const testControlToken = process.env.SYNCYOURJOY_E2E_CONTROL_TOKEN
-  if (!roomServerUrl || !testControlToken)
-    throw new Error('The local room-service test control is not configured.')
-  const controlUrl = new URL(roomServerUrl.replace(/^ws:/, 'http:'))
-  controlUrl.pathname = '/__test/disconnect'
-  controlUrl.searchParams.set('room', roomCode)
-  controlUrl.searchParams.set('participant', participantId)
-  const response = await fetch(controlUrl, {
-    method: 'POST',
-    headers: { 'x-syncyourjoy-test-token': testControlToken },
-  })
-  if (!response.ok)
-    throw new Error(`The local room-service test control returned HTTP ${response.status}.`)
-  const result = await response.json() as { ok?: boolean; closedSockets?: number }
-  if (result.ok !== true || result.closedSockets !== 1)
-    throw new Error(`The local room-service test control closed an unexpected number of sockets: ${JSON.stringify(result)}`)
-}
-
 async function captureDiagnostics(profile: ExtensionProfile): Promise<string> {
   try {
     // The extension requests all connected participants and retries at 1, 3
@@ -368,27 +280,6 @@ async function captureDiagnostics(profile: ExtensionProfile): Promise<string> {
   catch (error) {
     return `diagnostic collection unavailable: ${error instanceof Error ? error.message : String(error)}`
   }
-}
-
-async function waitForAllPlaying(pages: Page[]): Promise<void> {
-  await expect.poll(async () => (await readFixtureStates(pages)).every(state => !state.paused && state.presentedFrames > 0), {
-    timeout: 20_000,
-    message: 'Every local player should report real native playback progress.',
-  }).toBe(true)
-}
-
-async function waitForAllPaused(pages: Page[]): Promise<void> {
-  await expect.poll(async () => (await readFixtureStates(pages)).every(state => state.paused), {
-    timeout: 15_000,
-    message: 'Every local player should pause after the controller pause command.',
-  }).toBe(true)
-}
-
-async function assertConverged(pages: Page[]): Promise<void> {
-  await expect.poll(async () => {
-    const states = await readFixtureStates(pages)
-    return Math.max(...states.map(state => state.currentTime)) - Math.min(...states.map(state => state.currentTime))
-  }, { timeout: 15_000, message: 'All three local timelines should converge.' }).toBeLessThanOrEqual(SYNC_TOLERANCE_SECONDS)
 }
 
 async function observeSustainedWindow(pages: Page[], durationMs: number, describeFailure?: () => Promise<string>): Promise<{ samples: number, maxDrift: number, finalStates: FixtureState[] }> {
@@ -429,33 +320,4 @@ async function waitForNativeSeek(pages: Page[], target: number): Promise<void> {
     states = await readFixtureStates(pages)
   }
   throw new Error(`Native seek evidence did not settle at ${target}s: ${JSON.stringify(states.map(state => ({ lastSeekedTime: state.lastSeekedTime, currentTime: state.currentTime, paused: state.paused, events: state.events.filter(event => event.type === 'seeked' || event.type === 'seeking') })))}`)
-}
-
-async function ensureRoomPaused(controller: ExtensionProfile, pages: Page[]): Promise<void> {
-  await controller.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 15_000 })
-  if ((await readFixtureStates(pages)).every(state => state.paused))
-    return
-  const label = await controller.panel.locator('#primary-control').textContent()
-  if (!label?.includes('Pause all'))
-    throw new Error(`The room control did not expose a pause action while a player was still playing: ${label ?? 'missing label'}`)
-  await controller.panel.click('#primary-control')
-  await waitForAllPaused(pages)
-}
-
-async function ensureRoomPlaying(controller: ExtensionProfile, pages: Page[]): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await controller.panel.waitForSelector('#primary-control:not([disabled])', { timeout: 15_000 })
-    const label = await controller.panel.locator('#primary-control').textContent()
-    if (label?.includes('Play all'))
-      await controller.panel.click('#primary-control')
-    await expect.poll(async () => (await readFixtureStates(pages)).every(state => !state.paused && state.presentedFrames > 0), {
-      timeout: 5_000,
-      message: 'Every local player should enter native playback after a recovery boundary.',
-    }).toBe(true).catch(() => undefined)
-    await new Promise(resolve => setTimeout(resolve, 1_000))
-    const states = await readFixtureStates(pages)
-    if (states.every(state => !state.paused && state.presentedFrames > 0))
-      return
-  }
-  throw new Error(`The room did not remain playing after native-seek recovery: ${JSON.stringify(await readFixtureStates(pages))}`)
 }

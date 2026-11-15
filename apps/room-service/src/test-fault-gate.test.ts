@@ -23,7 +23,7 @@ afterEach(async () => {
 const HEADER = 'x-syncyourjoy-test-token'
 const FAULT_MODES = ['hold_acks', 'drop_acks', 'silent', 'release', 'clear']
 
-async function openRoom(url: string): Promise<{ code: string, participantId: string }> {
+async function openRoom(url: string): Promise<{ code: string, participantId: string, socket: WebSocket }> {
   const socket = new WebSocket(url, undefined, { origin: 'chrome-extension://test-extension' })
   sockets.push(socket)
   await new Promise<void>((resolve, reject) => {
@@ -41,7 +41,27 @@ async function openRoom(url: string): Promise<{ code: string, participantId: str
   const message = await joined
   if (message.type !== 'room_joined')
     throw new Error(`Expected room_joined, got ${message.type}`)
-  return { code: message.snapshot.code, participantId: 'participant_gate' }
+  return { code: message.snapshot.code, participantId: 'participant_gate', socket }
+}
+
+/** A round trip on the socket: when the pong is back, every message sent before it has been handled. */
+async function settle(socket: WebSocket): Promise<void> {
+  const pong = new Promise<void>((resolve) => {
+    const onMessage = (data: Buffer) => {
+      if ((JSON.parse(data.toString()) as ServerMessage).type !== 'pong')
+        return
+      socket.off('message', onMessage)
+      resolve()
+    }
+    socket.on('message', onMessage)
+  })
+  socket.send(JSON.stringify({ type: 'ping', id: 'settle', sentAtLocalMs: 0 }))
+  await pong
+}
+
+function sendSeekApplied(socket: WebSocket, count: number): void {
+  for (let index = 0; index < count; index += 1)
+    socket.send(JSON.stringify({ type: 'seek_applied', revision: 1, positionSeconds: 0 }))
 }
 
 function controlUrl(serviceUrl: string, path: string, params: Record<string, string>): URL {
@@ -92,6 +112,40 @@ describe('the /__test/* hooks', () => {
     await expect(accepted.json()).resolves.toMatchObject({ ok: true, mode: 'hold_acks', released: 0 })
     const cleared = await fetch(controlUrl(service.url, '/__test/fault', { room: code, participant: participantId, mode: 'clear' }), { method: 'POST', headers: right })
     expect(cleared.status).toBe(200)
+  })
+
+  it('keeps what is held across a mode change, and says how many it could not keep', async () => {
+    const control = randomBytes(24).toString('base64url')
+    service = await createRoomService({ port: 0, testControlToken: control })
+    const { code, participantId, socket } = await openRoom(service.url)
+    const post = async (mode: string): Promise<{ ok: boolean, released: number, dropped: number }> => {
+      const response = await fetch(controlUrl(service!.url, '/__test/fault', { room: code, participant: participantId, mode }), { method: 'POST', headers: { [HEADER]: control } })
+      expect(response.status).toBe(200)
+      return await response.json() as { ok: boolean, released: number, dropped: number }
+    }
+
+    // Two acknowledgements held, then the mode changes: they are still held.
+    await post('hold_acks')
+    sendSeekApplied(socket, 2)
+    await settle(socket)
+    await post('silent')
+    sendSeekApplied(socket, 1) // silent: discarded, not held
+    await settle(socket)
+    await post('hold_acks')
+    expect(await post('release')).toMatchObject({ ok: true, released: 2, dropped: 0 })
+
+    // `clear` discards what was held.
+    await post('hold_acks')
+    sendSeekApplied(socket, 1)
+    await settle(socket)
+    await post('clear')
+    expect(await post('release')).toMatchObject({ released: 0, dropped: 0 })
+
+    // Past the cap of 64 the rest is not kept, and the release says so.
+    await post('hold_acks')
+    sendSeekApplied(socket, 70)
+    await settle(socket)
+    expect(await post('release')).toMatchObject({ released: 64, dropped: 6 })
   })
 
   it('are not part of the production start path', async () => {

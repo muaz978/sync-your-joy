@@ -53,7 +53,7 @@ export async function launchThreeProfiles(prefix: string): Promise<[ExtensionPro
     ...(artifactDirectory ? { artifactDirectory } : {}),
     trace: process.env.SYNCYOURJOY_E2E_TRACE === '1',
   }
-  const results = await Promise.allSettled(['a', 'b', 'c'].map(label => launchExtensionProfile(dist, `${prefix}-${label}`, options)))
+  const results = await Promise.allSettled(['a', 'b', 'c'].map(label => launchExtensionProfile(dist, prefix === '' ? label : `${prefix}-${label}`, options)))
   const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
   if (failure) {
     await Promise.all(results
@@ -164,7 +164,7 @@ export type FaultMode = 'hold_acks' | 'drop_acks' | 'silent' | 'release' | 'clea
  * The room service's token-gated fault control (`POST /__test/fault`), present
  * only in the in-process service the E2E setup starts.
  */
-export async function setParticipantFault(roomCode: string, participantId: string, mode: FaultMode): Promise<{ released: number }> {
+export async function setParticipantFault(roomCode: string, participantId: string, mode: FaultMode): Promise<{ released: number, dropped: number }> {
   const roomServerUrl = process.env.SYNCYOURJOY_E2E_ROOM_SERVER_URL
   const testControlToken = process.env.SYNCYOURJOY_E2E_CONTROL_TOKEN
   if (!roomServerUrl || !testControlToken)
@@ -177,10 +177,10 @@ export async function setParticipantFault(roomCode: string, participantId: strin
   const response = await fetch(controlUrl, { method: 'POST', headers: { 'x-syncyourjoy-test-token': testControlToken } })
   if (!response.ok)
     throw new Error(`The room-service fault control returned HTTP ${response.status}.`)
-  const result = await response.json() as { ok?: boolean, released?: number }
+  const result = await response.json() as { ok?: boolean, released?: number, dropped?: number }
   if (result.ok !== true)
     throw new Error(`The room-service fault control refused: ${JSON.stringify(result)}`)
-  return { released: result.released ?? 0 }
+  return { released: result.released ?? 0, dropped: result.dropped ?? 0 }
 }
 
 export async function disconnectParticipant(roomCode: string, participantId: string): Promise<void> {
