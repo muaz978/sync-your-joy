@@ -818,6 +818,27 @@ describe('service worker observed episode identity', () => {
       expect(reported.at(-1)).toBe(frameOfB)
     })
 
+    // Two reports from one document share a binding, so the binding says nothing
+    // about which of them is newer: the older one must not overwrite the newer.
+    it('lets a later report from the same document keep what it wrote when the earlier one finishes detaching afterwards', async () => {
+      const { fake, request } = await resumeAtPage(sharedUrl)
+      const { sendToTab, release } = holdNextTabMessage(fake)
+
+      const reportA = request({ type: 'MEDIA_DETECTED', media: mediaA, areaPixels: 700_000, diagnostics: diagnostics(1), bindingId: undefined }, senderFor(3, 'document-a'))
+      await vi.waitFor(() => expect(sendToTab).toHaveBeenCalledTimes(1))
+      const reportB = await request({ type: 'MEDIA_DETECTED', media: mediaB, areaPixels: 700_000, diagnostics: diagnostics(4), bindingId: undefined }, senderFor(3, 'document-a'))
+      expect(reportB.playerBindingId).toEqual(expect.any(String))
+
+      release()
+      const responseA = await reportA
+
+      const current = await request({ type: 'GET_STATE' }, senderFor(3, 'document-a'))
+      expect(current.state.currentMedia).toMatchObject({ title: 'Report B' })
+      expect(current.state.playerDiagnostics).toMatchObject({ readyState: 4 })
+      // Same document, same binding: the page may keep it.
+      expect(responseA.playerBindingId === undefined || responseA.playerBindingId === reportB.playerBindingId).toBe(true)
+    })
+
     it('writes nothing for a report whose page started loading again while the previous player was being detached', async () => {
       const { fake, request } = await resumeAtPage(sharedUrl)
       const { sendToTab, release } = holdNextTabMessage(fake)
