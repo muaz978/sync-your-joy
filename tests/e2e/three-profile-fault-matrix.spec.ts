@@ -17,6 +17,7 @@
 // silent participant makes the coordinator pause the room.
 import { expect, test } from '@playwright/test'
 import type { ExtensionProfile } from './extension-profile.ts'
+import { THREE_PROFILE_PREFIXES } from './profile-labels.ts'
 import {
   assertConverged,
   createRoomWithPlayers,
@@ -41,7 +42,7 @@ test.describe('three-profile fault matrix', () => {
   let profiles: [ExtensionProfile, ExtensionProfile, ExtensionProfile]
 
   test.beforeAll(async () => {
-    profiles = await launchThreeProfiles('fault')
+    profiles = await launchThreeProfiles(THREE_PROFILE_PREFIXES.fault)
   })
 
   test.afterAll(async () => {

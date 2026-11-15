@@ -7,6 +7,7 @@ import { expect, type Page } from '@playwright/test'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { launchExtensionProfile, type ExtensionProfile } from './extension-profile.ts'
+import { profileLabels } from './profile-labels.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 export const extensionDistDir = resolve(here, '..', '..', 'apps/extension/dist')
@@ -53,7 +54,7 @@ export async function launchThreeProfiles(prefix: string): Promise<[ExtensionPro
     ...(artifactDirectory ? { artifactDirectory } : {}),
     trace: process.env.SYNCYOURJOY_E2E_TRACE === '1',
   }
-  const results = await Promise.allSettled(['a', 'b', 'c'].map(label => launchExtensionProfile(dist, prefix === '' ? label : `${prefix}-${label}`, options)))
+  const results = await Promise.allSettled(profileLabels(prefix).map(label => launchExtensionProfile(dist, label, options)))
   const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
   if (failure) {
     await Promise.all(results
