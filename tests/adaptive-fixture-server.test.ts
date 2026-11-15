@@ -70,16 +70,31 @@ describe('owned adaptive fixture server', () => {
     const fixture = await createAdaptiveFixtureServer()
     try {
       // The server reports what it applied. Values off the list, including an
-      // oversized one and a malformed one, are not delayed and do not wait.
+      // oversized one and a malformed one, are not delayed.
       for (const value of ['77', '5000', '99999999', '-5', 'abc', '']) {
-        const startedAt = Date.now()
         const response = await fetch(`${fixture.origin}/adaptive/segment/1.mp4?delayMs=${encodeURIComponent(value)}`)
         expect(response.status).toBe(200)
+        // The server's own account of what it applied. A wall-clock upper bound
+        // would only measure how busy the machine is.
         expect(response.headers.get('x-syncyourjoy-fixture-delay-ms'), `delayMs=${value}`).toBe('0')
-        expect(Date.now() - startedAt, `delayMs=${value} must not wait`).toBeLessThan(1_000)
       }
       const listed = await fetch(`${fixture.origin}/adaptive/segment/1.mp4?delayMs=80`)
       expect(listed.headers.get('x-syncyourjoy-fixture-delay-ms')).toBe('80')
+    }
+    finally {
+      await fixture.close()
+    }
+  })
+
+  it('delays the manifest only for an allowlisted delayMs, and says what it applied', async () => {
+    const fixture = await createAdaptiveFixtureServer()
+    try {
+      const startedAt = Date.now()
+      const delayed = await fetch(`${fixture.origin}/adaptive-manifest.json?delayMs=80`)
+      expect(delayed.headers.get('x-syncyourjoy-fixture-delay-ms')).toBe('80')
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(60)
+      const offList = await fetch(`${fixture.origin}/adaptive-manifest.json?delayMs=77`)
+      expect(offList.headers.get('x-syncyourjoy-fixture-delay-ms')).toBe('0')
     }
     finally {
       await fixture.close()

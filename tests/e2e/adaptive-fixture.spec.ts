@@ -314,6 +314,93 @@ test.describe('owned adaptive loading and lifecycle fixture', () => {
     })
   })
 
+  test('replacing the source while the first load still waits for its manifest leaves the element on the replacement media', async ({ browser }, testInfo) => {
+    await withFixturePage(browser, testInfo, 'same-element-source-manifest-window', async (page) => {
+      // The first load's manifest is held back 500 ms. The source is replaced
+      // while it waits, so the replacement load finishes first and the stale
+      // manifest arrives after it.
+      await page.goto(`${fixture.origin}/adaptive-player.html?autostart=1&manifestDelayMs=500`)
+      await waitForFixtureEvent(page, 'load-start', { timeout: 20_000 })
+      await page.locator('#replace-source').click()
+      await waitForFixtureEvent(page, 'load-complete', { timeout: 60_000 })
+      // The stale load reports that it was superseded once its manifest is back.
+      await waitForFixtureEvent(page, 'load-superseded', { timeout: 10_000 })
+      const snapshot = await readFixtureSnapshot(page)
+      const superseded = eventsOfType(snapshot, 'load-superseded')
+      expect(superseded).toHaveLength(1)
+      // The element was given one source, the replacement's.
+      expect(eventsOfType(snapshot, 'native-loadstart')).toHaveLength(1)
+      expect(snapshot.loadedSegments).toHaveLength(30)
+      expect(snapshot.bufferedRanges).toHaveLength(1)
+      expect(snapshot.bufferedRanges[0]?.[0]).toBe(0)
+      expect(await page.evaluate(() => document.querySelector('video')?.readyState)).toBeGreaterThanOrEqual(2)
+      // And it plays: real progress on the replacement media, not a counter.
+      await page.evaluate(async () => {
+        const video = document.querySelector('video')!
+        video.muted = true
+        await video.play()
+      })
+      await expect.poll(() => page.evaluate(() => document.querySelector('video')!.currentTime), { timeout: 10_000, message: 'The replacement media should play.' })
+        .toBeGreaterThan(1)
+      // The stale load stopped before touching the element, not after assigning
+      // its own source (the page's record of where it stopped).
+      expect(superseded[0]).toMatchObject({ generation: 1, at: 'manifest' })
+    })
+  })
+
+  test('a load after a node replacement starts from nothing instead of adding to the first load', async ({ browser }, testInfo) => {
+    await withFixturePage(browser, testInfo, 'node-replacement-reload', async (page) => {
+      await page.goto(`${fixture.origin}/adaptive-player.html?autostart=1`)
+      await waitForFixtureEvent(page, 'load-complete')
+      expect((await readFixtureSnapshot(page)).loadedSegments).toHaveLength(30)
+      // A new node, then a load into it. The per-load record is the second
+      // load's own: 30 segments, not the first load's 30 plus its own.
+      await page.locator('#replace-player').click()
+      await page.evaluate(() => window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__!.load())
+      await page.waitForFunction(
+        () => (window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__?.snapshot().events ?? []).filter(event => event.type === 'load-complete').length >= 2,
+        undefined,
+        { timeout: 60_000 },
+      )
+      const snapshot = await readFixtureSnapshot(page)
+      expect(snapshot.loadCount).toBe(2)
+      expect(snapshot.loadedSegments).toEqual(Array.from({ length: 30 }, (_, index) => index))
+      expect(snapshot.missingSegments).toEqual([])
+      expect(snapshot.bufferedRanges).toHaveLength(1)
+      expect(snapshot.bufferedRanges[0]?.[0]).toBe(0)
+      expect(await page.evaluate(() => document.querySelector<HTMLVideoElement>('#replacement-player')?.readyState)).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  test('a hold that was released does not let its own timeout release the next hold', async ({ browser }, testInfo) => {
+    await withFixturePage(browser, testInfo, 'stale-hold-timeout', async (page) => {
+      // The first hold lasts 1.2 s at most; the second one keeps the full limit.
+      await page.goto(`${fixture.origin}/adaptive-player.html?autostart=1&holdAfter=2&holdLimitMs=1200`)
+      await waitForFixtureEvent(page, 'hold-start', { timeout: 20_000 })
+      // The source is replaced while the first hold is on, which releases it. The
+      // replacement load runs into a hold of its own.
+      await page.locator('#replace-source').click()
+      await page.waitForFunction(
+        () => (window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__?.snapshot().events ?? []).filter(event => event.type === 'hold-start').length >= 2,
+        undefined,
+        { timeout: 30_000 },
+      )
+      // Wait past the first hold's own 1.2 s limit. Its timer must have died
+      // with its release; the second hold is still holding.
+      await page.waitForTimeout(1_800)
+      const snapshot = await readFixtureSnapshot(page)
+      expect(snapshot.holding).toBe(true)
+      expect(eventsOfType(snapshot, 'hold-released')).toHaveLength(1)
+      expect(eventsOfType(snapshot, 'hold-released')[0]).toMatchObject({ reason: 'source-replaced' })
+      expect(eventsOfType(snapshot, 'hold-start')[1]).toMatchObject({ limitMs: 30_000 })
+      expect(snapshot.loadedSegments).toEqual([0, 1, 2])
+      // The second hold is still the one the release control reaches.
+      expect(await page.evaluate(() => window.__SYNCYOURJOY_ADAPTIVE_FIXTURE__?.release())).toBe(true)
+      await waitForFixtureEvent(page, 'load-complete', { timeout: 60_000 })
+      expect((await readFixtureSnapshot(page)).holding).toBe(false)
+    })
+  })
+
   test('covers open shadow, SPA, node replacement and cross-origin nested-frame lifecycles', async ({ browser }, testInfo) => {
     await withFixturePage(browser, testInfo, 'lifecycles', async (page) => {
       await page.goto(`${fixture.origin}/adaptive-player.html`)

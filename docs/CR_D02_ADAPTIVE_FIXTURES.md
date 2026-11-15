@@ -87,7 +87,7 @@ The page stores a bounded, test-readable snapshot at `window.__SYNCYOURJOY_ADAPT
 - `disjoint-offset-applied` (at segment 5 by default, `disjointAt` overrides it: see the keyframe note above);
 - `hold-start` and `hold-released` (with the reason: `button`, `api`, `source-replaced` or `timeout`; a held loader always releases itself after 30 seconds);
 - `playback-rate-changed` and `playback-rate-reset`;
-- `player-mounted`, `node-replaced`, `source-replaced` and `load-superseded` (an older loader found that a newer load had started and stopped appending);
+- `player-mounted`, `node-replaced`, `source-replaced` and `load-superseded` (an older loader found that a newer load had started and stopped appending; `at` says where, `manifest`, `sourceopen` or a segment);
 - native media events, each recorded as `native-<type>` with the element's `readyState`, `paused`, `currentTime` and `playbackRate`: `loadstart`, `emptied`, `loadedmetadata`, `durationchange`, `canplay`, `playing`, `pause`, `waiting`, `stalled`, `seeking`, `seeked`, `ended`, `error` and `ratechange`;
 - `load-complete` or `fixture-error`.
 
@@ -103,7 +103,7 @@ Run the native fixture and extension integration tests with:
 npx playwright test --config tests/e2e/playwright.config.ts --grep "owned adaptive"
 ```
 
-`tests/e2e/adaptive-fixture.spec.ts` has these tests, each on its own page, and each attaches the page's event log to the test output (`fixture-events-<name>.json`, named in `run-summary.json`):
+`tests/e2e/adaptive-fixture.spec.ts` has these tests, each on its own page, and each attaches the page's event log to the test output. The log is written to `fixture-events-<name>.json` in the test's output directory, passed through the E2E sanitizer (`sanitizeDiagnosticText`: absolute paths, the home directory and the repository root are masked, URLs reduced) and attached by path, because the artifact reporter records an attachment's name and path and drops an attachment body. `run-summary.json` names each file:
 
 1. native MSE with a delayed and a missing segment and the rate reset: at least 119 seconds, 29 loaded segments, the buffer `[0, 20]` and `[40, 120]` (the keyframe note above), the server-applied 120 ms delay with a fetch of at least 100 ms, no other segment delayed, and the two native `ratechange` events (1.5 then 1);
 2. a delay off the server's allowlist is requested (77 ms) and not applied (0 ms);
@@ -114,7 +114,8 @@ npx playwright test --config tests/e2e/playwright.config.ts --grep "owned adapti
 7. the control for 6: with nothing held, a muted element plays past 5 seconds with no `waiting`;
 8. same-element source replacement: one `<video>` before and after, a marker property set on the element survives, `source-replaced` with `sameElement` and no `player-mounted` or `node-replaced` after it, native `emptied` then `loadstart` (one more `loadstart` than before), a second complete load of 30 segments from 0;
 9. replacing the source while the loader is held: the held loader is released with reason `source-replaced`, logs `load-superseded` once, and appends nothing more, so the new buffer holds exactly its own segments;
-10. the lifecycle test below.
+10. replacing the source while the first load still waits for its manifest (`manifestDelayMs=500` holds only the first load's manifest, through the same server allowlist): the replacement load finishes first and the stale manifest arrives after it. The stale load must stop at the manifest, before it touches the element: one `load-superseded` with `at: manifest`, exactly one native `loadstart`, 30 segments in one range from 0, and the element plays (`currentTime` passes 1 s). Checking the generation only after assigning the source left the element on the stale loader's empty MediaSource;
+11. the lifecycle test below.
 
 The lifecycle test checks:
 
@@ -132,7 +133,7 @@ The second opens the page without autostart and goes through three player lifecy
 2. the node is replaced and the new element loads: the shadow host is gone, the extension binds frame 0 with origin `light-dom`, and Play starts the new element;
 3. the source of that same element is replaced: a marker set on the element survives, the browser raised `emptied`, the extension is still bound to frame 0 and `light-dom`, and Play starts it again.
 
-The nested cross-origin frame, the SPA transition and navigation are not driven through the extension in this file. The nested-frame run with the extension is in `adaptive-fixture-nested-extension.spec.ts` (#49). The SPA transition is a navigation scenario (#65). Neither extension test claims Crunchyroll or DRM acceptance.
+The nested cross-origin frame, the SPA transition and navigation are not driven through the extension in this file. A nested-frame run with the extension is a follow-up under #49 and is not in this change. The SPA transition is a navigation scenario (#65). Neither extension test claims Crunchyroll or DRM acceptance.
 
 The full E2E command still includes the existing generic two-profile test and the opt-in Crunchyroll test remains separately gated:
 

@@ -6,6 +6,8 @@
 // not an observation of anything on screen: a counter or a clock that moves in
 // it is not evidence that a frame was painted.
 import type { Frame, Page, TestInfo } from '@playwright/test'
+import { writeFile } from 'node:fs/promises'
+import { sanitizeDiagnosticText } from './artifact-utils.ts'
 
 export interface FixtureEvent {
   at: string
@@ -87,9 +89,12 @@ export async function waitForFixtureEvent(
 }
 
 /**
- * Keeps the page's own event log with the test's output. It is attached
- * whether the test passes or fails, so a run that went wrong can be read
- * afterwards, and run-summary.json names the attachment.
+ * Keeps the page's own event log with the test's output. It is written to a
+ * file in the test's output directory and attached by path, so the run's
+ * reporter (which records an attachment's name and path, not a body) names a
+ * file that exists. The text passes through the same sanitizer the failure
+ * text does (absolute paths, the home directory and the repository root are
+ * masked, URLs are reduced). It is attached whether the test passes or fails.
  */
 export async function attachFixtureEvents(
   testInfo: TestInfo,
@@ -99,10 +104,10 @@ export async function attachFixtureEvents(
   const snapshot = await readFixtureSnapshot(target).catch(() => undefined)
   if (!snapshot)
     return undefined
-  await testInfo.attach(`fixture-events-${name}.json`, {
-    body: `${JSON.stringify(snapshot, null, 2)}\n`,
-    contentType: 'application/json',
-  })
+  const fileName = `fixture-events-${name}.json`
+  const path = testInfo.outputPath(fileName)
+  await writeFile(path, `${sanitizeDiagnosticText(JSON.stringify(snapshot, null, 2))}\n`)
+  await testInfo.attach(fileName, { path, contentType: 'application/json' })
   return snapshot
 }
 

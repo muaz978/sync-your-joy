@@ -77,6 +77,12 @@ async function routeRequest(
   }
 
   if (requestUrl.pathname === '/adaptive-manifest.json') {
+    // Same allowlist as the segments: a test can hold the manifest back to keep
+    // a load in flight. Anything off the list is not delayed.
+    const manifestDelayMs = fixtureDelayMs(requestUrl.searchParams.get('delayMs'))
+    if (manifestDelayMs > 0)
+      await waitForFixtureDelay(manifestDelayMs)
+    response.setHeader('x-syncyourjoy-fixture-delay-ms', String(manifestDelayMs))
     sendJson(response, 200, {
       durationSeconds: media.durationSeconds,
       segmentDurationSeconds: media.segmentDurationSeconds,
