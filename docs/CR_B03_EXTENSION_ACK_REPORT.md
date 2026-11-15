@@ -3,7 +3,7 @@
 Issue: [#57](https://github.com/muaz978/sync-your-joy/issues/57)
 Dependencies: [#55 / CR-B01](https://github.com/muaz978/sync-your-joy/issues/55), [#56 / CR-B02](https://github.com/muaz978/sync-your-joy/issues/56)
 Scope: extension capability advertisement, player-side preparation, current-play-attempt tracking, started evidence, operation acknowledgement transport, and backend wire dispatch
-Status when written (historical): implementation and final branch verification complete; PR review, PR metadata, merge and issue-closure gates remain separate. Update 2026-10-16: merged as PR #85 and shipped in v0.2.5, so sections 7 and 8 are the pre-merge snapshot (historical), including the package still at 0.2.4 and no release claimed; #57 stays open for acceptance evidence.
+Status when written (historical): implementation and final branch verification complete; PR review, PR metadata, merge and issue-closure gates remain separate. Update 2026-10-16: merged as PR #85 and shipped in v0.2.5, so section 8 is the pre-merge snapshot (historical), including the package still at 0.2.4 and no release claimed. Section 7 was replaced on 2026-11-15 with the verification record at base `257afb6` (extension 0.2.12) and only its last paragraph is historical; #57 stays open for acceptance evidence.
 
 ## 1. Problem statement and acceptance interpretation
 
@@ -143,7 +143,7 @@ After the effective time:
 - no local seek operation is pending;
 - `playerHealth.hasRenderedFrameProgress` is true: a frame counter (the `requestVideoFrameCallback` count where the browser has it, otherwise the playback-quality count while the page is visible) advanced for this source and command.
 
-Update 2026-11-15: this gate originally read `hasRealPlaybackProgress`, which is also true for progress that only the media clock shows. By the owner decision of 2026-10-31 on #53 (the same answer applies to #57), clock-only progress does not send `started`; rendered-frame evidence is required. A player with no frame counter, or in a hidden tab, therefore does not send `started`, and the coordinator ends that start at its deadline. Frames presented during the startup grace still count. This prevents a pending promise, a provider's optimistic play event, a stuck frame, `paused=false` without movement, or a running media clock alone from becoming a false started acknowledgement.
+Update 2026-11-15: this gate originally read `hasRealPlaybackProgress`, which is also true for progress that only the media clock shows. By the owner decision of 2026-10-31 on #53 (the same answer applies to #57), clock-only progress does not send `started`; rendered-frame evidence is required. A player with no frame counter, or in a tab that stays hidden through the deadline, therefore does not send `started`, and the coordinator ends that start at its deadline. A tab that becomes visible before the deadline can send `started` once frames advance. Frames presented during the startup grace still count. This prevents a pending promise, a provider's optimistic play event, a stuck frame, `paused=false` without movement, or a running media clock alone from becoming a false started acknowledgement.
 
 ### Direct gesture recovery
 
@@ -195,6 +195,18 @@ All of it is `apps/extension/src/content-script.test.ts` with Vitest fake timers
 From the pull request for #53, which this change builds on: clock-only progress sends no `started` (owner decision of 2026-10-31); frame-callback progress alone does send it once; a hidden tab sends none. Those tests are in the block "player health evidence in the content script (CR-A06, #53)".
 
 Mutation checks (a production line edited in place, the file run, the file restored): 12 mutations, 9 killed. Killed: acknowledgement without a binding, a page that does not match the room, a refused acknowledgement recorded as accepted, a native play event not taken as the current attempt, `started` without an accepted attempt, the effective time ignored, the play deadline not enforced, frames in the startup grace not kept, and a refused attempt never cleared (after a lower bound was added to its test; with only an upper bound it survived). Survived: a new operation keeping the old keys and a play result attributed to whichever operation is current (every comparison is by key equality, so these sequences cannot tell them apart), and a room exit not retiring the pending play (no acknowledgement is possible without a snapshot, so nothing observable differs).
+
+### Commands run, and their results
+
+Run on 2026-11-15 on this branch after merging the CR-A06 change (head `1ff20a9` of `issue-53-health-evidence`) and `main` at `8d8bf2a`; the test file has not changed since commit `b1e0e85`.
+
+```text
+npm run typecheck                                              clean
+npm test                                                       Test Files 51 passed, Tests 1160 passed
+npx vitest run apps/extension/src/content-script.test.ts  x3   Tests 182 passed (each run)
+```
+
+No browser, `npm run build`, `npm audit` or package smoke was run for this revision.
 
 ### Not covered by this revision
 
