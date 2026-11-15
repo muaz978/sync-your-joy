@@ -1888,9 +1888,21 @@ function startFrameObserver(target: HTMLVideoElement): void {
     if (frameObserverVideo !== target)
       return
     observedPresentedFrameCount += 1
+    // The first callback switches the counter from the playback-quality count to this one. That is
+    // a change of source, not a counter reset, so the baseline moves to the new counter.
+    if (observedPresentedFrameCount === 1)
+      rebaseFrameCounter(target)
     frameObserverCallbackId = target.requestVideoFrameCallback(observe)
   }
   frameObserverCallbackId = target.requestVideoFrameCallback(observe)
+}
+
+function rebaseFrameCounter(target: HTMLVideoElement): void {
+  playerHealth = resetPlayerHealthBaseline(playerHealth, {
+    nowMs: performance.now(),
+    positionSeconds: finiteOrZero(target.currentTime),
+    frames: presentedFrameCount(target),
+  }, true)
 }
 
 function stopFrameObserver(target: HTMLVideoElement | null): void {

@@ -361,3 +361,64 @@ describe('progress that media events report between periodic samples', () => {
     expect(state.observedAtMs).toBe(1_020)
   })
 })
+
+describe('a stall after progress that an event report already saw', () => {
+  const event = (previous: ReturnType<typeof createPlayerHealthState>, overrides: Partial<Parameters<typeof observePlayerHealth>[1]> = {}) =>
+    playing(previous, { periodic: false, ...overrides })
+
+  /** A periodic sample sees frame 24, a media event sees frame 26, and then the element says it is waiting. */
+  function stalledAfterEventSawFrames() {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 24 })
+    state = event(state, { nowMs: 1_500, positionSeconds: 1.5, frames: 26 })
+    expect(state.progressed).toBe(true)
+    return markPlayerHealthBuffering(state)
+  }
+
+  it('is not cleared by a delayed buffering report that sees the same frames again', () => {
+    let state = stalledAfterEventSawFrames()
+    state = event(state, { nowMs: 2_200, positionSeconds: 1.5, frames: 26, explicitlyBuffering: true })
+
+    expect(state.buffering).toBe(true)
+    expect(state.progressed).toBe(false)
+  })
+
+  it('is not cleared by an event report without the explicit flag either', () => {
+    let state = stalledAfterEventSawFrames()
+    state = event(state, { nowMs: 2_200, positionSeconds: 1.5, frames: 26 })
+
+    expect(state.buffering).toBe(true)
+    expect(state.progressed).toBe(false)
+  })
+
+  it('is not cleared by the next periodic sample, which sees no frame that no report has seen', () => {
+    let state = stalledAfterEventSawFrames()
+    state = event(state, { nowMs: 2_200, positionSeconds: 1.5, frames: 26, explicitlyBuffering: true })
+    state = playing(state, { nowMs: 3_000, positionSeconds: 1.5, frames: 26 })
+
+    expect(state.buffering).toBe(true)
+    expect(state.progressed).toBe(false)
+  })
+
+  it('is cleared by a frame that no earlier report has seen, from an event or the periodic sample', () => {
+    let state = stalledAfterEventSawFrames()
+    state = event(state, { nowMs: 2_200, positionSeconds: 1.6, frames: 27 })
+    expect(state.buffering).toBe(false)
+    expect(state.progressed).toBe(true)
+
+    state = stalledAfterEventSawFrames()
+    state = playing(state, { nowMs: 3_000, positionSeconds: 2, frames: 30 })
+    expect(state.buffering).toBe(false)
+    expect(state.progressed).toBe(true)
+  })
+
+  it('still counts progress that an event saw towards the next periodic sample when nothing stalled', () => {
+    let state = createPlayerHealthState(baseline)
+    state = playing(state, { nowMs: 1_000, positionSeconds: 1, frames: 24 })
+    state = event(state, { nowMs: 1_600, positionSeconds: 1.6, frames: 26 })
+    state = playing(state, { nowMs: 2_000, positionSeconds: 2, frames: 26 })
+
+    expect(state.progressed).toBe(true)
+    expect(state.buffering).toBe(false)
+  })
+})

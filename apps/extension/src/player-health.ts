@@ -46,6 +46,13 @@ export interface PlayerHealthState {
    */
   observedPositionSeconds: number
   observedFrames: number | null
+  /**
+   * Where the latest observation of any kind left the position and frame
+   * counter. Only a frame that is new compared with this clears a waiting
+   * latch, so reports that see the same frames again cannot clear it.
+   */
+  latestPositionSeconds: number
+  latestFrames: number | null
   buffering: boolean
   progressed: boolean
   progressEvidence: ProgressEvidenceQuality
@@ -70,6 +77,8 @@ export function createPlayerHealthState(input: PlayerHealthBaselineInput): Playe
     observedAtMs: baseline.nowMs,
     observedPositionSeconds: baseline.positionSeconds,
     observedFrames: baseline.frames,
+    latestPositionSeconds: baseline.positionSeconds,
+    latestFrames: baseline.frames,
     buffering: false,
     progressed: false,
     progressEvidence: 'unknown',
@@ -104,6 +113,8 @@ export function resetPlayerHealthBaseline(
     observedAtMs: baseline.nowMs,
     observedPositionSeconds: baseline.positionSeconds,
     observedFrames: baseline.frames,
+    latestPositionSeconds: baseline.positionSeconds,
+    latestFrames: baseline.frames,
     progressed: false,
     periodicProgressed: false,
     periodicAtMs: baseline.nowMs,
@@ -171,6 +182,8 @@ function observeAgainstCursor(previous: PlayerHealthState, input: PlayerHealthOb
     observedAtMs: observation.nowMs,
     observedPositionSeconds: observation.positionSeconds,
     observedFrames: observation.frames,
+    latestPositionSeconds: observation.positionSeconds,
+    latestFrames: observation.frames,
     progressed: false,
   }
 
@@ -192,18 +205,19 @@ function observeAgainstCursor(previous: PlayerHealthState, input: PlayerHealthOb
   }
 
   const evidence = compareProgress(previous, observation)
+  const latest = compareProgress(previous, observation, 'latest')
   next.progressEvidence = evidence.quality
-  if (evidence.counterReset) {
+  if (latest.counterReset) {
     next.buffering = observation.explicitlyBuffering || previous.buffering
     return next
   }
 
-  if (evidence.advanced) {
+  if (latest.advanced) {
     next.progressed = true
     next.buffering = false
     next.lastProgressAtMs = observation.nowMs
     next.hasRealPlaybackProgress = true
-    next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || evidence.quality === 'frames'
+    next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || latest.quality === 'frames'
   }
   else {
     // Once the element has said it is waiting, keep saying so until frames
@@ -214,6 +228,9 @@ function observeAgainstCursor(previous: PlayerHealthState, input: PlayerHealthOb
     next.buffering = observation.explicitlyBuffering
       || previous.buffering
       || observation.nowMs - next.lastProgressAtMs >= 2_500
+    // Frames that an earlier media-event report saw are still progress since the
+    // last periodic sample, unless the player has stalled since.
+    next.progressed = evidence.advanced && !next.buffering
   }
   return next
 }
@@ -230,15 +247,19 @@ function observeStartupGrace(previous: PlayerHealthState, next: PlayerHealthStat
   // native playback has actually begun.
   if (!observation.paused && !observation.seeking && !observation.localSeeking && !observation.lacksPlayableData) {
     const evidence = compareProgress(previous, observation)
+    const latest = compareProgress(previous, observation, 'latest')
     next.progressEvidence = evidence.quality
-    if (evidence.advanced) {
+    if (latest.advanced) {
       next.progressed = true
       next.buffering = false
       next.lastProgressAtMs = observation.nowMs
       next.hasRealPlaybackProgress = true
-      next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || evidence.quality === 'frames'
+      next.hasRenderedFrameProgress = previous.hasRenderedFrameProgress || latest.quality === 'frames'
       return next
     }
+    // Progress that an earlier report already used does not clear a waiting latch,
+    // but it still counts as progress since the last periodic sample.
+    next.progressed = evidence.advanced && !next.buffering
   }
   next.lastProgressAtMs = observation.nowMs
   return next
@@ -253,23 +274,29 @@ function observeUnexpectedPause(previous: PlayerHealthState, next: PlayerHealthS
   return next
 }
 
-function compareProgress(previous: PlayerHealthState, observation: PlayerHealthObservation): {
+/**
+ * Compares an observation with the periodic cursor (progress accumulated since the last periodic sample,
+ * the default) or with the latest observation of any kind.
+ */
+function compareProgress(previous: PlayerHealthState, observation: PlayerHealthObservation, cursor: 'periodic' | 'latest' = 'periodic'): {
   advanced: boolean
   counterReset: boolean
   quality: ProgressEvidenceQuality
 } {
-  if (observation.frames !== null && previous.observedFrames !== null) {
-    if (observation.frames < previous.observedFrames)
+  const previousFrames = cursor === 'latest' ? previous.latestFrames : previous.observedFrames
+  const previousPosition = cursor === 'latest' ? previous.latestPositionSeconds : previous.observedPositionSeconds
+  if (observation.frames !== null && previousFrames !== null) {
+    if (observation.frames < previousFrames)
       return { advanced: false, counterReset: true, quality: 'unknown' }
     return {
-      advanced: observation.frames > previous.observedFrames,
+      advanced: observation.frames > previousFrames,
       counterReset: false,
       quality: 'frames',
     }
   }
 
   return {
-    advanced: observation.positionSeconds - previous.observedPositionSeconds >= 0.12,
+    advanced: observation.positionSeconds - previousPosition >= 0.12,
     counterReset: false,
     quality: 'clock',
   }
