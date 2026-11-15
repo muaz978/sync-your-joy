@@ -81,7 +81,7 @@ Final local evidence:
 
 ## Edge coordinator, retained samples and rollback (added 2026-11-15)
 
-Evidence class of this section: unit tests over a hand-written storage harness that drives the real `RoomDurableObject` class, plus one scratch run of the tagged v0.2.4 source. No older edge service was run, no workerd, no real Durable Object storage, no browser. The extension half of #61 (create, join and rejoin carrying the capabilities, no acknowledgement from a legacy or contract-less snapshot) and the room-service and coordinator tests are on other branches and are not part of this change.
+Evidence class of this section: unit tests over a hand-written storage harness that drives the real `RoomDurableObject` class, plus two scratch scripts run against the tagged v0.2.4 source: one that generated the retained records (run more than once; the output of the last run is what is kept) and one rollback script (run once, covering three cases, see below). No older edge service was run, no workerd, no real Durable Object storage, no browser. The extension half of #61 (create, join and rejoin carrying the capabilities, no acknowledgement from a legacy or contract-less snapshot) and the room-service and coordinator tests are on other branches and are not part of this change.
 
 ### What was added
 
@@ -98,7 +98,9 @@ Evidence class of this section: unit tests over a hand-written storage harness t
 | Old records and a current client: the friend comes back on a current client and the room stays legacy while the host's record has no capabilities; once the host also comes back on a current client the room is transactional and the change is saved | last test of that describe |
 | Rollback round trip: the record the v0.2.4 coordinator wrote after it read a current room with a committed Play restores paused at the Play's target, with no operation, one revision on, transactional again for members that advertise it, and a new Play is a new operation | roll-forward test of that describe |
 
-What is asserted for the four old records: the restored room is paused (a playing room at the position it had, a seek barrier at the seek target, also when the barrier was to resume playback), the old barrier and its acknowledgement list are gone, a late `seek_applied` for the old revision from either member changes nothing and announces nothing, the revision is one higher, the contract is legacy with no operation, the room is saved with `stateVersion: 2`, and the only alarm is the six-hour lifetime limit. For the playing record, health evidence is restored as it was and none is added.
+What is asserted for the three old records that are playing or in a seek barrier: the restored room is paused (a playing room at the position it had, a seek barrier at the seek target, also when the barrier was to resume playback), the old barrier and its acknowledgement list are gone, a late `seek_applied` for the old revision from either member changes nothing and announces nothing, the revision is one higher, the contract is legacy with no operation, the room is saved with `stateVersion: 2`, and the only alarm is the six-hour lifetime limit. For the playing record only, health evidence is restored as it was and none is added.
+
+The fourth old record, the one with a waiting request, is asserted differently: the request is still pending after the restore (its socket is still attached), the contract is legacy, and the host can still approve the request and the requester then receives the approved snapshot. It is not asserted for revision, saved version, alarm or `seek_applied`.
 
 ### Retained samples
 
@@ -106,7 +108,7 @@ The v0.2.4 records were produced by extracting the tag with `git archive v0.2.4 
 
 ### Rollback, analysed by running the old code (v0.2.4 reading a current record)
 
-A record written by the current code (0.2.12, `stateVersion: 2`) was restored and re-exported by the v0.2.4 coordinator, then read again by the current code. The run was done three times, for a transactional room with a preparing Play, a transactional room with a committed Play (playing), and a contract-aware legacy room in the middle of a seek barrier.
+A record written by the current code (0.2.12, `stateVersion: 2`) was restored and re-exported by the v0.2.4 coordinator, then read again by the current code. One run of one scratch script covered three cases, in this order: a transactional room with a preparing Play, a transactional room with a committed Play (playing), and a contract-aware legacy room in the middle of a seek barrier. It was not repeated.
 
 - The v0.2.4 coordinator reads a current record without error. It ignores `contract`, `stateVersion` and `disconnectGrace`, restores the playback state as stored, and produces snapshots with no `contract` field.
 - What it writes back has none of those three fields and keeps each participant's `capabilities` (an unknown field that its export copies).
@@ -123,7 +125,7 @@ The room-state step that `docs/RELEASING.md` should carry for a rollback across 
 2. **Mode is not renegotiated when a member leaves.** After the legacy client leaves, the room stays `legacy` (and a new Play is `control_play`, not an operation) until a member joins, comes back, or the room is restored. This fails closed. It is pinned as current behaviour; whether a leave should renegotiate is an open question for the owner. The code is `disconnectCore()` in `packages/sync-engine/src/room.ts`, which is outside this change.
 3. **The mode check in `acknowledgeOperation()` is not observable at this level.** Removing `this.contract.mode !== 'transactional'` fails no test, because a room that has become legacy has already cancelled its operation, and an acknowledgement for a cancelled operation is refused anyway. A live operation in a legacy room cannot be built: a stored record that says legacy has its operation dropped on restore. The guard is defence in depth.
 4. **`stateVersion` is written and never read** (unchanged). The 2026-10-31 verification comment proposed that it stay informational; no owner decision on it is recorded, so it is left as it is.
-5. **A restore that migrates a record is announced to nobody** (the same finding as in section 6A of `CR_B06_EDGE_HEALTH_REHYDRATION_REPORT.md`): members that kept their socket are not told the room is now paused until the next broadcast. It is not asserted in this change.
+5. **A restore that migrates a record is announced to nobody**: members that kept their socket are not told the room is now paused until the next broadcast. It is not asserted in this change.
 
 ### Mutation checks
 
