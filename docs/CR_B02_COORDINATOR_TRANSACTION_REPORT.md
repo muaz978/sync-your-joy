@@ -3,7 +3,7 @@
 Issue: [#56](https://github.com/muaz978/sync-your-joy/issues/56)
 Depends on: [CR-B01 / #55](https://github.com/muaz978/sync-your-joy/issues/55)
 Scope: coordinator and backend persistence/scheduling only
-Status when written (historical): implementation and repository verification complete locally; review, merge, release and issue-closure decisions remain separate gates. Update 2026-10-16: merged as PR #84 and shipped in v0.2.5; #56 stays open for acceptance evidence. The statements below that the extension service worker does not advertise `CURRENT_CLIENT_CAPABILITIES` and that no wire message for operation acknowledgements exists describe this change only: CR-B03 (PR #85) added the `operation_ack` message, and the service worker now sends the capabilities on create, join and reconnect.
+Status when written (historical): implementation and repository verification complete locally; review, merge, release and issue-closure decisions remain separate gates. Merged as PR #84 and shipped in v0.2.5; #56 stays open. The statements in sections 1 to 6 that the extension service worker does not advertise `CURRENT_CLIENT_CAPABILITIES` and that no wire message for operation acknowledgements exists describe the original change only: CR-B03 (PR #85) added the `operation_ack` message, and the service worker now sends the capabilities on create, join and reconnect (`service-worker.ts`, three call sites). Section 8 is the post-merge update (against `main` at `257afb6`, extension 0.2.12) and supersedes section 7.
 
 ## 1. Problem and acceptance interpretation
 
@@ -34,11 +34,11 @@ The branch started from the verified `origin/main` merge for the CR-A02 acceptan
 | `packages/protocol/src/index.ts` | Permit partial preparation evidence during `preparing`; add optional `resumeWhenReady` operation semantics | The coordinator needs to represent an operation while one fixed participant is prepared and another is still pending, and must distinguish paused seeks from seeks that resume playback |
 | `packages/protocol/src/index.test.ts` | Validate partial preparation and `resumeWhenReady` type safety | Prevents the protocol validator from rejecting valid intermediate coordinator state or accepting malformed state |
 | `packages/sync-engine/src/room.ts` | Capability negotiation, persisted contract state, operation creation, preparation/start acknowledgements, fixed quorum, cancellation, deadlines, and clock-based recovery | Implements CR-B02 in the authoritative coordinator |
-| `packages/sync-engine/src/room.test.ts` | Five focused CR-B02 scenarios and helper fixtures | Covers the coordinator state machine and persistence behavior |
+| `packages/sync-engine/src/room.test.ts` | Five focused CR-B02 scenarios and helper fixtures (22 tests in the CR-B02 describe at the time of the 2026-10-31 verification pass; 37 after the post-merge update in section 8) | Covers the coordinator state machine and persistence behavior |
 | `apps/room-service/src/server.ts` | Forward create/join capabilities and expire transactional operations in the cleanup loop | Makes the in-memory backend preserve the negotiated contract and enforce deadlines |
 | `apps/edge-service/src/worker.ts` | Forward create/join capabilities, persist/schedule transactional deadlines, and expire operations from the Durable Object alarm | Keeps the deployed backend behavior aligned with the in-memory backend |
 
-The extension service worker does not advertise `CURRENT_CLIENT_CAPABILITIES` in this change. This is deliberate. Until CR-B03 adds the wire message and player-side prepare/start application, advertising support would cause a room to wait for acknowledgements that the extension cannot yet send.
+The extension service worker did not advertise `CURRENT_CLIENT_CAPABILITIES` in this change. That was deliberate: until CR-B03 added the wire message and player-side prepare/start application, advertising support would have caused a room to wait for acknowledgements that the extension could not yet send. CR-B03 (PR #85) has since done both, and the service worker now advertises the capabilities on create, join and reconnect.
 
 ## 3. Coordinator state machine
 
@@ -172,8 +172,66 @@ The first E2E attempt in the restricted runtime aborted Playwright Chromium with
 - No browser extension package or authenticated two-account test is claimed for CR-B02. That belongs to the downstream CR-B03 application slice and the separate CR-A02 headed acceptance gate.
 - No deployment or user-acceptance claim is made.
 
-## 7. Review and closure decision
+## 7. Review and closure decision (historical, as written for PR #84)
 
 The implementation is ready for source review if the branch remains clean after the final build/package checks and the PR metadata is applied. The PR must document this report, exact commands, evidence boundaries and unresolved downstream gates.
 
 The issue must remain open until CR-B03 consumes the acknowledgement contract and the applicable browser, live-provider, deployment and user-acceptance gates are evidenced. This report is not authorization to close CR-B02 or to bump the release.
+
+Superseded: PR #84 and CR-B03 (PR #85) are merged. The remaining closure conditions are in section 8.
+
+## 8. Post-merge update (against `main` at `257afb6`, extension 0.2.12)
+
+Evidence class for everything in this section: unit and protocol tests on synthetic fixtures. No browser, Crunchyroll, two-account, two-device, deployment or acceptance evidence is claimed. Per the owner's decision of 2026-10-31 those gates are carried by #30, #33, #34, #35 and #69, not by #56.
+
+### Owner decisions that bound this card (2026-10-31)
+
+- Criterion 3 (explicit recovery targets) applies to transactional rooms only. Legacy rooms are out of this card, so the legacy report path (a failing guest's sample) is neither tested nor changed here.
+- A seek issued while a Play is still preparing resumes playback only if the room was playing when the seek was pressed. That is the current behavior and it is pinned (below).
+- A partly started committed operation that is restored takes the pause fallback. It is pinned by a test; the repair is tracked on #60, and this change deliberately does not relax the validator that causes it (see "Partly started restore").
+
+### Behavior pinned by committed tests
+
+All in `packages/sync-engine/src/room.test.ts`, describe "CR-B02 coordinator prepare and commit transactions" > "what cancels, and what is ignored by, a transactional operation", unless noted:
+
+| Behavior | Test |
+| --- | --- |
+| A controller pause cancels a `preparing`, a `committed` and a `started` operation with `controller-request`, applies the controller's position, clears the start time, and every later prepare or start acknowledgement is ignored without changing the room | "cancels a preparing / committed / started operation when the controller pauses ..." (3) |
+| A required participant that is no longer ready cancels with `participant-not-ready` in the same three phases, and later acknowledgements are ignored | "cancels a preparing / committed / started operation with participant-not-ready ..." (3) |
+| Moving to different media is the same cancel, with the same reason | "cancels with participant-not-ready, not another reason, when a required participant moves to different media" |
+| An acknowledgement for the old media after a shared link is ignored (the link advances the epoch and clears the operation); a new Play on the new media is untouched by the old acknowledgements | "ignores an acknowledgement for the old media after a shared link opened ..." |
+| An acknowledgement whose media epoch alone is wrong (right operation ID, valid binding, epoch lower or higher) is ignored and changes nothing; the right one is then accepted | "ignores an acknowledgement whose media epoch alone is wrong ..." |
+| Preparation and start evidence from a connected, ready participant that is not in the frozen set is ignored, and it does not count towards the commit or the start | "ignores preparation and start evidence from a connected, ready participant that is not in the frozen set" |
+| A seek during a Play that is still `preparing` leaves the room paused (`resumeWhenReady: false`); a seek during a committed Play resumes (`resumeWhenReady: true`) | describe "a seek issued while a Play is still preparing" (2) |
+| A pre-contract pending seek restored in a room of capable peers becomes a clean transactional room (no seek, no operation, paused at the seek target) that accepts a new seek; the late acknowledgement of the old barrier is ignored | "migrates a pre-contract pending seek in a room of capable peers ..." |
+| A binding or source-generation change, a lower sample sequence, a legacy peer approved mid-Play, and an acknowledgement for an already cancelled operation | PR #173 (the CR-B01 live-operation tests), not repeated here |
+
+The two existing tests "migrates a pre-contract pending seek to a paused-safe state without reusing historical ACKs" and "migrates a partially written contract with a pending seek to the same paused-safe state" already covered the old restored pending seek in a legacy room (`migratePreContractState`), so no test was added for that case beyond the capable-peers variant above.
+
+Note on the frozen set: no live flow puts a connected, ready participant outside the frozen set. A Play or seek is refused while anyone connected is not ready, and a join, a reconnect or an un-ready cancels the operation. The set check in `acknowledgeOperation()` is therefore reachable only from restored state, which is how its test builds the room.
+
+### Partly started restore
+
+A committed operation with some but not all start acknowledgements is a normal in-flight state, but `isRoomOperation()` accepts a `committed` operation only with an empty started list (a started list must be complete for `started`). A stored room in that state therefore fails `isRoomContractSnapshot()`, the operation is dropped, and the coordinator restores through `migratePreContractState()`: paused at the position the Play began from, with the operation gone and a late start acknowledgement ignored. Tests: "takes the pause fallback ..." (room) and "keeps the committed phase strict ..." (protocol). A fully prepared committed operation and a started one restore unchanged.
+
+The agent task list for this card also proposed allowing a partial started list in `committed`. It was not done: the owner's decision above keeps the pause fallback for a restored partly started operation, and the validator is what produces it (relaxing it makes the restored room keep playing instead). If the owner later wants the operation restored, the change is one condition in `isRoomOperation()` and is additive for wire compatibility (the validator runs only on restore, never on a message). The mixed-version effect would be: a newer coordinator restores its own state with the operation intact; an older coordinator (the deployed one) restoring the same state still takes the pause fallback; `normalizeStoredContractState()` in the extension would have to change in step. That remains #60's decision.
+
+### What this section does not cover
+
+- The legacy path (a failing guest's sample for steady-play recovery) is out of this card by the owner's decision.
+- Transport-level tests (a socket-level deadline test, a transactional variant of the fuzz harness) are recommended but not required by the card, and overlap #59 and #60.
+- Mixed-version rooms on real builds, live Crunchyroll, two accounts, two devices, a deployed coordinator and user acceptance.
+
+### Verification
+
+```text
+npm run typecheck                        clean (tsc --noEmit and the edge-service tsconfig)
+npm test                                 50 files, 1053 tests passed (16 added by this update: 15 in room.test.ts, 1 in the protocol tests)
+npx vitest run packages/protocol packages/sync-engine   3 runs: 11 files, 291 tests passed each time
+```
+
+Each new test was checked against a one-line scratch mutation of the production file and failed under it; the list is in the pull request.
+
+### Closure decision
+
+#56 stays open. What remains on the card itself: the repair of the partly started restore, which is #60's, and the owner's acceptance of the criteria as amended on 2026-10-31.
