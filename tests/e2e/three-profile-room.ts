@@ -227,7 +227,7 @@ export async function ensureRoomPlaying(controller: ExtensionProfile, pages: Pag
       timeout: 5_000,
       message: 'Every local player should enter native playback.',
     }).toBe(true).catch(() => undefined)
-    await new Promise(resolve => setTimeout(resolve, 1_000))
+    await pages[0]!.waitForTimeout(1_000)
     if ((await readFixtureStates(pages)).every(state => !state.paused && state.presentedFrames > 0))
       return
   }
@@ -238,7 +238,7 @@ export async function ensureRoomPlaying(controller: ExtensionProfile, pages: Pag
 export async function expectHeldPaused(pages: Page[], forMs: number, toleranceSeconds = 0.15): Promise<void> {
   const before = await readFixtureStates(pages)
   expect(before.every(state => state.paused), 'every player should be paused').toBe(true)
-  await new Promise(resolve => setTimeout(resolve, forMs))
+  await pages[0]!.waitForTimeout(forMs)
   const after = await readFixtureStates(pages)
   expect(after.every(state => state.paused), 'every player should still be paused').toBe(true)
   for (const [index, state] of after.entries())
