@@ -51,6 +51,37 @@ describe('media identity matching', () => {
     expect(mediaMatchesPageUrl(current, 'https://www.crunchyroll.com/foo/watch/GE00345558JAJP')).toBe(false)
   })
 
+  it('normalizes a Crunchyroll canonical id through the same anchored rule as the page matcher', () => {
+    const id = 'crunchyroll:GE00345558JAJP'
+    for (const legitimate of [
+      'crunchyroll:ge00345558jajp',
+      'www.crunchyroll.com/watch/GE00345558JAJP/from-now-on',
+      'www.crunchyroll.com/watch/GE00345558JAJP',
+      'crunchyroll.com/de/watch/GE00345558JAJP/titel',
+      'https://www.crunchyroll.com/pt-br/watch/ge00345558jajp/titulo?utm_source=x',
+      '/watch/GE00345558JAJP/from-now-on',
+    ])
+      expect(normalizeCanonicalId('crunchyroll', legitimate), legitimate).toBe(id)
+    for (const other of [
+      'www.crunchyroll.com/foo/watch/GE00345558JAJP',
+      'www.crunchyroll.com/a/b/watch/GE00345558JAJP',
+      'www.crunchyroll.com/watch/GE00345558JAJP/a/b',
+      'www.crunchyroll.com/series/X/watch/GE00345558JAJP',
+      'video.example/watch/GE00345558JAJP',
+      'crunchyroll.com.evil.example/watch/GE00345558JAJP',
+    ])
+      expect(normalizeCanonicalId('crunchyroll', other), other).toBe(other)
+  })
+
+  it('does not treat a deeper path containing /watch/ as the same Crunchyroll episode', () => {
+    const room: MediaFingerprint = { service: 'crunchyroll', canonicalId: 'crunchyroll:GE00345558JAJP', title: 'Episode', durationSeconds: null }
+    const on = (canonicalId: string): MediaFingerprint => ({ service: 'crunchyroll', canonicalId, title: 'x', durationSeconds: 1_400 })
+    expect(mediaMatches(room, on('www.crunchyroll.com/de/watch/GE00345558JAJP/titel'))).toBe(true)
+    expect(mediaMatches(room, on('www.crunchyroll.com/foo/watch/GE00345558JAJP'))).toBe(false)
+    expect(mediaMatches(room, on('www.crunchyroll.com/watch/GE00345558JAJP/a/b'))).toBe(false)
+    expect(mediaMatches(on('www.crunchyroll.com/foo/watch/GE00345558JAJP'), room)).toBe(false)
+  })
+
   it('reads the watch ID from a real Crunchyroll episode page on any locale and from nothing else', () => {
     expect(crunchyrollWatchId('https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on')).toBe('GE00345558JAJP')
     expect(crunchyrollWatchId('https://crunchyroll.com/de/watch/ge00345558jajp/lokalisiert?utm_source=x#player')).toBe('GE00345558JAJP')

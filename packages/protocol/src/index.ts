@@ -944,10 +944,22 @@ export function normalizeMediaPageUrl(value: string): string | null {
   }
 }
 
+/**
+ * An older canonical id for a Crunchyroll episode is a host and path
+ * (`www.crunchyroll.com/watch/<ID>/title`), with or without a scheme, or a bare
+ * path. Read it as an address so it goes through the same anchored episode rule
+ * as a shared page (`crunchyrollWatchId`), instead of a second pattern of its own.
+ */
+function canonicalIdAsPageUrl(canonicalId: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(canonicalId))
+    return canonicalId
+  return canonicalId.startsWith('/') ? `https://www.crunchyroll.com${canonicalId}` : `https://${canonicalId}`
+}
+
 export function normalizeCanonicalId(service: string, canonicalId: string): string {
   if (service === 'crunchyroll') {
     const episodeId = canonicalId.match(/^crunchyroll:([a-z0-9]+)$/i)?.[1]
-      ?? canonicalId.match(/\/watch\/([a-z0-9]+)/i)?.[1]
+      ?? crunchyrollWatchId(canonicalIdAsPageUrl(canonicalId))
     if (episodeId)
       return `crunchyroll:${episodeId.toUpperCase()}`
   }
