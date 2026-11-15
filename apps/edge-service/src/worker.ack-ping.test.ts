@@ -213,17 +213,17 @@ describe('RoomDurableObject: an operation_ack that is not accepted changes nothi
     await expectNothing(room, () => room.say(room.friend, acknowledgement({ phase: 'started', observedPositionSeconds: 20 })))
   })
 
-  // FINDING (not fixed here, tests-only change): `acknowledgeOperation()` in
-  // packages/sync-engine/src/room.ts stores `participant.lastOperationObservation`
-  // (the binding, source generation and sample sequence) before the phase and
-  // position checks that can still refuse the acknowledgement. A refused
-  // acknowledgement therefore raises the sequence floor in memory, announces
-  // nothing and writes nothing, and a later valid acknowledgement with a lower
-  // sequence from the same binding is dropped as stale. Whether a real client
-  // can send a lower sequence after a higher one is not shown here: the sequence
-  // is meant to rise, so the case needs a reordered or restarted sender. This
-  // test pins what happens today so a change to it is a decision.
-  it('lets a refused acknowledgement raise the sequence floor, so a later valid one with a lower sequence is dropped as stale (current behaviour, finding)', async () => {
+  // Intended rule: the freshest observation wins. The sender increments one
+  // counter per acknowledgement (`++transactionalSampleSequence` in the content
+  // script), so a lower sequence arriving after a higher one is an older
+  // sample, and the newest sample the coordinator has seen, even a refused one
+  // (here a misaligned position), is the better evidence of where the player
+  // is. `lastOperationObservation` is therefore recorded before the phase and
+  // position checks. It is coordinator-local and left out of snapshots and the
+  // stored room by design, so memory differing from storage is expected, and a
+  // Durable Object restart resets the floor; the operation deadline bounds any
+  // effect.
+  it('keeps the highest sample sequence seen as the floor even when that acknowledgement was refused, so an older valid one is dropped as stale', async () => {
     const { room, acknowledgement } = await preparing()
 
     // Refused: the position is not the target. Sequence 5.
@@ -232,13 +232,13 @@ describe('RoomDurableObject: an operation_ack that is not accepted changes nothi
     await expectNothing(room, () => room.say(room.friend, acknowledgement({ sampleSequence: 1 })))
     expect(room.host.reasons().at(-1)).toBe('control_play_pending')
 
-    // A valid acknowledgement above the floor is accepted, so only the order is at fault.
+    // A valid acknowledgement above the floor is accepted: the floor orders samples, it does not block the participant.
     await room.say(room.friend, acknowledgement({ sampleSequence: 6 }))
     expect(room.host.reasons().at(-1)).toBe('operation_participant_prepared')
   })
 
   // The same acknowledgement without the refused one before it: accepted.
-  it('accepts that same valid acknowledgement with sequence 1 when no refused one came before it (the comparison for the finding)', async () => {
+  it('accepts that same valid acknowledgement with sequence 1 when no refused one came before it (the comparison for the floor rule)', async () => {
     const { room, acknowledgement } = await preparing()
 
     await room.say(room.friend, acknowledgement({ sampleSequence: 1 }))
