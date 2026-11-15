@@ -1122,6 +1122,116 @@ describe('service worker observed episode identity', () => {
     })
   })
 
+  // What a report says about the page and about how fresh its evidence is, and
+  // what it keeps when the history is longer than the worker's memory of it.
+  describe('what a report strips and what it counts', () => {
+    const noUrl = { tab: { id: 42, active: true }, frameId: 0 } as chrome.runtime.MessageSender
+
+    /** A connected worker in a room with no shared page, so a report's media keeps the address the page gave. */
+    async function connectedWorker() {
+      const fake = buildFakeChrome({ sessionState: {
+        participantId: 'participant_resumed',
+        sessionToken: 'session_resumed',
+        snapshot: buildRoomSnapshot({ navigation: null }),
+      } })
+      ;(fake.chrome.tabs.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+      vi.stubGlobal('chrome', fake.chrome)
+      vi.stubGlobal('WebSocket', FakeWebSocket)
+      await import('./service-worker.ts')
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+      const socket = FakeWebSocket.instances[0]!
+      socket.simulateOpen()
+      socket.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ navigation: null }) })
+      const ask = (message: RuntimeRequest, sender: chrome.runtime.MessageSender = {}) => new Promise<RuntimeResponse>((resolve) => {
+        fake.messageListener(message, sender, response => resolve(response as RuntimeResponse))
+      })
+      let bindingId: string | undefined
+      const askBound = async (message: RuntimeRequest) => {
+        const withBinding = { ...message, bindingId } as RuntimeRequest
+        return ask(withBinding, noUrl)
+      }
+      const report = (reportId: string): DiagnosticsReport => {
+        socket.simulateMessage({ type: 'diagnostics_requested', reportId })
+        const response = socket.sentMessages.find(message => typeof message === 'object' && message !== null
+          && (message as { reportId?: unknown }).reportId === reportId) as { report: DiagnosticsReport }
+        return response.report
+      }
+      const detect = async (media: { canonicalId: string, pageUrl?: string }) => {
+        const response = await ask({ type: 'MEDIA_DETECTED', media: { service: 'html5', title: 'Page', durationSeconds: 100, ...media }, areaPixels: 500_000 }, noUrl)
+        bindingId = response.playerBindingId
+        return response
+      }
+      return { socket, report, detect, askBound }
+    }
+
+    it('removes the query and the fragment from the page address and from a page-based canonical ID', async () => {
+      const { report, detect } = await connectedWorker()
+      await detect({ canonicalId: 'page:https://watch.example.test/episode/1?token=SECRET&sig=abc#resume=77', pageUrl: 'https://watch.example.test/episode/1?token=SECRET&sig=abc#resume=77' })
+
+      const result = report('report_urls')
+      expect(result.mediaPageUrl).toBe('https://watch.example.test/episode/1')
+      expect(result.mediaCanonicalId).toBe('page:https://watch.example.test/episode/1')
+      expect(JSON.stringify(result)).not.toContain('SECRET')
+      expect(JSON.stringify(result)).not.toContain('resume=77')
+    })
+
+    it('replaces a page-based canonical ID that is not an address, and drops a page address that is not one', async () => {
+      const { report, detect } = await connectedWorker()
+      await detect({ canonicalId: 'page:not an address?token=SECRET', pageUrl: 'not an address?token=SECRET' })
+
+      const result = report('report_unparsable')
+      expect(result.mediaCanonicalId).toBe('page:redacted')
+      expect(result.mediaPageUrl).toBeNull()
+      expect(JSON.stringify(result)).not.toContain('SECRET')
+    })
+
+    it('leaves a provider ID, which is not an address, as it is', async () => {
+      const { report, detect } = await connectedWorker()
+      await detect({ canonicalId: 'youtube:abc123' })
+
+      expect(report('report_provider').mediaCanonicalId).toBe('youtube:abc123')
+    })
+
+    it('says how old the evidence is: the sample when there is one, the last sighting of the player when there is not, nothing when there is neither', async () => {
+      const { report, detect, askBound } = await connectedWorker()
+      expect(report('report_nothing').observationAgeMs).toBeNull()
+
+      const seenAt = Date.now()
+      await detect({ canonicalId: 'youtube:abc123' })
+      const now = vi.spyOn(Date, 'now')
+      try {
+        now.mockReturnValue(seenAt + 5_000)
+        const sightingOnly = report('report_sighting').observationAgeMs
+        expect(sightingOnly).toBeGreaterThanOrEqual(5_000)
+        expect(sightingOnly).toBeLessThan(5_100)
+
+        await askBound({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { positionSeconds: 1, durationSeconds: 100, paused: false, buffering: false, sampledAtLocalMs: seenAt + 4_000 } })
+        expect(report('report_sample').observationAgeMs).toBe(1_000)
+
+        // A sample stamped in the future is not a negative age.
+        await askBound({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: { positionSeconds: 1, durationSeconds: 100, paused: false, buffering: false, sampledAtLocalMs: seenAt + 9_000 } })
+        expect(report('report_future').observationAgeMs).toBe(0)
+      }
+      finally {
+        now.mockRestore()
+      }
+    })
+
+    it('keeps the newest of a long run of distinct critical events, the marker where the report begins, and says what it dropped', async () => {
+      const { socket, report } = await connectedWorker()
+      for (let index = 0; index < 130; index += 1)
+        socket.simulateMessage({ type: 'command_rejected', actionId: null, code: `rejected_${index}`, message: 'refused', snapshot: null })
+
+      const result = report('report_long')
+      expect(result.events.length).toBeLessThanOrEqual(100)
+      expect(result.eventsDropped).toBeGreaterThanOrEqual(30)
+      const codes = result.events.filter(event => event.message === 'command_rejected').map(event => event.details.code)
+      expect(codes).toContain('rejected_129')
+      expect(codes).not.toContain('rejected_0')
+      expect(result.events.some(event => event.message === 'worker_started')).toBe(true)
+    })
+  })
+
   describe('a scrub the room refused because someone was not ready', () => {
     const me = { id: 'participant_resumed', name: 'Me', role: 'controller', ready: true, connected: true, mediaMatches: true, latencyMs: null } as const
     const friendNotReady = { id: 'participant_friend', name: 'Friend', role: 'member', ready: false, connected: true, mediaMatches: true, latencyMs: null } as const
