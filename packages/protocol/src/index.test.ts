@@ -548,3 +548,129 @@ describe('operation identity and compatibility contract', () => {
     })).toBe(false)
   })
 })
+
+describe('media epoch bound and operation identity parsing', () => {
+  const identity = { mediaEpoch: 3, operationId: 'operation_seek_123456' }
+  const acknowledgement = {
+    ...identity,
+    phase: 'prepared',
+    participantId: 'participant_guest',
+    bindingId: 'binding_123456',
+    sourceGeneration: 2,
+    sampleSequence: 9,
+    observedPositionSeconds: 120,
+    observedAtLocalMs: 50_000,
+  }
+  const operation = {
+    ...identity,
+    kind: 'seek',
+    phase: 'preparing',
+    requiredParticipantIds: ['participant_host', 'participant_guest'],
+    preparedParticipantIds: [],
+    startedParticipantIds: [],
+    targetPositionSeconds: 120,
+    effectiveAtServerMs: null,
+    deadlineAtServerMs: 10_000,
+  }
+  const diagnosticsReport = {
+    extensionVersion: '0.2.12',
+    generatedAtLocalMs: 10_000,
+    userAgent: 'Chrome test',
+    connection: 'connected',
+    roomRevision: 7,
+    playbackStatus: 'playing',
+    playerFrameId: 0,
+    playerAreaPixels: 500_000,
+    playerLastSeenAtMs: 9_900,
+    mediaService: 'html5',
+    mediaCanonicalId: 'page:https://video.example/watch/42',
+    mediaPageUrl: 'https://video.example/watch/42',
+    sample: null,
+    events: [],
+  }
+  /** Epochs that are not a safe, non-negative integer. 2 ** 53 and 1e300 are integers but cannot be advanced or compared exactly. */
+  const unsafeEpochs: unknown[] = [Number.MAX_SAFE_INTEGER + 1, 2 ** 53, 1e300, Number.MAX_VALUE, 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, '3', null]
+  const safeEpochs = [0, 1, 3, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER]
+
+  it('accepts an acknowledgement epoch up to the largest safe integer and rejects every other value', () => {
+    for (const mediaEpoch of safeEpochs)
+      expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, mediaEpoch } }), String(mediaEpoch)).not.toBeNull()
+    for (const mediaEpoch of unsafeEpochs)
+      expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, mediaEpoch } }), String(mediaEpoch)).toBeNull()
+    expect(parseOperationAcknowledgement({ ...acknowledgement, mediaEpoch: 1e300 })).toBeNull()
+  })
+
+  it('accepts an operation epoch up to the largest safe integer and rejects every other value', () => {
+    for (const mediaEpoch of safeEpochs)
+      expect(isRoomOperation({ ...operation, mediaEpoch }), String(mediaEpoch)).toBe(true)
+    for (const mediaEpoch of unsafeEpochs)
+      expect(isRoomOperation({ ...operation, mediaEpoch }), String(mediaEpoch)).toBe(false)
+  })
+
+  it('accepts a diagnostics report epoch up to the largest safe integer and rejects every other value', () => {
+    const parse = (mediaEpoch: unknown) => parseClientMessage({ type: 'diagnostics_response', reportId: 'report_123456', report: { ...diagnosticsReport, mediaEpoch } })
+    for (const mediaEpoch of [null, ...safeEpochs])
+      expect(parse(mediaEpoch), String(mediaEpoch)).not.toBeNull()
+    for (const mediaEpoch of unsafeEpochs.filter(value => value !== null))
+      expect(parse(mediaEpoch), String(mediaEpoch)).toBeNull()
+  })
+
+  it('restores a stored epoch only when it is a safe integer, and otherwise to the paused-safe default', () => {
+    const stored = (mediaEpoch: unknown) => ({
+      mode: 'transactional', mediaEpoch, sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities], operation: null,
+    })
+    expect(normalizeRoomContractSnapshot(stored(Number.MAX_SAFE_INTEGER)).mediaEpoch).toBe(Number.MAX_SAFE_INTEGER)
+    expect(isRoomContractSnapshot(stored(Number.MAX_SAFE_INTEGER))).toBe(true)
+    for (const mediaEpoch of [2 ** 53, 1e300]) {
+      expect(normalizeRoomContractSnapshot(stored(mediaEpoch)).mediaEpoch, String(mediaEpoch)).toBe(0)
+      expect(isRoomContractSnapshot(stored(mediaEpoch)), String(mediaEpoch)).toBe(false)
+    }
+  })
+
+  it('drops a stored operation whose epoch is beyond the safe range even when the room epoch is equally unsafe', () => {
+    const restored = normalizeRoomContractSnapshot({
+      mode: 'transactional',
+      mediaEpoch: 2 ** 53,
+      sharedCapabilities: [...CURRENT_CLIENT_CAPABILITIES.capabilities],
+      operation: { ...operation, mediaEpoch: 2 ** 53 },
+    })
+    expect(restored).toMatchObject({ mediaEpoch: 0, operation: null })
+  })
+
+  it('rejects a malformed operation id, participant id or binding id in an acknowledgement', () => {
+    const malformed = ['', 'abc', 'bad!id', 'has space', 'x'.repeat(81), 7, null, ['operation_seek_123456']]
+    for (const field of ['operationId', 'participantId', 'bindingId'] as const) {
+      for (const value of malformed)
+        expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, [field]: value } }), `${field}=${String(value)}`).toBeNull()
+    }
+    expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, operationId: 'x'.repeat(80) } })).not.toBeNull()
+    expect(parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, operationId: 'x'.repeat(6) } })).not.toBeNull()
+  })
+
+  it('rejects an acknowledgement that is missing any required field', () => {
+    for (const field of Object.keys(acknowledgement)) {
+      const { [field]: _removed, ...incomplete } = acknowledgement as Record<string, unknown>
+      expect(parseClientMessage({ type: 'operation_ack', acknowledgement: incomplete }), `missing ${field}`).toBeNull()
+    }
+    expect(parseClientMessage({ type: 'operation_ack' })).toBeNull()
+    expect(parseClientMessage({ type: 'operation_ack', acknowledgement: null })).toBeNull()
+    expect(parseClientMessage({ type: 'operation_ack', acknowledgement: [acknowledgement] })).toBeNull()
+  })
+
+  it('rejects a malformed participant id inside an operation record, and a repeated one', () => {
+    expect(isRoomOperation({ ...operation, requiredParticipantIds: ['participant_host', 'bad!'] })).toBe(false)
+    expect(isRoomOperation({ ...operation, requiredParticipantIds: ['participant_host', 'participant_host'] })).toBe(false)
+    expect(isRoomOperation({ ...operation, requiredParticipantIds: [] })).toBe(false)
+    expect(isRoomOperation({ ...operation, operationId: 'bad!' })).toBe(false)
+    const { operationId: _removed, ...withoutId } = operation
+    expect(isRoomOperation(withoutId)).toBe(false)
+  })
+
+  it('parses a stale but well-formed epoch, because only the coordinator knows which epoch is current', () => {
+    const parsed = parseClientMessage({ type: 'operation_ack', acknowledgement: { ...acknowledgement, mediaEpoch: 2 } })
+    if (parsed?.type !== 'operation_ack')
+      throw new Error('Expected a parsed acknowledgement.')
+    expect(isCurrentOperation({ mediaEpoch: 3, operationId: acknowledgement.operationId }, parsed.acknowledgement)).toBe(false)
+    expect(isCurrentOperation({ mediaEpoch: 2, operationId: acknowledgement.operationId }, parsed.acknowledgement)).toBe(true)
+  })
+})
