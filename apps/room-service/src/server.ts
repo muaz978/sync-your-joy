@@ -67,6 +67,8 @@ export interface RoomService {
    * sleeping; it exposes no participant data.
    */
   inspectRoom: (code: string) => { connectedParticipants: boolean; pendingRequests: number; sockets: number; emptySinceMs: number | null } | null
+  /** How many test faults (see /__test/fault) are recorded for a room. Always 0 on a service without a test control token. */
+  inspectTestFaults: (code: string) => number
 }
 
 export interface RoomServiceOptions {
@@ -98,6 +100,37 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
   const socketRemoteAddresses = new WeakMap<WebSocket, string>()
   const roomCountByIp = new Map<string, number>()
   const testControlToken = options.testControlToken?.trim() || null
+
+  // Test-only fault injection for the local browser matrix, present only when an
+  // in-process test supplied a testControlToken (the same gate as
+  // /__test/disconnect). It changes what the service does with one
+  // participant's own messages, so a browser test can make that participant's
+  // acknowledgement late or missing, or make the participant silent, without
+  // touching the extension. With no token nothing below is reachable: the map
+  // stays empty and the interceptor is never called.
+  type TestFaultMode = 'hold_acks' | 'drop_acks' | 'silent'
+  const TEST_FAULT_MODES: readonly string[] = ['hold_acks', 'drop_acks', 'silent']
+  const MAX_HELD_TEST_MESSAGES = 64
+  const testFaults = new Map<string, { mode: TestFaultMode, held: ClientMessage[], dropped: number }>()
+
+  function interceptFaultedMessage(client: ConnectedClient, message: ClientMessage): boolean {
+    const fault = testFaults.get(`${client.roomCode}:${client.participantId}`)
+    if (!fault)
+      return false
+    const isAcknowledgement = message.type === 'operation_ack' || message.type === 'seek_applied'
+    if (fault.mode === 'hold_acks' && isAcknowledgement) {
+      // Past the cap a message is not kept, and the release response says how many were not.
+      if (fault.held.length < MAX_HELD_TEST_MESSAGES)
+        fault.held.push(message)
+      else
+        fault.dropped += 1
+      return true
+    }
+    if (fault.mode === 'drop_acks' && isAcknowledgement)
+      return true
+    // A silent participant says nothing about its player: no status, no acknowledgement.
+    return fault.mode === 'silent' && (isAcknowledgement || message.type === 'player_status')
+  }
 
   function releaseRoomIpSlot(ip: string): void {
     const count = roomCountByIp.get(ip)
@@ -168,6 +201,57 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       }
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
       response.end(JSON.stringify({ ok: true, closedSockets }))
+      return
+    }
+
+    // Test-only fault controls, behind the same token gate as /__test/disconnect.
+    //   mode=hold_acks  keep the participant's operation and seek acknowledgements
+    //   mode=drop_acks  discard them
+    //   mode=silent     discard its player status and acknowledgements
+    //   mode=release    deliver the held acknowledgements, in order, and end the fault
+    //   mode=clear      end the fault and forget what was held
+    // Changing from one fault mode to another keeps what is already held; only
+    // release and clear end it. The release response reports how many held
+    // messages were delivered and how many were not kept (past the cap).
+    if (request.method === 'POST' && url.pathname === '/__test/fault' && testControlToken !== null) {
+      if (request.headers['x-syncyourjoy-test-token'] !== testControlToken) {
+        response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ error: 'not_found' }))
+        return
+      }
+      const roomCode = url.searchParams.get('room')
+      const participantId = url.searchParams.get('participant')
+      const mode = url.searchParams.get('mode')
+      const room = roomCode ? rooms.get(roomCode) : undefined
+      if (!roomCode || !room || !participantId || !mode || (mode !== 'release' && mode !== 'clear' && !TEST_FAULT_MODES.includes(mode))) {
+        response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ error: 'not_found' }))
+        return
+      }
+      const key = `${roomCode}:${participantId}`
+      let released = 0
+      let dropped = 0
+      if (mode === 'release') {
+        const fault = testFaults.get(key)
+        testFaults.delete(key)
+        dropped = fault?.dropped ?? 0
+        const target = [...room.sockets].find(socket => clients.get(socket)?.participantId === participantId)
+        if (fault && target) {
+          for (const held of fault.held) {
+            released += 1
+            handleMessage(target, held)
+          }
+        }
+      }
+      else if (mode === 'clear') {
+        testFaults.delete(key)
+      }
+      else {
+        const existing = testFaults.get(key)
+        testFaults.set(key, { mode: mode as TestFaultMode, held: existing?.held ?? [], dropped: existing?.dropped ?? 0 })
+      }
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: true, mode, released, dropped }))
       return
     }
 
@@ -460,6 +544,9 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
       return
     }
 
+    if (testControlToken !== null && interceptFaultedMessage(client, message))
+      return
+
     if (message.type === 'request_diagnostics') {
       if (client.participantId !== room.coordinator.snapshot().controller.participantId) {
         send(socket, { type: 'error', code: 'controller_only', message: 'Only the room controller can request detailed reports.' })
@@ -616,6 +703,14 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
     }, graceMs))
   }
 
+  // A room that is removed takes its test faults (and what they hold) with it.
+  function clearTestFaults(code: string): void {
+    for (const key of testFaults.keys()) {
+      if (key.startsWith(`${code}:`))
+        testFaults.delete(key)
+    }
+  }
+
   // A room that is removed takes its recovery plans with it.
   function clearRecoveryTimers(code: string): void {
     for (const [key, timer] of recoveryTimers) {
@@ -675,12 +770,14 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
         closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
         clearRecoveryTimers(code)
+        clearTestFaults(code)
         releaseRoomIpSlot(room.creatorIp)
       }
       else if (nowMs - room.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
         closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
         clearRecoveryTimers(code)
+        clearTestFaults(code)
         releaseRoomIpSlot(room.creatorIp)
       }
     }
@@ -701,6 +798,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
   return {
     httpServer,
     url,
+    inspectTestFaults: code => [...testFaults.keys()].filter(key => key.startsWith(`${code}:`)).length,
     inspectRoom: (code) => {
       const room = rooms.get(code)
       if (!room)

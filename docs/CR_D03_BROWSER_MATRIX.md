@@ -16,7 +16,7 @@ The scenario covers:
 4. Paired drift, presented-frame progress and hard current-time write limits.
 5. Exact forward seek destination acknowledgement, followed by convergence.
 6. Source replacement and readiness re-detection on participant C.
-7. One-shot local `NotAllowedError`, a playback-blocked state that stays visible across routine reports until the local gesture, in-panel Sync and explicit readiness recovery.
+7. A local `NotAllowedError` on every play request until the permission gesture (the fixture rejects each request while its marker is set, not only the first), a playback-blocked state that stays visible across routine reports until the local gesture, in-panel Sync and explicit readiness recovery.
 8. Controller transfer from A to B, B playback, and transfer back to A.
 9. A real server-side disconnect of C, service-worker reconnect, room-code preservation, readiness preservation and explicit post-reconnect resume.
 10. Native controller scrubbing at a paused room boundary and remote convergence.
@@ -198,3 +198,40 @@ Deciding what should end the blocked state (the local gesture, **Sync me now** o
 - Repository checks on the branch rebased onto `2f92f852d337fb7d5e3f2efd34c512ae770cb73f`: `npm run check` passed (both typechecks, 37 Vitest files and 352 tests, server and extension builds). The full `npm run test:e2e` suite on commit `1ecf89264ce18f2c36094415883c2935208d75e8` gave 11 passed and 1 skipped (the opt-in authenticated Crunchyroll test, because no protected state was supplied). The matrix passed within that run. A further 10 matrix runs on that commit gave **7 passed and 3 failed**, all 3 the `Playback blocked` assertion from Finding 3, with 0 sustained-window pauses and 0 seek-destination misses. This covers the changed E2E launch helper that the rebase brought in.
 
 A failed run is counted as a failure in every figure above. None of these runs is Crunchyroll, protected-media, two-device, deployment or user-acceptance evidence, and issue #68 remains open for the gates listed earlier in this record.
+
+## Fault matrix (2026-11-15)
+
+`tests/e2e/three-profile-fault-matrix.spec.ts` (with `tests/e2e/three-profile-room.ts`) adds fault scenarios beside the original matrix. Same boundary: three isolated profiles, the real extension, the in-process Node room service (it does not exercise `apps/edge-service`), the repository-owned local test player, headless local Chromium. Nothing here is a provider, account, device or deployment result, and a `<video>` that reports `paused: false` is the element's report, not a look at a painted frame.
+
+The faults are injected by a token-gated control in the in-process room service, `POST /__test/fault?room=&participant=&mode=` (beside `/__test/disconnect`; present only when an in-process test supplies a test control token, so a deployed or default service has no such route and no interception). The modes are `hold_acks` (keep the participant's operation and seek acknowledgements), `drop_acks`, `silent` (drop its player status and acknowledgements), `release` (deliver the held acknowledgements in order and end the fault) and `clear`. It changes what the service does with one participant's messages; it does not touch the extension. A mode change (for example from `hold_acks` to `silent`) keeps what is already held; only `release` and `clear` end the fault, and the release response reports how many held messages were delivered and how many were not kept (the held queue is capped at 64). `apps/room-service/src/test-fault-gate.test.ts` pins that `/__test/fault` and `/__test/disconnect` return 404 on a service started without a test control value (whatever header a caller sends), refuse a missing or wrong header and a malformed request on one that has it, and that the production start block of `server.ts` and the edge worker contain no such hook.
+
+Observed first, then pinned (one room, in this order):
+
+1. Play is not offered with one of three members unready (`#primary-control` disabled, nothing starts by itself for 2.5 s), and is offered when the third is ready. This is the panel's own gate; the coordinator's refusal of a Play command is not exercised by the browser, because the button is disabled.
+2. A late acknowledgement inside the 3 s window: with C's acknowledgements held, a Play from A starts nobody; after the release everyone plays and converges.
+3. A Pause is not held up by a withheld acknowledgement: all players pause inside 2.5 s with C's acknowledgements held, and releasing them afterwards starts nothing.
+4. A missing acknowledgement: a Play with C's dropped leaves every player paused and unmoved for 5.5 s past the window; after the fault is cleared a new Play works.
+5. An acknowledgement after the window: held for 4.5 s, then released, a timed-out Play does not start (3 s of watching), and a new Play works.
+6. A silent non-controller (C): the coordinator pauses the room within 20 s (observed through the players, not through a panel message); after the fault is cleared Play works.
+7. A silent controller (A): the same.
+8. B as controller: lease transfer, B's Play and Pause, a native scrub on B's player settling every player on the destination (0.75 s band), a source reset on C (observed: C stays ready, and B's Play still starts all three and they converge), a permission block on C shown for more than 3 s and recovered through the gesture, Sync and an explicit "I'm ready" (the rejected play cleared C's readiness, which the step asserts), a server-side disconnect of C with reconnect and B's resume, and a silent B pausing the room.
+
+Run record (macOS arm64, Playwright 1.65.0, Chromium 158, headless): the new spec passed 12 of 12 consecutive runs at 44 to 48 s each, and 10 of 10 more after its waits were changed to the page's own timeout (44 to 46 s); the original matrix spec passed 10 of 10 against the changed room service. Each mutation was shown to fail the spec: acknowledgements never held (step 2 sees players running), Play enabled with a member unready (step 1), a silent participant that keeps reporting (step 6 times out waiting for the pause).
+
+Not covered here: visibility and navigation scenarios (navigation needs #65 and a second route on the test server), a p95 drift or pause-latency metric, a 30-minute soak, a per-run batch summary kept outside the repository, a faulted controller during a seek barrier (that is #54, in a separate pull request), and every owner-only gate.
+
+## Seek barrier under faults (#54)
+
+`tests/e2e/seek-barrier-faults.spec.ts` runs a seek that is pending while a member's acknowledgement is late or missing, a socket drops and the controller lease moves. It uses the fault control above (`hold_acks`, `release`) and `/__test/disconnect`, three profiles, the real extension, the in-process Node room service (not `apps/edge-service`) and the local test player. It is class (b) evidence: a local browser on the owned synthetic fixture. The engine rules are pinned by the coordinator's unit tests; no Crunchyroll, two-account, two-device or deployment evidence is claimed.
+
+Observed first, then pinned. While a seek is pending every player is paused at the destination read from the exact `+10` button that was clicked (within 0.75 s, on both `lastSeekedTime` and `currentTime`) and the controller is offered Play, not Pause. Then:
+
+1. A late acknowledgement inside the 3 s window: the held acknowledgement is released after about a second and all three players resume together from the destination and converge.
+2. An acknowledgement after the window: held for 4.5 s the room stays paused at the destination (the barrier timed out); released late, nothing resumes in the next 3 s, and a new Play converges.
+3. A dropped socket while the seek is pending: C is dropped, reconnects, and its held acknowledgement is released after the reconnect; the room stays paused at the destination and a new Play converges.
+4. A lease transfer while the seek is pending: B receives the controller and is offered Play; releasing C's acknowledgement does not resume the room; B's Play converges.
+5. With B as controller, a pending seek completes when the late acknowledgement is released.
+
+Mutations: removing the cancellation in `transferControlCore` (`packages/sync-engine/src/room.ts`) fails step 4 (the room resumes after the release); a fault control that never holds fails the first step.
+
+Not covered: a member that fails (not just a late or missing acknowledgement), the legacy path for participants older than 0.2.5 (the owner decision of 2026-10-31 records that as an accepted limit), Crunchyroll, and the owner-only gates. This spec does not replace the engine-level tests the card lists.

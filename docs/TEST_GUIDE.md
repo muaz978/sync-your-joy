@@ -287,6 +287,8 @@ The reconnect assertion uses a local-only, ephemeral-token room-service control 
 
 The detailed scope, metrics, route boundary, reconnect single-flight protection and limitations are recorded in [`CR_D03_BROWSER_MATRIX.md`](CR_D03_BROWSER_MATRIX.md). This deterministic local run is not Crunchyroll acceptance, protected-media acceptance, physical two-device acceptance, navigation coverage or deployment evidence.
 
+The fault scenarios (a late, missing or released acknowledgement, a silent participant, no Play with a member unready, and B as controller for a scrub, a source reset, a permission block and a reconnect) are in `tests/e2e/three-profile-fault-matrix.spec.ts`. The faults come from a token-gated `POST /__test/fault` control in the in-process room service, beside `/__test/disconnect`; the expectations and what they do not show are in [`CR_D03_BROWSER_MATRIX.md`](CR_D03_BROWSER_MATRIX.md). Run it with `npx playwright test --config tests/e2e/playwright.config.ts tests/e2e/three-profile-fault-matrix.spec.ts`.
+
 ### Authenticated Crunchyroll two-profile E2E
 
 Issue [#30](https://github.com/muaz978/sync-your-joy/issues/30) adds an opt-in provider run beside the generic fixture. The spec is `tests/e2e/crunchyroll-two-profile.spec.ts`. It launches two isolated extension profiles, opens the same authorized Crunchyroll `/watch/` URL in both profiles, waits for a visible metadata-ready native video, and drives the real room flow through play, forward seek, native backward seek, frame-progress observation, convergence, and pause.
