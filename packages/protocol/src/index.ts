@@ -862,10 +862,20 @@ export function isCrunchyrollUrl(pageUrl: string): boolean {
 }
 
 /**
- * The watch ID of a real Crunchyroll episode page, in upper case, on any locale
- * (`/watch/<ID>` or `/de/watch/<ID>/title`), or null for every other address:
- * the login page, a series or home page, an unavailable page, a path without an
- * ID, another host. This is the only kind of page a Crunchyroll room can share.
+ * An episode page path: `/watch/<ID>` at the root, or behind exactly one locale
+ * segment (`/de/watch/<ID>`, `/pt-br/watch/<ID>`, `/es-419/watch/<ID>`), with at
+ * most one title segment after the ID. Anchored at both ends, so `/foo/watch/<ID>`,
+ * `/a/b/watch/<ID>` and `/watch/<ID>/a/b` are not episode pages.
+ */
+const CRUNCHYROLL_EPISODE_PATH = /^(?:\/[a-z]{2}(?:-[a-z0-9]{2,4})?)?\/watch\/([A-Z0-9]+)(?:\/[^/]+)?\/?$/i
+
+/**
+ * The watch ID of a Crunchyroll episode page, in upper case, or null. Only the
+ * address is checked: the host must be crunchyroll.com or a subdomain, and the
+ * path must match `CRUNCHYROLL_EPISODE_PATH`. Whether the ID names an episode that
+ * exists or is available to anyone is not checked, so a page with a well-formed
+ * but unavailable ID passes. The login page, a series or home page, a path with no
+ * ID, a deeper path and another host give null.
  */
 export function crunchyrollWatchId(pageUrl: string): string | null {
   const normalized = normalizePageUrl(pageUrl)
@@ -875,7 +885,7 @@ export function crunchyrollWatchId(pageUrl: string): string | null {
     const url = new URL(normalized)
     if (!isCrunchyrollHost(url.hostname))
       return null
-    return url.pathname.match(/\/watch\/([A-Z0-9]+)(?:\/|$)/i)?.[1]?.toUpperCase() ?? null
+    return url.pathname.match(CRUNCHYROLL_EPISODE_PATH)?.[1]?.toUpperCase() ?? null
   }
   catch {
     return null

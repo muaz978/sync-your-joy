@@ -639,12 +639,24 @@ describe('RoomCoordinator', () => {
     it('does not count a stale readiness for the previous episode after the controller moved on', () => {
       const room = crunchyRoom()
       share(room, episodeB, 'action_share_b')
+      // The host is on the shared episode and ready, so only the friend can keep the room from playing.
+      expect(room.setReady('participant_host', true, onEpisode('crunchyroll:GOTHER123456', episodeB))).toMatchObject({ ok: true, reason: 'participant_ready' })
 
       // The friend's browser still shows episode A and its readiness message was already on the wire.
       const stale = room.setReady('participant_friend', true, onEpisode('crunchyroll:GE00345558JAJP', episodeA))
 
       expect(stale.snapshot.participants.find(participant => participant.id === 'participant_friend')).toMatchObject({ ready: false, mediaMatches: false })
+      expect(room.snapshot().participants.find(participant => participant.id === 'participant_host')).toMatchObject({ ready: true, mediaMatches: true })
       expect(controlTransactional(room, 'play', 0)).toMatchObject({ ok: false, code: 'participants_not_ready' })
+    })
+
+    it('refuses a page in a Crunchyroll room that is only a deeper path containing /watch/', () => {
+      const room = crunchyRoom()
+      const before = room.snapshot()
+      for (const [index, url] of ['https://www.crunchyroll.com/foo/watch/GOTHER123456', 'https://www.crunchyroll.com/a/b/watch/GOTHER123456', 'https://www.crunchyroll.com/watch/GOTHER123456/slug/extra'].entries()) {
+        expect(share(room, url, `action_deep_path_${index}`), url).toMatchObject({ ok: false, code: 'unsupported_page' })
+        expect(room.snapshot(), url).toEqual(before)
+      }
     })
 
     it('rejects a page that is not a Crunchyroll episode in a Crunchyroll room, without moving the room', () => {

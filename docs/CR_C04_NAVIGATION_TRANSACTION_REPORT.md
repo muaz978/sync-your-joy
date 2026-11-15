@@ -77,7 +77,7 @@ No version bump is justified for this issue alone. A compatible release will be 
 
 ### Owner decisions that bound this change (2026-10-31)
 
-- A controller may share only Crunchyroll `/watch/` pages in a Crunchyroll room, and the coordinator rejects other pages (login, unavailable or non-watch) so they do not advance the room.
+- A controller may share only Crunchyroll `/watch/` pages in a Crunchyroll room, and the coordinator rejects other pages (login, unavailable or non-watch) so they do not advance the room. What the coordinator can check is the address only (see "What the guard checks" below), so an unavailable page is rejected only when its address is not an episode address.
 - The 3 second readiness debounce for a member who moves to a different strong episode stays; it is a known limit (a member can be counted as ready for up to that long after moving; no test presses Play in that window).
 - This card may be accepted ahead of its seven open dependencies.
 - The provider, two-account, two-device, deployment and acceptance gates are carried by #30, #33, #34, #35 and #69.
@@ -89,18 +89,20 @@ No version bump is justified for this issue alone. A compatible release will be 
    - a participant on any localized route of the episode matches and can become ready;
    - a different watch ID starts a new epoch, including going back to the first episode (A, B, A is three epochs);
    - a readiness message for the previous episode that arrives after the controller moved on does not count (`wrong-media`).
-2. **A Crunchyroll room refuses non-episode pages.** A room is a Crunchyroll room when its media says `crunchyroll`, or carries only a Crunchyroll page address (a room a shared link opened before this change, restored from stored state). In such a room `openLink` answers `unsupported_page` for the login page, the home page, a series page, an unavailable page, `/watch` with no ID, a lookalike host and any other host, before anything changes: no epoch advance, no readiness reset, no navigation. The action is not remembered, so a repeat is refused the same way. Rooms on other services and rooms that have not chosen a page yet may still share any page.
+2. **A Crunchyroll room refuses non-episode pages.** A room is a Crunchyroll room when its media says `crunchyroll`, or carries only a Crunchyroll page address (a room a shared link opened before this change, restored from stored state). In such a room `openLink` answers `unsupported_page` for any address that is not a Crunchyroll episode address (see "What the guard checks"), before anything changes: no epoch advance, no readiness reset, no navigation. The action is not remembered, so a repeat is refused the same way.
+
+   **What the guard checks, and what it does not.** `crunchyrollWatchId()` is a pattern check on the address. It requires the host `crunchyroll.com` or a subdomain of it (not a lookalike such as `crunchyroll.com.evil.example`) and a path that is `/watch/<ID>` at the root or behind exactly one locale segment (`/de/watch/<ID>`, `/pt-br/watch/<ID>`, `/es-419/watch/<ID>`), with at most one title segment after the ID and nothing else. So `/foo/watch/<ID>`, `/a/b/watch/<ID>`, `/series/<ID>/watch/<ID>`, `/watch/<ID>/a/b`, `/watch`, the login page, the home page and series pages give no watch ID and are refused. It does not check that the ID names an episode that exists, that it is available in anyone's region or to anyone's account, or that the page is not an unavailable or error page served at an episode address. A well-formed `/watch/<ID>` address for an unavailable episode passes the guard, advances the epoch and un-readies everyone, exactly as a playable one does; telling them apart takes the page itself (the extension side) or the provider, and neither is used here. Rooms on other services and rooms that have not chosen a page yet may still share any page.
 
 `unsupported_page` is a plain string code in `command_rejected`; an older extension shows the message and takes no other action.
 
 ### Corrections to the statements above
 
 - Section "Manual shared-link transaction", step 7, and the root-cause text were written for the first transition only. After the first shared link the media was weak, so the "same episode on another locale is unchanged" rule held only while the room still had its original media. It now holds after a shared link too, for Crunchyroll episode pages.
-- Section "Controller-follow safety policy" is unchanged: follow is a compile-time switch (`CONTROLLER_FOLLOW_NAVIGATION_ENABLED = false`), accepted as off. The follow policy rejects login and unavailable pages itself; the coordinator now also rejects them for a manual share. Its lease guard in the service worker (`hasCurrentLease`) is true whenever the worker holds a snapshot, so the coordinator's `stale_lease` check is the real lease guard; the enabled branch has no test.
+- Section "Controller-follow safety policy" is unchanged: follow is a compile-time switch (`CONTROLLER_FOLLOW_NAVIGATION_ENABLED = false`), accepted as off. The follow policy rejects login and unavailable routes itself; the coordinator now also refuses non-episode addresses (login, home, series and similar) for a manual share, but not an unavailable page at a well-formed episode address. Its lease guard in the service worker (`hasCurrentLease`) is true whenever the worker holds a snapshot, so the coordinator's `stale_lease` check is the real lease guard; the enabled branch has no test.
 
 ### Tests
 
-`packages/sync-engine/src/room.test.ts`, describe "a shared Crunchyroll episode link (CR-C04, coordinator half)" (9 tests), and `packages/protocol/src/index.test.ts` (`crunchyrollWatchId` and `isCrunchyrollUrl`, and the match between a shared-link fingerprint and a participant on a localized route; 2 tests).
+`packages/sync-engine/src/room.test.ts`, describe "a shared Crunchyroll episode link (CR-C04, coordinator half)" (10 tests), and `packages/protocol/src/index.test.ts` (`crunchyrollWatchId` and `isCrunchyrollUrl` including deeper paths and locale shapes, and the match between a shared-link fingerprint and a participant on a localized route; 2 tests).
 
 ### Not done in this change
 

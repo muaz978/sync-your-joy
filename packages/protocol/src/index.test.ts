@@ -48,12 +48,16 @@ describe('media identity matching', () => {
     expect(mediaMatchesPageUrl(current, 'https://crunchyroll.com/watch/GE00345558JAJP/original-title')).toBe(true)
     expect(mediaMatchesPageUrl(current, 'https://crunchyroll.com/watch/GOTHER123456/next-episode')).toBe(false)
     expect(mediaMatchesPageUrl(current, 'https://video.example/watch/GE00345558JAJP/lookalike')).toBe(false)
+    expect(mediaMatchesPageUrl(current, 'https://www.crunchyroll.com/foo/watch/GE00345558JAJP')).toBe(false)
   })
 
   it('reads the watch ID from a real Crunchyroll episode page on any locale and from nothing else', () => {
     expect(crunchyrollWatchId('https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on')).toBe('GE00345558JAJP')
     expect(crunchyrollWatchId('https://crunchyroll.com/de/watch/ge00345558jajp/lokalisiert?utm_source=x#player')).toBe('GE00345558JAJP')
     expect(crunchyrollWatchId('https://beta.crunchyroll.com/watch/GRVNE2QWW')).toBe('GRVNE2QWW')
+    expect(crunchyrollWatchId('https://www.crunchyroll.com/pt-br/watch/GRVNE2QWW/titulo')).toBe('GRVNE2QWW')
+    expect(crunchyrollWatchId('https://www.crunchyroll.com/es-419/watch/GRVNE2QWW')).toBe('GRVNE2QWW')
+    expect(crunchyrollWatchId('https://www.crunchyroll.com/watch/GRVNE2QWW/')).toBe('GRVNE2QWW')
     for (const url of [
       'https://www.crunchyroll.com/login',
       'https://www.crunchyroll.com/',
@@ -61,6 +65,14 @@ describe('media identity matching', () => {
       'https://www.crunchyroll.com/watch/',
       'https://www.crunchyroll.com/series/GRVNE2QWW/some-series',
       'https://www.crunchyroll.com/unavailable?from=/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/foo/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/a/b/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/series/GRVNE2QWW/watch/GOTHER123456',
+      'https://www.crunchyroll.com/watch/GRVNE2QWW/slug/extra',
+      'https://www.crunchyroll.com/de/watch/GRVNE2QWW/slug/extra',
+      'https://www.crunchyroll.com/german/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/de/de/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/watch/GRVNE2QWW!',
       'https://crunchyroll.com.evil.example/watch/GRVNE2QWW',
       'https://notcrunchyroll.com/watch/GRVNE2QWW',
       'https://video.example/watch/GRVNE2QWW',
