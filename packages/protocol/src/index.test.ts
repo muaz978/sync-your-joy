@@ -1,6 +1,6 @@
 import type { MediaFingerprint } from './index.ts'
 import { describe, expect, it } from 'vitest'
-import { canAcknowledgeOperation, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCurrentOperation, isRoomContractSnapshot, isRoomOperation, mediaMatches, mediaMatchesPageUrl, negotiateRoomMode, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
+import { canAcknowledgeOperation, crunchyrollWatchId, CURRENT_CLIENT_CAPABILITIES, generateRoomCode, isAllowedOrigin, isCrunchyrollUrl, isCurrentOperation, isRoomContractSnapshot, isRoomOperation, mediaMatches, mediaMatchesPageUrl, negotiateRoomMode, normalizeCanonicalId, normalizeMediaPageUrl, normalizePageUrl, normalizeRoomContractSnapshot, parseClientMessage, parseOperationAcknowledgement, ROOM_CODE_ALPHABET } from './index.ts'
 
 describe('media identity matching', () => {
   it('does not treat two missing players as a video match', () => {
@@ -48,6 +48,92 @@ describe('media identity matching', () => {
     expect(mediaMatchesPageUrl(current, 'https://crunchyroll.com/watch/GE00345558JAJP/original-title')).toBe(true)
     expect(mediaMatchesPageUrl(current, 'https://crunchyroll.com/watch/GOTHER123456/next-episode')).toBe(false)
     expect(mediaMatchesPageUrl(current, 'https://video.example/watch/GE00345558JAJP/lookalike')).toBe(false)
+    expect(mediaMatchesPageUrl(current, 'https://www.crunchyroll.com/foo/watch/GE00345558JAJP')).toBe(false)
+  })
+
+  it('normalizes a Crunchyroll canonical id through the same anchored rule as the page matcher', () => {
+    const id = 'crunchyroll:GE00345558JAJP'
+    for (const legitimate of [
+      'crunchyroll:ge00345558jajp',
+      'www.crunchyroll.com/watch/GE00345558JAJP/from-now-on',
+      'www.crunchyroll.com/watch/GE00345558JAJP',
+      'crunchyroll.com/de/watch/GE00345558JAJP/titel',
+      'https://www.crunchyroll.com/pt-br/watch/ge00345558jajp/titulo?utm_source=x',
+      '/watch/GE00345558JAJP/from-now-on',
+    ])
+      expect(normalizeCanonicalId('crunchyroll', legitimate), legitimate).toBe(id)
+    for (const other of [
+      'www.crunchyroll.com/foo/watch/GE00345558JAJP',
+      'www.crunchyroll.com/a/b/watch/GE00345558JAJP',
+      'www.crunchyroll.com/watch/GE00345558JAJP/a/b',
+      'www.crunchyroll.com/series/X/watch/GE00345558JAJP',
+      'video.example/watch/GE00345558JAJP',
+      'crunchyroll.com.evil.example/watch/GE00345558JAJP',
+    ])
+      expect(normalizeCanonicalId('crunchyroll', other), other).toBe(other)
+  })
+
+  it('does not treat a deeper path containing /watch/ as the same Crunchyroll episode', () => {
+    const room: MediaFingerprint = { service: 'crunchyroll', canonicalId: 'crunchyroll:GE00345558JAJP', title: 'Episode', durationSeconds: null }
+    const on = (canonicalId: string): MediaFingerprint => ({ service: 'crunchyroll', canonicalId, title: 'x', durationSeconds: 1_400 })
+    expect(mediaMatches(room, on('www.crunchyroll.com/de/watch/GE00345558JAJP/titel'))).toBe(true)
+    expect(mediaMatches(room, on('www.crunchyroll.com/foo/watch/GE00345558JAJP'))).toBe(false)
+    expect(mediaMatches(room, on('www.crunchyroll.com/watch/GE00345558JAJP/a/b'))).toBe(false)
+    expect(mediaMatches(on('www.crunchyroll.com/foo/watch/GE00345558JAJP'), room)).toBe(false)
+  })
+
+  it('reads the watch ID from a real Crunchyroll episode page on any locale and from nothing else', () => {
+    expect(crunchyrollWatchId('https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on')).toBe('GE00345558JAJP')
+    expect(crunchyrollWatchId('https://crunchyroll.com/de/watch/ge00345558jajp/lokalisiert?utm_source=x#player')).toBe('GE00345558JAJP')
+    expect(crunchyrollWatchId('https://beta.crunchyroll.com/watch/GRVNE2QWW')).toBe('GRVNE2QWW')
+    expect(crunchyrollWatchId('https://www.crunchyroll.com/pt-br/watch/GRVNE2QWW/titulo')).toBe('GRVNE2QWW')
+    expect(crunchyrollWatchId('https://www.crunchyroll.com/es-419/watch/GRVNE2QWW')).toBe('GRVNE2QWW')
+    expect(crunchyrollWatchId('https://www.crunchyroll.com/watch/GRVNE2QWW/')).toBe('GRVNE2QWW')
+    for (const url of [
+      'https://www.crunchyroll.com/login',
+      'https://www.crunchyroll.com/',
+      'https://www.crunchyroll.com/watch',
+      'https://www.crunchyroll.com/watch/',
+      'https://www.crunchyroll.com/series/GRVNE2QWW/some-series',
+      'https://www.crunchyroll.com/unavailable?from=/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/foo/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/a/b/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/series/GRVNE2QWW/watch/GOTHER123456',
+      'https://www.crunchyroll.com/watch/GRVNE2QWW/slug/extra',
+      'https://www.crunchyroll.com/de/watch/GRVNE2QWW/slug/extra',
+      'https://www.crunchyroll.com/german/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/de/de/watch/GRVNE2QWW',
+      'https://www.crunchyroll.com/watch/GRVNE2QWW!',
+      'https://crunchyroll.com.evil.example/watch/GRVNE2QWW',
+      'https://notcrunchyroll.com/watch/GRVNE2QWW',
+      'https://video.example/watch/GRVNE2QWW',
+      'ftp://www.crunchyroll.com/watch/GRVNE2QWW',
+      'not a url',
+      '',
+    ])
+      expect(crunchyrollWatchId(url), url).toBeNull()
+    expect(isCrunchyrollUrl('https://www.crunchyroll.com/login')).toBe(true)
+    expect(isCrunchyrollUrl('https://crunchyroll.com.evil.example/login')).toBe(false)
+    expect(isCrunchyrollUrl('nonsense')).toBe(false)
+  })
+
+  it('matches the fingerprint of a shared Crunchyroll link to a participant on a localized route of the same episode', () => {
+    const shared: MediaFingerprint = {
+      service: 'crunchyroll',
+      canonicalId: 'crunchyroll:GE00345558JAJP',
+      title: 'www.crunchyroll.com',
+      durationSeconds: null,
+      pageUrl: 'https://www.crunchyroll.com/watch/GE00345558JAJP/from-now-on',
+    }
+    const participant: MediaFingerprint = {
+      service: 'crunchyroll',
+      canonicalId: 'crunchyroll:GE00345558JAJP',
+      title: 'Titre localisé',
+      durationSeconds: 1_465,
+      pageUrl: 'https://www.crunchyroll.com/fr/watch/GE00345558JAJP/titre-localise',
+    }
+    expect(mediaMatches(shared, participant)).toBe(true)
+    expect(mediaMatches(shared, { ...participant, canonicalId: 'crunchyroll:GOTHER123456', pageUrl: 'https://www.crunchyroll.com/fr/watch/GOTHER123456/x' })).toBe(false)
   })
 
   it('does not treat a weak generic page identity as unchanged across different URLs', () => {

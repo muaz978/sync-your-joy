@@ -17,6 +17,8 @@ import type {
   SharedNavigation,
 } from '@syncyourjoy/protocol'
 import {
+  crunchyrollWatchId,
+  isCrunchyrollUrl,
   isCurrentOperation,
   isRoomContractSnapshot,
   mediaMatches,
@@ -1049,6 +1051,15 @@ export class RoomCoordinator {
     if (!url)
       return this.failure('invalid_url', 'Enter a valid HTTP or HTTPS video page link.')
 
+    // A Crunchyroll room can only share Crunchyroll episode pages. A login,
+    // unavailable, series or other page identifies no episode, so letting it
+    // through would advance the media epoch and unready everyone for a page
+    // nobody can play. Rooms on other services, and rooms that have not chosen
+    // a page yet, may share any page. Nothing is remembered or changed.
+    const watchId = crunchyrollWatchId(url)
+    if (this.isCrunchyrollRoom() && watchId === null)
+      return this.failure('unsupported_page', 'This room is watching Crunchyroll. Share a Crunchyroll episode page, a link that has /watch/ and the episode in it.')
+
     // A localized Crunchyroll route can change its title or path while still
     // identifying the same strong watch ID. Reopening that page would cancel
     // valid readiness and needlessly advance the media epoch, so treat it as
@@ -1072,13 +1083,25 @@ export class RoomCoordinator {
       participant.playbackBlocked = false
       participant.playbackStatus = participant.connected ? 'wrong-media' : 'unknown'
     }
-    this.media = {
-      service: 'shared-link',
-      canonicalId: `page:${url}`,
-      title: new URL(url).hostname,
-      durationSeconds: null,
-      pageUrl: url,
-    }
+    // A real Crunchyroll episode keeps its watch ID as its identity, the same
+    // identity a participant's own page reports, so a second link to the episode
+    // on another locale is unchanged and a participant on any locale of it can be
+    // ready. Every other page is only known by its address.
+    this.media = watchId !== null
+      ? {
+          service: 'crunchyroll',
+          canonicalId: `crunchyroll:${watchId}`,
+          title: new URL(url).hostname,
+          durationSeconds: null,
+          pageUrl: url,
+        }
+      : {
+          service: 'shared-link',
+          canonicalId: `page:${url}`,
+          title: new URL(url).hostname,
+          durationSeconds: null,
+          pageUrl: url,
+        }
     // pauseForMembershipChange() just extrapolated the PREVIOUS media's
     // position forward in time -- correct for a membership change mid-video,
     // but wrong here: a newly shared link is an unrelated video, never a
@@ -1711,6 +1734,12 @@ export class RoomCoordinator {
       || !isSeekAligned(positionSeconds, operation.targetPositionSeconds ?? Number.NaN))
       return false
     return true
+  }
+
+  /** The room is on Crunchyroll: its media says so, or carries only a Crunchyroll page address (a room a shared link opened before the link was keyed to its watch ID). */
+  private isCrunchyrollRoom(): boolean {
+    return this.media !== null
+      && (this.media.service === 'crunchyroll' || (this.media.pageUrl !== undefined && isCrunchyrollUrl(this.media.pageUrl)))
   }
 
   private requiredParticipantIds(): string[] {

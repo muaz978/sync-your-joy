@@ -558,6 +558,166 @@ describe('RoomCoordinator', () => {
     expect(opened.snapshot.participants).toEqual(before.participants)
   })
 
+  describe('a shared Crunchyroll episode link (CR-C04, coordinator half)', () => {
+    const episodeA = 'https://www.crunchyroll.com/watch/GE00345558JAJP/titre-localise'
+    const episodeB = 'https://www.crunchyroll.com/watch/GOTHER123456/second-episode'
+    const episodeBLocalized = 'https://www.crunchyroll.com/de/watch/GOTHER123456/lokalisierter-titel'
+    const episodeC = 'https://www.crunchyroll.com/watch/GTHIRD789012/third-episode'
+
+    function crunchyRoom(): RoomCoordinator {
+      const room = createRoomWithMedia(crunchyMedia)
+      joinApproved(room, { id: 'participant_friend', name: 'Rana', media: crunchyMedia })
+      room.setReady('participant_host', true, crunchyMedia)
+      room.setReady('participant_friend', true, crunchyMedia)
+      return room
+    }
+
+    function share(room: RoomCoordinator, url: string, actionId: string): RoomResult {
+      const snapshot = room.snapshot()
+      return room.openLink('participant_host', { actionId, basedOnRevision: snapshot.revision, leaseEpoch: snapshot.controller.leaseEpoch, url })
+    }
+
+    /** What a participant's own extension reports for an episode it has open, on whatever localized route it landed on. */
+    function onEpisode(canonicalId: string, pageUrl: string): MediaFingerprint {
+      return { service: 'crunchyroll', canonicalId, title: 'Localized title', durationSeconds: 1_460, pageUrl }
+    }
+
+    it('keys the media a shared episode link opens to the watch ID, so it reads like a room made on that episode', () => {
+      const room = crunchyRoom()
+
+      const opened = share(room, episodeB, 'action_share_b')
+
+      expect(opened).toMatchObject({
+        ok: true,
+        reason: 'link_opened',
+        snapshot: {
+          contract: { mediaEpoch: 1 },
+          media: { service: 'crunchyroll', canonicalId: 'crunchyroll:GOTHER123456', pageUrl: episodeB },
+          navigation: { url: episodeB },
+        },
+      })
+    })
+
+    it('treats a second link to the same episode on another locale as unchanged after a shared link opened it', () => {
+      const room = crunchyRoom()
+      share(room, episodeB, 'action_share_b')
+      const before = room.snapshot()
+
+      const again = share(room, episodeBLocalized, 'action_share_b_localized')
+
+      expect(again).toMatchObject({ ok: true, reason: 'navigation_unchanged' })
+      expect(again.snapshot.revision).toBe(before.revision)
+      expect(again.snapshot.contract?.mediaEpoch).toBe(1)
+      expect(again.snapshot.media).toEqual(before.media)
+      expect(again.snapshot.navigation).toEqual(before.navigation)
+      expect(again.snapshot.participants).toEqual(before.participants)
+    })
+
+    it('lets a participant whose browser is on a localized route of the shared episode become ready, and keeps a participant on another episode out', () => {
+      const room = crunchyRoom()
+      share(room, episodeB, 'action_share_b')
+
+      expect(room.setReady('participant_friend', true, onEpisode('crunchyroll:GOTHER123456', episodeBLocalized))).toMatchObject({ ok: true, reason: 'participant_ready' })
+      expect(room.setReady('participant_host', true, onEpisode('crunchyroll:GOTHER123456', episodeB))).toMatchObject({ ok: true, reason: 'participant_ready' })
+      expect(room.snapshot().participants.every(participant => participant.ready && participant.mediaMatches)).toBe(true)
+
+      const stale = room.setReady('participant_friend', true, onEpisode('crunchyroll:GE00345558JAJP', episodeA))
+      expect(stale).toMatchObject({ ok: true, reason: 'participant_not_ready' })
+      expect(stale.snapshot.participants.find(participant => participant.id === 'participant_friend')).toMatchObject({ ready: false, mediaMatches: false, playbackStatus: 'wrong-media' })
+    })
+
+    it('starts a new epoch for a different watch ID, and again when the controller goes back to the first episode', () => {
+      const room = crunchyRoom()
+
+      expect(share(room, episodeB, 'action_share_b')).toMatchObject({ reason: 'link_opened', snapshot: { contract: { mediaEpoch: 1 } } })
+      expect(share(room, episodeC, 'action_share_c')).toMatchObject({ reason: 'link_opened', snapshot: { contract: { mediaEpoch: 2 }, media: { canonicalId: 'crunchyroll:GTHIRD789012' } } })
+      const back = share(room, episodeA, 'action_share_a_again')
+      expect(back).toMatchObject({ reason: 'link_opened', snapshot: { contract: { mediaEpoch: 3 }, media: { canonicalId: 'crunchyroll:GE00345558JAJP' } } })
+      expect(back.snapshot.participants.every(participant => !participant.ready && !participant.mediaMatches)).toBe(true)
+    })
+
+    it('does not count a stale readiness for the previous episode after the controller moved on', () => {
+      const room = crunchyRoom()
+      share(room, episodeB, 'action_share_b')
+      // The host is on the shared episode and ready, so only the friend can keep the room from playing.
+      expect(room.setReady('participant_host', true, onEpisode('crunchyroll:GOTHER123456', episodeB))).toMatchObject({ ok: true, reason: 'participant_ready' })
+
+      // The friend's browser still shows episode A and its readiness message was already on the wire.
+      const stale = room.setReady('participant_friend', true, onEpisode('crunchyroll:GE00345558JAJP', episodeA))
+
+      expect(stale.snapshot.participants.find(participant => participant.id === 'participant_friend')).toMatchObject({ ready: false, mediaMatches: false })
+      expect(room.snapshot().participants.find(participant => participant.id === 'participant_host')).toMatchObject({ ready: true, mediaMatches: true })
+      expect(controlTransactional(room, 'play', 0)).toMatchObject({ ok: false, code: 'participants_not_ready' })
+    })
+
+    it('refuses a page in a Crunchyroll room that is only a deeper path containing /watch/', () => {
+      const room = crunchyRoom()
+      const before = room.snapshot()
+      for (const [index, url] of ['https://www.crunchyroll.com/foo/watch/GOTHER123456', 'https://www.crunchyroll.com/a/b/watch/GOTHER123456', 'https://www.crunchyroll.com/watch/GOTHER123456/slug/extra'].entries()) {
+        expect(share(room, url, `action_deep_path_${index}`), url).toMatchObject({ ok: false, code: 'unsupported_page' })
+        expect(room.snapshot(), url).toEqual(before)
+      }
+    })
+
+    it('rejects a page that is not a Crunchyroll episode in a Crunchyroll room, without moving the room', () => {
+      const room = crunchyRoom()
+      const before = room.snapshot()
+      const rejectedPages = [
+        'https://www.crunchyroll.com/login',
+        'https://www.crunchyroll.com/',
+        'https://www.crunchyroll.com/series/GRVNE2QWW/some-series',
+        'https://www.crunchyroll.com/watch',
+        'https://www.crunchyroll.com/watch/',
+        'https://www.crunchyroll.com/unavailable?from=watch',
+        'https://crunchyroll.com.evil.example/watch/GOTHER123456/lookalike',
+        'https://video.example/watch/GOTHER123456',
+        'https://example.invalid/watch/GOTHER123456',
+      ]
+
+      for (const [index, url] of rejectedPages.entries()) {
+        const result = share(room, url, `action_not_an_episode_${index}`)
+        expect(result, url).toMatchObject({ ok: false, code: 'unsupported_page' })
+        expect(room.snapshot(), url).toEqual(before)
+      }
+      // A refused page is not remembered as done: the same action id is refused again, not reported as a duplicate.
+      expect(share(room, rejectedPages[0]!, 'action_not_an_episode_0')).toMatchObject({ ok: false, code: 'unsupported_page' })
+      // And a real episode is still accepted afterwards.
+      expect(share(room, episodeB, 'action_after_refusals')).toMatchObject({ ok: true, reason: 'link_opened' })
+    })
+
+    it('also guards a room that a shared Crunchyroll link opened, and a room whose media carries only a Crunchyroll page address', () => {
+      const room = crunchyRoom()
+      share(room, episodeB, 'action_share_b')
+      expect(share(room, 'https://www.crunchyroll.com/login', 'action_login_after_share')).toMatchObject({ ok: false, code: 'unsupported_page' })
+
+      const stored = room.exportState()
+      stored.media = { service: 'shared-link', canonicalId: `page:${episodeB}`, title: 'www.crunchyroll.com', durationSeconds: null, pageUrl: episodeB }
+      const restored = RoomCoordinator.fromState(stored, () => 10_000)
+      expect(share(restored, 'https://www.crunchyroll.com/login', 'action_login_old_state')).toMatchObject({ ok: false, code: 'unsupported_page' })
+    })
+
+    it('leaves rooms on other services, and rooms that have not chosen a page, free to share any web page', () => {
+      const other = createRoom()
+      expect(share(other, 'https://www.crunchyroll.com/login', 'action_other_service_login')).toMatchObject({ ok: true, reason: 'link_opened' })
+
+      const empty = new RoomCoordinator({ roomId: 'room_empty34', code: 'EMPTY456' }, { id: 'participant_host', name: 'Muaz', media: null }, () => 10_000)
+      expect(share(empty, 'https://www.crunchyroll.com/login', 'action_empty_room_login')).toMatchObject({ ok: true, reason: 'link_opened' })
+
+      const firstEpisode = new RoomCoordinator({ roomId: 'room_empty56', code: 'EMPTY789' }, { id: 'participant_host', name: 'Muaz', media: null }, () => 10_000)
+      expect(share(firstEpisode, episodeB, 'action_empty_room_episode')).toMatchObject({
+        ok: true,
+        reason: 'link_opened',
+        snapshot: { media: { service: 'crunchyroll', canonicalId: 'crunchyroll:GOTHER123456' } },
+      })
+    })
+
+    it('keeps a non-Crunchyroll shared link keyed to its page, as before', () => {
+      const room = createRoom()
+      const opened = share(room, 'https://video.example/watch/42#player', 'action_other_link')
+      expect(opened.snapshot.media).toMatchObject({ service: 'shared-link', canonicalId: 'page:https://video.example/watch/42' })
+    })
+  })
+
   it('cancels old work and requires fresh readiness for a new shared link', () => {
     const room = createTransactionalRoom(() => 10_000)
     const started = controlTransactional(room, 'play', 30)

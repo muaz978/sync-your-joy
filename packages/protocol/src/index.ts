@@ -832,17 +832,8 @@ export function mediaMatchesPageUrl(expected: MediaFingerprint | null, pageUrl: 
   const normalizedUrl = normalizeMediaPageUrl(pageUrl)
   if (!normalizedUrl)
     return false
-  if (expected.service === 'crunchyroll') {
-    try {
-      const url = new URL(normalizedUrl)
-      if (!(url.hostname === 'crunchyroll.com' || url.hostname.endsWith('.crunchyroll.com'))
-        || !/\/watch\/[A-Z0-9]+(?:\/|$)/i.test(url.pathname))
-        return false
-    }
-    catch {
-      return false
-    }
-  }
+  if (expected.service === 'crunchyroll' && crunchyrollWatchId(normalizedUrl) === null)
+    return false
   const candidate: MediaFingerprint = {
     service: expected.service,
     canonicalId: normalizeCanonicalId(expected.service, normalizedUrl),
@@ -851,6 +842,54 @@ export function mediaMatchesPageUrl(expected: MediaFingerprint | null, pageUrl: 
     pageUrl: normalizedUrl,
   }
   return mediaMatches(expected, candidate)
+}
+
+function isCrunchyrollHost(hostname: string): boolean {
+  return hostname === 'crunchyroll.com' || hostname.endsWith('.crunchyroll.com')
+}
+
+/** True for an address on crunchyroll.com or one of its subdomains. A lookalike host, such as crunchyroll.com.evil.example, is not. */
+export function isCrunchyrollUrl(pageUrl: string): boolean {
+  const normalized = normalizePageUrl(pageUrl)
+  if (!normalized)
+    return false
+  try {
+    return isCrunchyrollHost(new URL(normalized).hostname)
+  }
+  catch {
+    return false
+  }
+}
+
+/**
+ * An episode page path: `/watch/<ID>` at the root, or behind exactly one locale
+ * segment (`/de/watch/<ID>`, `/pt-br/watch/<ID>`, `/es-419/watch/<ID>`), with at
+ * most one title segment after the ID. Anchored at both ends, so `/foo/watch/<ID>`,
+ * `/a/b/watch/<ID>` and `/watch/<ID>/a/b` are not episode pages.
+ */
+const CRUNCHYROLL_EPISODE_PATH = /^(?:\/[a-z]{2}(?:-[a-z0-9]{2,4})?)?\/watch\/([A-Z0-9]+)(?:\/[^/]+)?\/?$/i
+
+/**
+ * The watch ID of a Crunchyroll episode page, in upper case, or null. Only the
+ * address is checked: the host must be crunchyroll.com or a subdomain, and the
+ * path must match `CRUNCHYROLL_EPISODE_PATH`. Whether the ID names an episode that
+ * exists or is available to anyone is not checked, so a page with a well-formed
+ * but unavailable ID passes. The login page, a series or home page, a path with no
+ * ID, a deeper path and another host give null.
+ */
+export function crunchyrollWatchId(pageUrl: string): string | null {
+  const normalized = normalizePageUrl(pageUrl)
+  if (!normalized)
+    return null
+  try {
+    const url = new URL(normalized)
+    if (!isCrunchyrollHost(url.hostname))
+      return null
+    return url.pathname.match(CRUNCHYROLL_EPISODE_PATH)?.[1]?.toUpperCase() ?? null
+  }
+  catch {
+    return null
+  }
 }
 
 export function normalizePageUrl(value: string): string | null {
@@ -905,10 +944,22 @@ export function normalizeMediaPageUrl(value: string): string | null {
   }
 }
 
+/**
+ * An older canonical id for a Crunchyroll episode is a host and path
+ * (`www.crunchyroll.com/watch/<ID>/title`), with or without a scheme, or a bare
+ * path. Read it as an address so it goes through the same anchored episode rule
+ * as a shared page (`crunchyrollWatchId`), instead of a second pattern of its own.
+ */
+function canonicalIdAsPageUrl(canonicalId: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(canonicalId))
+    return canonicalId
+  return canonicalId.startsWith('/') ? `https://www.crunchyroll.com${canonicalId}` : `https://${canonicalId}`
+}
+
 export function normalizeCanonicalId(service: string, canonicalId: string): string {
   if (service === 'crunchyroll') {
     const episodeId = canonicalId.match(/^crunchyroll:([a-z0-9]+)$/i)?.[1]
-      ?? canonicalId.match(/\/watch\/([a-z0-9]+)/i)?.[1]
+      ?? crunchyrollWatchId(canonicalIdAsPageUrl(canonicalId))
     if (episodeId)
       return `crunchyroll:${episodeId.toUpperCase()}`
   }
