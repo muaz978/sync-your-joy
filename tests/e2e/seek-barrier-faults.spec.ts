@@ -18,6 +18,7 @@
 // destination and an acknowledgement that arrives afterwards does not resume it.
 import { expect, test, type Page } from '@playwright/test'
 import type { ExtensionProfile } from './extension-profile.ts'
+import { THREE_PROFILE_PREFIXES } from './profile-labels.ts'
 import {
   assertConverged,
   createRoomWithPlayers,
@@ -65,7 +66,7 @@ test.describe('a pending seek under faults', () => {
   let profiles: [ExtensionProfile, ExtensionProfile, ExtensionProfile]
 
   test.beforeAll(async () => {
-    profiles = await launchThreeProfiles('seekfault')
+    profiles = await launchThreeProfiles(THREE_PROFILE_PREFIXES.seek)
   })
 
   test.afterAll(async () => {
