@@ -1141,6 +1141,23 @@ describe('service worker observed episode identity', () => {
       expect(reportFrom(socket, 'report_after_operation').reason).toBe('none')
     })
 
+    // A refusal can carry the room's current state, and with it a different operation. That is where
+    // the new period starts, so what the next snapshot says about the same operation is not a change.
+    it('counts the operation a refused command\'s snapshot carries as the start of a period, not the snapshot after it', async () => {
+      await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      const paused = { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } as const
+      revision += 1
+      socket.simulateMessage({
+        type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'refused',
+        snapshot: buildRoomSnapshot({ media: oldMedia, revision, playback: paused, contract: operation('operation_play_000009') }),
+      })
+      expect(reportFrom(socket, 'report_refused_with_operation').reason).toBe('command-rejected')
+
+      snapshotWith(socket, 'participant_ready', { playback: paused, contract: operation('operation_play_000009') })
+      expect(reportFrom(socket, 'report_same_operation_again').reason).toBe('command-rejected')
+    })
+
     it('keeps a refused command\'s reason through a local reason ending, as it keeps the room\'s', async () => {
       const { request } = await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!
