@@ -11,7 +11,7 @@ The side panel can report an aligned timeline even when a provider has stopped p
 
 For the CR-A06 health-evidence acceptance record, use [`CR_A06_HEALTH_EVIDENCE_ACCEPTANCE_REPORT_TEMPLATE.md`](CR_A06_HEALTH_EVIDENCE_ACCEPTANCE_REPORT_TEMPLATE.md). It defines the `frames`, `clock` and `unknown` evidence vocabulary, the hidden or visible restoration checks, hidden-iframe and Picture-in-Picture boundaries, context-refresh checks, and the distinction between counter progress and visible output.
 
-For the CR-A07 seek-barrier acceptance record, use [`CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md`](CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md). It documents deadline receipt checks, fixed-target timeout pause, fixed quorum behavior, membership/media/lease cancellation and stale acknowledgement rejection.
+For the CR-A07 seek-barrier acceptance record, use [`CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md`](CR_A07_SEEK_BARRIER_ACCEPTANCE_REPORT.md). It documents deadline receipt checks, fixed-target timeout pause, membership/media/lease cancellation and stale acknowledgement rejection. The fixed quorum behavior applies to the transactional path only (every participant on extension 0.2.5 or later). The legacy barrier for older participants is no longer supported and has a known hole recorded in the report as an accepted limit.
 
 For the CR-B01 operation contract record, use [`CR_B01_OPERATION_CONTRACT.md`](CR_B01_OPERATION_CONTRACT.md). It defines the media epoch, operation identity, fixed participant quorum, binding/sample evidence, fail-closed capability negotiation and safe defaults for older stored state. It is a schema gate for CR-B02 and CR-B03, not proof of their runtime behavior.
 
