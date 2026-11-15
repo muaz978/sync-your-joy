@@ -8,6 +8,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import type { ExtensionProfile } from './extension-profile.ts'
+import { THREE_PROFILE_PREFIXES } from './profile-labels.ts'
 import {
   assertConverged,
   disconnectParticipant,
@@ -18,6 +19,7 @@ import {
   readExtensionState,
   readFixtureState,
   readFixtureStates,
+  readParticipantId,
   SYNC_TOLERANCE_SECONDS,
   waitForAllPaused,
   waitForAllPlaying,
@@ -44,7 +46,7 @@ test.describe('three-profile local browser matrix', () => {
   let profileC!: ExtensionProfile
 
   test.beforeAll(async () => {
-    ;[profileA, profileB, profileC] = await launchThreeProfiles('')
+    ;[profileA, profileB, profileC] = await launchThreeProfiles(THREE_PROFILE_PREFIXES.matrix)
     await Promise.all([profileA, profileB, profileC].map(profile => profile.recordState('initial')))
   })
 
@@ -224,7 +226,7 @@ test.describe('three-profile local browser matrix', () => {
     // only C's real socket, then the browser is restored before the bounded
     // reconnect backoff expires. This route is token-gated and absent from
     // normal/deployed room-service instances.
-    const participantC = String((await readExtensionState(profileC)).participantId)
+    const participantC = await readParticipantId(profileC)
     await disconnectParticipant(roomCode!, participantC)
     await expect(profileC.panel.getByText('Reconnecting', { exact: true })).toBeVisible({ timeout: 10_000 })
     await expect.poll(async () => (await readExtensionState(profileC)).connection, {

@@ -67,6 +67,8 @@ export interface RoomService {
    * sleeping; it exposes no participant data.
    */
   inspectRoom: (code: string) => { connectedParticipants: boolean; pendingRequests: number; sockets: number; emptySinceMs: number | null } | null
+  /** How many test faults (see /__test/fault) are recorded for a room. Always 0 on a service without a test control token. */
+  inspectTestFaults: (code: string) => number
 }
 
 export interface RoomServiceOptions {
@@ -701,6 +703,14 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
     }, graceMs))
   }
 
+  // A room that is removed takes its test faults (and what they hold) with it.
+  function clearTestFaults(code: string): void {
+    for (const key of testFaults.keys()) {
+      if (key.startsWith(`${code}:`))
+        testFaults.delete(key)
+    }
+  }
+
   // A room that is removed takes its recovery plans with it.
   function clearRecoveryTimers(code: string): void {
     for (const [key, timer] of recoveryTimers) {
@@ -760,12 +770,14 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
         closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
         clearRecoveryTimers(code)
+        clearTestFaults(code)
         releaseRoomIpSlot(room.creatorIp)
       }
       else if (nowMs - room.createdAtMs >= MAX_ROOM_LIFETIME_MS) {
         closeAll(room.sockets, 'room_expired')
         rooms.delete(code)
         clearRecoveryTimers(code)
+        clearTestFaults(code)
         releaseRoomIpSlot(room.creatorIp)
       }
     }
@@ -786,6 +798,7 @@ export async function createRoomService(options: RoomServiceOptions = {}): Promi
   return {
     httpServer,
     url,
+    inspectTestFaults: code => [...testFaults.keys()].filter(key => key.startsWith(`${code}:`)).length,
     inspectRoom: (code) => {
       const room = rooms.get(code)
       if (!room)

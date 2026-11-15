@@ -148,6 +148,52 @@ describe('the /__test/* hooks', () => {
     expect(await post('release')).toMatchObject({ released: 64, dropped: 6 })
   })
 
+  it('forget a room\'s faults, and what they hold, when the room expires', async () => {
+    const control = randomBytes(24).toString('base64url')
+    let clockMs = 1_000_000
+    service = await createRoomService({ port: 0, testControlToken: control, now: () => clockMs, cleanupIntervalMs: 20 })
+    const post = async (code: string, participantId: string, mode: string): Promise<void> => {
+      const response = await fetch(controlUrl(service!.url, '/__test/fault', { room: code, participant: participantId, mode }), { method: 'POST', headers: { [HEADER]: control } })
+      expect(response.status).toBe(200)
+    }
+    const expired = async (code: string): Promise<boolean> => {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (service!.inspectRoom(code) === null)
+          return true
+        await new Promise(resolve => setTimeout(resolve, 20))
+      }
+      return false
+    }
+
+    // An empty room (the empty-room branch): its member leaves, the clock runs past the TTL.
+    const empty = await openRoom(service.url)
+    await post(empty.code, empty.participantId, 'hold_acks')
+    sendSeekApplied(empty.socket, 2)
+    await settle(empty.socket)
+    expect(service.inspectTestFaults(empty.code)).toBe(1)
+    empty.socket.close()
+    await new Promise(resolve => empty.socket.once('close', resolve))
+    // The empty clock starts at the first cleanup tick that sees nobody
+    // connected. Advancing the fake clock before that tick would start the
+    // clock at the advanced time, and the room would not be due.
+    for (let attempt = 0; attempt < 100 && service.inspectRoom(empty.code)?.emptySinceMs == null; attempt += 1)
+      await new Promise(resolve => setTimeout(resolve, 20))
+    expect(service.inspectRoom(empty.code)?.emptySinceMs).not.toBeNull()
+    clockMs += 60 * 60 * 1000
+    expect(await expired(empty.code)).toBe(true)
+    expect(service.inspectTestFaults(empty.code)).toBe(0)
+
+    // A room past its maximum lifetime with someone still in it (the lifetime branch).
+    const old = await openRoom(service.url)
+    await post(old.code, old.participantId, 'hold_acks')
+    sendSeekApplied(old.socket, 2)
+    await settle(old.socket)
+    expect(service.inspectTestFaults(old.code)).toBe(1)
+    clockMs += 7 * 60 * 60 * 1000
+    expect(await expired(old.code)).toBe(true)
+    expect(service.inspectTestFaults(old.code)).toBe(0)
+  })
+
   it('are not part of the production start path', async () => {
     // `npm run dev:server` and the built server start through the block that
     // follows `const invokedPath` at the end of server.ts. It must not hand the
