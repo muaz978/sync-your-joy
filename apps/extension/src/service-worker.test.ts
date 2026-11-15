@@ -1029,8 +1029,8 @@ describe('service worker observed episode identity', () => {
     })
 
     it.each([
-      ['a stalled player', (socket: FakeWebSocket, request: Awaited<ReturnType<typeof resumeAtPage>>['request']) => request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: stalledSample() }, boundSender), 'stalled'],
-      ['a browser that refused to play', (socket: FakeWebSocket, request: Awaited<ReturnType<typeof resumeAtPage>>['request']) => request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: blockedSample() }, boundSender), 'permission-denied'],
+      ['a stalled player', (_socket: FakeWebSocket, request: Awaited<ReturnType<typeof resumeAtPage>>['request']) => request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: stalledSample() }, boundSender), 'stalled'],
+      ['a browser that refused to play', (_socket: FakeWebSocket, request: Awaited<ReturnType<typeof resumeAtPage>>['request']) => request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: blockedSample() }, boundSender), 'permission-denied'],
       ['a command the coordinator refused', async (socket: FakeWebSocket) => socket.simulateMessage({ type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'refused', snapshot: null }), 'command-rejected'],
       ['an error from the coordinator', async (socket: FakeWebSocket) => socket.simulateMessage({ type: 'error', code: 'internal_error', message: 'broken' }), 'server-error'],
     ])('reports %s as %s', async (_label, cause, code) => {
@@ -1119,21 +1119,53 @@ describe('service worker observed episode identity', () => {
       expect(reportFrom(socket, 'report_player_gone').reason).toBe('waiting-for-data')
     })
 
-    // A reason recorded while no operation was current is hidden, not ended, by
-    // a comparison of identities: it would come back when the operation did.
-    it('does not bring back a reason from before an operation once that operation is over', async () => {
+    // A reason recorded while no operation was current must not come back when
+    // the operation is over: "no operation" before and after it are two
+    // different periods, whatever caused the reason.
+    it.each([
+      ['a room reason', (socket: FakeWebSocket, paused: RoomSnapshot['playback']) => snapshotWith(socket, 'participant_not_ready', { playback: paused }), 'participant-not-ready'],
+      ['a refused command', (socket: FakeWebSocket) => socket.simulateMessage({ type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'refused', snapshot: null }), 'command-rejected'],
+      ['a server error', (socket: FakeWebSocket) => socket.simulateMessage({ type: 'error', code: 'internal_error', message: 'broken' }), 'server-error'],
+    ] as const)('does not bring back %s from before an operation once that operation is over', async (_label, cause, code) => {
       await resumeAtPage(sharedUrl)
       const socket = FakeWebSocket.instances[0]!
       const paused = { status: 'paused', positionSeconds: 12, effectiveAtServerMs: 0, playbackRate: 1 } as const
-      snapshotWith(socket, 'participant_not_ready', { playback: paused })
-      expect(reportFrom(socket, 'report_before_operation').reason).toBe('participant-not-ready')
+      cause(socket, paused)
+      expect(reportFrom(socket, 'report_before_operation').reason).toBe(code)
 
-      // Everyone is ready and a paused seek runs, then settles: the operation goes back to none.
+      // A paused seek runs, then settles: the operation goes back to none.
       snapshotWith(socket, 'operation_started', { playback: paused, contract: { ...operation('operation_seek_000001'), operation: { ...operation('operation_seek_000001').operation, kind: 'seek' as const } } })
       expect(reportFrom(socket, 'report_during_operation').reason).toBe('none')
       snapshotWith(socket, 'operation_seek_settled', { playback: paused, contract: { ...operation('operation_seek_000001'), operation: null } })
 
       expect(reportFrom(socket, 'report_after_operation').reason).toBe('none')
+    })
+
+    it('keeps a refused command\'s reason through a local reason ending, as it keeps the room\'s', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const socket = FakeWebSocket.instances[0]!
+      socket.simulateMessage({ type: 'command_rejected', actionId: null, code: 'session_invalid', message: 'refused', snapshot: null })
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: stalledSample() }, boundSender)
+      expect(reportFrom(socket, 'report_local_newer').reason).toBe('stalled')
+      await request({ type: 'PLAYER_STATUS', basedOnRevision: 5, sample: healthySample() }, boundSender)
+      expect(reportFrom(socket, 'report_refusal_again').reason).toBe('command-rejected')
+    })
+
+    it('does not let a room_joined from a socket that was replaced end the current room\'s reason', async () => {
+      const { request } = await resumeAtPage(sharedUrl)
+      const old = FakeWebSocket.instances[0]!
+      old.simulateMessage({ type: 'error', code: 'internal_error', message: 'broken' })
+      expect(reportFrom(old, 'report_before_replacing').reason).toBe('server-error')
+
+      // Another room is being joined: the old socket is replaced, and what it still says is stale.
+      const joining = request({ type: 'JOIN_ROOM', code: 'ZYXWVUTS' })
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+      const current = FakeWebSocket.instances[1]!
+      current.simulateOpen()
+      await joining
+      old.simulateMessage({ type: 'room_joined', participantId: 'participant_resumed', sessionToken: 'session_resumed', snapshot: buildRoomSnapshot({ media: oldMedia, revision: 40 }) })
+
+      expect(reportFrom(current, 'report_after_late_join').reason).toBe('server-error')
     })
 
     it('reports an operation\'s own reason in preference to anything the worker saw', async () => {
@@ -1242,8 +1274,9 @@ describe('service worker observed episode identity', () => {
       const { report, detect, askBound } = await connectedWorker()
       expect(report('report_nothing').observationAgeMs).toBeNull()
 
-      const seenAt = Date.now()
       await detect({ canonicalId: 'youtube:abc123' })
+      // After the sighting was recorded, so the age can only be at least what is asserted.
+      const seenAt = Date.now()
       const now = vi.spyOn(Date, 'now')
       try {
         now.mockReturnValue(seenAt + 5_000)
