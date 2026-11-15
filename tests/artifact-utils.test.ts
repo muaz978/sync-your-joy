@@ -112,7 +112,7 @@ describe('E2E artifact sanitization', () => {
 
     it('returns a URL with a bracketed IPv6 host exactly as the URL rule does, with or without a port', () => {
       const urls = [
-        'http://[::1]/a/b/c',
+        'http://[::1]/a/b/c', // DevSkim: ignore DS137138
         'https://[::1]/a/b',
         'ws://[::1]/rooms/a',
         'chrome-extension://[::1]/a/b/c.html',
@@ -124,7 +124,7 @@ describe('E2E artifact sanitization', () => {
       ]
       for (const url of urls)
         expect(sanitize(`open ${url} now`), url).toBe(`open ${url} now`)
-      expect(sanitize('http://[::1]:8787/a/b/c?token=abc#x')).toBe('http://[::1]:8787/a/b/c')
+      expect(sanitize('http://[::1]:8787/a/b/c?token=abc#x')).toBe('http://[::1]:8787/a/b/c') // DevSkim: ignore DS137138
     })
 
     it('masks a path directly after a colon, where a user name would otherwise leak', () => {
