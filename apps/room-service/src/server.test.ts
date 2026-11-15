@@ -643,25 +643,62 @@ describe('room service', () => {
     expect(outcome).toBe('rejected')
   })
 
-  it('caps how many concurrently open rooms one IP can create, and frees a slot once a room expires', async () => {
-    service = await createRoomService({ port: 0 })
+  // The injected clock and the limits below mirror EMPTY_ROOM_TTL_MS, MAX_ROOM_LIFETIME_MS and MAX_ROOMS_PER_IP in server.ts.
+  it.each([
+    ['its empty-room clock runs out', 'empty'],
+    ['it reaches its maximum lifetime', 'lifetime'],
+  ] as const)('caps how many concurrently open rooms one IP can create, and gives exactly one slot back when a room ends because %s', async (_how, ending) => {
+    const startMs = 1_900_000_000_000
+    let clockMs = startMs
+    service = await createRoomService({ port: 0, now: () => clockMs, cleanupIntervalMs: 10 })
+    const createRoomFromThisIp = async (socket: WebSocket, participantId: string) => {
+      socket.send(JSON.stringify({
+        type: 'create_room', protocolVersion: 1, participantId, name: 'Muaz', code: 'JOY7K2MX', media: null,
+      }))
+      return await nextMessage(socket)
+    }
 
     // MAX_ROOMS_PER_IP is 20. Every socket here shares the loopback address,
     // so the 21st create_room from this same IP must be rejected even though
-    // none of the previous rooms have become empty or expired yet.
-    for (let i = 0; i < 20; i += 1) {
+    // none of the previous rooms have become empty or expired yet. The first
+    // room is a second older than the others, so that when the clock reaches
+    // its lifetime it is the only one that ends.
+    const first = await connect(service.url)
+    const firstJoined = await createRoomFromThisIp(first, 'participant_host_0')
+    if (firstJoined.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    clockMs = startMs + 1_000
+    for (let i = 1; i < 20; i += 1) {
       const socket = await connect(service.url)
-      socket.send(JSON.stringify({
-        type: 'create_room', protocolVersion: 1, participantId: `participant_host_${i}`, name: 'Muaz', code: 'JOY7K2MX', media: null,
-      }))
-      await expect(nextMessage(socket)).resolves.toMatchObject({ type: 'room_joined' })
+      expect((await createRoomFromThisIp(socket, `participant_host_${i}`)).type).toBe('room_joined')
     }
 
     const limitedSocket = await connect(service.url)
-    limitedSocket.send(JSON.stringify({
-      type: 'create_room', protocolVersion: 1, participantId: 'participant_host_20', name: 'Muaz', code: 'JOY7K2MX', media: null,
-    }))
-    await expect(nextMessage(limitedSocket)).resolves.toMatchObject({ type: 'error', code: 'rate_limited' })
+    await expect(createRoomFromThisIp(limitedSocket, 'participant_host_20')).resolves.toMatchObject({ type: 'error', code: 'rate_limited' })
+
+    if (ending === 'empty') {
+      first.close()
+      for (let attempt = 0; service.inspectRoom(firstJoined.snapshot.code)?.emptySinceMs !== clockMs; attempt += 1) {
+        if (attempt > 400)
+          throw new Error('Timed out waiting for the empty-room clock to start.')
+        await new Promise<void>(resolve => setTimeout(resolve, 5))
+      }
+      clockMs += 30 * 60 * 1000
+    }
+    else {
+      clockMs = startMs + 6 * 60 * 60 * 1000
+    }
+    for (let attempt = 0; service.inspectRoom(firstJoined.snapshot.code) !== null; attempt += 1) {
+      if (attempt > 400)
+        throw new Error('Timed out waiting for the room to end.')
+      await new Promise<void>(resolve => setTimeout(resolve, 5))
+    }
+
+    // The ended room's creator has a slot again, and only that one: a room
+    // that ends must not hand back the slots of the rooms that remain.
+    await expect(createRoomFromThisIp(limitedSocket, 'participant_host_20')).resolves.toMatchObject({ type: 'room_joined' })
+    const anotherSocket = await connect(service.url)
+    await expect(createRoomFromThisIp(anotherSocket, 'participant_host_21')).resolves.toMatchObject({ type: 'error', code: 'rate_limited' })
   })
 })
 
@@ -1085,6 +1122,167 @@ describe('empty room expiry with unapproved requests', () => {
     await new Promise<void>(resolve => setTimeout(resolve, 80))
     expect(service!.inspectRoom(code)).toMatchObject({ connectedParticipants: true, emptySinceMs: null })
     returning.close()
+  })
+
+  it('measures each time the room is empty from when it last became empty, not from the first time', async () => {
+    const { host, code, hostToken } = await startedRoom()
+    host.close()
+    await until(() => service!.inspectRoom(code)?.emptySinceMs === startMs, 'the first empty-room clock to start')
+
+    // Back before it runs out: from here until somebody leaves again there is no clock, several timer turns on.
+    clockMs = startMs + 20 * 60_000
+    const returning = await connect(service!.url)
+    returning.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code, media: hostMedia, sessionToken: hostToken,
+    }))
+    await expect(nextMessage(returning)).resolves.toMatchObject({ type: 'room_joined' })
+    await new Promise<void>(resolve => setTimeout(resolve, 80))
+    expect(service!.inspectRoom(code)).toMatchObject({ connectedParticipants: true, emptySinceMs: null })
+
+    const leftAgainAtMs = startMs + 25 * 60_000
+    clockMs = leftAgainAtMs
+    returning.close()
+    await until(() => service!.inspectRoom(code)?.emptySinceMs === leftAgainAtMs, 'the second empty-room clock to start')
+
+    // Past the time the first spell's clock would have run out, but not the second's: the room is still there.
+    clockMs = startMs + EMPTY_ROOM_TTL_MS + 60_000
+    await new Promise<void>(resolve => setTimeout(resolve, 80))
+    expect(service!.inspectRoom(code)).toMatchObject({ connectedParticipants: false, emptySinceMs: leftAgainAtMs })
+
+    clockMs = leftAgainAtMs + EMPTY_ROOM_TTL_MS
+    await until(() => service!.inspectRoom(code) === null, 'the room to expire on its second clock')
+  })
+})
+
+describe('what the cleanup timer takes with a room it ends', () => {
+  // Mirror EMPTY_ROOM_TTL_MS and MAX_ROOM_LIFETIME_MS in server.ts.
+  const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000
+  const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000
+  const startMs = 1_900_000_000_000
+  const hostMedia = { service: 'youtube', canonicalId: 'youtube:private-id', title: 'A private title', durationSeconds: 600 }
+  let clockMs = startMs
+
+  async function until(condition: () => boolean, what: string, timeoutMs = 3_000): Promise<void> {
+    const deadline = AbortSignal.timeout(timeoutMs)
+    while (!condition()) {
+      if (deadline.aborted)
+        throw new Error(`Timed out waiting for ${what}.`)
+      await new Promise<void>(resolve => setTimeout(resolve, 5))
+    }
+  }
+
+  function closing(socket: WebSocket) {
+    return new Promise<{ code: number, reason: string }>((resolve, reject) => {
+      const timeout = AbortSignal.timeout(3_000)
+      const onAbort = () => reject(new Error('The socket of an ended room was left open.'))
+      timeout.addEventListener('abort', onAbort, { once: true })
+      socket.once('close', (code, reason) => {
+        timeout.removeEventListener('abort', onAbort)
+        resolve({ code, reason: reason.toString() })
+      })
+    })
+  }
+
+  async function startedRoom(serviceOptions: { controllerGraceMs?: number } = {}) {
+    clockMs = startMs
+    service = await createRoomService({ port: 0, now: () => clockMs, cleanupIntervalMs: 10, ...serviceOptions })
+    const host = await connect(service.url)
+    host.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host', name: 'Muaz', code: 'LIFE1234', media: hostMedia,
+    }))
+    const created = await nextMessage(host)
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    return { host, code: created.snapshot.code }
+  }
+
+  async function admitFriend(host: WebSocket, code: string) {
+    const friend = await connect(service!.url)
+    const hostNotice = nextMessage(host)
+    friend.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_friend', name: 'Rana', code, media: null,
+    }))
+    await expect(nextMessage(friend)).resolves.toMatchObject({ type: 'room_joined' })
+    await hostNotice
+    const approved = nextMessage(friend)
+    host.send(JSON.stringify({
+      type: 'respond_to_join', participantId: 'participant_friend', approve: true, actionId: 'action_approve_friend', basedOnRevision: 0, leaseEpoch: 1,
+    }))
+    await approved
+    return friend
+  }
+
+  it('ends a room that still has a member when it reaches its maximum lifetime, and not before', async () => {
+    const { host, code } = await startedRoom()
+    const hostClosed = closing(host)
+
+    clockMs = startMs + MAX_ROOM_LIFETIME_MS - 1
+    await new Promise<void>(resolve => setTimeout(resolve, 80))
+    expect(service!.inspectRoom(code)).toMatchObject({ connectedParticipants: true, sockets: 1, emptySinceMs: null })
+    expect(host.readyState).toBe(WebSocket.OPEN)
+
+    clockMs = startMs + MAX_ROOM_LIFETIME_MS
+    await expect(hostClosed).resolves.toEqual({ code: 1000, reason: 'room_expired' })
+    expect(service!.inspectRoom(code)).toBeNull()
+  })
+
+  it('tells every socket of a room it ends, a waiting request included', async () => {
+    const { host, code } = await startedRoom()
+    const friend = await admitFriend(host, code)
+    const waiting = await connect(service!.url)
+    waiting.send(JSON.stringify({
+      type: 'join_room', protocolVersion: 1, participantId: 'participant_waiting', name: 'Sami', code, media: null,
+    }))
+    await expect(nextMessage(waiting)).resolves.toMatchObject({ type: 'room_joined' })
+    const closed = [host, friend, waiting].map(closing)
+
+    clockMs = startMs + MAX_ROOM_LIFETIME_MS
+    await expect(Promise.all(closed)).resolves.toEqual([
+      { code: 1000, reason: 'room_expired' },
+      { code: 1000, reason: 'room_expired' },
+      { code: 1000, reason: 'room_expired' },
+    ])
+    expect(service!.inspectRoom(code)).toBeNull()
+  })
+
+  // A recovery plan is a timer the service made for a controller that left. The test sees the timer the room made
+  // and whether the room cancelled it, without waiting for it to run: setTimeout is captured for one unused delay.
+  it.each([
+    ['its empty-room clock runs out', 'empty'],
+    ['it reaches its maximum lifetime', 'lifetime'],
+  ] as const)('cancels the recovery plan of a controller that left when the room ends because %s', async (_how, ending) => {
+    const CAPTURED_GRACE_MS = 4_321
+    const startTimer = globalThis.setTimeout
+    const planned: Array<{ delayMs: number, handle: ReturnType<typeof setTimeout> }> = []
+    const planSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: () => void, delay?: number, ...args: unknown[]) => {
+      if (delay !== CAPTURED_GRACE_MS)
+        return startTimer(handler, delay, ...args)
+      const handle = startTimer(() => {}, 0)
+      planned.push({ delayMs: delay, handle })
+      return handle
+    }) as unknown as typeof setTimeout)
+    const cancelSpy = vi.spyOn(globalThis, 'clearTimeout')
+    try {
+      const { host, code } = await startedRoom({ controllerGraceMs: CAPTURED_GRACE_MS })
+      const friend = await admitFriend(host, code)
+      host.close()
+      await until(() => planned.length === 1, 'the recovery to be planned')
+      const plan = planned[0]!.handle
+      if (ending === 'empty') {
+        friend.close()
+        await until(() => service!.inspectRoom(code)?.connectedParticipants === false, 'everyone to be gone')
+        await until(() => service!.inspectRoom(code)?.emptySinceMs === startMs, 'the empty-room clock to start')
+      }
+      expect(cancelSpy).not.toHaveBeenCalledWith(plan)
+
+      clockMs = ending === 'empty' ? startMs + EMPTY_ROOM_TTL_MS : startMs + MAX_ROOM_LIFETIME_MS
+      await until(() => service!.inspectRoom(code) === null, 'the room to end')
+      expect(cancelSpy).toHaveBeenCalledWith(plan)
+    }
+    finally {
+      planSpy.mockRestore()
+      cancelSpy.mockRestore()
+    }
   })
 })
 
@@ -1996,6 +2194,64 @@ describe('deadlines the cleanup timer enforces, seen over sockets', () => {
     expect(room.host.since(mark)).toEqual(['operation_timeout_paused', 'auto_resume_abandoned'])
   })
 
+  /** A second room on the first one's service: its own host, ready, and the room quiet. */
+  async function openSecondRoom(first: Room): Promise<Room> {
+    const host = await watch(first.url, 'participant_host_two')
+    host.socket.send(JSON.stringify({
+      type: 'create_room', protocolVersion: 1, participantId: 'participant_host_two', name: 'Dana', code: 'LOCAL000', media,
+    }))
+    const created = await host.until(message => message.type === 'room_joined', 'room_joined')
+    if (created.type !== 'room_joined')
+      throw new Error('Expected room_joined')
+    const second: Room = { url: first.url, code: created.snapshot.code, negotiated: false, host }
+    await makeReady(host)
+    await quiet(host)
+    return second
+  }
+
+  it('acts on every room whose deadline is due in one timer turn, not only the first', async () => {
+    const { room: first } = await readyRoom({ negotiated: false, friend: false, manualTicks: true })
+    const second = await openSecondRoom(first)
+    expect(second.code).not.toBe(first.code)
+    const issuedAt = clockMs
+    const firstPending = await press(first, 'seek', 90)
+    const secondPending = await press(second, 'seek', 45)
+    const firstMark = first.host.mark()
+    const secondMark = second.host.mark()
+
+    clockMs = issuedAt + SEEK_BARRIER_MAX_WAIT_MS
+    await cleanupTurn()
+    expect(first.host.since(firstMark)).toEqual(['seek_timeout_paused'])
+    expect(second.host.since(secondMark)).toEqual(['seek_timeout_paused'])
+    expect(first.host.lastSnapshot().snapshot).toMatchObject({ revision: firstPending.snapshot.revision + 1, playback: { status: 'paused', positionSeconds: 90 } })
+    expect(second.host.lastSnapshot().snapshot).toMatchObject({ revision: secondPending.snapshot.revision + 1, playback: { status: 'paused', positionSeconds: 45 } })
+  })
+
+  it('expires every empty room whose clock has run out in one timer turn, not only the first', async () => {
+    // Mirrors EMPTY_ROOM_TTL_MS in server.ts.
+    const emptyRoomTtlMs = 30 * 60 * 1000
+    const { room: first } = await readyRoom({ negotiated: false, friend: false, manualTicks: true })
+    const second = await openSecondRoom(first)
+    const emptiedAtMs = clockMs
+    first.host.socket.close()
+    second.host.socket.close()
+    for (const room of [first, second]) {
+      for (let attempt = 0; service!.inspectRoom(room.code)?.emptySinceMs !== emptiedAtMs; attempt += 1) {
+        if (attempt > 400)
+          throw new Error('Timed out waiting for the empty-room clock to start.')
+        await realWait(5)
+      }
+    }
+
+    clockMs = emptiedAtMs + emptyRoomTtlMs - 1
+    await cleanupTurn()
+    expect([first, second].map(room => service!.inspectRoom(room.code) !== null)).toEqual([true, true])
+
+    clockMs = emptiedAtMs + emptyRoomTtlMs
+    await cleanupTurn()
+    expect([first, second].map(room => service!.inspectRoom(room.code))).toEqual([null, null])
+  })
+
   it('pauses once, from the cleanup timer, for a player that said it had not started playing', async () => {
     const { room } = await readyRoom({ negotiated: false, friend: false })
     const play = await press(room, 'play', 20)
@@ -2386,6 +2642,91 @@ describe('deadlines the cleanup timer enforces, seen over sockets', () => {
     expect(statuses.participant_host).not.toBe('recovery-required')
   })
 
+  /** What every player in `players` was told since `mark`, once the room has had time to say it: pongs are not room messages. */
+  async function roomMessagesSince(players: Watched[], marks: number[]) {
+    for (const player of players)
+      await settle(player)
+    await ticks()
+    return players.map((player, index) => player.since(marks[index]!).filter(reason => reason !== 'pong'))
+  }
+
+  it.each([
+    ['says the player cannot start playback, which pauses the room', { paused: true, progressed: false, playbackStartFailed: true }, false, ['participant_playback_blocked'], 1],
+    ['changes only what the room shows for that player', { buffering: true, progressed: false }, false, ['participant_status_changed'], 0],
+    ['repeats what the room already has', { buffering: true, progressed: false }, true, [], 0],
+  ])('sends every player exactly the snapshots one player report causes when it %s, in a negotiated room', async (_what, sample, alreadyReported, expectedReasons, revisionChange) => {
+    const { room, friend } = await readyRoom({ negotiated: true, friend: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    await playNegotiated(room, [room.host, friend])
+    await quiet(room.host, friend)
+    if (alreadyReported) {
+      report(room.host, sample)
+      await quiet(room.host, friend)
+    }
+    const before = room.host.latest().revision
+    const marks = [room.host.mark(), friend.mark()]
+
+    report(room.host, sample)
+    const [hostSaw, friendSaw] = await roomMessagesSince([room.host, friend], marks)
+    expect(hostSaw).toEqual(expectedReasons)
+    expect(friendSaw).toEqual(expectedReasons)
+    expect(room.host.latest().revision).toBe(before + revisionChange)
+    expect(friend.latest().revision).toBe(before + revisionChange)
+
+    // Nothing else follows from it: not a late copy of it and not a transition of the timer's. The clock stays
+    // where it is, because a player that stops reporting is the cleanup timer's business, not this report's.
+    await ticks()
+    const [hostLater, friendLater] = await roomMessagesSince([room.host, friend], marks)
+    expect(hostLater).toEqual(expectedReasons)
+    expect(friendLater).toEqual(expectedReasons)
+  })
+
+  it('sends every player exactly one snapshot for each prepare and start acknowledgement of a negotiated Play', async () => {
+    const { room, friend } = await readyRoom({ negotiated: true, friend: true })
+    if (!friend)
+      throw new Error('Expected a friend.')
+    const operation = (await press(room, 'play', 20)).snapshot.contract?.operation
+    if (!operation)
+      throw new Error('Expected a transactional operation.')
+    const players = [room.host, friend]
+
+    // Each acknowledgement is a separate message and moves the room by its own step. Whoever sends it, both
+    // players hear about it once: the last prepare commits the Play, the last start completes it.
+    const steps: Array<[string, Watched, 'prepared' | 'started', number, string, number]> = [
+      ['the first prepare', room.host, 'prepared', 1, 'operation_participant_prepared', 0],
+      ['the last prepare', friend, 'prepared', 1, 'operation_committed', 1],
+      ['the first start', room.host, 'started', 2, 'operation_participant_started', 1],
+      ['the last start', friend, 'started', 2, 'operation_started', 1],
+    ]
+    for (const [step, sender, phase, sampleSequence, reason, revisionChange] of steps) {
+      if (phase === 'started') {
+        const effectiveAtMs = room.host.latest().contract?.operation?.effectiveAtServerMs
+        if (effectiveAtMs === null || effectiveAtMs === undefined)
+          throw new Error('Expected a committed operation with a start time.')
+        clockMs = effectiveAtMs
+      }
+      const before = room.host.latest().revision
+      const marks = players.map(player => player.mark())
+
+      acknowledge(sender, operation, phase, sampleSequence)
+      const seen = await roomMessagesSince(players, marks)
+      expect(seen, step).toEqual([[reason], [reason]])
+      expect(room.host.latest().revision, step).toBe(before + revisionChange)
+      expect(friend.latest().revision, step).toBe(before + revisionChange)
+    }
+    expect(room.host.latest().contract?.operation).toMatchObject({ operationId: operation.operationId, phase: 'started' })
+
+    // A repeated start acknowledgement is answered once, to both players, without moving the room.
+    const repeatedAt = room.host.latest().revision
+    const marks = players.map(player => player.mark())
+    acknowledge(room.host, operation, 'started', 3)
+    const seen = await roomMessagesSince(players, marks)
+    expect(seen).toEqual([['operation_start_duplicate'], ['operation_start_duplicate']])
+    expect(room.host.latest().revision).toBe(repeatedAt)
+  })
+
+  /** A healthy two-player room in which the controller passes control on; returns the snapshot that announces it. */
   async function healthyPairAfterControlTransfer(negotiated: boolean) {
     const { room, friend } = await readyRoom({ negotiated, friend: true })
     if (!friend)
@@ -2395,6 +2736,8 @@ describe('deadlines the cleanup timer enforces, seen over sockets', () => {
       : await press(room, 'play', 20)
     const players = [room.host, friend]
     await reportHealthyUntil(players, clockMs + 3_000)
+    // The room is playing, with both players reporting, before control moves: the state the question is asked in.
+    expect(room.host.latest().playback.status).toBe('playing')
     const mark = room.host.mark()
 
     room.host.socket.send(JSON.stringify({ type: 'transfer_control', participantId: 'participant_friend', leaseEpoch: 1 }))
@@ -2403,12 +2746,38 @@ describe('deadlines the cleanup timer enforces, seen over sockets', () => {
 
     expect(room.host.since(mark).filter(reason => reason !== 'participant_status_changed')).toEqual(['control_transferred'])
     expect(room.host.lastSnapshot().snapshot.controller.participantId).toBe('participant_friend')
-    expect(room.host.lastSnapshot().snapshot.playback.status).toBe('playing')
     expect(room.host.lastSnapshot().snapshot.revision).toBe(playing.snapshot.revision + 1)
+    return room.host.lastSnapshot()
   }
 
   it('keeps a healthy two-player legacy room playing after control passes to the other player', async () => {
-    await healthyPairAfterControlTransfer(false)
+    const transferred = await healthyPairAfterControlTransfer(false)
+    expect(transferred.snapshot.playback.status).toBe('playing')
+  })
+
+  it('announces a control transfer in a negotiated room once, with the other player as the controller', async () => {
+    await healthyPairAfterControlTransfer(true)
+  })
+
+  // Not fixed here, and the owner has not decided whether it is a defect (it was raised as an open question on PR
+  // #168): passing control on while a negotiated Play has already started pauses a room whose players are all
+  // reporting progress, because transferControl pauses for any live operation, the started phase included. The
+  // legacy room above keeps playing. This test states what a healthy room should do; `it.fails` makes it pass
+  // while the room pauses and fail as soon as that changes, which is the moment to turn it into a plain `it`.
+  //
+  // `it.fails` counts any throw as the expected failure, a broken setup included. So the setup (and the checks of
+  // the state it must reach, which `announces a control transfer ...` above also makes as a plain test) runs inside
+  // a guard that returns without throwing when it fails: nothing is then left to fail, and `it.fails` reports
+  // "Expect test to fail". The one assertion after the guard is the only thing that can make this test pass.
+  it.fails('keeps a healthy two-player negotiated room playing after control passes to the other player', async () => {
+    let status: string
+    try {
+      status = (await healthyPairAfterControlTransfer(true)).snapshot.playback.status
+    }
+    catch {
+      return
+    }
+    expect(status).toBe('playing')
   })
 })
 
